@@ -1,0 +1,4472 @@
+{
+  "meta": {
+    "description": "Ground-truth QA eval set over diary_year_fa.json (synthetic one-year Farsi diary chat). Each question is something the diarist would realistically ask his diary assistant, with a reference answer, atomic key facts, and verified evidence pointers (session_id + message_indices + verbatim quote). Generated 2026-07-29; all content fictional. Extended 2026-07-30 with habit questions (type \"habit\") over the corpus's habits block.",
+    "corpus": "diary_year_fa.json",
+    "query_date": "2026-07-28",
+    "types": {
+      "single-hop": "answerable from one session",
+      "temporal": "requires resolving a time expression, a date answer, ordering, or duration; time_scope holds the resolved gold window when the question references one",
+      "multi-hop": "requires combining 2+ sessions, often across months",
+      "aggregation": "counting/summarizing over many sessions; evidence lists the constituent sessions",
+      "knowledge-update": "the fact changed during the year; correct answer is the LATEST state; evidence includes a stale-state and a latest-state session",
+      "commitment": "a promise/deadline/plan and its outcome; evidence covers promise and outcome",
+      "entity": "storyline of a person/place/thing",
+      "pattern": "trends/recurrences across the year",
+      "abstention": "NOT answerable from the corpus (verified absent); correct behavior is to say the diary does not contain it; answerable=false, evidence=[]",
+      "adversarial": "false-premise question; correct behavior is to correct the premise; answerable=false, evidence contradicts the premise",
+      "habit": "a habit the diarist repeats rather than finishes: the answer is a cadence, a tally against a target, a streak or an adherence trend, and the evidence is the check-in sessions that state the numbers"
+    },
+    "evaluation": {
+      "retrieval": "recall@k / precision@k of retrieved sessions against evidence[].session_id (answerable questions only)",
+      "answer": "LLM-judge or string checks: response must contain every item in key_facts; for knowledge-update, citing only the superseded state is a FAIL",
+      "abstention": "for answerable=false: response must decline or correct the premise; any fabricated answer is a FAIL"
+    }
+  },
+  "questions": [
+    {
+      "id": "q-sh-001",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "جریمه مالیاته که قسط‌بندی شد، چند تا قسط شد؟",
+      "question_en": "The tax fine that got split into installments — how many installments was it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "شیش قسط شد. مشاور مالیاتی ۱۱ ژانویه ۲۰۲۶ زنگ زد و خبر داد قسط‌بندی اوکی شده و از اول ماه بعد شروع می‌شود.",
+      "key_facts": [
+        "The tax fine was split into six installments",
+        "Installments started at the beginning of the following month (February 2026)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-11-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قسط‌بندی جریمه اوکی شد! شیش قسط، از اول ماه دیگه شروع میشه"
+        }
+      ],
+      "threads": [
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-sh-002",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اون دفعه که تو راه‌پله با همسایه بالایی حرفم شد، اون بهم چی گفت که اینقدر عصبانی شدم؟",
+      "question_en": "That time I confronted the upstairs neighbor in the stairway — what did he say to me that made me so angry?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "وقتی محترمانه گفتی شب‌ها صدا زیاد میاد، همسایه برگشت گفت «خونه خودمه هر کاری بخوام میکنم» و بعدش دعوا بالا گرفت (۱۸ اکتبر ۲۰۲۵).",
+      "key_facts": [
+        "The neighbor replied 'it's my house, I do whatever I want'",
+        "The confrontation happened in the stairway in October 2025 and escalated into shouting"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یهو برگشت گفت خونه خودمه هر کاری بخوام میکنم"
+        }
+      ],
+      "threads": [
+        "neighbor-noise"
+      ]
+    },
+    {
+      "id": "q-sh-003",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "روزی که مامان رو بستری کردن، دکتر گفت مشکلش دقیقا چیه؟",
+      "question_en": "The day my mother was hospitalized, what exactly did the doctor say the problem was?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "دکتر تا نوار قلب رو دید گفت باید همون لحظه بستری بشه چون یکی از رگ‌هاش گرفتگی جدی داره و فرداش آنژیوگرافی می‌کنن (۲۰ نوامبر ۲۰۲۵).",
+      "key_facts": [
+        "One of her arteries had a serious blockage",
+        "She was hospitalized immediately and angiography was scheduled for the next day",
+        "This happened on 2025-11-20"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یکی از رگاش گرفتگی جدی داره، فردا آنژیوگرافی میکنن"
+        }
+      ],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-sh-004",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "تو اون دعوای بزرگمون سر نامه جریمه، پریا یه جمله‌ای گفت که مدت‌ها تو سرم موند. چی بود؟",
+      "question_en": "In that big fight over the fine letter, Paria said one sentence that stuck in my head for a long time. What was it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "پریا گفت «با رویاهات نمیشه زندگی کرد». این تو دعوای شب ۱۰ نوامبر ۲۰۲۵ بود، بعد از اینکه نامه جریمه مالیات رو روی میز دیده بود.",
+      "key_facts": [
+        "Paria said 'you can't live on your dreams'",
+        "It was during the big fight on 2025-11-10 after she found the tax fine letter"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-10-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "گفت با رویاهات نمیشه زندگی کرد. همش داره تو سرم تکرار میشه"
+        }
+      ],
+      "threads": [
+        "paria-fights",
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-sh-005",
+      "type": "single-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "یادمه یه بار گفته بودم آشتی‌های من و پریا همیشه یه جور خاصی شروع میشه. چجوری بود؟",
+      "question_en": "I remember once saying that Paria and I always make up in one particular way. What was it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "با چایی. همیشه آشتی‌هاتون با این شروع می‌شد که یکی‌تون بی‌حرف برای اون یکی چایی می‌ریخت. اینو بعد از دعوای نوامبر ۲۰۲۵ گفتی، وقتی تصمیم گرفتی یه چایی جلوش بذاری.",
+      "key_facts": [
+        "Their makeups always started with one of them silently pouring tea for the other",
+        "He mentioned this on 2025-11-12 while planning to break the silence after the big fight"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-12-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "همیشه آشتیامون با این شروع میشد که یکیمون واسه اون یکی چایی میریخت بی اینکه چیزی بگه"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-sh-006",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اون کوینی که سیاوش اونقد تعریفشو میکرد، آخرش چی شد؟ خوب شد نخریدم؟",
+      "question_en": "That coin Siavash kept raving about — what happened to it in the end? Was I right not to buy?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "آره، دو روز بعد از اون شام چک کردی و همون کوینی که سیاوش می‌گفت از پنجشنبه پونزده درصد ریخته بود (۷ دسامبر ۲۰۲۵). همون‌جا تصمیم گرفتی نه بگی و پس‌انداز رو سر جاش نگه داری.",
+      "key_facts": [
+        "The coin Siavash recommended dropped fifteen percent within days (by 2025-12-07)",
+        "Mohammad decided not to invest and kept his savings intact"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همون کوینی که سیاوش میگفت از پنجشنبه پونزده درصد ریخته"
+        }
+      ],
+      "threads": [
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-sh-007",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "اون موقع که ماشین وسط اتوبان خراب شد، مکانیک گفت مشکلش چی بود؟",
+      "question_en": "When the car broke down in the middle of the highway, what did the mechanic say the problem was?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "گیربکس بود. مکانیک اول گفت احتمالا خرجش سنگینه (۱۰ فوریه ۲۰۲۶) و دو روز بعد زنگ زد که گیربکس باید کامل تعمیر بشه و هزینه‌ش تقریبا یه چهارم قیمت خود ماشینه.",
+      "key_facts": [
+        "The gearbox was the problem",
+        "The repair cost was roughly a quarter of the car's total value",
+        "It happened in February 2026"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-02-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مکانیکه یه نگاه کرد گفت گیربکسه"
+        },
+        {
+          "session_id": "2026-02-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "گیربکس باید کامل تعمیر بشه، رقمش سنگینه"
+        }
+      ],
+      "threads": [
+        "car-trouble"
+      ]
+    },
+    {
+      "id": "q-sh-008",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "تو ایمیل ریجکت اون فاینال راند چی نوشته بودن؟ دلیلشون چی بود؟",
+      "question_en": "What did they write in the final-round rejection email? What was their reason?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "نوشته بودن we were impressed ولی رفتن سراغ کاندیدای دیگه‌ای که experience بیشتری داشته. ایمیلش ساعت شیش عصر ۱۰ مارس ۲۰۲۶ اومد.",
+      "key_facts": [
+        "They went with another candidate who had more experience",
+        "The email still said 'we were impressed'",
+        "The rejection arrived on 2026-03-10"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-03-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "we were impressed ولی went with another candidate که experience بیشتری داشته"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-sh-009",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "جلسه اول مشاوره زوج، مشاوره یه سوالی پرسید که کلی ذهنمو درگیر کرد. سوالش چی بود؟",
+      "question_en": "In our first couples-counseling session, the counselor asked a question that really stuck with me. What was it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "پرسید «وقتی سر ظرفا دعوا میکنید، دعوای واقعی سر چیه؟» و همون‌جا پریا گفت حس می‌کنه تو اداره کردن زندگی تنهاست (جلسه اول، ۱۵ آوریل ۲۰۲۶).",
+      "key_facts": [
+        "The counselor asked: when you fight over the dishes, what is the real fight about?",
+        "Paria answered she feels alone in managing their life",
+        "It was the first counseling session, 2026-04-15"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-15-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "گفت «وقتی سر ظرفا دعوا میکنید، دعوای واقعی سر چیه؟»"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-sh-010",
+      "type": "single-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اسم اون همکاره که روز اول کار جدید بادی من شد چی بود؟",
+      "question_en": "What was the name of the colleague who was assigned as my buddy on my first day at the new job?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "يوهان. روز اول کار (۲۵ می ۲۰۲۶) گفتی یه همکار به اسم يوهان بادی‌ت شده و خیلی صبور بوده.",
+      "key_facts": [
+        "The buddy's name was Johann (يوهان)",
+        "He was described as very patient",
+        "This was on the first day at the new job, 2026-05-25"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-25-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "یه همکاره هم هست به اسم يوهان که بادی منه، خیلی صبور بود"
+        }
+      ],
+      "threads": [
+        "work-stress",
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-sh-011",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "جلسه اول کلاس آواز که صدام وسط آهنگ شکست، معلمه چی گفت؟",
+      "question_en": "At my first singing class when my voice cracked mid-song, what did the teacher say?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "معلم گفت این بهترین اتفاقه، چون یعنی داری از محدوده امنت میزنی بیرون. جلسه اول ۸ می ۲۰۲۶ بود و صدات روی نت بالای یه آهنگ قدیمی شکست.",
+      "key_facts": [
+        "The teacher said the voice crack was the best thing because it means leaving your comfort zone",
+        "It happened at the first singing class on 2026-05-08"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "معلمه گفت این بهترین اتفاقه چون یعنی داری از محدوده امنت میزنی بیرون"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-sh-012",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "اجرای کلاس آواز قراره کی و کجا برگزار شه؟",
+      "question_en": "When and where is the singing class recital going to be held?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اواخر مهر، تو یه سالن کوچیک، و هر شاگرد یه قطعه اجرا می‌کنه. استاد ۲۱ ژوئن ۲۰۲۶ تاریخش رو قطعی کرد و اسم تو رو هم بدون پرسیدن نوشت تو لیست.",
+      "key_facts": [
+        "The recital is set for late Mehr (autumn 2026)",
+        "It will be in a small hall, each student performing one piece",
+        "The teacher added Mohammad to the list without asking"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-21-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "استاد امروز تاریخ اجرا رو گفت، اواخر مهر، یه سالن کوچیک، هر شاگرد یه قطعه"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-sh-013",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "سفر شمال رو با کیا رفتیم و چه تاریخی بود؟",
+      "question_en": "Who did we go on the Shomal trip with, and what were the dates?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "با خانواده کیان و خانواده سارا، سه خانواده شریکی یه ویلا نزدیک جنگل گرفتین، از بیست و سوم تا بیست و ششم تیر. برنامه‌ش رو ۱۲ ژوئیه ۲۰۲۶ با پریا بستی.",
+      "key_facts": [
+        "The trip was shared with Kian's and Sara's families (three families splitting a villa near the forest)",
+        "The dates were 23rd to 26th of Tir"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-07-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "با کیان اینا و سارا اینا یه ویلا نزدیک جنگل پیدا کردیم، سه خانواده شریکی، نفری یه پول خیلی معقول درمیاد. بیست و سوم تا بیست و ششم تیر."
+        }
+      ],
+      "threads": [
+        "travel-dream"
+      ]
+    },
+    {
+      "id": "q-sh-014",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اون پروژه فریلنس دیتا پایپ‌لاین رو کی برام جور کرد و چه هشداری راجب کلاینته داد؟",
+      "question_en": "Who set me up with that freelance data-pipeline gig, and what warning did he give me about the client?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "امیر، همکار قدیمیت، ۸ آوریل ۲۰۲۶ زنگ زد و معرفی‌ت کرد. هشدارش هم این بود که کلاینته هی وسط کار چیز جدید یادش میاد، پس از اول همه چی رو کتبی کن.",
+      "key_facts": [
+        "Amir, an old colleague, referred him to the freelance data-pipeline project",
+        "Amir warned that the client keeps adding new requests mid-project",
+        "Amir advised getting everything in writing from the start"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امیر زنگ زد، همکار قدیمیم، همونی که سه سال پیش باهم بودیم"
+        },
+        {
+          "session_id": "2026-04-08-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "گفت حواست باشه از اول همه چیو کتبی کن"
+        }
+      ],
+      "threads": [
+        "work-stress",
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-sh-015",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "موضوع اون مقاله‌ای که با هایکو شروع کردیم دقیقا چی بود؟",
+      "question_en": "What exactly was the topic of the paper I started with Heiko?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعی بود. مقاله دوم ۷ ژانویه ۲۰۲۶ با جواب ایمیل هایکو رسما استارت خورد.",
+      "key_facts": [
+        "The paper with Heiko was about evaluating LLM agents on real-world tasks",
+        "It officially started in early January 2026"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعیه"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-sh-016",
+      "type": "single-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اولین باری که رفتم پیش مشاور مالیاتی، چیا ازم خواست ببرم؟ چند قلم مدرک بود؟",
+      "question_en": "The first time I went to the tax consultant, what did he ask me to bring? How many documents was it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "یه لیست حدودا هشت نه قلمی داد: صورتحساب‌های دو سال، قراردادهای فریلنس، رسیدها و مدارک دیگه. گفت هر چی زودتر ببری بهتره چون دیر بشه جریمه می‌خوره (۱۵ سپتامبر ۲۰۲۵).",
+      "key_facts": [
+        "The consultant gave a list of about eight or nine documents",
+        "It included two years of bank statements and old freelance contracts",
+        "He warned that delays could lead to a fine (visit on 2025-09-15)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-09-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یه لیست داد دستم که باید اینا رو جمع کنی بیاری — صورتحساب‌های دو سال، قراردادای فریلنس"
+        },
+        {
+          "session_id": "2025-09-15-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "فک کنم هشت نه تا"
+        }
+      ],
+      "threads": [
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-sh-017",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اون شب عید دیدنی خونه خاله که همه پیله کرده بودن به کارم، بابا دم در بهم چی گفت؟",
+      "question_en": "That Eid-visit night at my aunt's when everyone was nagging me about my job, what did my dad tell me at the door?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "آخر شب دم در آروم گفت «به حرف اینا گوش نده، تو داری کار درستو میکنی». گفتی هیچ‌وقت اینجوری باهات حرف نزده بود و همون یه جمله کل شب رو عوض کرد (۲۲ مارس ۲۰۲۶).",
+      "key_facts": [
+        "His father quietly said: don't listen to them, you're doing the right thing",
+        "It was said at the door while leaving the aunt's Eid gathering (2026-03-22)",
+        "That single sentence turned the whole evening around for him"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-03-22-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "بابا اتفاقا آخر شب که داشتیم میومدیم دم در آروم بهم گفت «به حرف اینا گوش نده، تو داری کار درستو میکنی»"
+        }
+      ],
+      "threads": [
+        "family-gatherings",
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-sh-018",
+      "type": "single-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون اولین باری که با پریا نشستیم کارای خونه رو رو کاغذ تقسیم کردیم، چی افتاد گردن من؟",
+      "question_en": "That first time Paria and I sat down and split the housework on paper, which chore ended up being mine?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "آشپزی وسط هفته با تو شد. بعد از دعوای مرداد ۱۴۰۴ (۱۷ اوت ۲۰۲۵) نشستین یه لیست کارای خونه نوشتین و هفتگی تقسیم کردین.",
+      "key_facts": [
+        "Midweek cooking was assigned to Mohammad",
+        "They wrote a weekly chores list together after the August 2025 fight (2025-08-17)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-17-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آخرش نشستیم یه لیست کارای خونه نوشتیم، هفتگی تقسیم کردیم. آشپزی وسط هفته با من شد."
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-sh-019",
+      "type": "single-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "قضیه همسایه پرسروصدای طبقه بالا آخرش چجوری تموم شد؟",
+      "question_en": "How did the whole noisy upstairs neighbor saga finally end?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "خودشون اسباب‌کشی کردن و رفتن! صبح ۲۰ آوریل ۲۰۲۶ کامیون اومد و از پنجره دیدی که مبل‌ها و همون صندلی معروف رفت تو کامیون، بعد از حدود شیش ماه سروصدا.",
+      "key_facts": [
+        "The upstairs neighbor moved out on 2026-04-20",
+        "Mohammad watched the moving truck take the furniture, including the infamous chair, after about six months of noise"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همسایه طبقه بالا... رفت! اسباب کشی کردن!"
+        }
+      ],
+      "threads": [
+        "neighbor-noise"
+      ]
+    },
+    {
+      "id": "q-sh-020",
+      "type": "single-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اون اولین اینترویویی که پاییز پارسال دادم، کدوم سوالش رو خراب کردم؟",
+      "question_en": "In that first interview I did last autumn, which question did I botch?",
+      "time_scope": {
+        "from": "2025-09-22",
+        "to": "2025-12-21"
+      },
+      "answerable": true,
+      "answer_fa": "یه سوال راجب کوبرنتیز بود که یه چرت و پرتی گفتی و خودت هم فهمیدی طرف قانع نشد. بقیه‌ش خوب بود، مخصوصا سوال پروژه RAG (اینترویو ۶ نوامبر ۲۰۲۵).",
+      "key_facts": [
+        "He botched a question about Kubernetes",
+        "The RAG project question went well in the same interview",
+        "The interview was on 2025-11-06"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "فقط یه سوال راجب کوبرنتیز بود که یه چرت و پرتی گفتم و خودمم فهمیدم طرف قانع نشد"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-tm-001",
+      "type": "temporal",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "کی بود که ماشین خراب شد؟",
+      "question_en": "When was it that the car broke down?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۱۰ فوریه ۲۰۲۶ وسط اتوبان گیربکس ماشین خراب شد و با جرثقیل بردمش تعمیرگاه. تعمیرش هم کش اومد و ۲۶ فوریه بالاخره ماشین رو درست‌شده تحویل گرفتم.",
+      "key_facts": [
+        "The car broke down on 2026-02-10: the gearbox failed in the middle of the highway",
+        "It was towed to a repair shop",
+        "The repaired car was picked up on 2026-02-26 from the cheaper second mechanic"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-02-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "وسط اتوبان ماشین یهو یه صدای وحشتناک داد و دیگه دنده عوض نشد"
+        },
+        {
+          "session_id": "2026-02-26-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "صبح ماشینو تحویل گرفتم، بلاخره درست شد"
+        }
+      ],
+      "threads": [
+        "car-trouble"
+      ]
+    },
+    {
+      "id": "q-tm-002",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "پارسال پاییز راجب مامان چی می‌گفتم؟",
+      "question_en": "What was I saying about my mom last fall?",
+      "time_scope": {
+        "from": "2025-09-23",
+        "to": "2025-12-21"
+      },
+      "answerable": true,
+      "answer_fa": "پاییز ۲۰۲۵ اولش (اکتبر) منتظر جواب آزمایش‌ها و اکوی قلب مامان بودیم و هی عقب می‌افتاد؛ بعد ۲۰ نوامبر بستری شد چون یکی از رگ‌های قلبش گرفتگی جدی داشت، و ۲۲ نوامبر آنژیو موفق بود و استنت گذاشتن. کلی هم عذاب وجدان داشتم که دیر پیگیری کردیم و کم بهش سر می‌زدم.",
+      "key_facts": [
+        "Through October 2025 he was anxiously waiting for his mother's test results and a heart echo that kept getting delayed",
+        "On 2025-11-20 his mother was hospitalized with a serious blockage in a heart artery",
+        "On 2025-11-22 the angiography went well and a stent was placed; the doctor said they came in time",
+        "He felt guilt about not visiting and not following up sooner"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آزمایشای جدیدو داده ولی جوابش هنوز نیومده، دکتره گفته یه اکو قلب هم بگیره"
+        },
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یکی از رگاش گرفتگی جدی داره، فردا آنژیوگرافی میکنن"
+        },
+        {
+          "session_id": "2025-11-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آنژیو خوب پیش رفت، یه استنت گذاشتن و دکتر گفت به موقع اومدین"
+        }
+      ],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-tm-003",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اول جریمه مالیات اومد یا مامان بستری شد؟",
+      "question_en": "Which came first, the tax fine or my mom being hospitalized?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اول جریمه مالیات اومد: نامه جریمه ۸ نوامبر ۲۰۲۵ رسید و مامان دوازده روز بعدش، ۲۰ نوامبر ۲۰۲۵، بستری شد.",
+      "key_facts": [
+        "The tax fine letter arrived on 2025-11-08",
+        "His mother was hospitalized on 2025-11-20",
+        "The fine came first, about 12 days before the hospitalization"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "صبحم با نامه اداره مالیات شروع شد. جریمه."
+        },
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "الان از بیمارستان میام. مامان رو بستری کردن."
+        }
+      ],
+      "threads": [
+        "tax-problem",
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-tm-004",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "چند وقت طول کشید از نامه مالیات تا بسته شدن پرونده؟",
+      "question_en": "How long did it take from the tax letter until the case was closed?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "حدود ده ماه و نیم: نامه اداره مالیات ۲۷ اوت ۲۰۲۵ اومد و تاییدیه تسویه کامل ۸ ژوئیه ۲۰۲۶ رسید. خودم اون روز گفتم «یه سال تمام» طول کشید.",
+      "key_facts": [
+        "The first tax office letter arrived on 2025-08-27",
+        "The official full-settlement confirmation arrived on 2026-07-08",
+        "The whole affair took roughly ten and a half months (he described it as a full year)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز یه نامه اومده از اداره مالیات"
+        },
+        {
+          "session_id": "2026-07-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز نامه اومد از اداره مالیات. تسویه‌ی کامل."
+        }
+      ],
+      "threads": [
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-tm-005",
+      "type": "temporal",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "کی قرارداد کار جدید رو امضا کردم؟",
+      "question_en": "When did I sign the new job contract?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۱۲ می ۲۰۲۶ قرارداد پارت‌تایم ML engineer رو امضا کردم و فرستادم؛ شروع کار هم ۲۵ می بود.",
+      "key_facts": [
+        "He signed and sent the part-time ML engineer contract on 2026-05-12",
+        "The job start date was 2026-05-25"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قرارداد رو ساین کردم و فرستادم. من از بیست و پنجم می شروع میکنم"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-tm-006",
+      "type": "temporal",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "زمستون گذشته وضعیت جاب سرچم چطوری بود؟",
+      "question_en": "How was my job search going last winter?",
+      "time_scope": {
+        "from": "2025-12-21",
+        "to": "2026-03-19"
+      },
+      "answerable": true,
+      "answer_fa": "دسامبر عملا هیچی نفرستادم و فقط سکوت بود؛ ۴ ژانویه ۲۰۲۶ با اسپردشیت و هدف هفته‌ای ۵ اپلای دوباره راه افتادم، ۷ فوریه به فاینال راند دعوت شدم، ولی ۱۰ مارس درست قبل عید ریجکت مرحله آخر اومد که بدترین ضربه سال بود.",
+      "key_facts": [
+        "In December 2025 he effectively sent no applications and only heard silence",
+        "On 2026-01-04 he restarted with a spreadsheet system and a target of 5 applications per week",
+        "On 2026-02-07 he was invited to a final round scheduled for early March",
+        "On 2026-03-10 he was rejected at the final round, the low point of the year right before Nowruz"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-04-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "هدفم هفته‌ای ۵ تا اپلای. دسامبر عملا هیچی نفرستادم و فقط غر زدم"
+        },
+        {
+          "session_id": "2026-02-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دعوت شدم فاینال راند! اوایل مارسه"
+        },
+        {
+          "session_id": "2026-03-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تا مرحله آخر رفتم و بازم نه"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-tm-007",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اول مقاله هایکو سابمیت شد یا پروژه شرکت شیپ شد؟",
+      "question_en": "Which happened first, submitting the paper with Heiko or shipping the work project?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اول مقاله: مقاله دوم با هایکو ۱۸ ژوئن ۲۰۲۶ سابمیت شد و پروژه شرکت حدود یک ماه بعد، ۱۵ ژوئیه ۲۰۲۶، رفت روی پروداکشن.",
+      "key_facts": [
+        "Article 2 with Heiko was submitted on 2026-06-18 at 8pm",
+        "The work project shipped to production on 2026-07-15",
+        "The paper submission came first, about four weeks earlier"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب ساعت هشت دکمه سابمیت رو زدیم"
+        },
+        {
+          "session_id": "2026-07-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "شیپ شد! پروژه امروز رفت رو پروداکشن و هیچی نترکید"
+        }
+      ],
+      "threads": [
+        "articles-research",
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-tm-008",
+      "type": "temporal",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "کی همسایه طبقه بالا اسباب‌کشی کرد و رفت؟",
+      "question_en": "When did the upstairs neighbor move out?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۲۰ آوریل ۲۰۲۶ همسایه طبقه بالا اسباب‌کشی کرد و رفت؛ بعد از حدود شش ماه سروصدا بالاخره خونه ساکت شد.",
+      "key_facts": [
+        "The noisy upstairs neighbor moved out on 2026-04-20",
+        "This ended roughly six months of noise problems that had started in fall 2025"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همسایه طبقه بالا... رفت! اسباب کشی کردن!"
+        }
+      ],
+      "threads": [
+        "neighbor-noise"
+      ]
+    },
+    {
+      "id": "q-tm-009",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "از اولین اپلای تا گرفتن آفر چقدر طول کشید؟",
+      "question_en": "How long did it take from my first job applications until I got an offer?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "حدود نه ماه: اولین اپلای‌ها رو ۸ اوت ۲۰۲۵ فرستادم و آفر پارت‌تایم ML engineer ۶ می ۲۰۲۶ اومد. خودم همون شب گفتم «بعد نه ماه اپلای و ریجکت بلاخره یکی گفت آره».",
+      "key_facts": [
+        "He sent his first two applications on 2025-08-08",
+        "The part-time ML engineer offer arrived on 2026-05-06",
+        "The gap was about nine months, which he himself noted"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دو تا اپلای رو فرستادم!"
+        },
+        {
+          "session_id": "2026-05-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بعد نه ماه اپلای و ریجکت بلاخره یکی گفت آره"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-tm-010",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "ماه پیش تو کار چه خبر بود؟",
+      "question_en": "What was going on at work last month?",
+      "time_scope": {
+        "from": "2026-06-01",
+        "to": "2026-06-30"
+      },
+      "answerable": true,
+      "answer_fa": "ژوئن ۲۰۲۶ ماه فشار کار جدید بود: آقای رضایی میکرومنیج می‌کرد و ۳ ژوئن جلوی جمع گزارش روزانه خواست، ۵ ژوئن برای پروژه اول ددلاین غیرواقعی سه‌هفته‌ای اعلام شد، و آخرش دموی جمعه (۲۶ ژوئن) خوب پیش رفت و رضایی اولین بار ازم تعریف کرد.",
+      "key_facts": [
+        "In June 2026 his boss Mr. Rezaei micromanaged him and on 2026-06-03 demanded daily reports in front of others",
+        "On 2026-06-05 an unrealistic three-week deadline was announced for his first project",
+        "The end-of-June Friday demo went well and Rezaei gave his first positive feedback"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-03-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یه بارم تو جلسه جلوی بقیه گفت گزارش روزانه بفرستم آخر هر روز"
+        },
+        {
+          "session_id": "2026-06-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز ددلاین پروژه اول رو اعلام کردن. سه هفته."
+        },
+        {
+          "session_id": "2026-06-28-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دموی جمعه خوب پیش رفت!"
+        }
+      ],
+      "threads": [
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-tm-011",
+      "type": "temporal",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "کی رفتیم سفر شمال؟",
+      "question_en": "When did we go on the trip to the north?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "همین هفته پیش: برنامه‌ش رو ۱۲ ژوئیه ۲۰۲۶ با پریا بستیم (ویلای شریکی با کیان اینا و سارا اینا)، صبح ۲۳ ژوئیه راه افتادیم و ۲۷ ژوئیه که برگشته بودیم گفتم قشنگ‌ترین روزای امسال بود.",
+      "key_facts": [
+        "The shomal trip plan was finalized with Paria on 2026-07-12 as a shared villa with two other families",
+        "They departed early on the morning of 2026-07-23 (announced the night before)",
+        "They were back by 2026-07-27 and he called it the most beautiful days of the year"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-07-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب با پریا نشستیم و برنامه شمال رو بستیم"
+        },
+        {
+          "session_id": "2026-07-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "فردا صبح زود راه میفتیم!"
+        },
+        {
+          "session_id": "2026-07-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "برگشتیم. و بذار همین اول بگم: قشنگ‌ترین روزای امسال بود."
+        }
+      ],
+      "threads": [
+        "travel-dream"
+      ]
+    },
+    {
+      "id": "q-tm-012",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اول سرمایه‌گذاری اتوماتیک رو راه انداختم یا تصمیم گرفتیم اجاره بمونیم؟",
+      "question_en": "Which came first, setting up the automatic investing or deciding to keep renting?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اول سرمایه‌گذاری: انتقال اتوماتیک ماهانه به صندوق شاخصی رو ۱۵ می ۲۰۲۶ راه انداختم و تصمیم «اجاره بمونیم و پس‌انداز کنیم» رو حدود یک ماه بعد، ۱۰ ژوئن ۲۰۲۶، با پریا گرفتیم.",
+      "key_facts": [
+        "He set up the automatic monthly transfer to an index fund on 2026-05-15",
+        "The decision to keep renting and save (the five-year project) was made with Paria on 2026-06-10",
+        "The investing automation came first, about a month earlier, and he referenced it when they built the savings spreadsheet"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "انتقال اتوماتیک ماهانه به صندوق شاخصی رو راه انداختم"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اجاره میمونیم و جدی پس‌انداز میکنیم"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "جدا از اون برنامه سرمایه‌گذاری ماهانه که از ماه پیش اتومات کردم"
+        }
+      ],
+      "threads": [
+        "money-investing",
+        "apartment"
+      ]
+    },
+    {
+      "id": "q-tm-013",
+      "type": "temporal",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "بهار امسال با پریا برای رابطه‌مون چیکار کردیم؟",
+      "question_en": "What did Paria and I do for our relationship this spring?",
+      "time_scope": {
+        "from": "2026-03-21",
+        "to": "2026-06-21"
+      },
+      "answerable": true,
+      "answer_fa": "بهار ۲۰۲۶ رفتیم مشاور زوج: جلسه اول ۱۵ آوریل، جلسه دوم ۲۹ آوریل که تمرین هفتگی بیست دقیقه حرف زدن بدون موبایل رو داد، و جلسه سوم ۱۷ می که بالاخره راجب مشکلمون تو رابطه حرف زدیم.",
+      "key_facts": [
+        "They started couples counseling in spring 2026: first session on 2026-04-15",
+        "Second session on 2026-04-29 introduced a weekly 20-minute phone-free talk exercise",
+        "Third session on 2026-05-17 finally addressed their intimacy problem"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "خب رفتیم. جلسه اول مشاور."
+        },
+        {
+          "session_id": "2026-04-29-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "هفته‌ای یه بار بیست دقیقه بشینیم حرف بزنیم، بدون موبایل"
+        },
+        {
+          "session_id": "2026-05-17-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز جلسه سوم مشاوره بود با پریا"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-tm-014",
+      "type": "temporal",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون موقع که ماشین خراب شد، همزمان درگیر چیای دیگه‌ای بودم؟",
+      "question_en": "When the car broke down, what else was I dealing with at the same time?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "خرابی ماشین ۱۰ فوریه ۲۰۲۶ درست وسط آماده شدن برای فاینال راند بود (سه روز قبلش، ۷ فوریه، دعوتش اومده بود برای اوایل مارس) و همون شب تمرین اینترویوم پرید؛ همزمان قسط‌های جریمه مالیات رو هم داشتم می‌دادم.",
+      "key_facts": [
+        "The car broke down on 2026-02-10, three days after the final-round invitation of 2026-02-07 (final round set for early March)",
+        "That night his interview practice was cancelled because of the breakdown",
+        "He was simultaneously paying the monthly tax fine installments"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-02-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دعوت شدم فاینال راند! اوایل مارسه"
+        },
+        {
+          "session_id": "2026-02-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "الان که تازه قسط مالیات هم دارم میدم"
+        },
+        {
+          "session_id": "2026-02-10-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "فقط این وسط تمرین اینترویومم امشب پرید کلا"
+        }
+      ],
+      "threads": [
+        "car-trouble",
+        "job-search",
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-tm-015",
+      "type": "temporal",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "ماجرای مالیات از اول تا آخر چه مراحلی داشت و هر کدوم کی بود؟",
+      "question_en": "What were the stages of the tax saga from start to finish, and when did each happen?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "نامه اداره مالیات ۲۷ اوت ۲۰۲۵ اومد؛ ۱۵ سپتامبر رفتم پیش مشاور مالیاتی؛ چون مدارک رو دیر فرستادم ۸ نوامبر جریمه اومد؛ ۱۱ ژانویه ۲۰۲۶ قسط‌بندی شش‌قسطی اوکی شد؛ و ۸ ژوئیه ۲۰۲۶ نامه تسویه کامل رسید و پرونده بسته شد.",
+      "key_facts": [
+        "Tax office letter arrived 2025-08-27",
+        "First visit to the tax consultant 2025-09-15",
+        "Fine letter arrived 2025-11-08 after he procrastinated sending documents",
+        "Installment plan (six installments) approved 2026-01-11",
+        "Full settlement confirmation arrived 2026-07-08, closing the case"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز یه نامه اومده از اداره مالیات"
+        },
+        {
+          "session_id": "2025-09-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز بلاخره رفتم پیش مشاور مالیاتی"
+        },
+        {
+          "session_id": "2025-11-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "صبحم با نامه اداره مالیات شروع شد. جریمه."
+        },
+        {
+          "session_id": "2026-01-11-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قسط‌بندی جریمه اوکی شد! شیش قسط، از اول ماه دیگه شروع میشه"
+        },
+        {
+          "session_id": "2026-07-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز نامه اومد از اداره مالیات. تسویه‌ی کامل."
+        }
+      ],
+      "threads": [
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-mh-001",
+      "type": "multi-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "چرا آخرش تصمیم گرفتیم خونه نخریم؟",
+      "question_en": "Why did we ultimately decide not to buy an apartment?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "بحث از اولین بازدید جدی در ۱۲ اکتبر ۲۰۲۵ شروع شد: قیمت‌ها بالا بود و محمد می‌گفت با وضعیت کاریش وقت زیر قسط رفتن نیست. حساب‌وکتاب‌ها هر بار نشون داد قسط وام تقریبا دو برابر اجاره فعلیه و پیش‌پرداختش نصف پس‌انداز رو می‌خوره؛ بعد از بازدید ۹ ژوئن ۲۰۲۶ دوباره به همین اعداد رسیدن. در نهایت ۱۰ ژوئن ۲۰۲۶ با پریا تصمیم نهایی گرفتن: اجاره بمونن و جدی پس‌انداز کنن.",
+      "key_facts": [
+        "First serious apartment viewing on 2025-10-12; rent-vs-buy debate started there",
+        "The math repeatedly showed a mortgage payment about twice the current rent, with a down payment eating half their savings (2026-06-09)",
+        "Final decision on 2026-06-10: keep renting and save seriously"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پریا میگه اجاره پول دور ریختنه، من میگم با این قیمتا و وضعیت کاری من الان وقتش نیست خودمونو زیر قسط بکنیم"
+        },
+        {
+          "session_id": "2026-06-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قسطش میشه تقریبا دو برابر اجاره الانمون، تازه با پیش‌پرداختی که باید نصف پس‌اندازمون رو بدیم"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اجاره میمونیم و جدی پس‌انداز میکنیم"
+        }
+      ],
+      "threads": [
+        "apartment"
+      ]
+    },
+    {
+      "id": "q-mh-002",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "کل ماجرای همسایه طبقه بالا از اول تا آخر چی شد؟",
+      "question_en": "What was the whole upstairs-neighbor saga, from beginning to end?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "از ۱۹ اوت ۲۰۲۵ شروع شد که همسایه طبقه بالا از صبح دریل می‌زد و معلوم شد داره کل واحدش رو بازسازی می‌کنه؛ بعدش سروصدای شبانه (کشیدن مبل) ادامه پیدا کرد. در ۱۸ اکتبر ۲۰۲۵ توی راه‌پله بحثشون شد — همسایه گفت «خونه خودمه» — و محمد همون شب یه ایمیل رسمی با تاریخ و ساعت‌ها به مدیر ساختمان نوشت. آخرش در ۲۰ آوریل ۲۰۲۶ همسایه اسباب‌کشی کرد و رفت و ماجرا خودبه‌خود تموم شد.",
+      "key_facts": [
+        "Started 2025-08-19: upstairs neighbor drilling from 8am, renovating his whole unit",
+        "2025-10-18: stairwell confrontation (neighbor: 'it's my home'); Mohammad wrote a formal email to the building manager with dates and times",
+        "Resolved 2026-04-20: the neighbor moved out"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "از صبح ساعت هشت همسایه طبقه بالا شروع کرد به دریل زدن"
+        },
+        {
+          "session_id": "2025-10-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یهو برگشت گفت خونه خودمه هر کاری بخوام میکنم"
+        },
+        {
+          "session_id": "2025-10-18-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "اومدم خونه یه ایمیل به مدیر ساختمان نوشتم، رسمی و مودب، با تاریخ و ساعت دفعه‌های قبل"
+        },
+        {
+          "session_id": "2026-04-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همسایه طبقه بالا... رفت! اسباب کشی کردن!"
+        }
+      ],
+      "threads": [
+        "neighbor-noise"
+      ]
+    },
+    {
+      "id": "q-mh-003",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "وقتی ریجکت نهایی اسفند اومد پریا چیکار کرد؟",
+      "question_en": "What did Paria do when the final-round rejection came in March?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "ریجکت فاینال راند ۱۰ مارس ۲۰۲۶ اومد. همون شب پریا فقط بغلش کرد و هیچی نگفت — که محمد گفت همین خوب بود چون حوصله «درست میشه» شنیدن نداشت. روزهای بعد هم فهمید باید ولش کنه و در ۱۲ مارس براش سوپ درست کرد.",
+      "key_facts": [
+        "Final-round rejection arrived 2026-03-10 in the evening",
+        "That night Paria hugged him and said nothing, which he appreciated",
+        "On 2026-03-12 she made him soup and gave him space"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-03-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "جواب اومد. ریجکت. ساعت شیش ایمیل اومد"
+        },
+        {
+          "session_id": "2026-03-10-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "بغلم کرد و هیچی نگفت که خوب بود چون واقعا حوصله «درست میشه» شنیدن ندارم"
+        },
+        {
+          "session_id": "2026-03-12-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "پریا سوپ درست کرد ظهر، یه ذره خوردم"
+        }
+      ],
+      "threads": [
+        "job-search",
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-mh-004",
+      "type": "multi-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "قضیه فریلنس بهار چطور به آفر کار اصلی وصل شد؟",
+      "question_en": "How did the spring freelance gig connect to the main job offer?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "بعد از ریجکت فاینال راند مارس، در ۸ آوریل ۲۰۲۶ امیر (همکار قدیمی) یه پروژه فریلنس دیتا پایپ‌لاین دو-سه ماهه معرفی کرد که پول قسط مالیات و تعمیر ماشین رو رسوند؛ محمد آگاهانه گفت «این فریلنسه، شغل نیست» و اپلای هفتگی رو نگه داشت. ۳۰ آوریل فاز اول رو تحویل داد و اولین پرداخت اومد. همین پل مالی نگهش داشت تا ۶ می ۲۰۲۶ که آفر پارت‌تایم ML engineer از شرکتی که دی ماه اپلای کرده بود رسید.",
+      "key_facts": [
+        "2026-04-08: old colleague Amir brought a 2-3 month freelance data-pipeline gig after the March rejection",
+        "The money covered tax installments and car repair; he explicitly kept applying because 'freelance is not a job'",
+        "2026-04-30: delivered phase one and received the first payment",
+        "2026-05-06: the part-time ML engineer offer arrived from a company he had applied to months earlier (Dey), so the freelance was the financial bridge, not the job itself"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "گفت یه شرکتی که باهاشون کار میکنه یه نفر میخوان برای یه پروژه دیتا پایپ‌لاین، فریلنس، دو سه ماهه"
+        },
+        {
+          "session_id": "2026-04-08-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "چون این فریلنسه، شغل نیست، نمیخوام دوباره بیفتم تو خلا"
+        },
+        {
+          "session_id": "2026-04-30-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز فاز اول رو تحویل دادم"
+        },
+        {
+          "session_id": "2026-05-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آفر اومد!!! همون شرکته که دی ماه اپلای کرده بودم"
+        }
+      ],
+      "threads": [
+        "work-stress",
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-mh-005",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "ماجرای قلب مامان از اون چکاپ اول تا الان چطوری پیش رفت؟",
+      "question_en": "How did Mom's heart story unfold from that first checkup until now?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۷ سپتامبر ۲۰۲۵ مامان بالاخره رفت چکاپ و دکتر آزمایش‌های بیشتر و اکو خواست؛ جواب‌ها هی عقب افتاد. ۲۰ نوامبر ۲۰۲۵ دکتر با دیدن نوار قلب همون لحظه بستریش کرد — یه رگ گرفتگی جدی داشت — و فرداش آنژیوگرافی شد. ۲۲ نوامبر استنت گذاشتن و دکتر گفت «به موقع اومدین». بعدش بهبودی تدریجی اومد و تا ۶ ژوئیه ۲۰۲۶ سرپا بود، قیمه درست می‌کرد و با پریا کل‌کل می‌کرد.",
+      "key_facts": [
+        "2025-09-07: long-postponed checkup; doctor ordered more tests and an echo",
+        "2025-11-20: hospitalized immediately, serious artery blockage, angiography next day",
+        "2025-11-22: stent placed; doctor said they came just in time",
+        "By 2026-07-06 she was fully back on her feet, cooking and joking at a family lunch"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-09-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز مامان رفته بود چکاپ، همون که از تابستون هی عقب مینداخت"
+        },
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یکی از رگاش گرفتگی جدی داره، فردا آنژیوگرافی میکنن"
+        },
+        {
+          "session_id": "2025-11-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آنژیو خوب پیش رفت، یه استنت گذاشتن و دکتر گفت به موقع اومدین"
+        },
+        {
+          "session_id": "2026-07-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مامان قیمه درست کرده بود، سرپا بود، می خندید، با پریا سر آشپزی کل‌کل میکرد"
+        }
+      ],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-mh-006",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "پرونده مالیات از اون نامه اول تا بسته شدنش چی شد؟",
+      "question_en": "What happened with the tax case from the first letter until it was closed?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۲۷ اوت ۲۰۲۵ یه نامه از اداره مالیات اومد که محمد ازش هیچی نفهمید و کلی استرس گرفت. بعد از مشاور و امروز-فردا کردن در فرستادن مدارک، ۸ نوامبر ۲۰۲۵ نامه جریمه رسید. ۱۱ ژانویه ۲۰۲۶ قسط‌بندی جریمه در شش قسط اوکی شد و در ۸ ژوئیه ۲۰۲۶ نامه تسویه کامل اومد و پرونده بعد از تقریبا یه سال بسته شد.",
+      "key_facts": [
+        "2025-08-27: confusing letter from the tax office arrived",
+        "2025-11-08: fine letter arrived after he procrastinated sending documents past the consultant's deadline",
+        "2026-01-11: fine split into six monthly installments",
+        "2026-07-08: official full-settlement confirmation; the case closed after about a year"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز یه نامه اومده از اداره مالیات"
+        },
+        {
+          "session_id": "2025-11-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "صبحم با نامه اداره مالیات شروع شد. جریمه"
+        },
+        {
+          "session_id": "2026-01-11-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قسط‌بندی جریمه اوکی شد! شیش قسط، از اول ماه دیگه شروع میشه"
+        },
+        {
+          "session_id": "2026-07-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تسویه‌ی کامل. قسط آخر که ماه پیش رفت و اینم تاییدیه‌ی رسمیش"
+        }
+      ],
+      "threads": [
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-mh-007",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "چرا آخرش کریپتو نخریدم و به جاش چیکار کردم؟",
+      "question_en": "Why did I end up not buying crypto, and what did I do instead?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۵ دسامبر ۲۰۲۵ بعد از شام با سیاوش (که می‌گفت ۴۰٪ سود کرده) وسوسه شد و حتی اپ صرافی نصب کرد، ولی همون شب پاکش کرد. دو روز بعد دید همون کوین ۱۵٪ ریخته و تصمیم قطعی گرفت: نه، پس‌انداز سر جاش می‌مونه و بعد از تعیین تکلیف قسط مالیات یه سرمایه‌گذاری ماهانه ثابت شروع می‌کنه. در ۱۵ می ۲۰۲۶ همون برنامه رو اجرا کرد — انتقال اتوماتیک ماهانه به صندوق شاخصی — و گفت خوشحاله که به جای کریپتو این کارو کرد.",
+      "key_facts": [
+        "2025-12-05: crypto FOMO after dinner with Siavash (40% gains claim); installed then deleted an exchange app the same night",
+        "2025-12-07: the coin had dropped 15%; decided firmly against crypto and planned a fixed monthly investment after the tax installment plan settled",
+        "2026-05-15: set up the automatic monthly transfer to an index fund, explicitly glad he skipped crypto"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب با سیاوش شام بودیم و کل شب داشت راجب کریپتو حرف میزد، میگفت تو دو ماه چهل درصد سود کرده"
+        },
+        {
+          "session_id": "2025-12-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تصمیمم اینه: نه. پس انداز سر جاش میمونه"
+        },
+        {
+          "session_id": "2026-05-15-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "یادته آذر داشتم وسوسه میشدم برم تو کریپتو؟ خوشحالم نرفتم و به جاش این کارو کردم"
+        }
+      ],
+      "threads": [
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-mh-008",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "سرنوشت اون اپ خرج و عادت که خودم میخواستم بسازم چی شد؟",
+      "question_en": "What became of that expense-and-habit app I wanted to build?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "ایده‌ش ۱۶ ژانویه ۲۰۲۶ اومد: یه اپ که خرج روزانه و عادت‌ها رو با هم نشون بده؛ با ذوق ریپو و دامنه هم ساخت. ولی ۱۹ می ۲۰۲۶ اعتراف کرد شش هفته‌ست ریپو رو باز نکرده و با شروع کار جدید پروژه عملا مرده. آخرش ۱۹ ژوئیه ۲۰۲۶ توی یه مرور، آگاهانه گذاشتش تو لیست «شاید سال بعد» و گفت دیگه نمی‌خواد ادای زنده بودنش رو دربیاره.",
+      "key_facts": [
+        "2026-01-16: idea born — an app showing daily expenses and habits together",
+        "2026-05-19: confessed the repo untouched for six weeks; declared the project dead with the new job starting",
+        "2026-07-19: consciously shelved it into a 'maybe next year' list without self-blame"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-16-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یه اپ ساده که خرج روزانه و عادت‌ها رو با هم یه جا نشون بده"
+        },
+        {
+          "session_id": "2026-05-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "شیش هفته‌ست حتی ریپو رو باز نکردم"
+        },
+        {
+          "session_id": "2026-07-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دیگه نمی خوام ادای زنده بودنش رو دربیارم"
+        }
+      ],
+      "threads": [
+        "side-project"
+      ]
+    },
+    {
+      "id": "q-mh-009",
+      "type": "multi-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "چی شد که با پریا رفتیم مشاور و آخرش به کجا رسید؟",
+      "question_en": "How did we end up going to couples counseling with Paria, and where did it lead?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اولین جرقه ۲۹ دسامبر ۲۰۲۵ بعد از یه حرف صادقانه با پریا بود که گفت «مشاور رابطه، ژانویه سراغش میگیریم». بعد از تکرار همون دعوای همیشگی، ۱۷ فوریه ۲۰۲۶ خودش جدی به مشاور زوج فکر کرد و ۱۵ آوریل ۲۰۲۶ جلسه اول برگزار شد — با اون سوال کلیدی که «دعوای واقعی سر چیه؟». تا تابستون جواب داد: ۳ ژوئیه ۲۰۲۶ همون دعوای ظرف‌ها ده دقیقه‌ای تموم شد و محمد گفت پول تراپی داره خودش رو پس می‌ده.",
+      "key_facts": [
+        "2025-12-29: after an honest year-review talk with Paria, first commitment to look for a couples counselor",
+        "2026-02-17: after realizing they always have the exact same fight, he seriously considered couples counseling",
+        "2026-04-15: first counseling session; counselor asked what the dish fight is really about (Paria: feeling alone in running their life)",
+        "2026-07-03: the recurring fight now ends in ten minutes using the therapist's technique; therapy visibly paying off"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-29-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "آره ثبت کن، مشاور رابطه، ژانویه سراغش میگیریم"
+        },
+        {
+          "session_id": "2026-02-17-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "شاید باید بریم پیش مشاور. مشاور زوج"
+        },
+        {
+          "session_id": "2026-04-15-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "گفت «وقتی سر ظرفا دعوا میکنید، دعوای واقعی سر چیه؟»"
+        },
+        {
+          "session_id": "2026-07-03-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "اون همه پول تراپی انگار بلاخره داره خودشو پس میده"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-mh-010",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "کلاس آواز از اون شب شام که پریا تعریف کرد تا الان چی شده؟",
+      "question_en": "What happened with the singing class, from that dinner night when Paria complimented me until now?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "ایده از ۲۲ اوت ۲۰۲۵ اومد که سر شام پریا گفت «چرا با صدات هیچ کاری نمیکنی؟». تقریبا یه سال طول کشید تا بالاخره ۸ می ۲۰۲۶ به اولین کلاس رفت و عاشقش شد. در ۲۱ ژوئن ۲۰۲۶ استاد اسمش رو برای اجرای اواخر مهر توی یه سالن کوچیک نوشت و الان (ژوئیه) داره تو ماشین برای اجرا تمرین می‌کنه.",
+      "key_facts": [
+        "2025-08-22: Paria's dinner compliment sparked the singing-class idea",
+        "2026-05-08: finally attended the first class after almost a year of postponing",
+        "2026-06-21: teacher put him on the list for a recital in late Mehr (autumn); he now practices in the car"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پریا برگشت گفت تو چرا صدات به این خوبی هست و هیچ کاری باهاش نمیکنی؟"
+        },
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "رفتم!!! بلاخره رفتم کلاس آواز! بعد یک سال که هی گفتم میرم و نرفتم"
+        },
+        {
+          "session_id": "2026-06-21-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "استاد امروز تاریخ اجرا رو گفت، اواخر مهر، یه سالن کوچیک، هر شاگرد یه قطعه"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-mh-011",
+      "type": "multi-hop",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "مقاله دوم با هایکو از اولین ایمیل تا سابمیت چقدر طول کشید و چی شد؟",
+      "question_en": "How long did article 2 with Heiko take from the first email to submission, and what happened?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اولین ایمیل هایکو ۱۷ دسامبر ۲۰۲۵ اومد که گفت وقتشه مقاله دوم رو استارت بزنن. ژانویه ۲۰۲۶ رسما شروع شد — موضوعش ارزیابی ایجنت‌های LLM در تسک‌های واقعی. با وجود نوروز، ریجکت فاینال راند و شروع کار جدید که وسطش افتاد، بالاخره ۱۸ ژوئن ۲۰۲۶ سابمیت شد — خود محمد گفت شش ماه و نیم طول کشید.",
+      "key_facts": [
+        "2025-12-17: Heiko's email kicked off article 2",
+        "2026-01-07: officially started; topic is evaluating LLM agents on real-world tasks",
+        "2026-06-18: submitted; Mohammad himself counted six and a half months from the first email"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-17-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "هایکو ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم"
+        },
+        {
+          "session_id": "2026-01-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعیه"
+        },
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "از دسامبر پارسال که اولین ایمیل رو راجبش زدیم تا الان... شیش ماه و نیم"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-mh-012",
+      "type": "multi-hop",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "اون دموی یهویی جلوی مدیر بالاسری رضایی آخرش چطور تموم شد؟",
+      "question_en": "How did that surprise demo in front of Rezaei's boss end up going?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۲۴ ژوئن ۲۰۲۶ رضایی یهو اعلام کرد جمعه دمو دارن جلوی مدیر بالاسریش، در حالی که دو تا باگ اصلی مونده بود و محمد از استرس نصفه‌شب بیدار بود. آخرش خوب تموم شد: باگ بزرگه با کمک یکی از بچه‌های تیم پیدا شد (یه مشکل مسخره تو کانفیگ) و محمد اسکریپت دمو رو طوری چید که از مسیر باگ دوم رد نشه؛ رضایی هم گفت «خوب جمعش کردی» — اولین جمله مثبتش در دو ماه.",
+      "key_facts": [
+        "2026-06-24: surprise Friday demo announced in front of the boss's boss, with two major bugs unresolved; sleepless night",
+        "The big bug turned out to be a silly config issue, found with a teammate's help",
+        "He scripted the demo to route around the second bug; demo went well and Rezaei gave his first positive comment in two months (2026-06-28)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-24-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "رضایی امروز اعلام کرد جمعه دمو داریم جلوی مدیر بالاسری خودش"
+        },
+        {
+          "session_id": "2026-06-28-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باگ بزرگه رو با کمک یکی از بچه‌های تیم پیدا کردیم، یه چیز مسخره تو کانفیگ بود"
+        }
+      ],
+      "threads": [
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-mh-013",
+      "type": "multi-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون کافه‌ای که پریا میگه شده محل ثبت پیروزی‌هامون، اولین بار چه خبری رو اونجا جشن گرفتیم؟",
+      "question_en": "That cafe Paria calls our 'victory-recording spot' — what news did we celebrate there the first time?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "خبر آفر کاری. اون کافه جاییه که خبر آفر پارت‌تایم ML engineer رو جشن گرفتن — آفری که ۶ می ۲۰۲۶ از شرکتی که دی ماه اپلای کرده بود رسید. بعدا در ۱۵ ژوئیه ۲۰۲۶، وقتی اولین پروژه کار جدید شیپ شد، پریا پیشنهاد داد دوباره برن همون‌جا و گفت این کافه شده محل ثبت پیروزی‌هاشون.",
+      "key_facts": [
+        "The cafe is where they celebrated the job-offer news",
+        "That offer was the part-time ML engineer offer that arrived 2026-05-06",
+        "On 2026-07-15, after the first work project shipped, Paria suggested returning there and called it their victory-recording spot"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-07-15-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "بریم همون کافه‌ای که خبر آفر رو اونجا جشن گرفتیم"
+        },
+        {
+          "session_id": "2026-07-15-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "این کافه شده محل ثبت پیروزی‌هامون"
+        },
+        {
+          "session_id": "2026-05-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز عصر ایمیل زدن آفر پارت-تایم دادن برای ML engineer"
+        }
+      ],
+      "threads": [
+        "job-search",
+        "work-stress",
+        "good-days"
+      ]
+    },
+    {
+      "id": "q-mh-014",
+      "type": "multi-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "همکاری مقاله با بابا چه فراز و نشیبی داشت؟",
+      "question_en": "What were the ups and downs of the article collaboration with Dad?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اولش پر از اصطکاک بود: ۱۶ اکتبر ۲۰۲۵ بابا بعد از چهار روز سکوت کل ساختار outline رو زیر سوال برد، و ۲۲ فوریه ۲۰۲۶ بدتر شد — کل بخش محمد رو بی‌خبر بازنویسی کرده بود با ادبیات دهه هشتادی خودش. ولی ۲۴ مارس ۲۰۲۶ ورق برگشت: توی یه جلسه کاری شش ساعته، وقتی محمد یه ایراد تو تحلیل بابا پیدا کرد، بابا به جای ناراحتی گفت «آفرین دقیقا همینه» و برای اولین بار اونو به عنوان یه متخصص جدی گرفت.",
+      "key_facts": [
+        "2025-10-16: father silently ignored the outline for four days, then attacked its whole structure on the weekly call",
+        "2026-02-22: father rewrote Mohammad's entire section without asking, in his 1980s academic style",
+        "2026-03-24: turning point — during a long joint work session the father welcomed Mohammad's critique ('bravo, exactly') and treated him as an expert peer"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-16-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب که کال هفتگیمون بود یهو کل ساختارو زیر سوال برد"
+        },
+        {
+          "session_id": "2026-02-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بابا کل بخش منو بازنویسی کرده. کل بخشو! بدون اینکه یه کلمه بگه یا بپرسه"
+        },
+        {
+          "session_id": "2026-03-24-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "یه ایراد تو تحلیلش پیدا کردم و بهش گفتم، و به جای اینکه ناراحت شه چشماش برق زد و گفت آفرین دقیقا همینه"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-mh-015",
+      "type": "multi-hop",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون جمله «با رویاهات نمیشه زندگی کرد» کی و سر چی گفته شد و بعدش چی شد؟",
+      "question_en": "When and over what was the line 'you can't live on your dreams' said, and what happened afterwards?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "پریا این جمله رو شب ۱۰ نوامبر ۲۰۲۵ توی بدترین دعواشون گفت — دعوایی که سر پیدا شدن نامه جریمه مالیاتی روی میز شروع شد که محمد دو روز قایمش کرده بود؛ محمد هم گفته بود «تو هیچوقت بهم ایمان نداشتی». بعد از دو روز قهر و سکوت، ۱۳ نوامبر با یه چایی آشتی شروع شد: دو ساعت حرف زدن، گفتن همه عددها، و قرار شفافیت مالی — نشستن ماهانه سر حساب‌کتاب‌ها.",
+      "key_facts": [
+        "Said by Paria during their worst fight on 2025-11-10, triggered by the hidden tax-fine letter she found on his desk",
+        "Mohammad had countered with 'you never believed in me' and regretted it",
+        "After two days of silence, the tea gesture on 2025-11-13 led to a two-hour talk, full financial transparency, and an agreed monthly money review"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پریا نامه جریمه رو دیده بود رو میز کار، من جمعش نکرده بودم"
+        },
+        {
+          "session_id": "2025-11-10-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "گفت با رویاهات نمیشه زندگی کرد"
+        },
+        {
+          "session_id": "2025-11-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قرار شد از این به بعد آخر هر ماه باهم بشینیم رو حساب کتابا"
+        }
+      ],
+      "threads": [
+        "paria-fights",
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-ag-001",
+      "type": "aggregation",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "چند بار قول باشگاه دادم و هر بار چی شد؟",
+      "question_en": "How many times did I promise to go to the gym, and what happened each time?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "حداقل سه بار رسما قول باشگاه دادم: اوت ۲۰۲۵ (سه روز در هفته، «این دفعه فرق داره چون پول دادم»)، ژانویه ۲۰۲۶ (هفته‌ای دوبار به عنوان تصمیم سال نو، که حدود سه هفته دووم آورد)، و ژوئن ۲۰۲۶ («جدی این دفعه» با کوله دم در، که دو هفته دووم آورد). هر بار بعد از چند هفته ول شد و آخرش به جاش پیاده‌روی با پریا نشست.",
+      "key_facts": [
+        "At least three formal gym commitments: Aug 2025, Jan 2026 (New Year), Jun 2026 — the corpus supports 'at least three', each announced explicitly",
+        "Aug 2025 attempt: three days a week, justified by having paid; faded within weeks",
+        "Jan 2026 attempt: twice a week, lasted about three weeks (dead by 2026-01-25)",
+        "Jun 2026 attempt: lasted exactly two weeks (confessed 2026-06-14); walking with Paria replaced it"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-08-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "گفتم سه روز، شنبه دوشنبه چهارشنبه. صبحا قبل کار. میدونم قبلنم اینو گفتم و نشد"
+        },
+        {
+          "session_id": "2026-01-01-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "باشگاه فقط هفته‌ای دوبار نه پنج بار"
+        },
+        {
+          "session_id": "2026-01-25-a",
+          "message_indices": [
+            6
+          ],
+          "quote": "باشگاهم این هفته اصن نرفتم، هیچی. دوباره داره همون آش و همون کاسه میشه، سه هفته دووم آوردم"
+        },
+        {
+          "session_id": "2026-06-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "از امروز میرم باشگاه. جدی این دفعه"
+        },
+        {
+          "session_id": "2026-06-14-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دو هفته دووم آورد. دو هفته!"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-ag-002",
+      "type": "aggregation",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "چند تا مصاحبه رفتم کلا و نتیجه‌هاشون چی شد؟",
+      "question_en": "How many interviews did I do in total, and what were the outcomes?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "حداقل چهار پروسه مصاحبه: دو اینترویو در نوامبر ۲۰۲۵ (۶ و ۱۸ نوامبر) که هر دو ریجکت شدن؛ اینترویوی ۵ فوریه ۲۰۲۶ که به فاینال راند رسید و ۱۰ مارس ۲۰۲۶ ریجکت شد؛ و فون اسکرین اواخر آوریل ۲۰۲۶ که خوب پیش رفت و در همون بازه، ۶ می ۲۰۲۶، آفر پارت‌تایم ML engineer رسید که قبولش کرد.",
+      "key_facts": [
+        "At least four interview processes over the year — corpus supports 'at least four' rather than a guaranteed exact total",
+        "Two interviews in Nov 2025 (Nov 6 and Nov 18); by Dec 1 he states both Aban interviews were rejected",
+        "Feb 5, 2026 interview led to a final round on Mar 3, rejected Mar 10, 2026",
+        "Late-April 2026 HR phone screen went well; the part-time ML offer arrived May 6, 2026 and was accepted"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "راجب پروژه RAG پرسیدن و خوب جواب دادم"
+        },
+        {
+          "session_id": "2025-12-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اون دوتا اینترویو آبان که ریجکت شد"
+        },
+        {
+          "session_id": "2026-02-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اینترویو خیلی خوب پیش رفت"
+        },
+        {
+          "session_id": "2026-03-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تا مرحله آخر رفتم و بازم نه"
+        },
+        {
+          "session_id": "2026-04-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "سه‌شنبه هفته دیگه فون اسکرین دارم با اچ‌آرشون"
+        },
+        {
+          "session_id": "2026-05-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بعد نه ماه اپلای و ریجکت بلاخره یکی گفت آره"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-ag-003",
+      "type": "aggregation",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "چند بار سر کار خونه و ظرفا دعوامون شد؟",
+      "question_en": "How many times did we fight over housework and the dishes?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "حداقل پنج بار دعوا یا بحث کامل سر کار خونه/ظرف‌ها ثبت شده: ۱۳ اوت ۲۰۲۵، ۲۸ اکتبر ۲۰۲۵، ۱۵ فوریه ۲۰۲۶، ۱۳ آوریل ۲۰۲۶ و ۳ ژوئیه ۲۰۲۶ — هر بار تقریبا با همون جمله‌ها. الگو ثابت بود ولی سیرش عوض شد: دعوای آوریل وسطش خنثی شد و دعوای ژوئیه بعد از تراپی فقط ده دقیقه طول کشید.",
+      "key_facts": [
+        "At least five explicit chores/dishes fights are recorded: 2025-08-13, 2025-10-28, 2026-02-15, 2026-04-13, 2026-07-03 — 'at least' because near-fights (e.g. Jan 2026, Jun 2026) also occur",
+        "The fight script is described as identical each time",
+        "Trajectory improved after couples counseling: the 2026-07-03 fight ended in ten minutes without sulking"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب با پریا دعوامون شد، بد. سر ظرفا شروع شد"
+        },
+        {
+          "session_id": "2025-10-28-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دیشب باز سر خونه بحثمون شد. همون بحث همیشگی: ظرفا مونده بود"
+        },
+        {
+          "session_id": "2026-02-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بازم دعوامون شد. سر همون همیشگی، ظرفا و خونه"
+        },
+        {
+          "session_id": "2026-04-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بازم سر ظرفا و خونه بحثمون شد. همون داستان همیشگی"
+        },
+        {
+          "session_id": "2026-07-03-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب دوباره سر ظرفا بحثمون شد. همون بحث همیشگی، مو به مو همون جمله‌ها. ولی یه چیز عجیب: ده دقیقه بعد تموم شد"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-ag-004",
+      "type": "aggregation",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "آلمانی رو چند بار شروع کردم و ول کردم؟",
+      "question_en": "How many times did I start and drop German?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "دو بار شروع کردم و دو بار ول شد. بار اول اکتبر ۲۰۲۵ کلاس A2 آنلاین ثبت‌نام کردم و ۳ دسامبر ۲۰۲۵ رسما انصراف دادم (نصف پولش هم سوخت). بار دوم آوریل ۲۰۲۶ با دولینگو روزی ده دقیقه شروع کردم و ۲۰ می ۲۰۲۶ فهمیدم استریکش ده روزه مرده — خودم گفتم «دور دوم هم تموم شد، عین آذر پارسال».",
+      "key_facts": [
+        "German started and dropped exactly twice in the corpus",
+        "Round 1: A2 class registered 2025-10-09, formally quit 2025-12-03 with half the fee lost",
+        "Round 2: Duolingo 10 min/day from 2026-04-04; streak found dead on 2026-05-20, taken with humor this time"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "ثبت‌نام کردم برای کلاس آلمانی A2!"
+        },
+        {
+          "session_id": "2025-12-03-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز رسما از کلاس آلمانی انصراف دادم"
+        },
+        {
+          "session_id": "2026-04-04-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دوباره آلمانی رو شروع میکنم. ولی اینبار فقط دولینگو، روزی ده دقیقه"
+        },
+        {
+          "session_id": "2026-05-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دور دوم هم تموم شد، عین آذر پارسال"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-ag-005",
+      "type": "aggregation",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "کلا چند تا بازدید آپارتمان رفتیم؟",
+      "question_en": "How many apartment viewings did we go on in total?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "سه بازدید جدی ثبت شده: اولی ۱۲ اکتبر ۲۰۲۵ (دو خوابه با نور عالی ولی قیمت خنده‌دار)، دومی ۲۵ اکتبر ۲۰۲۵ (بزرگ‌تر ولی دور، با راه‌پله تاریک) و سومی ۹ ژوئن ۲۰۲۶ (پریا عاشق بالکنش شد ولی قسطش دو برابر اجاره بود). فرداش، ۱۰ ژوئن ۲۰۲۶، تصمیم نهایی گرفتیم اجاره بمونیم و دیگه بازدید نریم.",
+      "key_facts": [
+        "Three recorded serious viewings: 2025-10-12, 2025-10-25, 2026-06-09",
+        "Each viewing ended in the same rent-vs-buy math deadlock",
+        "The day after the third viewing (2026-06-10) they decided to keep renting and stop viewings"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز با پریا رفتیم یه آپارتمان دیدیم، اولین بازدید جدیمون"
+        },
+        {
+          "session_id": "2025-10-25-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز رفتیم آپارتمان دوم رو دیدیم"
+        },
+        {
+          "session_id": "2026-06-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز بعد کار با پریا رفتیم یه آپارتمان دیگه دیدیم"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اجاره میمونیم و جدی پس‌انداز میکنیم"
+        }
+      ],
+      "threads": [
+        "apartment"
+      ]
+    },
+    {
+      "id": "q-ag-006",
+      "type": "aggregation",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "امسال چه کارای بزرگی رو کامل تموم کردم و بستم؟",
+      "question_en": "What big things did I fully finish and close out this year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "سه تا بسته‌شدن بزرگ، همه در اواخر بهار و تابستون ۲۰۲۶: مقاله دوم با هایکو ۱۸ ژوئن سابمیت شد، پرونده مالیات ۸ ژوئیه با نامه تسویه کامل بسته شد، و اولین پروژه کار جدید ۱۵ ژوئیه شیپ شد. خود محمد هم توی مرور سالگرد دفترچه (۲۰ ژوئیه) دقیقا همین سه تا رو شمرد و گفت فهمیده تموم کردن بیشتر از شروع کردن حالش رو خوب می‌کنه.",
+      "key_facts": [
+        "Three major completions: article 2 with Heiko submitted 2026-06-18, tax case officially settled 2026-07-08, first work project shipped 2026-07-15",
+        "In the 2026-07-20 anniversary review he himself lists exactly these three closures",
+        "He drew the lesson that finishing things helps him more than starting them"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بلاخره سابمیت شد! مقاله دوم، همونی که با هایکو بود"
+        },
+        {
+          "session_id": "2026-07-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز نامه اومد از اداره مالیات. تسویه‌ی کامل"
+        },
+        {
+          "session_id": "2026-07-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "شیپ شد! پروژه امروز رفت رو پروداکشن و هیچی نترکید"
+        },
+        {
+          "session_id": "2026-07-20-a",
+          "message_indices": [
+            6
+          ],
+          "quote": "مالیات بسته شد، مقاله با هایکو ساب‌میت شد، پروژه شیپ شد"
+        }
+      ],
+      "threads": [
+        "articles-research",
+        "tax-problem",
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-ku-001",
+      "type": "knowledge-update",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "الان وضعیت کارم چیه؟",
+      "question_en": "What is my current job situation?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "الان کار داری: از ۲۵ می ۲۰۲۶ به عنوان ML engineer پاره‌وقت (سه روز در هفته، ریموت با یه روز حضوری) مشغولی — قرارداد رو ۱۲ می امضا کردی. این جایگزین وضعیت قبلیه: تقریبا از تابستون ۲۰۲۵ بیکار بودی و فقط اپلای و ریجکت بود، و آوریل ۲۰۲۶ هم یه پروژه فریلنس موقتی پول رو رسوند. الان استرس اصلیت خود کار جدیده، نه پیدا کردن کار.",
+      "key_facts": [
+        "current state: employed as a part-time ML engineer (3 days/week), contract signed 2026-05-12, started 2026-05-25",
+        "superseded: unemployed and job-hunting since Aug 2025 (rejections, the Dec 2025 silence), plus a short freelance data-pipeline gig in April 2026 that bridged money",
+        "a memory system answering 'unemployed/applying' or 'freelancing' is stale"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آذر تموم شد و از هیچ شرکتی هیچ خبری نیس"
+        },
+        {
+          "session_id": "2026-05-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قرارداد رو ساین کردم و فرستادم. من از بیست و پنجم می شروع میکنم"
+        },
+        {
+          "session_id": "2026-06-01-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "فقط اینم بگم که هفته دوم کاره"
+        }
+      ],
+      "threads": [
+        "job-search",
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-ku-002",
+      "type": "knowledge-update",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "وضعیت پرونده مالیاتم الان چیه؟",
+      "question_en": "What is the current status of my tax case?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "پرونده بسته شده: ۸ ژوئیه ۲۰۲۶ نامه تسویه کامل از اداره مالیات اومد و قسط آخر هم ماه قبلش پرداخت شده بود. این آخرِ ماجراییه که مرداد ۱۴۰۴ (اوت ۲۰۲۵) با اون نامه شروع شد، بعد مشاور مالیاتی، بعد جریمه در نوامبر، و از ژانویه ۲۰۲۶ قسط‌بندی شش‌ماهه. هر جوابی که بگه پرونده باز یا در حال قسط‌دادنه، قدیمیه.",
+      "key_facts": [
+        "current state: tax case fully settled and closed — official clearance letter arrived 2026-07-08, last installment paid the month before",
+        "superseded: open case from the Aug 2025 letter, the Nov 2025 fine, and the six-installment payment plan approved 2026-01-11"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز یه نامه اومده از اداره مالیات"
+        },
+        {
+          "session_id": "2026-01-11-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قسط‌بندی جریمه اوکی شد! شیش قسط"
+        },
+        {
+          "session_id": "2026-07-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز نامه اومد از اداره مالیات. تسویه‌ی کامل"
+        }
+      ],
+      "threads": [
+        "tax-problem"
+      ]
+    },
+    {
+      "id": "q-ku-003",
+      "type": "knowledge-update",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "مامان الان حالش چطوره؟",
+      "question_en": "How is my mom doing now?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "مامان الان خوبه و کاملا بهبود پیدا کرده — همین ژوئیه ۲۰۲۶ ناهار خونه‌شون بودی، خودش قیمه پخته بود، سرپا بود و می‌خندید. این خیلی فرق داره با پاییز ۲۰۲۵: نوامبر بستری شد، آنژیوگرافی و استنت گذاشتن. از فوریه ۲۰۲۶ دکترش گفت روند بهبودی قلبش خیلی خوبه و داروهاش کم شد. جوابی که هنوز از بستری یا خطر بگه، قدیمیه.",
+      "key_facts": [
+        "current state: mother fully recovered — as of 2026-07-06 she cooks, stands, laughs; doctors reduced her medication back in Feb 2026",
+        "superseded: the health scare arc — abnormal checkup Sep 2025, hospitalization and stent in Nov 2025"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مامان رو بستری کردن"
+        },
+        {
+          "session_id": "2026-02-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دکترش گفته روند بهبودی قلبش خیلی خوبه، داروهاشم کم کردن"
+        },
+        {
+          "session_id": "2026-07-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مامان قیمه درست کرده بود، سرپا بود، می خندید"
+        }
+      ],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-ku-004",
+      "type": "knowledge-update",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "قضیه آلمانی به کجا رسید آخرش؟",
+      "question_en": "Where did the German-learning thing end up?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "آلمانی الان برای بار دوم رها شده. دور اول: اکتبر ۲۰۲۵ کلاس A2 ثبت‌نام کردی و دسامبر ۲۰۲۵ رسما انصراف دادی. دور دوم: آوریل ۲۰۲۶ با دولینگو (روزی ده دقیقه) دوباره شروع کردی، استریک تا حدود ۲۷ روز رفت، ولی می ۲۰۲۶ فهمیدی استریک ده روزه مرده و گفتی «باز آلمانی موند». وضعیت فعلی: کنار گذاشته شده برای «یه فصل دیگه از زندگی» — هر جوابی که بگه هنوز داری آلمانی می‌خونی قدیمیه.",
+      "key_facts": [
+        "current state: German dropped for the second time (May 2026, Duolingo streak dead); he consciously shelved it — 'ول کردن بعضی چیزا هم مهارته'",
+        "superseded: A2 class enrollment Oct 2025 (dropped Dec 2025) and the Duolingo restart Apr 2026",
+        "he himself summarizes in July 2026: 'آلمانی دوبار نصفه مونده'"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "ثبت‌نام کردم برای کلاس آلمانی A2!"
+        },
+        {
+          "session_id": "2025-12-03-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز رسما از کلاس آلمانی انصراف دادم"
+        },
+        {
+          "session_id": "2026-04-04-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "ولی اینبار فقط دولینگو، روزی ده دقیقه"
+        },
+        {
+          "session_id": "2026-05-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باز آلمانی موند. دور دوم هم تموم شد، عین آذر پارسال"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-ku-005",
+      "type": "knowledge-update",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "آخرش خونه می‌خریم یا نه؟",
+      "question_en": "In the end, are we buying a place or not?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "نه — تصمیم نهایی گرفته شده: ۱۰ ژوئن ۲۰۲۶ با پریا قطعی کردین که اجاره می‌مونین و جدی پس‌انداز می‌کنین («پروژه پنج ساله» با انتقال ماهانه به حساب پس‌انداز). این جایگزین یه سال و نیم بحث و بازدیده که از اکتبر ۲۰۲۵ (اولین بازدید جدی) شروع شد. حتی قرار گذاشتین تا پنج سال دیگه بازدید آپارتمان هم نرین.",
+      "key_facts": [
+        "current state: decided on 2026-06-10 to keep renting and save — a monthly amount goes to savings, dubbed 'پروژه پنج ساله'",
+        "superseded: the open rent-vs-buy question with apartment viewings starting Oct 2025 and another viewing on 2026-06-09"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز با پریا رفتیم یه آپارتمان دیدیم، اولین بازدید جدیمون"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اجاره میمونیم و جدی پس‌انداز میکنیم"
+        }
+      ],
+      "threads": [
+        "apartment"
+      ]
+    },
+    {
+      "id": "q-ku-006",
+      "type": "knowledge-update",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "رابطه‌مون با پریا الان کجاست؟",
+      "question_en": "Where does my relationship with Paria stand now?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "الان رابطه خیلی بهتره: از آوریل ۲۰۲۶ زوج‌درمانی رفتین و دعواها کوتاه و حتی شوخی‌وار شدن. همین هفته از سفر شمال برگشتین که خودت گفتی قشنگ‌ترین روزای امسال بود، و قرار پیاده‌روی هفتگی دونفره بدون گوشی گذاشتین. این جایگزین دوره چرخه دعوا/قهر/آشتیه — بدترینش نوامبر ۲۰۲۵ سر جریمه مالیاتی که پریا گفت «با رویاهات نمیشه زندگی کرد». مشکل‌ها کامل صفر نشدن (سر پول هنوز حساسین) ولی وضعیت فعلی «بهتر و رو به جلو»ئه، نه بحرانی.",
+      "key_facts": [
+        "current state: relationship clearly improved — couples therapy since Apr 2026, fights defused with humor, shared شمال trip in July 2026, new weekly no-phone walks ritual",
+        "superseded: the fight/guilt/makeup cycle, worst at the Nov 2025 money fight over the hidden tax fine",
+        "not perfect (money still touchy per July retrospective) but the stale 'constant fights / crisis' state no longer holds"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب بدترین دعوای عمرمون رو کردیم"
+        },
+        {
+          "session_id": "2026-04-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "خب رفتیم. جلسه اول مشاور"
+        },
+        {
+          "session_id": "2026-07-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یادته پارسال فک میکردیم از هم خسته شدیم؟"
+        }
+      ],
+      "threads": [
+        "paria-fights",
+        "travel-dream"
+      ]
+    },
+    {
+      "id": "q-ku-007",
+      "type": "knowledge-update",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "قضیه همسایه پرسروصدا چی شد آخرش؟",
+      "question_en": "What ultimately happened with the noisy neighbor?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "تموم شد: آوریل ۲۰۲۶ همسایه طبقه بالا اسباب‌کشی کرد و رفت، و بعد چند ماه دوباره بدون گوش‌گیر می‌خوابی. این پایان ماجراییه که از اوت ۲۰۲۵ با دریل بازسازی شروع شد و اکتبر ۲۰۲۵ به بحث و داد و بیداد تو راه‌پله و ایمیل به مدیر ساختمان رسید. جوابی که هنوز از سروصدا و درگیری بگه قدیمیه.",
+      "key_facts": [
+        "current state: problem resolved — the upstairs neighbor moved out in April 2026, quiet restored",
+        "superseded: the ongoing noise conflict (renovation drilling from Aug 2025, midnight furniture dragging, the Oct 2025 stairwell confrontation and complaint email)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یهو برگشت گفت خونه خودمه هر کاری بخوام میکنم"
+        },
+        {
+          "session_id": "2026-04-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همسایه طبقه بالا... رفت! اسباب کشی کردن!"
+        }
+      ],
+      "threads": [
+        "neighbor-noise"
+      ]
+    },
+    {
+      "id": "q-ku-008",
+      "type": "knowledge-update",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "کلاس آواز بالاخره چی شد؟ رفتم یا نه؟",
+      "question_en": "What finally happened with the singing class? Did I go or not?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "رفتی و هنوز ادامه داره! می ۲۰۲۶ بالاخره اولین جلسه کلاس آواز رو رفتی، کل ترم رو ثبت‌نام کردی (پنجشنبه‌ها ساعت هفت) و بعد سه هفته معلمت گفت پیشرفتت محسوسه — اون نت بالا رو هم گرفتی. این جایگزین وضعیت قبلیه: از اوت ۲۰۲۵ فقط یه ایده بود که می‌ترسیدی مثل باشگاه و بقیه چیزا ول بشه و نزدیک یه سال عقب افتاد. برخلاف آلمانی و باشگاه، این یکی موند.",
+      "key_facts": [
+        "current state: singing class actually started May 2026 (first session 2026-05-08), enrolled for the full term, Thursdays 7pm; teacher confirms noticeable progress; a performance is expected in fall",
+        "superseded: the ~9 months where it was only an idea from Aug 2025 that he kept postponing out of fear it would be abandoned like the gym"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-22-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "میترسم مثل باشگاه بشه، مثل صد تا چیز دیگه"
+        },
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بلاخره رفتم کلاس آواز!"
+        },
+        {
+          "session_id": "2026-05-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "معلمه گفت پیشرفتم تو همین سه هفته محسوسه"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-ku-009",
+      "type": "knowledge-update",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "قضیه سرمایه‌گذاریم به کجا رسید؟ کریپتو چی شد؟",
+      "question_en": "Where did my investing plan end up? What happened with crypto?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "الان سرمایه‌گذاری ماهانه‌ات اتوماته: از ۱۵ می ۲۰۲۶ انتقال خودکار ماهانه به صندوق شاخصی راه افتاده و اول هر ماه خودش کم می‌شه. این جایگزین دو حالت قبلیه: ایده‌ای که از اکتبر ۲۰۲۵ فقط حرفش بود («فعلا ایده‌ست»)، و وسوسه کریپتو در دسامبر ۲۰۲۵ (بعد شام با سیاوش حتی اپ صرافی نصب کردی) که آگاهانه ردش کردی و اپ رو پاک کردی. کریپتو نرفتی و خوشحالی که نرفتی.",
+      "key_facts": [
+        "current state: automated monthly transfer to an index fund, live since 2026-05-15, with a conservative amount to be reviewed in ~6 months",
+        "superseded: manual/forgotten transfers and the mere idea from Oct 2025, and the Dec 2025 crypto temptation which he explicitly rejected (deleted the exchange app)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-25-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "فعلا ایده‌ست، باید ببینم بانکم دستور پرداخت خودکار به صندوق رو ساپورت میکنه یا نه"
+        },
+        {
+          "session_id": "2025-12-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یه اپ صرافی هم نصب کردم راستش"
+        },
+        {
+          "session_id": "2026-05-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "انتقال اتوماتیک ماهانه به صندوق شاخصی رو راه انداختم"
+        }
+      ],
+      "threads": [
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-ku-010",
+      "type": "knowledge-update",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اسپرینت تورینگ کالج الان چه وضعیه؟",
+      "question_en": "What is the current state of my Turing College sprint?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اسپرینت ۳ هنوز تموم نشده، ولی برنامه‌ات عوض شده: از ژوئیه ۲۰۲۶ تصمیم گرفتی بدون قهرمان‌بازی، هفته‌ای دو شب (دوشنبه و چهارشنبه) روش کار کنی و تا پاییز تمومش کنی — و دیگه خودت رو بابتش نزنی. مسیرش این بود: اوت ۲۰۲۵ هنوز درگیر اسپرینت ۲ بودی، سپتامبر ۲۰۲۵ اسپرینت ۳ (دیپ لرنینگ) شروع شد و کل سال با اپلای و کار و مقاله کش اومد. جوابی که بگه «درگیر اسپرینت ۲»ای یا اسپرینت ۳ تازه شروع شده، قدیمیه.",
+      "key_facts": [
+        "current state: sprint 3 still unfinished as of 2026-07-05, with a new relaxed plan — two evenings a week (Mon/Wed), target finish by fall, no guilt",
+        "superseded: stuck on sprint 2 in Aug 2025, sprint 3 started Sep 2025 and dragged all year behind job search, freelance gig, and the new job"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-02-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باز نشستم پای اسپرینت دو و باز هیچی پیش نرفت"
+        },
+        {
+          "session_id": "2025-09-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "خلاصه امروز اسپرینت سه شروع شد و من همون روز اول کپ کردم"
+        },
+        {
+          "session_id": "2026-07-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اسپرینت ۳ تورینگ هنوز تموم نشده و راستش دیگه نمی خوام بخاطرش خودمو بزنم"
+        }
+      ],
+      "threads": [
+        "turing-college"
+      ]
+    },
+    {
+      "id": "q-ku-011",
+      "type": "knowledge-update",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون ساید پروجکتم، همون اپ خرج و عادت، الان زنده‌ست؟",
+      "question_en": "Is my side project — that expense-and-habits app — still alive?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "نه، رسما کنار گذاشته شده. ژوئیه ۲۰۲۶ تصمیم گرفتی دیگه «ادای زنده بودنش رو درنیاری»: پروژه فعلا مرده و گذاشتیش تو لیست «شاید سال بعد» با دو خط توضیح، بدون خودزنی. این جایگزین دو حالت قبلیه: ژانویه ۲۰۲۶ که با ذوق شروعش کردی (اپ ثبت خرج روزانه + عادت‌ها)، و می ۲۰۲۶ که اعتراف کردی شش هفته‌ست ریپو رو باز نکردی و تا پاییز خوابوندیش.",
+      "key_facts": [
+        "current state: side project declared dead / parked as of 2026-07-19 — moved to a 'maybe next year' list with a short note, framed as a conscious decision",
+        "superseded: the excited start Jan 2026 (expense+habit tracker MVP) and the May 2026 'paused until fall' state (last commit late Farvardin, repo untouched for weeks)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-16-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یه اپ ساده که خرج روزانه و عادت‌ها رو با هم یه جا نشون بده"
+        },
+        {
+          "session_id": "2026-05-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "شیش هفته‌ست حتی ریپو رو باز نکردم"
+        },
+        {
+          "session_id": "2026-07-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "با کار جدید و کلاس آواز و تورینگ و بقیه زندگی، واقعا جایی براش نیست. پروژه فعلا مرده"
+        }
+      ],
+      "threads": [
+        "side-project"
+      ]
+    },
+    {
+      "id": "q-ku-012",
+      "type": "knowledge-update",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "مقاله دوم با هایکو الان کجاست؟",
+      "question_en": "Where does the second article with Heiko stand now?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "سابمیت شده! ۱۸ ژوئن ۲۰۲۶ با هایکو دکمه سابمیت رو زدین و الان منتظر جواب ژورنالین — هایکو می‌گه معمولا سه چهار ماه طول می‌کشه، یعنی حدودا پاییز. این جایگزین وضعیت‌های قبلیه: دسامبر ۲۰۲۵ که هایکو تازه ایمیل استارت رو زد، ژانویه ۲۰۲۶ که رسما شروع شد، و بهار که درفت و ریوایز کش اومد. جوابی که بگه «در حال نوشتنه» قدیمیه.",
+      "key_facts": [
+        "current state: article 2 (LLM agent evaluation, with Heiko Fischer) submitted to the journal on 2026-06-18; first journal response expected in ~3-4 months (fall)",
+        "superseded: kickoff email from Heiko Dec 2025, official start Jan 2026, and the spring drafting/revision phase where he sat on Heiko's revised draft"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-17-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "هایکو ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم"
+        },
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بلاخره سابمیت شد! مقاله دوم، همونی که با هایکو بود"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-cm-001",
+      "type": "commitment",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "قرار بود هفته‌ای چند تا اپلای کنم؟ بهش عمل کردم؟",
+      "question_en": "How many applications per week did I commit to? Did I stick to it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۴ ژانویه ۲۰۲۶ با اسپردشیت هدف گذاشتم هفته‌ای ۵ تا اپلای، و ژانویه واقعا بهش عمل کردم: چهار هفته کار کرد و ۱۹ تا اپلای رفت. بعد از ریجکت مارس، اول آوریل آگاهانه کمش کردم به هفته‌ای دو سه تای باکیفیت.",
+      "key_facts": [
+        "On 2026-01-04 he committed to 5 applications per week tracked in a spreadsheet",
+        "He kept it through January: the system ran four weeks and 19 applications went out",
+        "After the March rejection he deliberately lowered the target on 2026-04-01 to two or three quality applications per week"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-04-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "هدفم هفته‌ای ۵ تا اپلای"
+        },
+        {
+          "session_id": "2026-01-31-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "سیستم اپلای که چهار هفته کار کرد و ۱۹ تا اپلای رفت"
+        },
+        {
+          "session_id": "2026-04-01-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "فکر کنم هفته‌ای دو سه تا، ولی با کیفیت"
+        }
+      ],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-cm-002",
+      "type": "commitment",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "چه قول‌هایی به خودم دادم که بهشون عمل نکردم؟",
+      "question_en": "What promises did I make to myself that I did not keep?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "سه تا قول همیشه شکست: باشگاه (چند بار شروع و ول شد، آخرین بار ژوئن ۲۰۲۶ بعد دو هفته)، پومودورو (سپتامبر ۲۰۲۵ چهار روز دووم آورد و بعدها هم نصفه‌نیمه موند)، و آلمانی که دو بار رها شد — دسامبر ۲۰۲۵ انصراف از کلاس و می ۲۰۲۶ مردن استریک دولینگو. خودم ژوئیه ۲۰۲۶ اعتراف کردم «هنوز آلمانی دوبار نصفه مونده».",
+      "key_facts": [
+        "The gym promise was repeatedly made and dropped; in June 2026 it died again after two weeks",
+        "The pomodoro plan announced 2025-09-05 lasted only four days",
+        "German was dropped twice: he formally quit the class on 2025-12-03 and the Duolingo streak died by 2026-05-20",
+        "On 2025-12-03 he himself listed gym, pomodoro and German as things he starts excitedly and abandons",
+        "In the 2026-07-20 year review he admitted German was still left unfinished twice"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-09-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تصمیم بزرگ: از این هفته پومودورو"
+        },
+        {
+          "session_id": "2025-09-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "چهار روز دووم آورد"
+        },
+        {
+          "session_id": "2025-12-03-a",
+          "message_indices": [
+            0,
+            2
+          ],
+          "quote": "امروز رسما از کلاس آلمانی انصراف دادم"
+        },
+        {
+          "session_id": "2025-12-03-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "باشگاه، پومودورو، حالام این"
+        },
+        {
+          "session_id": "2026-05-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "استریک دولینگو ده روزه مرده"
+        },
+        {
+          "session_id": "2026-06-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "از امروز میرم باشگاه. جدی این دفعه"
+        },
+        {
+          "session_id": "2026-06-14-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دو هفته دووم آورد. دو هفته!"
+        },
+        {
+          "session_id": "2026-07-20-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "هنوز آلمانی دوبار نصفه مونده"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-cm-003",
+      "type": "commitment",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "برنامه سفر شمال چی بود؟ عملی شد؟",
+      "question_en": "What was the plan for the shomal trip, and did it happen?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۱۲ ژوئیه ۲۰۲۶ برنامه رو بستیم: ویلای شریکی با کیان اینا و سارا اینا نزدیک جنگل، با سقف بودجه که به پس‌انداز ماهانه دست نخوره؛ پریا مسئول لیست خرید و من ماشین و مسیر. عملی هم شد — رفتیم و ۲۷ ژوئیه که برگشتیم گفتم قشنگ‌ترین روزای امسال بود.",
+      "key_facts": [
+        "On 2026-07-12 the trip was planned: a villa near the forest shared by three families (with Kian's and Sara's)",
+        "They set a budget cap so the trip would not touch the monthly savings, and split roles (Paria groceries, he car and route)",
+        "The plan was kept: they went and returned by 2026-07-27, and he called it the most beautiful days of the year"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-07-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب با پریا نشستیم و برنامه شمال رو بستیم"
+        },
+        {
+          "session_id": "2026-07-12-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "برای خودمون دوتا یه سقف گذاشتیم"
+        },
+        {
+          "session_id": "2026-07-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "برگشتیم. و بذار همین اول بگم: قشنگ‌ترین روزای امسال بود."
+        }
+      ],
+      "threads": [
+        "travel-dream"
+      ]
+    },
+    {
+      "id": "q-cm-004",
+      "type": "commitment",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "قرار بود چیکار کنم برای مقاله هایکو؟ آخرش چی شد؟",
+      "question_en": "What was I supposed to do for the paper with Heiko, and how did it end up?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۱۷ دسامبر ۲۰۲۵ هایکو ایمیل زد و قرار شد تا اواسط ژانویه outline رو ببندیم؛ ۲۹ دسامبر جوابش رو دادم و outline رو شروع کردم. مقاله با تاخیر ولی به سرانجام رسید: ۱۸ ژوئن ۲۰۲۶ سابمیتش کردیم.",
+      "key_facts": [
+        "On 2025-12-17 Heiko emailed to start article 2, with an agreement to close the outline by mid-January",
+        "He replied to Heiko and started the outline by 2025-12-29",
+        "The commitment was ultimately fulfilled: the paper was submitted on 2026-06-18, about six and a half months after the first email"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-17-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تا اواسط ژانویه outline رو ببندیم"
+        },
+        {
+          "session_id": "2025-12-29-a",
+          "message_indices": [
+            6
+          ],
+          "quote": "جواب هایکو رو هم دادم بلاخره، outline رو هم شروع کردم"
+        },
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب ساعت هشت دکمه سابمیت رو زدیم"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-cm-005",
+      "type": "commitment",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "قول داده بودم کی سرمایه‌گذاری اتوماتیک رو راه بندازم؟ انجامش دادم؟",
+      "question_en": "When did I promise to set up the automatic investing, and did I do it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۱۲ می ۲۰۲۶ قول دادم جمعه صبح با یه قهوه بشینم و بانک و صندوق رو راه بندازم؛ دقیقا هم عمل کردم — ۱۵ می (جمعه) انتقال اتوماتیک ماهانه به صندوق شاخصی راه افتاد، بعد از هفت ماه امروز و فردا کردن.",
+      "key_facts": [
+        "On 2026-05-12, after signing the job contract, he promised to set up the automatic investing on Friday morning",
+        "He kept the promise: on Friday 2026-05-15 the automatic monthly transfer to an index fund was running",
+        "He noted the task took 45 minutes after seven months of postponing (idea dated back to late October 2025)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-12-a",
+          "message_indices": [
+            6
+          ],
+          "quote": "صبح جمعه با یه قهوه میشینم بانک و صندوق رو راه میندازم، قول"
+        },
+        {
+          "session_id": "2026-05-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "نشستم با قهوه همونطور که قول داده بودم و انتقال اتوماتیک ماهانه به صندوق شاخصی رو راه انداختم"
+        }
+      ],
+      "threads": [
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-cm-006",
+      "type": "commitment",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "قرار بود کی تکلیف آپارتمان رو مشخص کنیم؟ چی تصمیم گرفتیم؟",
+      "question_en": "When were we supposed to settle the apartment question, and what did we decide?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۹ ژوئن ۲۰۲۶ قرار گذاشتیم چهارشنبه شب تصمیم نهایی رو بگیریم، ولی یه شب زودتر — ۱۰ ژوئن — تمومش کردیم: اجاره می‌مونیم و جدی پس‌انداز می‌کنیم («پروژه پنج ساله»).",
+      "key_facts": [
+        "On 2026-06-09 after another draining apartment viewing they scheduled a final decision session for Wednesday night",
+        "They kept it early: on 2026-06-10 they decided to keep renting and save seriously",
+        "They built a savings spreadsheet the same night and named it the five-year project"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-09-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "ثبت کن، چهارشنبه شب"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قرار چهارشنبه رو نگه نداشتیم — چون همین امشب انجامش دادیم"
+        },
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "اسمشو گذاشتیم «پروژه پنج ساله»"
+        }
+      ],
+      "threads": [
+        "apartment"
+      ]
+    },
+    {
+      "id": "q-cm-007",
+      "type": "commitment",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "قول سر زدن هفتگی به مامان رو کی دادم؟ روش موندم؟",
+      "question_en": "When did I promise weekly visits to my mom, and did I keep it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۲۲ نوامبر ۲۰۲۵ بعد آنژیو قول دادم پنجشنبه‌ها هر هفته برم پیشش و اول هم رفتم (۲۹ نوامبر طبق قرار)، ولی زمستون با اینترویوها شل شد و ۲۰ فوریه ۲۰۲۶ دوباره قول هفتگی دادم (جمعه‌ها). آخرش هم کامل نگرفت — ۲۰ ژوئیه خودم گفتم هنوز مامان رو کمتر از چیزی که باید می‌بینم.",
+      "key_facts": [
+        "On 2025-11-22, after the angiography, he committed to weekly Thursday-evening visits to his mother",
+        "He kept it initially: on 2025-11-29 he reported the Thursday visit happened as agreed",
+        "The habit slipped over winter; on 2026-02-20 he renewed the weekly promise, moving it to Fridays",
+        "The promise was only partially kept: in the 2026-07-20 year review he admits he still sees her less than he should"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-22-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "پنجشنبه‌ها. عصر پنجشنبه میرم پیشش، ثبت کن"
+        },
+        {
+          "session_id": "2025-11-29-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پنجشنبه رفتم پیشش طبق قرارمون"
+        },
+        {
+          "session_id": "2026-02-20-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "بهش قول دادم هفته‌ای یه بار برم سر بزنم"
+        },
+        {
+          "session_id": "2026-07-20-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "هنوز مامان رو کمتر از چیزی که باید میبینم"
+        }
+      ],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-cm-008",
+      "type": "commitment",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "قضیه کلاس آواز چی شد؟ اینهمه گفتم میرم، بالاخره رفتم؟",
+      "question_en": "What happened with the singing class? I kept saying I would go — did I finally go?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "ایده‌ش از ۲۲ اوت ۲۰۲۵ بود که گفتم دنبال کلاس بگردم؛ تا آخر ژانویه ۲۰۲۶ هنوز حتی زنگ نزده بودم. بالاخره ۸ می ۲۰۲۶ رفتم اولین جلسه و همون‌جا کل ترم رو ثبت‌نام کردم (پنجشنبه‌ها ساعت هفت)؛ ۲۱ ژوئن هم استاد برای اواخر مهر اجرا گذاشت و اسم منم تو لیسته.",
+      "key_facts": [
+        "The singing class intention dates to 2025-08-22, when he asked to log a task to research classes",
+        "By 2026-01-31 he confessed he still had not even called the class",
+        "He finally attended the first class on 2026-05-08 and enrolled for the full term (Thursdays at 7)",
+        "On 2026-06-21 the teacher set a student recital for late Mehr (fall) with him on the list — the commitment was kept, about nine months late"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-22-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "بنویسش برام، بگرد دنبال کلاس آواز"
+        },
+        {
+          "session_id": "2026-01-31-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "کلاس آواز... هنوز زنگ نزدم"
+        },
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بلاخره رفتم کلاس آواز! بعد یک سال که هی گفتم میرم و نرفتم"
+        },
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "ثبت نام ترمش رو کامل کردم که راه فرار نداشته باشم، پنجشنبه ها ساعت هفت"
+        },
+        {
+          "session_id": "2026-06-21-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "استاد امروز تاریخ اجرا رو گفت، اواخر مهر"
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-cm-009",
+      "type": "commitment",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "قرار بود کپ‌استون تورینگ رو تا کی تموم کنم؟ شد؟",
+      "question_en": "By when was I supposed to finish the Turing College capstone? Did it happen?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "۲۷ آوریل ۲۰۲۶ به خودم ددلاین آخر مه دادم («اگه تا آخر مه تمومش نکنم که دیگه هیچی»)، ولی نشد: با شروع کار جدید، ۲۸ مه اعتراف کردم تورینگ کامل خوابیده. ۵ ژوئیه یه برنامه واقع‌بینانه جدید گذاشتم — هفته‌ای دو شب تا پاییز تمومش کنم.",
+      "key_facts": [
+        "On 2026-04-27 he committed to finishing the Turing College capstone by the end of May, planning to reuse the freelance data pipeline as the capstone",
+        "The deadline was missed: on 2026-05-28, during the first week of the new job, Turing College was completely on hold",
+        "On 2026-07-05, with sprint 3 still unfinished, he replaced the promise with a calmer plan: two evenings a week, done by fall"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-04-27-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "آخر مه. اگه تا آخر مه تمومش نکنم که دیگه هیچی."
+        },
+        {
+          "session_id": "2026-05-28-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "Turing College کامل خوابیده، اسپرینته وسطش ول شده"
+        },
+        {
+          "session_id": "2026-07-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تصمیم گرفتم هفته‌ای دو شب، آروم، تا پاییز تمومش کنم"
+        }
+      ],
+      "threads": [
+        "turing-college"
+      ]
+    },
+    {
+      "id": "q-cm-010",
+      "type": "commitment",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون اپ شخصی که میخواستم بسازم چی شد؟ به قولام راجبش عمل کردم؟",
+      "question_en": "What happened to the personal app I wanted to build? Did I keep my promises about it?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "قول اولش رو نگه داشتم: ۱۶ ژانویه ۲۰۲۶ گفتم شنبه ریپو رو بسازم و ۱۸ ژانویه ریپو و اولین کامیت و حتی دامنه رو زدم. ولی بعدش خوابید — ۱۹ می اعتراف کردم شش هفته ریپو رو باز نکردم و گذاشتمش «خوابیده تا پاییز»، و ۱۹ ژوئیه رسما گفتم پروژه فعلا مرده و رفت تو لیست «شاید سال بعد».",
+      "key_facts": [
+        "On 2026-01-16 he committed to creating the repo and first commit on Saturday; on 2026-01-18 the repo, first commit and a domain were done",
+        "The project then stalled: on 2026-05-19 he confessed he had not opened the repo in six weeks and shelved it until fall",
+        "On 2026-07-19 he declared the project dead for now and archived it into a maybe-next-year list"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-01-16-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "شنبه ریپو رو بساز و اولین کامیت"
+        },
+        {
+          "session_id": "2026-01-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "ریپو ساخته شد، اولین کامیتم زدم!"
+        },
+        {
+          "session_id": "2026-05-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "شیش هفته‌ست حتی ریپو رو باز نکردم"
+        },
+        {
+          "session_id": "2026-05-19-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "بذارش خوابیده تا پاییز"
+        },
+        {
+          "session_id": "2026-07-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پروژه فعلا مرده"
+        }
+      ],
+      "threads": [
+        "side-project"
+      ]
+    },
+    {
+      "id": "q-en-001",
+      "type": "entity",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "هایکو کیه و چی باهم کردیم؟",
+      "question_en": "Who is Heiko and what have we done together?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "هایکو فیشر همکار آلمانیته و هم‌نویس مقاله دومت. دسامبر ۲۰۲۵ ایمیل زد که وقتشه مقاله دوم رو استارت بزنین؛ ژانویه ۲۰۲۶ رسما شروع شد — موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعیه. باهاش انگلیسی ایمیل می‌زنین (که برات انرژی‌بره) و کال‌های صبح زود داشتین چون اون فقط قبل کارش وقت داره. وسط نوروز و ریجکت و کار جدید، جواب‌هاش رو دیر می‌دادی و اون صبوری کرد؛ می ۲۰۲۶ درفت رو ریوایز کرد و منتظر کامنت‌هات موند. آخرش ۱۸ ژوئن ۲۰۲۶ مقاله رو باهم سابمیت کردین و جواب ژورنال حدودا پاییز میاد.",
+      "key_facts": [
+        "Heiko Fischer: German colleague, co-author of article 2 on evaluating LLM agents in real tasks",
+        "kicked off via his email Dec 2025; official start Jan 2026 with early-morning calls and English emails that drain Mohammad",
+        "Heiko revised the draft in May 2026 and waited patiently through Mohammad's delays",
+        "paper submitted together on 2026-06-18; journal response expected in fall"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-17-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "هایکو ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم"
+        },
+        {
+          "session_id": "2026-01-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مقاله دوم رسما استارت خورد. موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعیه"
+        },
+        {
+          "session_id": "2026-05-28-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "هایکو هم ایمیل زده که درفت مقاله رو ریوایز کرده و منتظر کامنتای منه"
+        },
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بلاخره سابمیت شد! مقاله دوم، همونی که با هایکو بود"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-en-002",
+      "type": "entity",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "بابا تو مقاله چه نقشی داشت؟ راجب همکاریمون چیا گفتم؟",
+      "question_en": "What role did my dad play in the article? What have I said about our collaboration?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "بابا هم‌نویس مقاله اولته. اکتبر ۲۰۲۵ بعد سال‌ها حرف، موضوع رو قطعی کردین و قرار کال هفتگی سه‌شنبه‌ها گذاشتین. اوایلش اصطکاک داشتین: outline رو چهار روز جواب نداد بعد تو کال کل ساختار رو زیر سوال برد و لحن استادیش تو رو ساکت می‌کرد؛ راه‌حل، گوگل‌داک مشترک شد که توش کامنت بذاره. نقطه اوجش مارس ۲۰۲۶ بود: یه روز کامل خونه‌شون روی بخش تحلیل کار کردین — تو نتایج مدل رو آوردی، اون چارچوب نظری رو — و برای اولین بار به عنوان یه متخصص جدی‌ات گرفت. تا ژوئن ۲۰۲۶ ولی مقاله یک هنوز «داره می‌خزه» چون بابا هی ویرایش می‌کنه و نظرش عوض می‌شه.",
+      "key_facts": [
+        "بابا (retired academic) is co-author of article 1, started seriously Oct 2025 with weekly Tuesday calls",
+        "early friction: slow replies then wholesale criticism of the outline in his professorial tone; solved by moving feedback into a shared Google Doc",
+        "March 2026 high point: a full-day session at his parents' house on the analysis section, dad treating Mohammad as a peer expert",
+        "as of June 2026 article 1 is still crawling — dad keeps re-editing and changing his mind"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب بلاخره با بابا جدی حرف زدیم راجب مقاله"
+        },
+        {
+          "session_id": "2025-10-16-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب که کال هفتگیمون بود یهو کل ساختارو زیر سوال برد"
+        },
+        {
+          "session_id": "2026-03-24-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "صبح رفتم خونه بابا اینا، نشستیم رو مقاله، از ده صبح تا چهار بعدازظهر"
+        },
+        {
+          "session_id": "2026-06-18-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "مقاله یک هنوز داره میخزه، بابا هی ویرایش میکنه هی نظرش عوض میشه"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-en-003",
+      "type": "entity",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "راجب پریا و مسیری که رابطه‌مون امسال رفت چیا گفتم؟",
+      "question_en": "What have I said about Paria and the path our relationship took this year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "پریا همسرته و پررنگ‌ترین آدم کل دفترچه‌ست. سال با چرخه دعواهای تکراری شروع شد — سر تقسیم کار خونه (اوت ۲۰۲۵، سر ظرف‌ها)، سر مشکل رابطه، و بدتر از همه سر پول: نوامبر ۲۰۲۵ وقتی نامه جریمه مالیاتی رو که قایم کرده بودی دید، بدترین دعوای عمرتون شد و جمله «با رویاهات نمیشه زندگی کرد» رو گفت. ولی همیشه هم پشتت بود: شب بستری مامانت بغلت کرد، برای آفر جیغ زد و روز اول کار جشن گرفت. از آوریل ۲۰۲۶ باهم زوج‌درمانی رفتین — جایی که گفت تو اداره‌ی زندگی حس تنهایی می‌کنه — و دعواها کوچیک و کوتاه شدن. ژوئیه ۲۰۲۶ تو جنگل شمال بهت گفت «یادته پارسال فک میکردیم از هم خسته شدیم؟» و الان قرار پیاده‌روی هفتگی دونفره دارین.",
+      "key_facts": [
+        "پریا: his wife; recurring fight cycle over chores, intimacy, and money through 2025",
+        "worst moment: Nov 2025 fight over the hidden tax fine — her line 'با رویاهات نمیشه زندگی کرد'",
+        "also his main support: hospital night, job offer and first-day celebrations",
+        "couples therapy from Apr 2026 (her core feeling: alone in running their life); by July 2026 the relationship is warm — shared شمال trip and a weekly no-phone walk ritual"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امشب با پریا دعوامون شد، بد. سر ظرفا شروع شد"
+        },
+        {
+          "session_id": "2025-11-10-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "گفت با رویاهات نمیشه زندگی کرد"
+        },
+        {
+          "session_id": "2026-04-15-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "گفت حس میکنه تنهاست تو اداره کردن زندگی"
+        },
+        {
+          "session_id": "2026-07-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یادته پارسال فک میکردیم از هم خسته شدیم؟"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-en-004",
+      "type": "entity",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "امسال برای مامان چه اتفاقایی افتاد؟",
+      "question_en": "What happened with my mom this year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "داستان مامان داستان ترس و بهبودیه: سپتامبر ۲۰۲۵ رفت چکاپ و دکتر آزمایش و اکو بیشتر خواست. نوامبر ۲۰۲۵ سر پیگیری، دکتر تا نوار قلب رو دید بستری‌اش کرد — یه رگش گرفتگی جدی داشت؛ آنژیو خوب پیش رفت و استنت گذاشتن، دکتر گفت به موقع اومدین. تو کل این مدت عذاب وجدان داشتی که کم بهش سر زدی. از فوریه ۲۰۲۶ بهبودی‌اش قطعی شد، نوروز خودش سفره هفت‌سین چید، و ژوئیه ۲۰۲۶ سر ناهار خونه‌شون سرپا بود و می‌خندید.",
+      "key_facts": [
+        "Sep 2025: suspicious checkup, more tests and an echo ordered",
+        "Nov 2025: hospitalized with a serious coronary blockage; angiography + stent, doctor said they came just in time",
+        "recurring guilt about not visiting her enough",
+        "recovered by Feb-Mar 2026 (set the haft-sin herself at Nowruz); healthy and joking at the July 2026 family lunch"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-09-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز مامان رفته بود چکاپ"
+        },
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مامان رو بستری کردن"
+        },
+        {
+          "session_id": "2025-11-22-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آنژیو خوب پیش رفت، یه استنت گذاشتن و دکتر گفت به موقع اومدین"
+        },
+        {
+          "session_id": "2026-07-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "مامان قیمه درست کرده بود، سرپا بود، می خندید"
+        }
+      ],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-en-005",
+      "type": "entity",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "راجب رئیسم، آقای رضایی، چیا گفتم؟",
+      "question_en": "What have I said about my boss, Mr. Rezaei?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "آقای رضایی مدیرته تو کار جدید و منبع اصلی استرس کاریت. از هفته‌های اول (ژوئن ۲۰۲۶) هی میومد بالا سرت، جلوی بقیه گزارش روزانه خواست و روزت رو پر از جلسه می‌کرد. اواخر ژوئن یهو اعلام کرد جمعه جلوی مدیر بالاسری‌اش دمو دارین — که با اسکریپت دمویی که خودت چیدی خوب پیش رفت و برای اولین بار ازت تعریف کرد: «خوب جمعش کردی». بعدا هم فهمیدی با همه همینجوریه، نه فقط با تو — به همه گیر می‌ده و از همه گزارش می‌خواد.",
+      "key_facts": [
+        "آقای رضایی: his manager at the new part-time job, micromanager — hovers over him, demanded daily reports in front of the team, floods the week with meetings",
+        "sprang a surprise demo in front of his own boss (late June 2026); the demo went well thanks to Mohammad's own demo script",
+        "gave his first positive comment 'خوب جمعش کردی' after the demo",
+        "Mohammad later learned Rezaei treats everyone the same way"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-01-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "آقای رضایی که مدیرمه یه جوریه، هی میاد بالا سرم"
+        },
+        {
+          "session_id": "2026-06-03-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "یه بارم تو جلسه جلوی بقیه گفت گزارش روزانه بفرستم آخر هر روز"
+        },
+        {
+          "session_id": "2026-06-24-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "رضایی امروز اعلام کرد جمعه دمو داریم جلوی مدیر بالاسری خودش"
+        },
+        {
+          "session_id": "2026-06-28-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "رضایی دم در بهم گفت «خوب جمعش کردی» — اولین جمله مثبتش تو این دو ماه!"
+        }
+      ],
+      "threads": [
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-en-006",
+      "type": "entity",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "راجب همسایه طبقه بالا چیا تعریف کردم؟",
+      "question_en": "What have I said about the upstairs neighbor?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "همسایه طبقه بالا حدود هشت ماه کابوس خونه‌ات بود. اوت ۲۰۲۵ با دریل بازسازی واحدش شروع شد، بعد شب‌ها ساعت دوازده و نیم صدای کشیدن مبل می‌اومد و بی‌خوابت می‌کرد. اکتبر ۲۰۲۵ تو راه‌پله باهاش حرف زدی و جواب داد «خونه خودمه هر کاری بخوام میکنم»، صدات بالا رفت و بعدش یه ایمیل رسمی و مودب با تاریخ و ساعت‌ها به مدیر ساختمان زدی. آخرش آوریل ۲۰۲۶ خودش اسباب‌کشی کرد و رفت — و تازه فهمیدی چقدر از بدخلقی پاییز و زمستونت مال همون بی‌خوابی بود.",
+      "key_facts": [
+        "upstairs neighbor: renovation drilling from Aug 2025, then chronic midnight furniture-dragging noise",
+        "Oct 2025 stairwell confrontation — neighbor: 'خونه خودمه هر کاری بخوام میکنم'; Mohammad then emailed the building manager with dates and times",
+        "resolved April 2026 when the neighbor moved out; Mohammad reflects the noise had fueled his fall/winter bad moods"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-19-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "از صبح ساعت هشت همسایه طبقه بالا شروع کرد به دریل زدن"
+        },
+        {
+          "session_id": "2025-09-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "دیشب باز ساعت دوازده و نیم صدای کشیدن مبل از طبقه بالا شروع شد"
+        },
+        {
+          "session_id": "2025-10-18-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "اومدم خونه یه ایمیل به مدیر ساختمان نوشتم، رسمی و مودب"
+        },
+        {
+          "session_id": "2026-04-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همسایه طبقه بالا... رفت! اسباب کشی کردن!"
+        }
+      ],
+      "threads": [
+        "neighbor-noise"
+      ]
+    },
+    {
+      "id": "q-en-007",
+      "type": "entity",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "تورینگ کالج تو زندگیم امسال چه نقشی داشت؟",
+      "question_en": "What role did Turing College play in my life this year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "تورینگ کالج دوره آنلاین اسپرینتی‌ایه که کل سال همراه (و عذاب وجدان) ثابتت بود. اوت ۲۰۲۵ هنوز با اسپرینت ۲ کلنجار می‌رفتی؛ سپتامبر اسپرینت ۳ با دیپ لرنینگ شروع شد و همون روز اول کپ کردی. کنار درسش، منتورش هم به دردت خورد: فیدبکش باعث شد سی‌وی رو با نتیجه و عدد از نو بنویسی، و پروژه RAG اسپرینت شد ستون اینترویوهات. ولی دوره مدام پشت اپلای و فریلنس و کار جدید عقب افتاد؛ ژوئیه ۲۰۲۶ هنوز اسپرینت ۳ بازه و برنامه جدیدت اینه که هفته‌ای دو شب، بدون قهرمان‌بازی، تا پاییز تمومش کنی.",
+      "key_facts": [
+        "Turing College: online sprint-based course running through the whole year — sprint 2 dragging in Aug 2025, sprint 3 (deep learning) from Sep 2025",
+        "its mentor's feedback drove the results-and-numbers CV rewrite (Oct 2025); the sprint RAG project became his interview centerpiece",
+        "the course repeatedly lost priority to applications, the freelance gig, and the new job",
+        "as of Jul 2026 sprint 3 is still open, with a calm two-nights-a-week plan to finish by fall"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-02-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باز نشستم پای اسپرینت دو و باز هیچی پیش نرفت"
+        },
+        {
+          "session_id": "2025-09-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اینا رفتن سراغ دیپ لرنینگ و یه پروژه گذاشتن که من نصف کلمه‌هاش رو هم نمیفهمم"
+        },
+        {
+          "session_id": "2025-10-04-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "منتور Turing College فیدبک داده بود که پروژه‌هامو با نتیجه و عدد بنویسم نه فقط لیست تکنولوژی"
+        },
+        {
+          "session_id": "2026-07-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اسپرینت ۳ تورینگ هنوز تموم نشده و راستش دیگه نمی خوام بخاطرش خودمو بزنم"
+        }
+      ],
+      "threads": [
+        "turing-college"
+      ]
+    },
+    {
+      "id": "q-en-008",
+      "type": "entity",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "ماجرای ماشین چی بود امسال؟",
+      "question_en": "What was the story with the car this year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "فوریه ۲۰۲۶ ماشین وسط اتوبان یه صدای وحشتناک داد و دنده دیگه عوض نشد — گیربکس. مکانیک اول یه رقم سنگین گفت (حدود یه چهارم قیمت خود ماشین) و با پریا حتی بحث فروختنش پیش اومد. یه مکانیک دوم که همکار قدیمیت معرفی کرد ارزون‌تر بود ولی قطعه گیر نمی‌اومد، و دو هفته با مترو و اسنپ رفتی و اومدی و فهمیدی چقدر بهش وابسته‌ای. آخر فوریه تحویلش گرفتی — درست شد و پولش هم رفت، حساب خالی شد ولی سبک شدی. ماشین موند و ژوئیه ۲۰۲۶ تو سفر شمال تو مسئول ماشین و مسیر بودی.",
+      "key_facts": [
+        "Feb 2026: gearbox failure on the highway, towed to a mechanic; first repair quote was crushing (~a quarter of the car's value), sell-vs-repair debate with Paria",
+        "second mechanic (via an old colleague) was cheaper but parts were delayed; two weeks of metro and Snapp",
+        "repaired and picked up 2026-02-26 — savings drained but relief",
+        "car kept: he was in charge of the car and route for the July 2026 شمال trip"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-02-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "وسط اتوبان ماشین یهو یه صدای وحشتناک داد و دیگه دنده عوض نشد"
+        },
+        {
+          "session_id": "2026-02-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "گیربکس باید کامل تعمیر بشه، رقمش سنگینه"
+        },
+        {
+          "session_id": "2026-02-26-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "صبح ماشینو تحویل گرفتم، بلاخره درست شد، همون مکانیک دومه که ارزونتر بود"
+        },
+        {
+          "session_id": "2026-07-12-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "منم مسئول ماشین و مسیر"
+        }
+      ],
+      "threads": [
+        "car-trouble",
+        "travel-dream"
+      ]
+    },
+    {
+      "id": "q-pt-001",
+      "type": "pattern",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "کی از سال حالم از همه بدتر بود و چرا؟",
+      "question_en": "When during the year was I at my lowest, and why?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "دو دوره از همه سخت‌تر بود. اول آبان-آذر ۱۴۰۴ (نوامبر-دسامبر ۲۰۲۵): وسط یه هفته هم ریجکت اون اینترویویی که بهش امید داشتی اومد، هم مامان بستری شد و آنژیو کرد؛ بعدش هم آذر شد سه هفته سکوت محض از همه شرکت‌ها، با زمستون و بی‌خوابی. دوره دوم اسفند (مارس ۲۰۲۶) بود: ریجکت مرحله نهایی بعد از چهار مرحله، که دو روز با کسی حرف نزدی و حتی به شک افتادی که کل تغییر مسیر شغلیت اشتباه بوده.",
+      "key_facts": [
+        "worst stretch #1: Nov–Dec 2025 — interview rejection (Nov 14), mother hospitalized for angiography (Nov 20), then total silence from companies through December, winter blues and insomnia",
+        "worst stretch #2: March 2026 — final-round rejection (Mar 10) after four stages; two days of numbness and doubting the whole career change",
+        "monthly mood valence confirms it: Nov 2025 lowest average of the year, March 2026 a second dip (includes the only valence-1 session)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-14-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "ریجکت شدم. همین نیم ساعت پیش ایمیلش اومد."
+        },
+        {
+          "session_id": "2025-11-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "الان از بیمارستان میام. مامان رو بستری کردن."
+        },
+        {
+          "session_id": "2025-12-01-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آذر تموم شد و از هیچ شرکتی هیچ خبری نیس، یعنی هیچی، سه هفته‌س سکوت محض."
+        },
+        {
+          "session_id": "2026-03-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تا مرحله آخر رفتم و بازم نه."
+        },
+        {
+          "session_id": "2026-03-14-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اصن این کارییر چنج اشتباه بود؟"
+        }
+      ],
+      "threads": [
+        "job-search",
+        "mother-health",
+        "sleep-health"
+      ]
+    },
+    {
+      "id": "q-pt-002",
+      "type": "pattern",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "چه الگویی تو دعواهامون با پریا هست؟ عوض هم شده؟",
+      "question_en": "What pattern is there in my fights with Paria? Has it changed?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "الگوش تقریبا همیشه یکیه: سر ظرفا و تقسیم کار خونه شروع میشه ولی «سر ظرفا نیست، سر همه چیه»؛ بعدش چرخه دعوا، قهر، عذاب‌وجدان، آشتی و دوباره از اول. از بهار ۲۰۲۶ که مشاوره زوج رو شروع کردین عوض شده: همون دعوا هنوز پیش میاد ولی خیلی کوتاه‌تر — فروردین پریا وسطش گفت «داریم همون دعوای همیشگیو میکنیم» و ده دقیقه‌ای تموم شد، و تیر هم همون بحث ظرفا بدون قهر ده دقیقه‌ای جمع شد، با همون جمله‌ای که تراپیست یاد داده بود.",
+      "key_facts": [
+        "recurring trigger: chores/dishes, but really about feeling unseen — 'سر ظرفا نبود، سر همه چی بود'",
+        "cycle he himself names: fight → sulking (قهر) → makeup → repeat (2025-11-13)",
+        "after couples therapy (spring 2026) the same fight recurs but collapses from ~2 hours + 2 days of silence to ~10 minutes (2026-04-13, 2026-07-03)",
+        "the therapist's line 'الان راجب ظرف حرف میزنیم، نه راجب کل رابطه' is what changed it"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "سر ظرفا شروع شد، یعنی سر ظرفا نبود، سر همه چی بود"
+        },
+        {
+          "session_id": "2025-11-13-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "ما هر چند وقت یه بار همینیم، دعوا، قهر، آشتی"
+        },
+        {
+          "session_id": "2026-04-13-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "داریم دقیقا همون دعوای همیشگیو میکنیم، کلمه به کلمه"
+        },
+        {
+          "session_id": "2026-07-03-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "همون بحث همیشگی، مو به مو همون جمله‌ها. ولی یه چیز عجیب: ده دقیقه بعد تموم شد."
+        },
+        {
+          "session_id": "2026-07-03-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "اون جمله‌ای که تراپیستمون بهار گفت"
+        }
+      ],
+      "threads": [
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-pt-003",
+      "type": "pattern",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "الگوی قول‌دادن و ول‌کردنم چیه؟ چیا رو شروع کردم و ول کردم؟",
+      "question_en": "What is my pattern of making commitments and dropping them? What did I start and abandon?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "الگوت اینه: با هیجان اعلام می‌کنی «این دفعه فرق داره»، دو-چهار هفته ادامه میدی، یه اتفاق ریتمو میشکنه، ول میشه، عذاب‌وجدان میاد و بعد دوباره اعلامش می‌کنی. باشگاه چند بار مرد و زنده شد، پومودورو چهار روز دووم آورد، آلمانی دو بار ول شد (آذر ۱۴۰۴ و دوباره اردیبهشت ۱۴۰۵ با دولینگو). خودت آذر گفتی «یه لیست بلند از چیزایی که با هیجان شروع کردم و وسطش جا زدم». استثناش کلاس آوازه که بعد یه سال حرف، اردیبهشت واقعا شروع شد و موند — چون ازش کیف می‌کنی و یه استاد و ساعت ثابت منتظرته.",
+      "key_facts": [
+        "cycle: excited announcement ('این دفعه فرق داره') → a few weeks → rhythm breaks → dropped → guilt → re-announced",
+        "instances: gym (repeatedly), pomodoro (died in 4 days, Sep 2025), German (dropped Dec 2025, again May 2026), apply-ritual lapses",
+        "he names the pattern himself: 'یه لیست بلند از چیزایی که با هیجان شروع کردم و وسطش جا زدم' (2025-12-03)",
+        "the exception that broke the pattern: singing class finally started May 2026 and stuck, because he enjoys it and it has fixed external structure"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-08-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "میدونم قبلنم اینو گفتم و نشد ولی این دفعه فرق داره"
+        },
+        {
+          "session_id": "2025-09-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "چهار روز دووم آورد"
+        },
+        {
+          "session_id": "2025-12-03-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "باشگاه، پومودورو، حالام این. یه لیست بلند از چیزایی که با هیجان شروع کردم و وسطش جا زدم."
+        },
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "البته دفعه های قبل هم همینو گفتم راجب باشگاه و آلمانی و پومودورو"
+        },
+        {
+          "session_id": "2026-05-20-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باز آلمانی موند. دور دوم هم تموم شد، عین آذر پارسال."
+        }
+      ],
+      "threads": [
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-pt-004",
+      "type": "pattern",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "خوابم تو این سال چطور بود؟",
+      "question_en": "How was my sleep over this year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "خوابت آینه‌ی استرست بود. بدترین دوره پاییز و زمستون ۲۰۲۵ بود: شب قبل اینترویو خوابت نمیبرد، آبان سه شب پشت هم ساعت سه صبح بیدار میشدی با کمردرد، و آذر هم نصفه‌شب‌ها بیدار بودی. یه استثنای قشنگ هم شب یلدا بود که گفتی بی‌خوابیش از اون بی‌خوابیای بد نیست. بهار بهتر شد، ولی خرداد-تیر با ددلاین‌های کار جدید دوباره بی‌خوابی برگشت — نصفه‌شب قبل از دمو سه ساعت تو تخت غلت زدی.",
+      "key_facts": [
+        "worst phase: Nov–Dec 2025 — pre-interview insomnia, 3 a.m. wake-ups three nights in a row, back pain, midnight sessions",
+        "sleep tracks stress source: job-search anxiety in autumn/winter, then new-job deadlines bring insomnia back in June 2026",
+        "one positive contrast: Yalda night insomnia he calls 'the good kind' (2025-12-21)",
+        "spring 2026 (recovery months) has almost no insomnia sessions"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-11-05-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "فردا صبح اینترویوئه و خوابم نمیبره."
+        },
+        {
+          "session_id": "2025-11-25-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "ساعت سه و بیست دقیقه صبحه. بازم همون ساعت بیدار شدم، سه شبه پشت هم همینه"
+        },
+        {
+          "session_id": "2025-12-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "الان نصفه شبه و خوابم نمیبره"
+        },
+        {
+          "session_id": "2025-12-21-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "الانم خابم نمیبره ولی از اون بی‌خوابیای بد نیست"
+        },
+        {
+          "session_id": "2026-06-24-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "سه ساعته تو تخت غلت میزنم، پاشدم اومدم تو هال."
+        }
+      ],
+      "threads": [
+        "sleep-health",
+        "job-search",
+        "work-stress"
+      ]
+    },
+    {
+      "id": "q-pt-005",
+      "type": "pattern",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "بهترین دوره سالم کی بود؟",
+      "question_en": "What was the best period of my year?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "اردیبهشت ۱۴۰۵ (می ۲۰۲۶). تو همون یه ماه: آفر ML engineer اومد (۶ می)، بعد یه سال تعلل بالاخره رفتی کلاس آواز (۸ می)، مذاکره کردی و قرارداد رو امضا کردی (۱۲ می)، سرمایه‌گذاری ماهانه رو بعد هفت ماه حرف زدن اتوماتیک کردی (۱۵ می) و کار جدید رو شروع کردی (۲۵ می). خودت وسطش گفتی «هیچ اتفاق بزرگی نیفتاد ولی همه چی سر جاش بود» — میانگین حالت هم تو این ماه از همه سال بالاتر بود، کنار ژوییه که آروم و ته‌نشین‌شده بود.",
+      "key_facts": [
+        "best period: May 2026 — job offer (May 6), first singing class after a year of stalling (May 8), contract signed after successful negotiation (May 12), monthly investing automated (May 15), first day of new job (May 25)",
+        "his own summary of the feeling: 'هیچ اتفاق بزرگی نیفتاد ولی همه چی سر جاش بود' (May 22)",
+        "mood data agrees: May 2026 and July 2026 have the highest average valence of the year"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آفر اومد!!!"
+        },
+        {
+          "session_id": "2026-05-08-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "رفتم!!! بلاخره رفتم کلاس آواز!"
+        },
+        {
+          "session_id": "2026-05-12-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تمومه! امضا کردم!!"
+        },
+        {
+          "session_id": "2026-05-15-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "انتقال اتوماتیک ماهانه به صندوق شاخصی رو راه انداختم"
+        },
+        {
+          "session_id": "2026-05-22-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "هیچ اتفاق بزرگی نیفتاد ولی همه چی سر جاش بود"
+        }
+      ],
+      "threads": [
+        "job-search",
+        "failed-ambitions",
+        "money-investing",
+        "good-days"
+      ]
+    },
+    {
+      "id": "q-pt-006",
+      "type": "pattern",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "معمولا چه چیزایی حالمو خوب میکنه؟ روزای خوبم چه شکلی‌ان؟",
+      "question_en": "What usually makes me feel good? What do my good days look like?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "روزای خوبت یه دستور ثابت دارن: بیرون رفتن و پیاده‌روی با پریا — کنار رودخونه، تو پارک پاییزی با انار، با بستنی — بدون برنامه و بدون بحث. خودت گفتی رازش اینه که «برنامه نداشت، یهویی بود» و اینکه بیرون کنار هم راه میرین بجای اینکه روبروی هم باشین. تم تکراری دیگه‌ش اینه که هیچ اتفاق بزرگی نمیفته ولی همه چی سر جاشه؛ پیروزی‌های کوچیک (حل یه باگ، یه دموی خوب) هم وقتی با همین عصرها ترکیب میشن بهترین روزاتو میسازن.",
+      "key_facts": [
+        "recurring good-day formula: unplanned outdoor walks with Paria (river, park, ice cream, pomegranate), talking side-by-side without it turning into an argument",
+        "his own explanations: 'این که برنامه نداشت. یهویی بود' and walking 'کنار هم... بجای اینکه روبروی هم باشیم'",
+        "second ingredient: nothing big happens — 'هیچ اتفاق خاصی نیفتاد ولی همه‌چیش خوب بود' — often paired with a small win (bug fixed, demo went well)"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-08-24-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "عصری با پریا رفتیم کنار رودخونه قدم زدیم"
+        },
+        {
+          "session_id": "2025-09-27-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "فک کنم چون بیرون بودیم، کنار هم راه میرفتیم بجای اینکه روبروی هم باشیم."
+        },
+        {
+          "session_id": "2025-10-23-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "فک کنم این که برنامه نداشت. یهویی بود."
+        },
+        {
+          "session_id": "2026-06-28-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "امروز از اون روزا بود که هیچ اتفاق خاصی نیفتاد ولی همه‌چیش خوب بود."
+        }
+      ],
+      "threads": [
+        "good-days"
+      ]
+    },
+    {
+      "id": "q-ab-001",
+      "type": "abstention",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "حقوق دقیق آفری که اردیبهشت گرفتم چقدر بود؟",
+      "question_en": "What was the exact salary of the offer I got in May?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "تو دفترچه‌ت هیچ‌وقت رقم حقوق رو ننوشتی. فقط گفتی «حقوقش... راستش نمیدونم خوبه یا نه، برای پارت-تایم بد نیست»، بعد راجع به مذاکره حرف زدیم (حدود ده-پونزده درصد بالاتر خواستی) و آخرش گفتی با «یه عدد وسط عدد خودشون و عدد من» موافقت کردن — ولی خود عدد رو هیچ‌جا نگفتی.",
+      "key_facts": [
+        "not answerable: the diary never states the offer salary as a number — only qualitative remarks ('برای پارت-تایم بد نیست'), a 10-15% negotiation delta, and 'a number between theirs and mine' after negotiation"
+      ],
+      "evidence": [],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-ab-002",
+      "type": "abstention",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "اسم دکتر مامان چی بود؟",
+      "question_en": "What was the name of my mother's doctor?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "اسمش رو هیچ‌وقت تو دفترچه نگفتی — همیشه گفتی «دکتره» یا «دکترش» یا «دکتر قلب». اگه بخوای، دفعه بعد که اسمش رو گفتی می‌تونم یادم بمونه.",
+      "key_facts": [
+        "not answerable: the diary never mentions the mother's doctor by name — only generic references like «دکتره», «دکترش», «دکتر قلب»"
+      ],
+      "evidence": [],
+      "threads": [
+        "mother-health"
+      ]
+    },
+    {
+      "id": "q-ab-003",
+      "type": "abstention",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "پریا تولدش کیه؟",
+      "question_en": "When is Paria's birthday?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "تاریخ تولد پریا رو هیچ‌وقت بهم نگفتی؛ تو کل یادداشت‌های امسال هیچ اشاره‌ای به تولدش نیست. اگه بگی، ثبتش می‌کنم که یادآوری کنم.",
+      "key_facts": [
+        "not answerable: the diary never mentions Paria's birthday or any birthday celebration for her (the only 'تولد' mentions are the metaphor 'تولد دوباره کاری' about the new job)"
+      ],
+      "evidence": [],
+      "threads": []
+    },
+    {
+      "id": "q-ab-004",
+      "type": "abstention",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اسم اون شرکته که فوریه مصاحبه دادم و به فاینال راند رسیدم چی بود؟",
+      "question_en": "What was the name of the company I interviewed with in February and reached the final round?",
+      "time_scope": {
+        "from": "2026-02-01",
+        "to": "2026-03-31"
+      },
+      "answerable": false,
+      "answer_fa": "اسمش رو هیچ‌وقت ننوشتی — همیشه گفتی «همون شرکته که هفته پیش اپلای کرده بودم». می‌دونم اینترویوش ۵ فوریه خوب پیش رفت، به فاینال راند اوایل مارس دعوت شدی و آخرش ریجکت شد، ولی اسم شرکت هیچ‌جای دفترچه نیومده.",
+      "key_facts": [
+        "not answerable: the diary never names any company in the job search — the February/final-round company is only ever 'همون شرکته که هفته پیش اپلای کرده بودم'; no employer name appears anywhere in the corpus"
+      ],
+      "evidence": [],
+      "threads": [
+        "job-search"
+      ]
+    },
+    {
+      "id": "q-ab-005",
+      "type": "abstention",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "اسم اون کوینی که سیاوش آذر پیشنهاد داد چی بود؟",
+      "question_en": "What was the name of the coin Siavash recommended back in December?",
+      "time_scope": {
+        "from": "2025-12-01",
+        "to": "2025-12-31"
+      },
+      "answerable": false,
+      "answer_fa": "اسم کوین رو هیچ‌وقت نگفتی — فقط گفتی «همون کوینی که سیاوش میگفت» و اینکه چند روز بعد پونزده درصد ریخت. اسم خاصی ازش تو دفترچه ثبت نشده.",
+      "key_facts": [
+        "not answerable: the coin is never named — only 'همون کوینی که سیاوش میگفت'; no cryptocurrency name (bitcoin, ethereum, etc.) appears anywhere in the diary"
+      ],
+      "evidence": [],
+      "threads": [
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-ad-001",
+      "type": "adversarial",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون بار که با بابا سر مقاله قهر کردیم، چند هفته باهم حرف نزدیم؟",
+      "question_en": "That time Dad and I stopped speaking over the article — how many weeks did we not talk?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "شما هیچ‌وقت سر مقاله قهر نکردین. مهر ۱۴۰۴ سر ساختار مقاله اصطکاک داشتین — بابا چهار روز جواب outline رو نداد و بعد تو کال هفتگی کل ساختارو زیر سوال برد و تو کلافه شدی — ولی همون هفته راه‌حل پیدا کردی: یه گوگل‌داک مشترک درست کردی که کامنت بذاره، و آخر ماه سه صفحه کامنت گذاشت و کار ادامه پیدا کرد. کال‌های هفتگی هیچ‌وقت قطع نشد.",
+      "key_facts": [
+        "false premise: he and his father never had a قهر (falling-out) over the article — every قهر in the diary is about Paria",
+        "the truth: October 2025 friction over article structure (silence for 4 days, then harsh criticism on the weekly call), resolved the same week via a shared Google Doc for written comments",
+        "collaboration continued: three pages of comments by end of October, weekly calls intact, article progressed into 2026"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-10-16-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "فکر خوبیه. یه گوگل‌داک درست میکنم outline رو میذارم توش، بهش میگم نظراتشو همونجا کامنت کنه بجای تلفن."
+        },
+        {
+          "session_id": "2025-10-31-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "بابا هم بلاخره تو گوگل‌داک کامنت گذاشت"
+        }
+      ],
+      "threads": [
+        "articles-research"
+      ]
+    },
+    {
+      "id": "q-ad-002",
+      "type": "adversarial",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "وقتی آپارتمان رو خریدیم قسط ماهانه‌ش چقدر شد؟",
+      "question_en": "When we bought the apartment, what did the monthly mortgage payment come to?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "شما آپارتمان نخریدین — بعد یه سال و نیم بازدید و حساب‌وکتاب، خرداد ۱۴۰۵ (ژوئن ۲۰۲۶) با پریا تصمیم نهایی رو گرفتین که اجاره بمونین و جدی پس‌انداز کنین. حتی یه اسپردشیت درست کردین به اسم «پروژه پنج ساله». قسطی که حساب کرده بودین (تقریبا دو برابر اجاره) دلیل اصلی همین تصمیم بود.",
+      "key_facts": [
+        "false premise: they never bought an apartment",
+        "the truth: after ~1.5 years of viewings and rent-vs-buy math, they decided in June 2026 to keep renting and save ('اجاره میمونیم و جدی پس‌انداز میکنیم'), starting the 'پروژه پنج ساله' savings spreadsheet",
+        "the deciding factor was that the mortgage payment would be roughly double their current rent"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-10-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "اجاره میمونیم و جدی پس‌انداز میکنیم"
+        },
+        {
+          "session_id": "2026-06-09-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "قسطش میشه تقریبا دو برابر اجاره الانمون"
+        }
+      ],
+      "threads": [
+        "apartment"
+      ]
+    },
+    {
+      "id": "q-ad-003",
+      "type": "adversarial",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "بعد از اینکه آذر کریپتو خریدم چقدر ضرر کردم؟",
+      "question_en": "After I bought crypto in December, how much did I lose?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "تو کریپتو نخریدی. آذر بعد از شام با سیاوش وسوسه شدی و حتی یه اپ صرافی نصب کردی، ولی دو روز بعد دیدی همون کوین پونزده درصد ریخته و تصمیمت رو گفتی: «نه. پس انداز سر جاش میمونه». بعدا اردیبهشت هم گفتی خوشحالی که نرفتی و به جاش سرمایه‌گذاری ماهانه اتوماتیک راه انداختی. پس ضرری در کار نبود — برعکس، جاش یه عادت خوب ساختی.",
+      "key_facts": [
+        "false premise: he never bought crypto",
+        "the truth: tempted in Dec 2025 after dinner with Siavash (even installed an exchange app), but two days later decided firmly against it ('تصمیمم اینه: نه. پس انداز سر جاش میمونه') after the coin dropped 15%",
+        "in May 2026 he explicitly says he is glad he did not buy ('خوشحالم نرفتم') and set up automated monthly index-fund investing instead"
+      ],
+      "evidence": [
+        {
+          "session_id": "2025-12-07-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تصمیمم اینه: نه. پس انداز سر جاش میمونه."
+        },
+        {
+          "session_id": "2026-05-15-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "یادته آذر داشتم وسوسه میشدم برم تو کریپتو؟ خوشحالم نرفتم"
+        }
+      ],
+      "threads": [
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-hb-001",
+      "type": "habit",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "هدفم برای باشگاه هفته‌ای چند بار بود و از کِی شروعش کردم؟",
+      "question_en": "The gym habit — how many times a week was the target, and when did it start?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "هفته‌ای سه بار، و از ۱۶ می ۲۰۲۶ شروع شد. همان روز اولین جلسه را رفتی و باشگاه یک از سه شد.",
+      "key_facts": [
+        "The gym target was three times per week",
+        "It started on 16 May 2026"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-16-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باشگاه هفته‌ای سه بار و تمرین آواز هفته‌ای دو بار"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-002",
+      "type": "habit",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "اولین هفته‌ی عادت‌ها رو کامل بستم؟",
+      "question_en": "Did I complete the first week of the new habits?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "بله. هفته‌ی اول هر دو عادت پر شد: باشگاه سه بار از سه بار و آواز دو بار از دو بار — ۲۳ می ۲۰۲۶ ثبتش کردی.",
+      "key_facts": [
+        "The first week was completed on both habits",
+        "Gym was 3 of 3 and singing 2 of 2"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-23-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باشگاه سه بار از سه بار، آواز دو بار از دو بار"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-003",
+      "type": "habit",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "پیاده‌روی با پریا از کِی شروع شد و هفته‌ای چند بار قرارش بود؟",
+      "question_en": "The walks with Paria — when did they start and how many per week?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "از ۶ ژوئن ۲۰۲۶، هفته‌ای چهار بار، شب‌ها ساعت هشت و نیم. پیشنهاد خانم مشاور زوج‌درمانی بود.",
+      "key_facts": [
+        "The walks started on 6 June 2026",
+        "The target was four times per week",
+        "It was the couples counsellor's suggestion"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پیاده‌روی با پریا هفته‌ای چهار بار، شبا هشت و نیم"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "paria-fights"
+      ]
+    },
+    {
+      "id": "q-hb-004",
+      "type": "habit",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "بیشترین روزهای پیاپی آلمانی چند روز بود؟",
+      "question_en": "What was my longest streak of consecutive German days?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "پنج روز پیاپی، از ۶ تا ۱۰ ژوئن ۲۰۲۶. بعد از آن یازدهم و دوازدهم را نرفتی و زنجیره پاره شد.",
+      "key_facts": [
+        "The longest German streak was five consecutive days",
+        "It ran from 6 to 10 June 2026"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "پنج روز پیاپی رفته بودم، از ششم ژوئن تا دهم"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-005",
+      "type": "knowledge-update",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "آلمانی رو الان دارم انجام میدم؟",
+      "question_en": "Am I still doing German?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "نه. آلمانی را رها کردی؛ آخرین جلسه‌ات ۱۳ ژوئیه ۲۰۲۶ بود و مجموعاً شانزده روز شد. تا ۲۵ ژوئیه که جمع‌بندی نوشتی دیگر هیچ جلسه‌ای نبود.",
+      "key_facts": [
+        "German has been abandoned",
+        "The last German session was 13 July 2026",
+        "The total was sixteen days"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-06-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آلمانی روزی یک جلسه، هر روز صبح هفت و نیم"
+        },
+        {
+          "session_id": "2026-07-25-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آخرین جلسه‌م سیزدهم ژوئیه بود"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-006",
+      "type": "pattern",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "از این عادت‌ها کدوم رو بهتر از همه نگه داشتم و چرا؟",
+      "question_en": "Which habit did I keep best, and why?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "آواز. تقریباً هر هفته دو از دو بود — ده هفته پشت‌سرهم جز یک هفته — و خودت ۴ ژوئیه نوشتی که بهترین عادتی است که نگه داشتی. علتش هم همان چیزی است که ۲۷ ژوئن نوشتی: عادتی که به یک قرار بیرونی وصل است دوام می‌آورد؛ آواز به کلاس هفتگی گره خورده بود.",
+      "key_facts": [
+        "Singing was the best-kept habit",
+        "It was 2 of 2 in nearly every week",
+        "Habits tied to an outside commitment survived, ones that depended only on him did not"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-07-04-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "آواز تنها عادتیه که تقریبا هر هفته کامل بوده"
+        },
+        {
+          "session_id": "2026-06-27-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "اون دوتایی که با یکی دیگه یا با یه کلاس گره خورده‌ن موندن"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-007",
+      "type": "commitment",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "انتقال ماهانه پس‌انداز چند ماه پشت‌سرهم انجام شد؟",
+      "question_en": "How many consecutive months did the savings transfer run?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "سه ماه پشت‌سرهم و بی‌قطعی: می، ژوئن و ژوئیه ۲۰۲۶. از ۲۵ می تنظیمش کردی و چون خودکار است هیچ ماهی از دست نرفت.",
+      "key_facts": [
+        "The savings transfer ran for three consecutive months",
+        "The months were May, June and July 2026"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-07-25-a",
+          "message_indices": [
+            4
+          ],
+          "quote": "سه ماه پشت‌سرهم بی‌قطعی انجام شد"
+        },
+        {
+          "session_id": "2026-05-30-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "انتقال ماهانه پس‌انداز رو بیست‌وپنجم می تنظیم کردم"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "money-investing"
+      ]
+    },
+    {
+      "id": "q-hb-008",
+      "type": "habit",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "بدترین هفته‌ی باشگاه کدوم بود و چند بار رفتم؟",
+      "question_en": "Which was my worst gym week, and how many times did I go?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "هفته‌ی منتهی به ۲۷ ژوئن ۲۰۲۶: یک بار از سه بار، که خودت نوشتی بدترین هفته‌اش از روز اول بوده. بعد از آن هم باشگاه روی هفته‌ای یک بار ماند.",
+      "key_facts": [
+        "The worst gym week was the week of 27 June 2026",
+        "He went once out of three"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-27-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "باشگاه این هفته یک از سه. بدترین هفته‌ش از روز اول"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-009",
+      "type": "habit",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "چند تا عادت رو همزمان فعال داشتم و کدوم‌ها بودن؟",
+      "question_en": "How many habits did I have running at once, and which ones?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "چهار تا، از ۶ ژوئن ۲۰۲۶: باشگاه، آواز، آلمانی و پیاده‌روی. انتقال ماهانه پس‌انداز هم بود ولی خودکار بود و تصمیم روزانه نمی‌خواست.",
+      "key_facts": [
+        "Four habits were running at once",
+        "They were gym, singing, German and the walks"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-06-a",
+          "message_indices": [
+            3
+          ],
+          "quote": "چهار عادت فعال داری: باشگاه، آواز، آلمانی، پیاده‌روی"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-011",
+      "type": "habit",
+      "difficulty": "easy",
+      "query_date": "2026-07-28",
+      "question_fa": "تمرین آواز رو هفته‌ای چند بار و چه ساعتی انجام میدادم؟",
+      "question_en": "The singing practice — how many times a week and at what time?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "هفته‌ای دو بار، بعد شام ساعت هفت. خودت ۲۳ می نوشتی که همین ساعت ثابت چیزی بود که کار را جلو برد.",
+      "key_facts": [
+        "The singing target was twice per week",
+        "It was practised after dinner at seven"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-05-16-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "تمرین آواز هفته‌ای دو بار"
+        },
+        {
+          "session_id": "2026-05-23-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "آواز رو گذاشتم بعد شام، ساعت هفت"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-012",
+      "type": "habit",
+      "difficulty": "hard",
+      "query_date": "2026-07-28",
+      "question_fa": "اون هفته‌ای که هیچ عادتی کامل نشد کدوم بود و چی شد؟",
+      "question_en": "Which week was it that no habit got completed, and what happened?",
+      "time_scope": null,
+      "answerable": true,
+      "answer_fa": "هفته‌ی منتهی به ۱۳ ژوئن ۲۰۲۶. باشگاه دو از سه، آواز یک از دو، پیاده‌روی سه از چهار، و زنجیره‌ی پنج‌روزه‌ی آلمانی هم همان هفته پاره شد — هیچ‌کدام پر نشد.",
+      "key_facts": [
+        "The week ending 13 June 2026 had no completed habit",
+        "Gym was 2 of 3, singing 1 of 2 and the walks 3 of 4",
+        "The five-day German streak broke that week"
+      ],
+      "evidence": [
+        {
+          "session_id": "2026-06-13-a",
+          "message_indices": [
+            2
+          ],
+          "quote": "یعنی هیچ‌کدوم این هفته پر نشد"
+        },
+        {
+          "session_id": "2026-06-13-a",
+          "message_indices": [
+            0
+          ],
+          "quote": "زنجیره آلمانی پاره شد"
+        }
+      ],
+      "threads": [
+        "habit-tracking",
+        "failed-ambitions"
+      ]
+    },
+    {
+      "id": "q-hb-010",
+      "type": "abstention",
+      "difficulty": "medium",
+      "query_date": "2026-07-28",
+      "question_fa": "عادت مدیتیشن صبحگاهی رو از کِی شروع کردم و چند وقت نگهش داشتم؟",
+      "question_en": "When did I start the morning meditation habit and how long did I keep it?",
+      "time_scope": null,
+      "answerable": false,
+      "answer_fa": "در دفترچه چیزی درباره‌ی عادت مدیتیشن نیست. عادت‌های ثبت‌شده باشگاه، آواز، آلمانی، پیاده‌روی با پریا و انتقال ماهانه پس‌انداز هستند.",
+      "key_facts": [
+        "The diary contains no meditation habit"
+      ],
+      "evidence": [],
+      "threads": [
+        "habit-tracking"
+      ]
+    }
+  ]
+}

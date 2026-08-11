@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.0.0"
+version = "0.1.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -12,6 +12,10 @@ dependencies = [
   # 0.3.x. That was only ever a problem while this code shared an environment
   # with Lodestar's langchain-1.x brain; it no longer does. Everything used here
   # — BaseChatModel and .invoke() — exists in both majors.
+  # `langchain` itself, not only -core: `init_chat_model` lives in
+  # langchain.chat_models. It arrives transitively via langchain-community, and
+  # an import that works by accident is one dependency resolution away from not.
+  "langchain<1",
   "langchain-core",
   "langchain-openai<1",
   "langchain-community<0.4",

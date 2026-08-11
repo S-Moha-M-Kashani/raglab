@@ -65,6 +65,12 @@ dated snapshot in `src/raglab/baseline.py` rather than a live import — **if
 Lodestar's retrieval changes, this repository will not notice.** The same applies
 to `textnorm.py`, which is a vendored copy. Both carry the commit they came from.
 
+The snapshot was checked rather than assumed: on 2026-08-11 both labs were run
+side by side and their `/api/options` compared, and the preset came back
+value-for-value identical across all four groups, as did the model roles, model
+lists, modes, embedders, chunkers and metrics. The only intended differences were
+the label — which now carries its own date — and the two storage paths.
+
 Two things were lost in the move and are worth knowing about:
 
 - The board's own lab view is gone. There was a second frontend over this API

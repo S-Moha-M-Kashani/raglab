@@ -440,6 +440,36 @@ def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     assert 'retrieval.summary_scope' in options['dependencies']
 
 
+# This is a unit test (reads the panel's own source).
+def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
+    """The rules are served, but resolving them happens per keystroke in the
+    browser without a round trip — so the resolution exists twice and the two
+    copies must agree.
+
+    This is what the browser caught that the Python tests could not: with a
+    single-level resolver, `graph_knn` asked only whether the edge source builds
+    kNN edges. The default source does, so the control stayed live under a
+    grouping that builds no graph at all — a number offered for a stage that
+    never runs, which is the exact failure the whole dependency table exists to
+    prevent.
+    """
+    from pathlib import Path
+    panel = (Path(__file__).resolve().parents[1] / 'src' / 'raglab' / 'static'
+             / 'index.html').read_text(encoding='utf-8')
+    assert 'function dependencyState(' in panel, (
+        'the panel must resolve chains, not just single rules')
+    assert 'resolve(rule.field' in panel, 'the resolution has to be transitive'
+
+    # And the rule it exists for, from the service side.
+    kmeans = config.dependency_state(
+        LabConfig(index=IndexConfig(hierarchy='kmeans')).to_dict())
+    assert not kmeans['index.graph_knn']['enabled']
+    assert kmeans['index.graph_knn']['reason'] == \
+        kmeans['index.graph_source']['reason'], (
+            'a control killed by its owner reports the owner\'s reason — its '
+            'own would describe a condition that is not why it is dead')
+
+
 # This is a unit test.
 def test_the_graph_methods_are_named_as_chunk_graphs_and_not_as_graphrag():
     """A reader who sees `leiden` on a leaderboard row will think GraphRAG

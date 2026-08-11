@@ -276,6 +276,13 @@ p.explain {
   font: 700 .62rem/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
   color: var(--step);
 }
+/* The same tag used to head a group of knobs *inside* a card, where it needs a
+   rule above it to say where one group of controls ends and the next begins —
+   a card with two subjects and no divider reads as one long list. */
+.group-tag {
+  margin: 1.1rem 0 .5rem; padding-top: .7rem;
+  border-top: 1px solid var(--rule-soft);
+}
 
 /* ── readings ────────────────────────────────────────────────────────────── */
 .scores { display: grid; gap: .55rem;
@@ -486,7 +493,7 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
          whatever this says. Every control here is greyed out until a grouping
          is chosen, by the served dependency rules rather than by a rule
          written twice. -->
-    <div class="rag-step-tag" data-step="index">Summary hierarchy</div>
+    <div class="step-tag group-tag" data-step="index">Summary hierarchy</div>
     <div class="field">
       <label>Grouping</label>
       <select id="hierarchy"></select>
@@ -544,7 +551,7 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <!-- Live only when the index above holds summaries — what retrieval may do
          with them is decided by whether the build wrote any. Outside the index
          fingerprint, so all four scopes sweep free against a single build. -->
-    <div class="rag-step-tag" data-step="retrieval">Summaries</div>
+    <div class="step-tag group-tag" data-step="retrieval">Summaries</div>
     <div class="field">
       <label>Summary scope</label>
       <select id="summary_scope"></select>
@@ -1102,21 +1109,48 @@ function readConfig() {
 // and the Inspector grey out the same knobs for the same stated reason.
 // Editing a knob the pipeline ignores is how you spend an afternoon tuning a
 // number that was never read.
+// A control whose owner is itself dead is dead, and it shows its owner's reason.
+// This mirrors `config.dependency_state` deliberately: the *rules* are served,
+// but resolving them has to happen per keystroke without a round trip, so the
+// resolution exists twice and the two copies must agree — `test_the_panel_
+// resolves_a_dependency_chain_the_way_the_service_does` is what holds them
+// together. Without the chain, `graph_knn` asked only whether the edge source
+// builds kNN edges, and the default source does, so it stayed live under a
+// grouping that builds no graph at all.
+function dependencyState(rules, cfg) {
+  const state = {};
+  const resolve = (path, seen) => {
+    if (state[path]) return state[path];
+    const rule = rules[path];
+    const [group, name] = rule.field.split('.');
+    const current = (cfg[group] || {})[name];
+    let enabled = rule.on_true ? Boolean(current)
+      : (rule.on || []).indexOf(current) !== -1;
+    let reason = enabled ? '' : rule.reason;
+    if (enabled && rules[rule.field] && seen.indexOf(path) === -1) {
+      const above = resolve(rule.field, seen.concat([path]));
+      if (!above.enabled) { enabled = false; reason = above.reason; }
+    }
+    state[path] = { enabled, reason };
+    return state[path];
+  };
+  for (const path of Object.keys(rules)) resolve(path, []);
+  return state;
+}
+
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
   const cfg = readConfig();
-  for (const [path, rule] of Object.entries(rules)) {
+  const state = dependencyState(rules, cfg);
+  for (const path of Object.keys(rules)) {
     const el = controlFor(path);
     if (!el) continue;
-    const [group, name] = rule.field.split('.');
-    const current = (cfg[group] || {})[name];
-    const enabled = rule.on_true ? Boolean(current)
-      : (rule.on || []).indexOf(current) !== -1;
+    const { enabled, reason } = state[path];
     el.disabled = !enabled;
     const holder = el.closest('div') || el.parentElement;
     if (!holder) continue;
     holder.classList.toggle('rag-field-off', !enabled);
-    holder.title = enabled ? '' : 'Disabled because ' + rule.reason;
+    holder.title = enabled ? '' : 'Disabled because ' + reason;
     let note = holder.querySelector('.rag-when-dep');
     if (!enabled) {
       if (!note) {
@@ -1124,7 +1158,7 @@ function applyDependencies() {
         note.className = 'rag-when rag-when-dep';
         holder.appendChild(note);
       }
-      note.textContent = rule.reason;
+      note.textContent = reason;
     } else if (note) {
       note.remove();
     }

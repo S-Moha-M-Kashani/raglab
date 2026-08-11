@@ -24,8 +24,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import (embedding, evaluate, explain, ledger, metrics, models, pipeline,
-               ragas_eval, retrieval)
+from . import (credentials, embedding, evaluate, explain, ledger, metrics,
+               models, pipeline, ragas_eval, retrieval)
 from .config import (ANSWERERS, BALANCES, CHUNKERS, DEPENDENCIES,
                      DIFFICULTIES, EMBEDDERS, GRADERS, PRODUCTION_CONFIG,
                      RERANKERS, RETRIEVERS, ROOT, RUNS_DIR, STEPS, LabConfig,
@@ -186,7 +186,19 @@ class Jobs:
 
 
 def create_app() -> FastAPI:
-    settings = load_lab_settings()
+    boot_settings = load_lab_settings()
+
+    def settings_now():
+        """The boot settings, carrying whatever key the panel has since typed.
+
+        Every route that builds a run reads through here rather than closing
+        over the boot settings, so a credential entered a second ago is in force
+        without a restart — and so exactly one place decides which key wins.
+        `LabSettings` is frozen on purpose, so this returns a new one rather
+        than mutating the old."""
+        return credentials.apply(boot_settings)
+
+    settings = boot_settings
     diary = load_diary()
     ground_truth = load_ground_truth()
     registry = IndexRegistry(settings, diary)
@@ -211,6 +223,7 @@ def create_app() -> FastAPI:
         """Everything the panel needs to render itself, including what is
         actually installed — a dropdown offering a reranker whose wheel is
         missing is a bug report waiting to happen."""
+        live = settings_now()
         return {
             'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
             'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
@@ -240,17 +253,17 @@ def create_app() -> FastAPI:
             # What each embedder can actually read, and which real models are
             # offerable — the choice that decides whether a run on a Farsi corpus
             # measures anything at all.
-            'embedder_hints': embedding.embedder_hints(settings),
-            'embed_models': embedding.embed_model_catalogue(settings),
+            'embedder_hints': embedding.embedder_hints(live),
+            'embed_models': embedding.embed_model_catalogue(live),
             # One dropdown per LLM stage, and a sentence per knob. Both come from
             # here rather than the frontend so a new strategy or a new model
             # appears in the panel without touching app.js.
-            'models': models.catalogue(settings),
+            'models': models.catalogue(live),
             'model_roles': [role.as_dict() for role in models.ROLES],
             # The mode dropdown: local vs OpenRouter, each with the backend it
             # runs on and the exact per-stage preset picking it applies. Served
             # so neither panel keeps a preset of its own to drift.
-            'modes': models.mode_catalogue(settings),
+            'modes': models.mode_catalogue(live),
             # What every number on the results screen means: its label, the step
             # it grades, the exact arithmetic, and what computed it. Served rather
             # than kept in the frontend so a metric's name cannot drift from its
@@ -275,19 +288,23 @@ def create_app() -> FastAPI:
                 # can run right now instead of finding out during a build.
                 'sentence_transformers': embedding.sentence_transformers_available(),
                 'cross_encoder': retrieval.cross_encoder_available(
-                    settings.cross_encoder_model),
-                'cross_encoder_model': settings.cross_encoder_model,
-                'fastembed_model': settings.fastembed_model,
+                    live.cross_encoder_model),
+                'cross_encoder_model': live.cross_encoder_model,
+                'fastembed_model': live.fastembed_model,
                 # `llm` is "a real model is reachable", not "a key exists": with
                 # RAGLAB_LLM=ollama every stage runs on this machine and there is
                 # no key at all. The provider is served beside it because the
                 # badge has to name where the numbers came from — a run on the
                 # fake provider is not a cheaper run, it is not a run.
-                'llm': settings.llm_ready,
-                'llm_provider': settings.provider,
-                'llm_model': settings.llm_model,
-                'ollama_base_url': settings.ollama_base_url,
-                'ragas': ragas_eval.availability(settings).as_dict(),
+                'llm': live.llm_ready,
+                'llm_provider': live.provider,
+                'llm_model': live.llm_model,
+                'ollama_base_url': live.ollama_base_url,
+                'ragas': ragas_eval.availability(live).as_dict(),
+                # Whether a key is in force, a masked tail of it, and which of
+                # the two ways in put it there — never the key. This is what the
+                # browser reads on every visit.
+                'openrouter_key': credentials.state(live),
                 # Where an experiment lives, and the two places its account
                 # lands. Stated positively because the panel used to badge a
                 # Chroma database here: a reader needs to know the index is
@@ -349,7 +366,7 @@ def create_app() -> FastAPI:
         cfg = LabConfig.from_dict(payload)
         # The mode dropdown's backend override, applied before the screen so
         # the settings that refuse a model are the settings that would run it.
-        run_settings = settings_for_provider(settings,
+        run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         problems = cfg.validate() + models.provider_problems(cfg, run_settings)
         if problems:
@@ -393,7 +410,7 @@ def create_app() -> FastAPI:
         same selection arguments as an evaluation on purpose; retrieval shown
         for questions the numbers were never about would mislead."""
         cfg = LabConfig.from_dict(payload)
-        run_settings = settings_for_provider(settings,
+        run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         problems = cfg.validate() + models.provider_problems(cfg, run_settings)
         if problems:
@@ -480,7 +497,7 @@ def create_app() -> FastAPI:
         # scoring everything 0.5, the difference between the two routes would
         # be a 400 naming the model against a bare 500. The provider override
         # is applied the same way too, for the same reason.
-        run_settings = settings_for_provider(settings,
+        run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         problems = cfg.validate() + models.provider_problems(cfg, run_settings)
         if problems:
@@ -540,6 +557,30 @@ def create_app() -> FastAPI:
              'answerable': q['answerable'],
              'evidence_sessions': [ev['session_id'] for ev in q['evidence']]}
             for q in ground_truth['questions'][:limit]]}
+
+    @app.post('/api/credentials')
+    def set_credentials(payload: dict):
+        """Take the OpenRouter key from the panel, for this process only.
+
+        A route rather than a config field: a credential is not part of an
+        experiment's configuration, must not be recorded on a run, and would be
+        posted with every job if it lived in `LabConfig`. It answers with the
+        same state `/api/options` reports — set-ness, source and a masked tail —
+        so the panel renders one shape however the key arrived."""
+        try:
+            credentials.set_key(payload.get('api_key') or '')
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        return credentials.state(settings_now())
+
+    @app.delete('/api/credentials')
+    def clear_credentials():
+        """Forget the key this panel supplied. Never unsets the environment's
+        own: a lab started with OPENROUTER_API_KEY in its shell ends up exactly
+        as it started, and the reported source is what says which of those two
+        this button can reach."""
+        credentials.clear()
+        return credentials.state(settings_now())
 
     @app.get('/api/health')
     def health():

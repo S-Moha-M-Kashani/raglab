@@ -320,7 +320,9 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 /* The two widest tables scroll inside themselves rather than dragging the whole
    page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
    neither can honestly be narrowed: every column is a knob you compare rows on. */
-#board, #experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
+#board .board-group { overflow-x: auto; margin-bottom: 1.2rem; }
+#board .board-group h3 { margin-top: .2rem; }
+#experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
 #rows { max-height: 26rem; overflow-y: auto; }
 
 .muted { color: var(--ink-soft); }
@@ -345,6 +347,8 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
 .prose b { color: var(--ink); }
 .prose code { font: .72rem var(--mono); }
 #indexInfo, #retrieveInfo { margin-top: .6rem; font-size: .74rem; color: var(--ink-soft); }
+#datasetInfo, #importInfo { margin-top: .3rem; font-size: .72rem; line-height: 1.45; }
+#dataset-file { font-size: .74rem; padding: .25rem; }
 #experimentDetail pre, #jobBox pre {
   white-space: pre-wrap; font: 11.5px/1.5 var(--mono); max-height: 30rem;
   overflow: auto; background: var(--plate); padding: .5rem; border-radius: 3px;
@@ -452,6 +456,20 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
   <section class="card" id="card-index" data-step="index">
     <div class="card-head"><span class="num">1</span><h2 id="head-index">Index</h2></div>
     <p class="card-note" id="note-index"></p>
+    <!-- Which corpus, first: it decides what every knob below it operates on,
+         and a run against the wrong one is not a worse measurement but a
+         different question. The list is served (/api/options -> datasets), so
+         the panel cannot offer a corpus the service cannot load. -->
+    <div class="field">
+      <label>Dataset</label>
+      <select id="dataset"></select>
+      <div id="datasetInfo" class="muted"></div>
+    </div>
+    <div class="field">
+      <label>Import a dataset <span class="muted">· one JSON file</span></label>
+      <input type="file" id="dataset-file" accept="application/json,.json">
+      <div id="importInfo" class="muted"></div>
+    </div>
     <div class="field">
       <label>Chunking strategy</label>
       <select id="chunker"></select>
@@ -654,7 +672,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
       answer relevancy, context precision and context recall. Every other column
       is reported and none of them votes; runs that could not measure all four
       are unranked and sort last. Click any header to sort by it instead, again
-      to reverse, a third time to come back to this order.</p>
+      to reverse, a third time to come back to this order.
+      <b>One table per dataset</b>: a decision score is a mean over the
+      questions of one corpus, so rows are never ranked across corpora.</p>
     <div id="board"></div>
   </section>
 
@@ -771,6 +791,62 @@ function fillModels() {
   for (const roles of Object.values(groups)) spare.push(...roles);
   $('modelRoles').innerHTML = spare.map(row).join('');
 }
+
+// The corpora this lab can be pointed at. The built-in one is offered as '' —
+// the value every run already recorded carries, and the one a fingerprint is
+// computed without, so choosing it changes nothing about an index that exists.
+function fillDatasets() {
+  const found = OPTIONS.datasets || [];
+  $('dataset').innerHTML = found.map((d) =>
+    `<option value="${escapeHtml(d.source === 'builtin' ? '' : d.id)}">`
+    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.sessions} `
+    + `sessions · ${d.questions} questions`
+    + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
+  $('dataset').onchange = describeDataset;
+}
+
+const datasetOf = (id) => (OPTIONS.datasets || []).find(
+  (d) => (d.source === 'builtin' ? '' : d.id) === id);
+
+// One line about the corpus in force, in the header where the corpus has always
+// been described — switching datasets has to move that line, or the page says
+// 167 sessions while measuring twenty.
+function describeDataset() {
+  const found = datasetOf($('dataset').value);
+  if (!found) return;
+  const period = found.period && found.period.from
+    ? `${found.period.from} → ${found.period.to} · ` : '';
+  $('corpus').textContent =
+    `${found.sessions} sessions · ${found.messages} messages · ${period}`
+    + `${found.questions} questions`
+    + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
+  $('datasetInfo').textContent = found.description;
+}
+
+// Import: the file is read here and posted as JSON, so the service checks it
+// against the contract rather than the browser guessing. Every problem comes
+// back at once — fixing a corpus is a slow loop if each attempt reports one
+// broken quote out of nine.
+$('dataset-file').onchange = async () => {
+  const file = $('dataset-file').files[0];
+  if (!file) return;
+  $('importInfo').textContent = `reading ${file.name}…`;
+  try {
+    const payload = JSON.parse(await file.text());
+    const added = await api('/api/datasets', payload);
+    await refreshOptions();
+    $('dataset').value = added.id;
+    describeDataset();
+    $('importInfo').innerHTML =
+      `<b>${escapeHtml(added.name)}</b> imported · ${added.sessions} sessions, `
+      + `${added.questions} questions. Build the index to measure against it.`;
+  } catch (e) {
+    $('importInfo').innerHTML =
+      `<div class="note">${escapeHtml(e.message)}</div>`;
+  } finally {
+    $('dataset-file').value = '';
+  }
+};
 
 // The mode dropdown: '' follows whatever backend the lab booted with; a mode
 // applies its served preset onto the controls (the choices stay editable) and
@@ -893,6 +969,7 @@ function readConfig() {
   const cfg = {
     label: $('label').value,
     index: {
+      dataset: $('dataset').value,
       chunker: $('chunker').value, chunk_chars: +$('chunk_chars').value,
       overlap: +$('overlap').value, contextual: $('contextual').checked,
       embedder: $('embedder').value, embed_model: $('embed_model').value,
@@ -967,6 +1044,7 @@ function controlFor(path) {
 }
 
 function applyDefaults(d) {
+  $('dataset').value = d.index.dataset || '';
   $('chunker').value = d.index.chunker; $('chunk_chars').value = d.index.chunk_chars;
   $('overlap').value = d.index.overlap; $('contextual').checked = d.index.contextual;
   $('embedder').value = d.index.embedder;
@@ -1048,6 +1126,7 @@ async function boot() {
   OPTIONS = await api('/api/options');
   const o = OPTIONS;
   titleSteps();
+  fillDatasets();
   fill($('chunker'), o.chunkers, CHUNKER_HELP);
   fillEmbedders();
   fill($('retriever'), o.retrievers);
@@ -1060,6 +1139,7 @@ async function boot() {
   fillModes();
   applyDefaults(startingConfig(o.defaults));
   applyDependencies();
+  describeDataset();
   decorateExplainers();
   // One listener for the whole panel rather than one per control: a knob added to
   // the markup is remembered by being a control, not by being registered here.
@@ -1072,11 +1152,6 @@ async function boot() {
   for (const event of ['change', 'input']) {
     document.addEventListener(event, () => remember(SAVED_CONFIG, readConfig()));
   }
-
-  const c = o.corpus;
-  $('corpus').textContent =
-    `${c.sessions} sessions · ${c.messages} messages · ${c.from} → ${c.to} · ` +
-    `${c.questions} questions · asked as of ${c.query_date}`;
 
   renderCapabilities();
 
@@ -1095,11 +1170,13 @@ async function refreshOptions() {
   const mode = $('mode').value;
   OPTIONS = await api('/api/options');
   fillEmbedders();
+  fillDatasets();
   fillModels();
   fillModes();
   $('mode').value = mode;
   applyDefaults(cfg);
   applyDependencies();
+  describeDataset();
   renderCapabilities();
 }
 
@@ -1473,14 +1550,24 @@ async function loadBoard() {
     if (y == null) return -1;
     return y - x;
   });
-  renderTable('board',
-    ['run', 'label', 'chunker', 'embedder', 'retriever', 'reranker',
+  // One table per dataset, never one ranking across them. A decision score is a
+  // mean over the questions of one corpus; ranking a run on the Farsi diary
+  // against one on the support tickets would be comparing two different
+  // questions and calling the difference a result. `leaderboard.py` groups the
+  // same way, one key finer.
+  const byDataset = new Map();
+  for (const r of ranked) {
+    const key = r.dataset || 'diary-fa';
+    if (!byDataset.has(key)) byDataset.set(key, []);
+    byDataset.get(key).push(r);
+  }
+  const head = ['run', 'label', 'chunker', 'embedder', 'retriever', 'reranker',
       // No arrow on the header: an indicator that cannot move becomes a lie the
       // moment you sort by another column. Which column the ranking is on is
       // stated in prose under the heading, where it stays true.
       'n', 'ragas_decision', 'faith', 'ans rel', 'ctx prec', 'ctx recall',
-      'headline', 'recall', 'quote', 'nDCG', 'abstain', 's'],
-    ranked.map((r) => {
+      'headline', 'recall', 'quote', 'nDCG', 'abstain', 's'];
+  const cells = (rows) => rows.map((r) => {
       const i = r.config.index, q = r.config.retrieval, s = r.summary.overall || {};
       const g = r.ragas || {};
       return [`<a href="#" onclick="showRun('${r.run_id}');return false">${r.run_id}</a>`,
@@ -1500,7 +1587,20 @@ async function loadBoard() {
         fmt(s.headline), fmt(s.recall), fmt(s.quote_recall), fmt(s.ndcg),
         fmt(s.abstained_correctly),
         Math.round(r.seconds)];
-    }));
+    });
+  $('board').innerHTML = '';
+  for (const [dataset, rows] of byDataset) {
+    const known = (OPTIONS.datasets || []).find((d) => d.id === dataset);
+    const section = document.createElement('div');
+    section.className = 'board-group';
+    section.innerHTML =
+      `<h3>${escapeHtml(known ? known.name : dataset)} `
+      + `<span class="muted">· ${rows.length} run${rows.length === 1 ? '' : 's'}`
+      + `${known ? ' · ' + escapeHtml(known.language || '') : ''}</span></h3>`
+      + table(head, cells(rows));
+    $('board').appendChild(section);
+    SortTable.make(section.querySelector('table'));
+  }
 }
 
 // Every experiment this lab has finished, from raglab.db — the one thing here

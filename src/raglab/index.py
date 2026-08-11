@@ -164,16 +164,34 @@ class IndexRegistry:
     what make a sweep of retrieval settings instant — and it is now the *only*
     thing that does: when the process ends, so does every index it built."""
 
-    def __init__(self, settings: LabSettings, diary: dict):
+    def __init__(self, settings: LabSettings, diary: dict | None = None):
         self.settings = settings
+        # The corpus a config with no dataset gets. A caller that already holds
+        # one passes it — the suite does, and so does a service that read the
+        # fixture at boot; anything else is loaded per dataset below.
         self.diary = diary
         self._indexes: dict[str, LabIndex] = {}
+
+    def corpus_for(self, dataset: str = '') -> dict:
+        """The sessions one config indexes.
+
+        Resolved here rather than at construction because a dataset is a field
+        of `IndexConfig`: the registry holds indexes over several corpora at
+        once, keyed by a fingerprint that includes which corpus — so switching
+        datasets in the panel builds a new index rather than answering questions
+        about one corpus out of another."""
+        if not dataset:
+            if self.diary is not None:
+                return self.diary
+            dataset = ''
+        from . import datasets
+        return datasets.load(dataset)[0]
 
     def get(self, cfg: IndexConfig, progress=None, force: bool = False) -> LabIndex:
         key = cfg.normalized().fingerprint()
         if force or key not in self._indexes:
-            self._indexes[key] = LabIndex.build(cfg, self.diary, self.settings,
-                                                progress=progress,
+            self._indexes[key] = LabIndex.build(cfg, self.corpus_for(cfg.dataset),
+                                                self.settings, progress=progress,
                                                 )
         else:
             # The one form of reuse that still exists, reported where the panel

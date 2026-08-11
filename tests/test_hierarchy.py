@@ -387,6 +387,59 @@ def test_every_hierarchy_control_is_dead_until_it_means_something():
     assert kmeans['index.granularity']['enabled']
 
 
+# This is an integration test (real evaluation, offline embedder, fake LLM).
+def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
+    """The field the 2026-07-31 post-mortem had to be reconstructed by hand to
+    get. "The hierarchy was configured" and "the hierarchy was retrieved" are
+    different facts, and a row that scores flat is uninterpretable without the
+    second."""
+    from raglab import evaluate
+    ground_truth = load_ground_truth()
+    registry = IndexRegistry(LAB_SETTINGS, diary)
+    result = evaluate.run_eval(
+        registry, ground_truth,
+        LabConfig(index=IndexConfig(**LEAVES, hierarchy='metadata'),
+                  retrieval=RetrievalConfig(reranker='none', summary_boost=20.0)),
+        LAB_SETTINGS, limit=4, ragas_mode='off')
+    assert all('n_summaries' in row for row in result.rows)
+    assert sum(row['n_summaries'] for row in result.rows) > 0, (
+        'a boosted metadata hierarchy that reached no context would make this '
+        'metric untestable, not merely unused')
+    assert 'n_summaries' in result.summary['overall']
+
+
+# This is an integration test (FastAPI TestClient).
+def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
+    """A 400 naming what to install, not a 500 from an import three frames
+    down. Both run routes already apply one screen; a build applies the half of
+    it that describes what gets stored."""
+    from fastapi.testclient import TestClient
+
+    from raglab import server
+    monkeypatch.setattr(hierarchy, 'hierarchy_available',
+                        lambda name: name != 'leiden')
+    client = TestClient(server.create_app())
+    response = client.post('/api/indexes',
+                           json={'index': {'hierarchy': 'leiden'}})
+    assert response.status_code == 400
+    assert 'graph-index' in response.json()['detail']
+
+
+# This is an integration test (FastAPI TestClient).
+def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
+    """Two frontends holding their own copy of an option list is two frontends
+    that will disagree about what the lab can do."""
+    from fastapi.testclient import TestClient
+
+    from raglab import server
+    options = TestClient(server.create_app()).get('/api/options').json()
+    assert options['hierarchies'] == list(HIERARCHIES)
+    assert options['summary_scopes'] == list(config.SUMMARY_SCOPES)
+    assert options['summarizers'] == list(config.SUMMARIZERS)
+    assert options['hierarchy_support']['louvain']['available'] is True
+    assert 'retrieval.summary_scope' in options['dependencies']
+
+
 # This is a unit test.
 def test_the_graph_methods_are_named_as_chunk_graphs_and_not_as_graphrag():
     """A reader who sees `leiden` on a leaderboard row will think GraphRAG

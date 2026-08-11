@@ -235,7 +235,18 @@ function chunkCell(candidate) {
   // reveal: sorting on what this cell contains would sort every row by its own
   // chunk twice over. The preview is what the reader sees, so it is what the
   // column sorts by.
+  // A summary row says so, in the index ink, before its text: it is a different
+  // kind of thing from a leaf — written by the build rather than said by the
+  // diarist — and reading a group card as a diary entry is the one
+  // misinterpretation this table can cause. The badge names the group so two
+  // rows from one community are recognisable as that.
+  const badge = candidate.layer === 'summary'
+    ? `<span class="layer-badge" data-step="index" title="a summary this build `
+      + `wrote over ${candidate.members} chunks — not the diarist's own words">`
+      + `L${candidate.level} ${escapeHtml(candidate.group_id || '')} `
+      + `· ${candidate.members}</span> ` : '';
   return `<td class="chunk-cell" data-sort="${escapeHtml(preview.slice(0, 60))}">`
+    + badge
     + `<span class="chunk-preview" dir="rtl" tabindex="0">`
     + `${escapeHtml(preview.slice(0, 60))}${preview.length > 60 ? '…' : ''}</span>`
     + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}${footnote}</div></td>`;

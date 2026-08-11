@@ -27,10 +27,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import (credentials, datasets, embedding, evaluate, explain, ledger,
                metrics, models, pipeline, ragas_eval, retrieval)
 from .config import (ANSWERERS, BALANCES, CHUNKERS, DEPENDENCIES,
-                     DIFFICULTIES, EMBEDDERS, GRADERS, PRODUCTION_CONFIG,
-                     RERANKERS, RETRIEVERS, ROOT, RUNS_DIR, STEPS, LabConfig,
-                     load_lab_settings, settings_for_provider)
+                     DIFFICULTIES, EMBEDDERS, GRADERS, GRAPH_SOURCES,
+                     HIERARCHIES, PRODUCTION_CONFIG, RERANKERS, RETRIEVERS,
+                     ROOT, RUNS_DIR, STEPS, SUMMARIZERS, SUMMARY_SCOPES,
+                     LabConfig, load_lab_settings, settings_for_provider)
 from .corpus import load_diary, load_ground_truth
+from . import hierarchy
 from .index import IndexRegistry, _lab_llm
 from .present import chunks_by_session, mark_gold
 
@@ -240,6 +242,18 @@ def create_app() -> FastAPI:
             'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
             'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
             'graders': list(GRADERS), 'answerers': list(ANSWERERS),
+            # The summary hierarchy: how chunks are grouped, what the graph's
+            # edges are, how a group becomes text, and what retrieval may then
+            # do with the rows that were written.
+            'hierarchies': list(HIERARCHIES),
+            'graph_sources': list(GRAPH_SOURCES),
+            'summarizers': list(SUMMARIZERS),
+            'summary_scopes': list(SUMMARY_SCOPES),
+            # Whether each grouping can actually run *here*, and what to
+            # install when it cannot. Verified by import rather than guessed,
+            # for the reason the embedder catalogue is: NA has to keep meaning
+            # one thing — this installation cannot load it.
+            'hierarchy_support': hierarchy.available(),
             'question_types': list(metrics.TYPES),
             'difficulties': list(DIFFICULTIES),
             # How a limited run picks its questions. Served because the sample is
@@ -363,15 +377,30 @@ def create_app() -> FastAPI:
     def build_index(payload: dict):
         cfg = LabConfig.from_dict(payload)
         force = bool(payload.get('force'))
+        # The same screen the run routes apply, for the same reason they apply
+        # one another's: a grouping whose library is missing must fail as a 400
+        # naming what to install, not as a 500 from an import three frames
+        # down. Only the index half is checked — a build reads no model.
+        problems = [p for p in cfg.validate()
+                    if not p.startswith(('unknown retriever', 'unknown reranker',
+                                         'unknown grader', 'unknown answerer',
+                                         'unknown summary_scope', 'k must be'))]
+        if problems:
+            raise HTTPException(400, '; '.join(problems))
 
         def work(report, _cancelled):
             index = registry.get(cfg.index, progress=report, force=force)
             return {'collection': index.stats.collection,
                     'chunks': index.stats.chunks,
+                    'leaves': index.stats.leaves,
                     'avg_chars': index.stats.avg_chars,
                     'p95_chars': index.stats.p95_chars,
                     'embed_dim': index.stats.embed_dim,
                     'build_seconds': index.stats.build_seconds,
+                    # What the grouping did. None on a flat build, so the panel
+                    # can tell "no hierarchy" from "a hierarchy that found
+                    # nothing" — different facts about a build.
+                    'hierarchy': index.stats.hierarchy,
                     'reused': index.stats.reused, 'notes': index.stats.notes,
                     # So a follower (the Inspector, :9003) can render what an
                     # index job actually built without holding its own index.

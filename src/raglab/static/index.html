@@ -3,188 +3,409 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lodestar RAG Lab</title>
+<title>RAG Lab</title>
 <style>
+/* ───────────────────────────────────────────────────────────────────────────
+   The panel is an instrument, so it is built like one: a dark chassis carrying
+   the identity and the state of the machine, a spine that says which stage is
+   running, and porcelain plates below it holding the readings.
+
+   Colour is spent in exactly one place. The three step inks — index saffron,
+   retrieval verdigris, generation lapis — are the only saturated hues on the
+   page, because they carry meaning the service serves (`/api/options` → steps)
+   and twenty-eight knobs are only navigable if each one says which stage it
+   belongs to. Everything around them is graphite and porcelain so they read.
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* the machine */
+  --chassis: #101620;
+  --chassis-soft: #1c2734;
+  --chassis-ink: #c3cdda;
+  --chassis-ink-soft: #7d8b9c;
+  /* the plates */
+  --plate: #edf0f3;
+  --card: #ffffff;
+  --rule: #d3dae2;
+  --rule-soft: #e8ecf1;
+  --ink: #17202b;
+  --ink-soft: #5b6875;
+  /* One ink per pipeline step, so a control says which stage it belongs to
+     before you read its label. The Inspector on :9003 defines the same three
+     tokens with the same values — the two pages must not disagree about what
+     orange means. */
+  --step-index: oklch(0.56 0.14 58);        /* saffron  — what gets stored */
+  --step-retrieval: oklch(0.49 0.11 168);   /* verdigris — what gets found */
+  --step-generation: oklch(0.50 0.15 262);  /* lapis    — what gets written */
+  /* The same three hues lifted for the chassis. An ink chosen to sit on
+     porcelain is close to unreadable on graphite, and the spine is where a
+     reader looks to find out what is running. */
+  --step-index-lit: oklch(0.78 0.13 62);
+  --step-retrieval-lit: oklch(0.75 0.11 168);
+  --step-generation-lit: oklch(0.76 0.11 258);
+  --alert: #a33227;
+  --alert-wash: #fdf4f2;
+  --good: oklch(0.49 0.11 168);
+  --shadow: 0 1px 2px rgba(16, 22, 32, .05), 0 10px 24px -18px rgba(16, 22, 32, .5);
+  /* A slab serif for the machine's own voice, a plain sans for instructions,
+     and a tabular mono for every number — three faces, three jobs. All resolve
+     locally: the lab runs offline and must never wait on a font. */
+  --slab: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+}
+[data-step="index"] { --step: var(--step-index); }
+[data-step="retrieval"] { --step: var(--step-retrieval); }
+[data-step="generation"] { --step: var(--step-generation); }
+.chassis [data-step="index"], .spine [data-step="index"] { --step: var(--step-index-lit); }
+.chassis [data-step="retrieval"], .spine [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
+.chassis [data-step="generation"], .spine [data-step="generation"] { --step: var(--step-generation-lit); }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0 0 5rem; background: var(--plate); color: var(--ink);
+  font: 13px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* ── the chassis ─────────────────────────────────────────────────────────── */
+.chassis {
+  background: var(--chassis); color: var(--chassis-ink);
+  padding: 1rem 1.4rem .6rem;
+}
+.chassis a { color: #fff; }
+.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
+            max-width: 1560px; margin: 0 auto; }
+h1 {
+  font: 600 1.32rem/1 var(--slab); letter-spacing: -.01em; margin: 0;
+  color: #fff;
+}
+h1 .lab-mark {
+  /* The lab's own initial, set as a plate on the chassis. One ornament. */
+  display: inline-block; margin-right: .5rem; padding: .18rem .42rem;
+  background: var(--step-index); color: var(--chassis);
+  font: 700 .82rem/1 var(--mono); vertical-align: .18em; border-radius: 2px;
+}
+#corpus {
+  font: .74rem/1.4 var(--mono); color: var(--chassis-ink-soft);
+  letter-spacing: -.01em;
+}
+.chassis-right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+/* A door to another service, so it looks like a link and not like one of this
+   panel's own run buttons. */
+.lab-link {
+  align-self: center; color: var(--step-generation); text-decoration: none;
+  font: 600 .76rem/1 var(--sans);
+  border-bottom: 1px solid var(--step-generation); padding-bottom: 2px;
+}
+.lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.chassis button.ghost { color: var(--chassis-ink); border-color: #35424f; }
+.chassis button.ghost:hover { background: var(--chassis-soft); color: #fff; }
+#productionNote { font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft);
+                  align-self: center; max-width: 40ch; }
+
+/* Capability chips: what this installation can actually do, before you spend an
+   hour finding out. Green edge = ready, brick = not. */
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem auto 0;
+         max-width: 1560px; }
+.chip {
+  font: .68rem/1.5 var(--mono); padding: .05rem .45rem; border-radius: 2px;
+  background: var(--chassis-soft); color: var(--chassis-ink-soft);
+  border-left: 2px solid transparent;
+}
+.chip.on { border-left-color: var(--good); color: var(--chassis-ink); }
+.chip.off { border-left-color: var(--alert); color: #e6b4ad; }
+
+.findings { max-width: 1560px; margin: .55rem auto 0; }
+.findings > summary {
+  cursor: pointer; color: var(--chassis-ink-soft); font-size: .74rem;
+  list-style: none;
+}
+.findings > summary::before { content: "▸ "; }
+.findings[open] > summary::before { content: "▾ "; }
+.findings > summary:hover { color: #fff; }
+.findings ul { margin: .5rem 0 .3rem; padding-left: 1.1rem; columns: 2; column-gap: 2rem; }
+.findings li { font-size: .74rem; line-height: 1.5; color: var(--chassis-ink-soft);
+               margin-bottom: .35rem; break-inside: avoid; }
+.findings b { color: var(--chassis-ink); }
+.findings code { font: .72rem var(--mono); color: #fff; }
+@media (max-width: 900px) { .findings ul { columns: 1; } }
+
+/* ── the spine ───────────────────────────────────────────────────────────────
+   The signature of this page, and the one element doing three jobs at once: it
+   is the legend for the three inks, the progress bar for whatever job is
+   running, and the way you get to a stage's controls. It sits on the chassis
+   because it belongs to the machine rather than to any one plate — a build is
+   an index-stage job, and its progress used to be reported inside the
+   generation card because that is where the button happened to live. */
+.spine { background: var(--chassis); padding: 0 1.4rem .7rem; }
+.spine-inner { max-width: 1560px; margin: 0 auto; }
+.spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.spine-seg {
+  appearance: none; border: 0; text-align: left; cursor: pointer;
+  background: var(--chassis-soft); color: var(--chassis-ink-soft);
+  padding: .3rem .55rem .26rem; border-top: 3px solid var(--step);
+  font: inherit; opacity: .7; transition: opacity .15s, background .15s;
+  display: flex; align-items: baseline; gap: .5rem;
+}
+.spine-seg:hover, .spine-seg[aria-current="step"] { opacity: 1; background: #222e3c; }
+.spine-seg b {
+  color: var(--step); font: 700 .66rem/1.6 var(--sans);
+  text-transform: uppercase; letter-spacing: .14em;
+}
+/* The note lives on the card, where the controls it describes are. Here it is a
+   hint, so the spine stays one line high whether or not anything is running. */
+.spine-seg span { font-size: .68rem; line-height: 1.6; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+.spine-track { height: 4px; background: var(--chassis-soft); margin-top: 2px; }
+.spine-track i { display: block; height: 4px; background: var(--step, var(--chassis-ink-soft));
+                 width: 0; transition: width .25s linear; }
+.spine-caption {
+  display: flex; gap: .6rem; align-items: baseline; margin-top: .4rem;
+  font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
+}
+.spine-caption b { color: var(--step, #fff); font-weight: 600; }
+.spine-caption .right { margin-left: auto; }
+
+/* ── the bench ───────────────────────────────────────────────────────────── */
+main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
+.bench {
+  display: grid; gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px);
+  align-items: start;
+}
+@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.stack { display: grid; gap: 1rem; margin-top: 1rem; }
+
+.card {
+  background: var(--card); border: 1px solid var(--rule); border-radius: 5px;
+  box-shadow: var(--shadow); padding: .1rem .9rem 1rem;
+  /* min-width:0 is what makes the scroll containers below actually contain: a
+     grid item defaults to min-width:auto, so a card grows to its widest child —
+     the eighteen-column leaderboard — and the overflow rule inside it never
+     engages, because there is nothing left to overflow. The whole page scrolls
+     sideways instead of the one table that is genuinely too wide. */
+  min-width: 0;
+}
+.card[data-step] { border-top: 3px solid var(--step); }
+.card-head {
+  display: flex; align-items: baseline; gap: .5rem; margin: .85rem 0 .2rem;
+}
+.card-head h2 {
+  margin: 0; font: 700 .72rem/1.4 var(--sans); text-transform: uppercase;
+  letter-spacing: .13em; color: var(--ink);
+}
+.card[data-step] .card-head h2 { color: var(--step); }
+.card-head .num {
+  font: 700 .7rem/1 var(--mono); color: var(--step, var(--ink-soft));
+  border: 1px solid currentColor; border-radius: 2px; padding: .12rem .28rem;
+}
+.card-note { margin: .1rem 0 .7rem; font-size: .74rem; color: var(--ink-soft); }
+h3 { font: 700 .68rem/1.4 var(--sans); text-transform: uppercase;
+     letter-spacing: .12em; color: var(--ink-soft); margin: 1rem 0 .4rem; }
+
+/* ── controls ────────────────────────────────────────────────────────────── */
+.field { margin-top: .6rem; }
+.field-row { display: flex; gap: .6rem; }
+.field-row > * { flex: 1; min-width: 0; margin-top: .6rem; }
+label {
+  display: block; margin-bottom: .18rem; color: var(--ink-soft);
+  font: 600 .67rem/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
+}
+label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+select, input[type=number], input[type=text], input[type=password], textarea {
+  width: 100%; font: 13px/1.4 var(--sans); padding: .34rem .4rem; color: var(--ink);
+  background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+}
+input[type=number], input[type=password] { font-family: var(--mono); font-size: 12.5px; }
+select:hover, input:hover { border-color: var(--ink-soft); }
+textarea { min-height: 3.2rem; resize: vertical; }
+.switches { display: flex; flex-wrap: wrap; gap: .1rem .9rem; margin-top: .55rem; }
+.switches label {
+  display: flex; align-items: center; gap: .35rem; margin: 0; font-weight: 400;
+  text-transform: none; letter-spacing: 0; font-size: .78rem; color: var(--ink);
+}
+input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
+.actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; }
+button {
+  font: 600 .78rem/1.4 var(--sans); padding: .42rem .85rem; cursor: pointer;
+  color: #fff; background: var(--chassis); border: 1px solid var(--chassis);
+  border-radius: 3px;
+}
+button:hover { background: var(--chassis-soft); }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+button.ghost:hover { background: var(--plate); border-color: var(--ink-soft); }
+button.step-action { background: var(--step); border-color: var(--step); }
+button.step-action:hover { filter: brightness(1.12); }
+button:disabled { opacity: .4; cursor: default; }
+
 /* A knob the current pipeline would ignore: dimmed and locked, but its reason
    stays at full contrast, because that sentence is the only part still worth
    reading. The control keeps its box so nothing below it shifts when a dropdown
    changes. */
 .rag-field-off { opacity: 0.5; }
-.rag-field-off .rag-when-dep { opacity: 1; font-style: italic; display: block; }
+.rag-field-off .rag-when-dep {
+  opacity: 1; display: block; font-style: italic; font-size: .7rem;
+  color: var(--ink-soft); margin-top: .2rem;
+}
 .rag-field-off input, .rag-field-off select { cursor: not-allowed; }
 
+button.why {
+  font: 700 .6rem/1 var(--mono); padding: .12rem .3rem; margin-left: .3rem;
+  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
+  border-radius: 999px; vertical-align: middle;
+}
+button.why:hover { color: var(--card); background: var(--step, var(--chassis));
+                   border-color: var(--step, var(--chassis)); }
+p.explain {
+  margin: .3rem 0 .1rem; font-size: .73rem; line-height: 1.5; color: var(--ink-soft);
+  border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
+  background: var(--plate); padding: .35rem .55rem; border-radius: 0 3px 3px 0;
+}
+
+/* ── the model rail ──────────────────────────────────────────────────────── */
+.rag-models .step {
+  border-left: 3px solid var(--step); padding: .1rem 0 .4rem .55rem;
+  margin-bottom: .7rem;
+}
+.step-tag {
+  font: 700 .62rem/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
+  color: var(--step);
+}
+
+/* ── readings ────────────────────────────────────────────────────────────── */
+.scores { display: grid; gap: .55rem;
+          grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
+.score {
+  border: 1px solid var(--rule-soft); border-left: 3px solid var(--rule);
+  border-radius: 3px; padding: .45rem .6rem; background: var(--card);
+}
+.score[data-step] { border-left-color: var(--step); }
+.score b {
+  display: block; font: 400 1.5rem/1.15 var(--mono); letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.score > span { display: block; color: var(--ink-soft); font-size: .67rem;
+                text-transform: uppercase; letter-spacing: .07em; }
+.score[data-step] > span:first-child { color: var(--step); }
+.score .bar { height: 3px; background: var(--rule-soft); margin-top: .35rem; }
+.score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
+.score .muted { text-transform: none; letter-spacing: 0; font-size: .68rem; }
+
+table { border-collapse: collapse; width: 100%; font: 12.5px/1.45 var(--mono);
+        font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: .26rem .45rem;
+         border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th {
+  color: var(--ink-soft); font: 600 .66rem/1.5 var(--sans); text-transform: uppercase;
+  letter-spacing: .07em; border-bottom: 1px solid var(--rule); position: sticky;
+  top: 0; background: var(--card);
+}
+th[data-step] { color: var(--step); }
+tbody tr:hover { background: var(--plate); }
+td a { color: var(--step-generation); text-decoration: none; }
+td a:hover { text-decoration: underline; }
+/* A sortable header looks pressable and says which way it is pointing. The
+   glyph is a pseudo-element so it never lands in the cell's text — the e2e
+   suite reads these headers as strings. */
+th.sort-col { cursor: pointer; user-select: none; }
+th.sort-col:hover { color: var(--ink); }
+th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
+th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
+/* The two widest tables scroll inside themselves rather than dragging the whole
+   page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
+   neither can honestly be narrowed: every column is a knob you compare rows on. */
+#board, #experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
+#rows { max-height: 26rem; overflow-y: auto; }
+
+.muted { color: var(--ink-soft); }
+/* Attached to the score it qualifies, quieter but never dropped. */
+.stderr { font-size: .8em; font-weight: 400; color: var(--ink-soft);
+          white-space: nowrap; }
+.note {
+  border-left: 3px solid var(--alert); padding: .35rem .6rem; font-size: .75rem;
+  background: var(--alert-wash); margin: .35rem 0; border-radius: 0 3px 3px 0;
+}
+.pill {
+  font: .66rem/1.6 var(--mono); padding: 0 .35rem; border: 1px solid var(--rule);
+  border-radius: 2px; color: var(--ink-soft);
+}
+details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
+.right { margin-left: auto; }
+.hidden { display: none; }
+.fa { direction: rtl; text-align: right; font-family: "Vazirmatn", Tahoma, sans-serif; }
+.section-meta { font: .72rem/1.5 var(--mono); color: var(--ink-soft); }
+.prose { font-size: .75rem; line-height: 1.55; color: var(--ink-soft);
+         margin: .1rem 0 .7rem; max-width: 92ch; }
+.prose b { color: var(--ink); }
+.prose code { font: .72rem var(--mono); }
+#indexInfo, #retrieveInfo { margin-top: .6rem; font-size: .74rem; color: var(--ink-soft); }
+#experimentDetail pre, #jobBox pre {
+  white-space: pre-wrap; font: 11.5px/1.5 var(--mono); max-height: 30rem;
+  overflow: auto; background: var(--plate); padding: .5rem; border-radius: 3px;
+}
+
+/* Read at night as often as by day, and the Inspector has had a dark theme since
+   it was written — two windows on one instrument cannot disagree about that.
+   Only the tokens move: every rule above is written in them, so there is no
+   second stylesheet to keep in step. */
+@media (prefers-color-scheme: dark) {
   :root {
-    --paper: #f7f4ea; --ink: #22201b; --ink-soft: #6b665c; --rule: #cfc7b2;
-    --rule-red: #c0533f; --grid: #dfd8c4; --good: #3f7d4f; --bad: #b0442f;
-    --panel: #fffdf6; --shadow: 0 1px 0 #e6dfcb;
-    /* One ink per pipeline step, so a control says which stage it belongs to
-       before you read its label. Same three hues as the board's lab page — the
-       two panels must not disagree about what orange means. */
-    --step-index: oklch(0.52 0.11 52);        /* orange — what gets stored */
-    --step-retrieval: oklch(0.52 0.11 148);   /* green  — what gets found */
-    --step-generation: oklch(0.52 0.11 252);  /* blue   — what gets written */
+    --plate: #151b24;
+    --card: #1e2733;
+    --rule: #33404f;
+    --rule-soft: #2c3745;
+    --ink: #e3e9ef;
+    --ink-soft: #97a4b3;
+    --alert: #d98376;
+    --alert-wash: #2a1d1b;
+    /* On this theme every surface is the chassis, so a step reads at the weight
+       the chassis needs. */
+    --step-index: var(--step-index-lit);
+    --step-retrieval: var(--step-retrieval-lit);
+    --step-generation: var(--step-generation-lit);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
-  [data-step="index"] { --step: var(--step-index); }
-  [data-step="retrieval"] { --step: var(--step-retrieval); }
-  [data-step="generation"] { --step: var(--step-generation); }
-  .card[data-step] { border-left: 3px solid var(--step); }
-  .card[data-step] > h2 { color: var(--step); }
-  .step { border-left: 3px solid var(--step); padding: .1rem 0 .3rem .5rem;
-          margin-bottom: .55rem; }
-  .step-tag { font-size: .64rem; font-weight: 700; text-transform: uppercase;
-              letter-spacing: .12em; color: var(--step); }
-  /* A score wears the ink of the step it grades; whole-pipeline numbers (the
-     composite, latency) carry no step and stay in plain ink. */
-  .score[data-step] { border-left: 3px solid var(--step); }
-  .score[data-step] > span:first-child { color: var(--step); }
-  .score[data-step] .bar i { background: var(--step); }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 0 0 4rem; color: var(--ink); background: var(--paper);
-    font: 13px/1.5 "SF Mono", "IBM Plex Mono", Menlo, monospace;
-    background-image:
-      linear-gradient(var(--grid) 1px, transparent 1px),
-      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 22px 22px;
-  }
-  header {
-    background: var(--panel); border-bottom: 2px solid var(--rule-red);
-    padding: .9rem 1.2rem; position: sticky; top: 0; z-index: 5;
-    box-shadow: var(--shadow);
-  }
-  h1 { font-size: 1.1rem; margin: 0 0 .3rem; letter-spacing: .04em; }
-  h2 { font-size: .82rem; text-transform: uppercase; letter-spacing: .12em;
-       color: var(--ink-soft); margin: 0 0 .6rem; }
-  h3 { font-size: .8rem; margin: 1.1rem 0 .4rem; }
-  main { padding: 1.1rem 1.2rem; max-width: 1500px; margin: 0 auto; }
-  .row { display: flex; flex-wrap: wrap; gap: .9rem; align-items: flex-start; }
-  .card {
-    background: var(--panel); border: 1px solid var(--rule); border-radius: 3px;
-    padding: .85rem; box-shadow: var(--shadow);
-  }
-  .grow { flex: 1 1 300px; min-width: 280px; }
-  /* min-width:0 is what makes the scroll containers below actually contain: a
-     flex item defaults to min-width:auto, so a full-width card grows to its
-     widest child — the eighteen-column leaderboard — and an overflow rule inside
-     it never engages, because there is nothing left to overflow. */
-  .full { flex: 1 1 100%; min-width: 0; }
-  label { display: block; margin: .45rem 0 .1rem; color: var(--ink-soft);
-          font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; }
-  select, input[type=number], input[type=text], textarea {
-    width: 100%; font: inherit; padding: .28rem .35rem; color: var(--ink);
-    background: #fff; border: 1px solid var(--rule); border-radius: 2px;
-  }
-  textarea { min-height: 3.2rem; resize: vertical; }
-  .inline { display: flex; gap: .5rem; }
-  .inline > * { flex: 1; }
-  .checks { display: flex; flex-wrap: wrap; gap: .1rem .8rem; margin-top: .2rem; }
-  .checks label { display: flex; align-items: center; gap: .3rem; margin: 0;
-                  text-transform: none; letter-spacing: 0; font-size: .78rem;
-                  color: var(--ink); }
-  input[type=checkbox] { accent-color: var(--rule-red); }
-  button.why {
-    font-size: .62rem; line-height: 1; padding: .1rem .3rem; margin-left: .3rem;
-    background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
-    border-radius: 999px; vertical-align: middle;
-  }
-  button.why:hover { color: var(--rule-red); border-color: var(--rule-red); }
-  p.explain {
-    flex-basis: 100%; margin: .25rem 0 .1rem; font-size: .72rem; line-height: 1.45;
-    color: var(--ink-soft); border-left: 2px solid var(--rule-red);
-    padding-left: .5rem;
-  }
-  button {
-    font: inherit; padding: .4rem .8rem; cursor: pointer; color: var(--paper);
-    background: var(--ink); border: 0; border-radius: 2px; letter-spacing: .04em;
-  }
-  button.ghost { background: transparent; color: var(--ink);
-                 border: 1px solid var(--rule); }
-  button:disabled { opacity: .45; cursor: default; }
-  .badges { display: flex; flex-wrap: wrap; gap: .35rem; font-size: .72rem; }
-  .badge { padding: .1rem .45rem; border: 1px solid var(--rule);
-           border-radius: 10px; background: #fff; }
-  .badge.on { border-color: var(--good); color: var(--good); }
-  .badge.off { border-color: var(--bad); color: var(--bad); }
-  table { border-collapse: collapse; width: 100%; font-size: .76rem; }
-  th, td { text-align: right; padding: .22rem .4rem; border-bottom: 1px solid var(--rule); }
-  th:first-child, td:first-child { text-align: left; }
-  th { color: var(--ink-soft); font-weight: 600; text-transform: uppercase;
-       font-size: .68rem; letter-spacing: .06em; }
-  tbody tr:hover { background: #fbf8ee; }
-  .scores { display: flex; flex-wrap: wrap; gap: .55rem; }
-  .score { border: 1px solid var(--rule); border-radius: 3px; padding: .45rem .6rem;
-           background: #fff; min-width: 8.5rem; }
-  .score b { display: block; font-size: 1.3rem; letter-spacing: -.02em; }
-  .score span { color: var(--ink-soft); font-size: .68rem; text-transform: uppercase;
-                letter-spacing: .07em; }
-  .bar { height: 3px; background: var(--grid); margin-top: .3rem; }
-  .bar i { display: block; height: 3px; background: var(--rule-red); }
-  .fa { direction: rtl; text-align: right; font-family: Tahoma, "Vazirmatn", sans-serif; }
-  .ctx { border-left: 3px solid var(--rule-red); padding: .35rem .55rem;
-         margin: .4rem 0; background: #fff; }
-  .ctx .meta { font-size: .7rem; color: var(--ink-soft); }
-  .muted { color: var(--ink-soft); }
-  /* Attached to the score it qualifies, quieter but never dropped. */
-  .stderr { font-size: .72em; font-weight: 400; color: var(--ink-soft);
-            white-space: nowrap; }
-  .note { border-left: 3px solid var(--rule-red); padding: .2rem .5rem;
-          font-size: .74rem; background: #fff8f2; margin: .25rem 0; }
-  progress { width: 100%; height: 6px; }
-  details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
-  .pill { font-size: .66rem; padding: 0 .3rem; border: 1px solid var(--rule);
-          border-radius: 8px; color: var(--ink-soft); }
-  .right { margin-left: auto; }
-  /* The two widest tables scroll inside themselves rather than dragging the whole
-     page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
-     neither can honestly be narrowed: every column is a knob you compare rows on.
-     So the overflow is contained where it belongs — at 390px the page still reads
-     top to bottom and the table is swiped across. */
-  #board, #experiments { overflow-x: auto; }
-  /* A sortable header looks pressable and says which way it is pointing. The
-     glyph is a pseudo-element so it never lands in the cell's text — the e2e
-     suite reads these headers as strings. */
-  th.sort-col { cursor: pointer; user-select: none; }
-  th.sort-col:hover { color: var(--rule-red); }
-  th.sort-col:focus-visible { outline: 2px solid var(--rule-red); outline-offset: 1px; }
-  th[aria-sort="ascending"]::after { content: " ▲"; color: var(--rule-red); }
-  th[aria-sort="descending"]::after { content: " ▼"; color: var(--rule-red); }
-  .hidden { display: none; }
-  /* A door to another service, so it looks like a link and not like one of this
-     panel's own run buttons. */
-  .lab-link { color: var(--rule-red); text-decoration: none; font-size: .78rem;
-              border-bottom: 1px solid var(--rule-red); padding-bottom: 1px; }
-  .lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
+  button { background: var(--step-generation); border-color: var(--step-generation);
+           color: var(--chassis); }
+  button:hover { filter: brightness(1.1); background: var(--step-generation); }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+  button.ghost:hover { background: var(--rule-soft); }
+  button.step-action { color: var(--chassis); }
+}
 </style>
 <!-- The column sorter, shared with the Inspector: one file, so clicking a
      header means the same thing on both pages. -->
 <script src="/sorttable.js"></script>
 </head>
 <body>
-<header>
-  <h1>Lodestar RAG Lab <span class="pill" id="corpus"></span></h1>
-  <div class="badges" id="caps"></div>
-  <!-- One click to the architecture that actually ships. It fills every control
-       from /api/options -> production (derived from the brain's own constants),
-       because "what does the real thing do" is a question you ask before you
-       start changing knobs — and answering it by hand means copying nine values
-       out of the brain's source. Settings only: the run buttons are on the cards
-       below, and this one used to start a build that downloads a 2.2 GB encoder. -->
-  <!-- The lab measures; the Inspector shows why. It is a separate service on its
-       own port, so without a door named here :9003 is something you have to
-       already know about. It sits at the far right of the row you press to run
-       something, because it is where you go *after* an experiment — and it opens
-       in a tab of its own, since the two are meant to be read side by side. -->
-  <div class="inline" style="margin-top:.5rem">
-    <button class="ghost" id="use-production"
-      title="Fill every setting with the architecture the Assistant ships: chunking, embedder, retrieval, reranking, the relevance gate and the answerer. Nothing runs until you press a run button.">Use this project's RAG settings</button>
-    <span class="muted" id="productionNote" style="font-size:.74rem"></span>
-    <a class="lab-link right" id="open-inspector" href="http://localhost:9003/"
-       target="_blank" rel="noopener">Open the Inspector (:9003) &rarr;</a>
+
+<header class="chassis">
+  <div class="masthead">
+    <h1><span class="lab-mark">RL</span>RAG Lab</h1>
+    <span class="pill" id="corpus"></span>
+    <!-- One click to the architecture that actually ships. It fills every
+         control from /api/options → production, so it belongs to the whole
+         page rather than to any one card — "what does the real thing do" is a
+         question you ask before you start changing knobs. Settings only: the
+         run buttons are on the cards below, and this one used to start a build
+         that downloads a 2.2 GB encoder. -->
+    <div class="chassis-right">
+      <button class="ghost" id="use-production"
+        title="Fill every setting with the architecture the Assistant ships: chunking, embedder, retrieval, reranking, the relevance gate and the answerer. Nothing runs until you press a run button.">Load the shipped settings</button>
+      <span id="productionNote"></span>
+    </div>
   </div>
-  <details style="margin-top:.4rem">
-    <summary>What the numbers said last time (measured on this fixture, 2026-07-29 — re-run to confirm)</summary>
-    <ul style="margin:.3rem 0 0 1rem;font-size:.76rem;line-height:1.45">
-      <li><b>The embedder decides everything else.</b> The brain's current default
+  <div class="chips" id="caps"></div>
+  <details class="findings">
+    <summary>What the numbers said last time — measured on this fixture, 2026-07-29. Re-run to confirm.</summary>
+    <ul>
+      <li><b>The embedder decides everything else.</b> The brain's old default
         (<code>ascii-hash</code>) scores 0.014 session recall — its tokeniser is
         <code>[a-z0-9]+</code>, so Farsi embeds to the zero vector. Unicode character
         n-grams take it to 0.386; a multilingual transformer to 0.612.</li>
@@ -206,117 +427,168 @@
   </details>
 </header>
 
-<main>
-<div class="row">
+<!-- Three segments, in pipeline order: the legend for the inks, the progress of
+     whatever is running, and the way to each stage's controls. -->
+<div class="spine" id="spine">
+  <div class="spine-inner">
+    <div class="spine-segs" id="spineSegs">
+      <button class="spine-seg" type="button" data-step="index" data-target="card-index">
+        <b>Index</b><span>what gets stored</span></button>
+      <button class="spine-seg" type="button" data-step="retrieval" data-target="card-retrieval">
+        <b>Retrieval</b><span>what gets found</span></button>
+      <button class="spine-seg" type="button" data-step="generation" data-target="card-generation">
+        <b>Generation</b><span>what gets written</span></button>
+      <!-- The long note stays on the card beside the controls it describes;
+           `titleSteps` fills the short hint here from the same served step. -->
+    </div>
+    <div class="spine-track" id="spineTrack"><i></i></div>
+    <div class="spine-caption" id="spineCaption"><span>nothing running</span></div>
+  </div>
+</div>
 
-  <section class="card grow" data-step="index">
-    <h2>1 · Index (what gets stored)</h2>
-    <label>Chunking strategy</label>
-    <select id="chunker"></select>
-    <div class="inline">
+<main>
+<div class="bench">
+
+  <section class="card" id="card-index" data-step="index">
+    <div class="card-head"><span class="num">1</span><h2 id="head-index">Index</h2></div>
+    <p class="card-note" id="note-index"></p>
+    <div class="field">
+      <label>Chunking strategy</label>
+      <select id="chunker"></select>
+    </div>
+    <div class="field-row">
       <div><label>Chunk chars</label><input type="number" id="chunk_chars" min="120" max="2000" step="20"></div>
       <div><label>Overlap</label><input type="number" id="overlap" min="0" max="800" step="20"></div>
     </div>
-    <label>Summarizer (hierarchy)</label>
-    <div class="checks" style="margin-top:.5rem">
+    <div class="switches">
       <label><input type="checkbox" id="contextual"> contextual chunk headers</label>
     </div>
-    <div style="margin-top:.7rem" class="inline">
-      <button id="build">Build / reuse index</button>
+    <div class="actions">
+      <button class="step-action" id="build">Build / reuse index</button>
       <button class="ghost" id="rebuild">Force rebuild</button>
     </div>
-    <div id="indexInfo" class="muted" style="margin-top:.5rem;font-size:.74rem"></div>
+    <div id="indexInfo"></div>
   </section>
 
-  <section class="card grow" data-step="retrieval">
-    <h2>2 · Retrieval &amp; ranking</h2>
-    <label>Retriever</label>
-    <select id="retriever"></select>
-    <div class="inline">
+  <section class="card" id="card-retrieval" data-step="retrieval">
+    <div class="card-head"><span class="num">2</span><h2 id="head-retrieval">Retrieval</h2></div>
+    <p class="card-note" id="note-retrieval"></p>
+    <div class="field">
+      <label>Retriever</label>
+      <select id="retriever"></select>
+    </div>
+    <div class="field-row">
       <div><label>k (contexts)</label><input type="number" id="k" min="1" max="40"></div>
       <div><label>Candidates</label><input type="number" id="candidates" min="5" max="200" step="5"></div>
     </div>
-    <label>Reranker</label>
-    <select id="reranker"></select>
-    <div class="inline">
+    <div class="field">
+      <label>Reranker</label>
+      <select id="reranker"></select>
+    </div>
+    <div class="field-row">
       <div><label>Rerank depth</label><input type="number" id="rerank_depth" min="5" max="100" step="5"></div>
       <div><label>Half-life (days)</label><input type="number" id="recency_half_life_days" min="7" max="900" step="7"></div>
     </div>
-    <div class="inline">
+    <div class="field-row">
       <div><label>MMR λ (1 = off)</label><input type="number" id="mmr_lambda" min="0.1" max="1" step="0.05"></div>
-    </div>
-    <label>Relevance grader (enables abstention)</label>
-    <select id="grader"></select>
-    <div class="inline">
       <div><label>Grade threshold</label><input type="number" id="grade_threshold" min="0" max="1" step="0.05"></div>
     </div>
-    <div class="checks" style="margin-top:.5rem">
+    <div class="field">
+      <label>Relevance gate (enables abstention)</label>
+      <select id="grader"></select>
+    </div>
+    <div class="switches">
       <label><input type="checkbox" id="time_filter"> Farsi time-scope filter</label>
       <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
       <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
     </div>
-    <!-- Retrieval on its own, over the questions the experiment below has
+    <!-- Retrieval on its own, over the questions the experiment beside it has
          selected. No answering and no judging, so it is the step you can afford
          to repeat while moving one knob — and it is what fills the Inspector's
          retrieval window on :9003. -->
-    <div style="margin-top:.7rem" class="inline">
-      <button id="retrieve-selected"
-        title="Retrieve for the questions selected in 3 · Generation &amp; scoring. No answers, no judging, no run file.">Retrieve (selected questions)</button>
+    <div class="actions">
+      <button class="step-action" id="retrieve-selected"
+        title="Retrieve for the questions selected in 3 · Generation. No answers, no judging, no run file.">Retrieve selected questions</button>
     </div>
-    <div id="retrieveInfo" class="muted" style="margin-top:.5rem;font-size:.74rem"></div>
+    <div id="retrieveInfo"></div>
   </section>
 
-  <section class="card grow" data-step="generation">
-    <h2>3 · Generation &amp; scoring</h2>
-    <label>Answerer</label>
-    <select id="answerer"></select>
-    <div class="checks" style="margin-top:.3rem">
+  <section class="card" id="card-generation" data-step="generation">
+    <div class="card-head"><span class="num">3</span><h2 id="head-generation">Generation</h2></div>
+    <p class="card-note" id="note-generation"></p>
+    <div class="field">
+      <label>Answerer</label>
+      <select id="answerer"></select>
+    </div>
+    <div class="switches">
       <label><input type="checkbox" id="key_facts_judge"> LLM key-facts judge</label>
     </div>
-    <label>RAGAS mode</label>
-    <select id="ragas_mode">
-      <option value="offline">offline (non-LLM context metrics)</option>
-      <option value="llm">llm (faithfulness, relevancy, correctness)</option>
-      <option value="off">off</option>
-    </select>
-    <div class="inline">
-      <div><label>Questions (0 = all)</label><input type="number" id="limit" min="0" max="100" value="0"></div>
-      <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="100" value="0"></div>
+    <div class="field">
+      <label>RAGAS mode</label>
+      <select id="ragas_mode">
+        <option value="offline">offline — non-LLM context metrics</option>
+        <option value="llm">judged — faithfulness, relevancy, correctness</option>
+        <option value="off">off</option>
+      </select>
     </div>
-    <label>Question types (none = all)</label>
-    <div class="checks" id="types"></div>
-    <label>Run label</label>
-    <input type="text" id="label" placeholder="e.g. semantic + hybrid + ce">
-    <div style="margin-top:.7rem" class="inline">
-      <button id="run">Run evaluation</button>
+    <div class="field-row">
+      <div><label>Questions (0 = all)</label><input type="number" id="limit" min="0" max="200" value="0"></div>
+      <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="200" value="0"></div>
+    </div>
+    <div class="field">
+      <label>Question types (none = all)</label>
+      <div class="switches" id="types"></div>
+    </div>
+    <div class="field">
+      <label>Run label</label>
+      <input type="text" id="label" placeholder="e.g. semantic + hybrid + gate">
+    </div>
+    <!-- The lab measures; the Inspector shows why. It is a separate service on
+         its own port, so without a door named here :9003 is something you have
+         to already know about. It sits at the far right of the row you press to
+         run something, because it is where you go *after* an experiment — and it
+         opens in a tab of its own, since the two are meant to be read side by
+         side. -->
+    <div class="actions">
+      <button class="step-action" id="run">Run evaluation</button>
       <button class="ghost" id="cancel" disabled>Stop experiment</button>
       <button class="ghost" id="stopPoll">Refresh</button>
+      <a class="lab-link right" id="open-inspector" href="http://localhost:9003/"
+         target="_blank" rel="noopener">Inspector (:9003) &rarr;</a>
     </div>
-    <div id="jobBox" style="margin-top:.55rem"></div>
+    <div id="jobBox"></div>
   </section>
 
-  <!-- One model per task, never one model for everything: a summariser runs 157
-       times and wants cheap, a judge runs once and wants strong. Licences are on
-       the label because on Farsi the open-weight candidates are the interesting
-       ones, and a model nobody has run here stays listed as NA.
+  <!-- One model per task, never one model for everything: a gate runs k times a
+       question and wants cheap, a judge runs once and wants strong. Licences are
+       on the label because on Farsi the open-weight candidates are the
+       interesting ones, and a model nobody has run here stays listed as NA.
 
-       Every model lives in this one card, the embedder included — it is a language
-       model too, and it was the odd one out among the chunking knobs. Each group
-       wears the ink of the step it drives, so leaving the step card costs nothing
-       in knowing which stage a choice changes. -->
-  <section class="card grow" id="modelCard">
-    <h2>4 · Models (one per task)</h2>
-    <!-- Where the LLM stages run. A mode is a served preset (/api/options ->
+       Every model lives in this one column, the embedder included — it is a
+       language model too. Each group wears the ink of the step it drives, so
+       leaving the step card costs nothing in knowing which stage a choice
+       changes. -->
+  <section class="card rag-models" id="modelCard">
+    <div class="card-head"><span class="num">M</span><h2>Models</h2></div>
+    <p class="card-note">One per task. The dropdowns list what has actually run
+      here; a model this installation cannot load says NA.</p>
+    <!-- Where the LLM stages run. A mode is a served preset (/api/options →
          modes): picking one applies the lab's own patch and stamps the run's
          provider, so this panel cannot invent a pairing the lab never served. -->
-    <label>Backend</label>
-    <select id="mode"></select>
+    <div class="field">
+      <label>Backend</label>
+      <select id="mode"></select>
+    </div>
     <div class="step" data-step="index">
       <span class="step-tag">Index</span>
-      <label>Embedder</label>
-      <select id="embedder"></select>
-      <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
-      <select id="embed_model"></select>
+      <div class="field">
+        <label>Embedder</label>
+        <select id="embedder"></select>
+      </div>
+      <div class="field">
+        <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
+        <select id="embed_model"></select>
+      </div>
       <div id="modelRoles-index"></div>
     </div>
     <div class="step" data-step="retrieval">
@@ -329,18 +601,28 @@
     </div>
     <div id="modelRoles"></div>
   </section>
+</div>
 
-  <section class="card full" id="resultCard">
-    <h2>Grades <span class="right muted" id="resultMeta"></span></h2>
+<div class="stack">
+  <section class="card" id="resultCard">
+    <div class="card-head"><h2>Readings</h2><span class="section-meta right" id="resultMeta"></span></div>
     <div id="notes"></div>
-    <div class="scores" id="scores"></div>
-    <div class="row" style="margin-top:.8rem">
-      <div class="grow"><h3>By question type</h3><div id="byType"></div></div>
-      <div class="grow"><h3>RAGAS</h3><div id="ragas"></div>
-        <h3>Layer usage &amp; difficulty</h3><div id="extras"></div></div>
+    <!-- An empty screen is an invitation to act, not a set of headings with
+         nothing under them: until a run is on screen the breakdowns are hidden
+         and this says what to press. -->
+    <p class="prose" id="resultEmpty">No run on screen. Press <b>Run evaluation</b>,
+      or open one from the leaderboard below — the last one you looked at comes
+      back on its own after a reload.</p>
+    <div id="resultBody" hidden>
+      <div class="scores" id="scores"></div>
+      <div class="bench" style="margin-top:1rem">
+        <div style="grid-column: span 2"><h3>By question type</h3><div id="byType"></div></div>
+        <div><h3>RAGAS</h3><div id="ragas"></div></div>
+        <div><h3>By difficulty</h3><div id="extras"></div></div>
+      </div>
+      <details style="margin-top:.9rem"><summary>Per-question rows</summary>
+        <div id="rows"></div></details>
     </div>
-    <details style="margin-top:.7rem"><summary>Per-question rows</summary>
-      <div id="rows" style="max-height:26rem;overflow:auto"></div></details>
   </section>
 
   <!-- The "Query inspector" card that stood here retired on 2026-08-04. Asking
@@ -349,9 +631,9 @@
        scores. Two boxes that both retrieve one question, one of them showing far
        less, is a choice nobody should have to make. -->
 
-  <section class="card full">
-    <h2>Leaderboard <span class="right muted" id="boardMeta"></span></h2>
-    <p class="muted" style="font-size:.74rem;margin:.2rem 0 .6rem">
+  <section class="card">
+    <div class="card-head"><h2>Leaderboard</h2><span class="section-meta right" id="boardMeta"></span></div>
+    <p class="prose">
       Ordered by <b>ragas_decision</b> — the unweighted mean of faithfulness,
       answer relevancy, context precision and context recall. Every other column
       is reported and none of them votes; runs that could not measure all four
@@ -365,9 +647,9 @@
        appeared in would be making a rank claim about work that measured
        nothing — the same rule leaderboard.py keeps: group first, rank second.
        Rows come from raglab.db, so this survives a restart of the lab. -->
-  <section class="card full">
-    <h2>Every experiment <span class="right muted" id="experimentsMeta"></span></h2>
-    <p class="muted" style="font-size:.74rem;margin:.2rem 0 .6rem">
+  <section class="card">
+    <div class="card-head"><h2>Every experiment</h2><span class="section-meta right" id="experimentsMeta"></span></div>
+    <p class="prose">
       One row per finished index build, retrieval and evaluation, newest first.
       <b>Backend</b> is where the model calls actually went: <code>fake</code>
       answers and judges without ever failing, so those rows are a rehearsal of
@@ -376,7 +658,6 @@
     <div id="experiments"></div>
     <div id="experimentDetail"></div>
   </section>
-
 </div>
 </main>
 
@@ -450,12 +731,16 @@ function modelList() {
 function fillModels() {
   const options = modelList().map((m) =>
     `<option value="${escapeHtml(m.id)}">${escapeHtml(modelLabel(m))}</option>`).join('');
+  // Each role in its own .field wrapper: `applyDependencies` dims the control's
+  // nearest div, and with the whole group in one box a single inactive model
+  // greyed out every other model of that step beside it.
   const row = (role) =>
-    `<label>${escapeHtml(role.label)} <span class="muted">· ${escapeHtml(role.only_when)}</span>`
+    `<div class="field"><label>${escapeHtml(role.label)} `
+    + `<span class="muted">· ${escapeHtml(role.only_when)}</span>`
     + `<button type="button" class="why" data-topic="model.${role.key}" `
     + `aria-label="What is ${escapeHtml(role.label)}?">!</button></label>`
     + `<select class="rag-model" data-role="${role.key}" data-field="${role.field}">`
-    + `${options}</select>`;
+    + `${options}</select></div>`;
   const groups = {};
   for (const role of OPTIONS.model_roles || []) {
     const step = role.step || role.field.split('.')[0];
@@ -501,6 +786,19 @@ function fillModes() {
 function pickedProvider() {
   const mode = (OPTIONS.modes || []).find((m) => m.key === $('mode').value);
   return mode ? { provider: mode.provider } : {};
+}
+
+// The three cards title themselves from the served steps (config.STEPS), so what
+// a stage is called and what it costs is a fact about the pipeline rather than a
+// sentence typed into this file.
+function titleSteps() {
+  for (const step of OPTIONS.steps || []) {
+    const head = $('head-' + step.key), note = $('note-' + step.key);
+    if (head) head.textContent = step.label;
+    if (note) note.textContent = step.note;
+    const seg = document.querySelector(`.spine-seg[data-step="${step.key}"] b`);
+    if (seg) seg.textContent = step.short;
+  }
 }
 
 // Every knob explains itself. The text comes from the service (config.HELP and
@@ -611,8 +909,8 @@ function readConfig() {
 }
 
 // Which controls the current pipeline would actually consult. The rules are
-// served (/api/options -> dependencies) rather than written here, so this panel
-// and the in-board one grey out the same knobs for the same stated reason.
+// served (/api/options -> dependencies) rather than written here, so the panel
+// and the Inspector grey out the same knobs for the same stated reason.
 // Editing a knob the pipeline ignores is how you spend an afternoon tuning a
 // number that was never read.
 function applyDependencies() {
@@ -677,7 +975,7 @@ function applyDefaults(d) {
 }
 
 // --- what survives a reload -------------------------------------------------
-// Refreshing used to empty the page: the grades card is only ever filled by a
+// Refreshing used to empty the page: the readings card is only ever filled by a
 // finishing job or a leaderboard click, so a reload left it standing there blank
 // with the run you had just watched reachable only by picking its id out of a
 // long table — and every control went back to the served defaults, losing a
@@ -733,6 +1031,7 @@ async function restoreLastRun() {
 async function boot() {
   OPTIONS = await api('/api/options');
   const o = OPTIONS;
+  titleSteps();
   fill($('chunker'), o.chunkers, CHUNKER_HELP);
   fillEmbedders();
   fill($('retriever'), o.retrievers);
@@ -764,27 +1063,27 @@ async function boot() {
     `${c.questions} questions · asked as of ${c.query_date}`;
 
   const caps = o.capabilities;
-  const badge = (on, text) => `<span class="badge ${on ? 'on' : 'off'}">${text}</span>`;
+  const chip = (on, text) => `<span class="chip ${on ? 'on' : 'off'}">${escapeHtml(text)}</span>`;
   $('caps').innerHTML = [
-    badge(caps.fastembed, `fastembed ${caps.fastembed ? 'ready' : 'missing'}`),
-    badge(caps.cross_encoder, `cross-encoder ${caps.cross_encoder ? 'ready' : 'missing'}`),
-    // The backend is on the badge, not just the model: a run costs money on
+    chip(caps.fastembed, `fastembed ${caps.fastembed ? 'ready' : 'missing'}`),
+    chip(caps.cross_encoder, `cross-encoder ${caps.cross_encoder ? 'ready' : 'missing'}`),
+    // The backend is on the chip, not just the model: a run costs money on
     // openrouter and nothing on ollama, and the same slug means neither on the
     // fake provider — where every LLM number is meaningless, which is worth
     // seeing before the run rather than after.
-    badge(caps.llm, caps.llm ? `LLM ${caps.llm_provider} · ${caps.llm_model}`
-                             : 'no LLM backend — set OPENROUTER_API_KEY or RAGLAB_LLM=ollama'),
-    badge(caps.ragas.installed, `ragas ${caps.ragas.installed ? caps.ragas.version : 'missing'}`),
-    badge(caps.ragas.llm_ready, `ragas LLM metrics ${caps.ragas.llm_ready ? 'ready' : 'off'}`),
-    // Not a service badge: the index is process memory and is discarded with
-    // the lab, so what a reader needs is where the run JSON lands.
-    // …and where the record of every experiment lands, which is the one place
-    // here that survives a restart of the lab.
-    `<span class="badge">index in memory · runs → ${caps.storage.runs}`
+    chip(caps.llm, caps.llm ? `LLM ${caps.llm_provider} · ${caps.llm_model}`
+                            : 'no LLM backend — set OPENROUTER_API_KEY or RAGLAB_LLM=ollama'),
+    chip(caps.ragas.installed, `ragas ${caps.ragas.installed ? caps.ragas.version : 'missing'}`),
+    chip(caps.ragas.llm_ready, `ragas LLM metrics ${caps.ragas.llm_ready ? 'ready' : 'off'}`),
+    // Not a service chip: the index is process memory and is discarded with the
+    // lab, so what a reader needs is where the run JSON lands — and where the
+    // record of every experiment lands, which is the one place here that
+    // survives a restart of the lab.
+    `<span class="chip">index in memory · runs → ${escapeHtml(caps.storage.runs || '')}`
       + ` · experiments → ${escapeHtml(caps.storage.experiments || '')}</span>`,
   ].join('');
   if (caps.ragas.notes.length) {
-    $('notes').innerHTML = caps.ragas.notes.map((n) => `<div class="note">${n}</div>`).join('');
+    $('notes').innerHTML = caps.ragas.notes.map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
   }
 
   renderIndexes(o.indexes);
@@ -793,10 +1092,48 @@ async function boot() {
   restoreLastRun();
 }
 
+// Each spine segment scrolls to the controls it names.
+for (const seg of document.querySelectorAll('.spine-seg')) {
+  seg.onclick = () => $(seg.dataset.target)
+    .scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Which step a stage belongs to. Read off the stage names the service reports
+// rather than guessed from the job kind: an evaluation walks all three, and the
+// spine is only worth having if it says which one it is in. A stage this map
+// does not know lights nothing, because a wrong segment is worse than none.
+const STAGE_STEP = {
+  chunking: 'index', embedding: 'index',
+  retrieving: 'retrieval',
+  answering: 'generation', scoring: 'generation', ragas: 'generation',
+};
+
+function renderSpine(job) {
+  const step = job ? STAGE_STEP[job.stage] || '' : '';
+  const track = $('spineTrack');
+  const caption = $('spineCaption');
+  track.dataset.step = step;
+  caption.dataset.step = step;
+  track.firstElementChild.style.width =
+    ((job ? job.progress : 0) * 100).toFixed(1) + '%';
+  for (const seg of document.querySelectorAll('.spine-seg')) {
+    if (seg.dataset.step === step) seg.setAttribute('aria-current', 'step');
+    else seg.removeAttribute('aria-current');
+  }
+  if (!job) { caption.innerHTML = '<span>nothing running</span>'; return; }
+  // The detail ("question 16/30 · hard", "judge call 137 of ~420") is the part
+  // that distinguishes a slow stage from a stuck one, and on a local judge one
+  // stage is hours.
+  caption.innerHTML = `<b>${escapeHtml(job.kind)} · ${escapeHtml(job.stage)}</b>`
+    + `<span>${Math.round(job.progress * 100)}%</span>`
+    + (job.detail ? `<span>${escapeHtml(job.detail)}</span>` : '')
+    + `<span class="right">${escapeHtml(job.id || '')}</span>`;
+}
+
 function renderIndexes(indexes) {
   if (!indexes.length) { $('indexInfo').textContent = 'no index built in this session yet'; return; }
   $('indexInfo').innerHTML = indexes.map((i) =>
-    `${i.collection}: ${i.chunks} chunks`
+    `${escapeHtml(i.collection)}: ${i.chunks} chunks`
   ).join('<br>');
 }
 
@@ -806,13 +1143,8 @@ async function poll(jobId, onDone) {
   $('cancel').disabled = false;
   const tick = async () => {
     const job = await api('/api/jobs/' + jobId);
-    // The detail ("question 16/30 · hard", "judge call 137 of ~420") is the part
-    // that distinguishes a slow stage from a stuck one, and on a local judge one
-    // stage is hours.
-    box.innerHTML = `<div class="muted">${job.kind}: ${job.stage} ` +
-      `${Math.round(job.progress * 100)}%` +
-      `${job.detail ? ' · ' + job.detail : ''}</div>` +
-      `<progress value="${job.progress}" max="1"></progress>`;
+    renderSpine(job);
+    box.innerHTML = '';
     if (job.state === 'running' || job.state === 'cancelling') { setTimeout(tick, 700); return; }
     $('cancel').disabled = true;
     delete $('cancel').dataset.jobId;
@@ -828,14 +1160,18 @@ async function poll(jobId, onDone) {
         + `written: ${escapeHtml(job.ledger_error)}</div>`);
     }
     if (job.state === 'cancelled') {
-      box.innerHTML = '<div class="muted">experiment stopped; no further model calls were started</div>';
+      box.insertAdjacentHTML('beforeend',
+        '<div class="note">experiment stopped; no further model calls were started</div>');
+      renderSpine(null);
       return;
     }
     if (job.state === 'error') {
-      box.innerHTML = `<div class="note"><b>${job.error}</b><pre style="white-space:pre-wrap;font-size:.7rem">${job.traceback || ''}</pre></div>`;
+      box.insertAdjacentHTML('beforeend',
+        `<div class="note"><b>${escapeHtml(job.error)}</b>`
+        + `<pre>${escapeHtml(job.traceback || '')}</pre></div>`);
+      renderSpine(null);
       return;
     }
-    box.innerHTML = '<div class="muted">done</div>';
     onDone(job.result);
   };
   tick();
@@ -849,12 +1185,12 @@ async function doBuild(force) {
     const { job_id } = await api('/api/indexes', body);
     poll(job_id, (result) => {
       $('indexInfo').innerHTML =
-        `<b>${result.collection}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
+        `<b>${escapeHtml(result.collection)}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
         `p95 ${result.p95_chars}, dim ${result.embed_dim}, ${result.build_seconds}s` +
         (result.reused ? ' (reused)' : '') +
-        (result.notes || []).map((n) => `<div class="note">${n}</div>`).join('');
+        (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
     });
-  } catch (e) { $('jobBox').innerHTML = `<div class="note">${e.message}</div>`; }
+  } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 }
 
 $('run').onclick = async () => {
@@ -867,7 +1203,7 @@ $('run').onclick = async () => {
   try {
     const { job_id } = await api('/api/evaluations', body);
     poll(job_id, (result) => { renderResult(result); loadBoard(); });
-  } catch (e) { $('jobBox').innerHTML = `<div class="note">${e.message}</div>`; }
+  } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
 
 // Exactly the questions "Run evaluation" would score — the same limit and the
@@ -902,7 +1238,7 @@ async function doRetrieve() {
 
 $('retrieve-selected').onclick = async () => {
   try { await doRetrieve(); }
-  catch (e) { $('jobBox').innerHTML = `<div class="note">${e.message}</div>`; }
+  catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
 
 $('use-production').onclick = async () => {
@@ -934,15 +1270,15 @@ $('cancel').onclick = async () => {
   if (!jobId) return;
   $('cancel').disabled = true;
   try { await api('/api/jobs/' + jobId + '/cancel', { method: 'POST' }); }
-  catch (e) { $('jobBox').innerHTML = `<div class="note">${e.message}</div>`; }
+  catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
 
 $('stopPoll').onclick = () => { boot(); };
 
 // The labels, the step each score grades and the text behind its '!' all come
 // from the service (metrics.MEASURES and ragas_eval.RAGAS_MEASURES). Nothing
-// about a metric is written twice, so this panel and the board's cannot end up
-// explaining different things.
+// about a metric is written twice, so no number on this page can end up with a
+// name its definition does not carry.
 const measures = () => OPTIONS.metrics || [];
 const measureOf = (key) => measures().find((m) => m.key === key)
   || { key, label: key, short: '', step: '' };
@@ -955,12 +1291,14 @@ function renderResult(result) {
   // leaderboard click and a ledger click are three ways to be looking at the same
   // experiment, and all three should still be there after a refresh.
   if (result.run_id) remember(SAVED_RUN, result.run_id);
+  $('resultEmpty').hidden = true;
+  $('resultBody').hidden = false;
   const s = result.summary.overall;
   $('resultMeta').textContent =
     `${result.label} · ${result.summary.n_questions} questions · ${result.seconds}s · ` +
     `${result.index.chunks} chunks (${result.index.collection})` +
     (result.index.reused ? ' reused' : '');
-  $('notes').innerHTML = (result.notes || []).map((n) => `<div class="note">${n}</div>`).join('');
+  $('notes').innerHTML = (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
   $('scores').innerHTML = measures()
     .filter((m) => s[m.key] !== null && s[m.key] !== undefined)
     .map((m) => {
@@ -974,7 +1312,7 @@ function renderResult(result) {
     }).join('');
 
   const t = result.summary.by_type;
-  renderTable('byType', 
+  renderTable('byType',
     ['type', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
     Object.entries(t).map(([name, row]) => [name, row.n, fmt(row.recall),
       fmt(row.quote_recall), fmt(row.ndcg), fmt(row.hit),
@@ -989,15 +1327,15 @@ function renderResult(result) {
     ? table(['metric', 'score'], Object.entries(metrics).map(([k, v]) =>
       [`<span class="measure">${escapeHtml(measureOf(k).label)}`
        + `${measureWhy(k)}</span>`, fmt(v)])) +
-      `<div class="muted" style="font-size:.7rem">mode ${r.mode} · ${r.n_samples} samples · ${r.skipped} skipped</div>` +
-      (r.notes || []).map((n) => `<div class="note">${n}</div>`).join('')
-    : `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + r.notes.join('; ') : ''}</div>`;
+      `<div class="muted" style="font-size:.7rem">mode ${escapeHtml(r.mode || '')} · ${r.n_samples} samples · ${r.skipped} skipped</div>` +
+      (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('')
+    : `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
 
   $('extras').innerHTML =
     table(['difficulty', 'n', 'recall'], Object.entries(result.summary.by_difficulty)
       .map(([k, v]) => [k, v.n, fmt(v.recall)]));
 
-  renderTable('rows', 
+  renderTable('rows',
     ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
     result.rows.map((row) => [row.id, row.type, row.difficulty,
       fmt(row.recall, 2), fmt(row.quote_recall, 2), fmt(row.ndcg, 2),
@@ -1023,7 +1361,8 @@ function renderTable(id, head, rows) {
 }
 
 function escapeHtml(s) {
-  return s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  return String(s === null || s === undefined ? '' : s)
+    .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 }
 
 // How many runs the leaderboard asks for. Stated rather than left to the
@@ -1056,7 +1395,7 @@ async function loadBoard() {
     if (y == null) return -1;
     return y - x;
   });
-  renderTable('board', 
+  renderTable('board',
     ['run', 'label', 'chunker', 'embedder', 'retriever', 'reranker',
       // No arrow on the header: an indicator that cannot move becomes a lie the
       // moment you sort by another column. Which column the ranking is on is
@@ -1067,7 +1406,7 @@ async function loadBoard() {
       const i = r.config.index, q = r.config.retrieval, s = r.summary.overall || {};
       const g = r.ragas || {};
       return [`<a href="#" onclick="showRun('${r.run_id}');return false">${r.run_id}</a>`,
-        r.label, i.chunker + (i.contextual ? '+ctx' : ''),
+        escapeHtml(r.label), i.chunker + (i.contextual ? '+ctx' : ''),
         // The model, not just the kind: two "fastembed" rows can be two entirely
         // different representations, and the row has to say which one it was.
         i.embedder + (i.embed_model ? '·' + i.embed_model.split('/').pop() : ''),
@@ -1111,7 +1450,7 @@ async function loadExperiments() {
       + 'something, and it lands here</div>';
     return;
   }
-  renderTable('experiments', 
+  renderTable('experiments',
     ['when', 'kind', 'id', 'label', 'backend', 'chunker', 'embedder',
       'retriever', 'reranker', 'grader', 'answerer', 'n', 'decision', 'state', 's'],
     rows.map((r) => [
@@ -1154,9 +1493,8 @@ window.showExperiment = async (id) => {
       + `<summary>the stored detail · ${escapeHtml(found.kind)} · `
       + `${escapeHtml(found.experiment_id)}`
       + `${found.label ? ' · ' + escapeHtml(found.label) : ''}</summary>`
-      + `<pre style="white-space:pre-wrap;font-size:.7rem;max-height:30rem;overflow:auto">`
-      + `${escapeHtml(JSON.stringify(found.detail, null, 1))}</pre></details>`;
-    // An evaluation's stored detail is exactly what the grades card renders, so
+      + `<pre>${escapeHtml(JSON.stringify(found.detail, null, 1))}</pre></details>`;
+    // An evaluation's stored detail is exactly what the readings card renders, so
     // it renders there too — the same screen you got when the run finished,
     // rather than the same information as JSON you have to read. Closed above,
     // because for a run the raw text is now the second-best view of it.

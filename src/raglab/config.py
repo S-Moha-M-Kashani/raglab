@@ -568,6 +568,15 @@ HELP = {
         'OpenRouter\'s model list verifies one. The embedder stays the local '
         'Persian-tuned encoder either way. Picking a mode overwrites those '
         'stage choices; every knob can still be changed afterwards.'),
+    'run.openrouter_key': (
+        'The key the OpenRouter backend calls with, entered here instead of in '
+        '.env so a lab already running can reach a remote model. It is held in '
+        'the lab process and written nowhere — not to a run file, not to the '
+        'experiment ledger, not to your browser — so it is forgotten when the '
+        'lab stops; OPENROUTER_API_KEY in the environment is still how a lab '
+        'starts with one. Setting it does not change which backend runs: that '
+        'is the dropdown above, and a model on this machine needs no key at '
+        'all.'),
     'run.ragas_mode': (
         '"offline" scores the retrieved context against the ground-truth quotes '
         'with string similarity — no model, no key, no variance. "judged" adds '

@@ -189,6 +189,18 @@ def resolve(cfg: LabConfig, settings: LabSettings) -> Roles:
 _LIVE: dict[str, frozenset] = {}
 
 
+def forget_live() -> None:
+    """Drop what has been verified about every backend's model list.
+
+    Availability is asked of the backend and cached per url, which is right for
+    a panel that reloads its options on every visit and wrong the moment the
+    credential changes underneath it: with no key, "what does OpenRouter serve"
+    answers the empty set, and a cached empty set reads as *nothing is
+    available*. `credentials.set_key` calls this, so entering a key in the panel
+    re-asks rather than leaving every remote model marked NA until a restart."""
+    _LIVE.clear()
+
+
 def openrouter_ids(settings: LabSettings) -> frozenset:
     """Model ids OpenRouter is currently serving, or an empty set.
 

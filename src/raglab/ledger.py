@@ -57,6 +57,7 @@ COLUMNS = (
     'kind',                 # index | retrieve | run | query
     'state',                # done | error | cancelled
     'label', 'started_at', 'seconds',
+    'dataset',              # which corpus — a score means nothing without it
     'provider',             # the resolved chat backend: fake means "not a measurement"
     'chunker', 'embedder', 'retriever', 'reranker', 'grader', 'answerer',
     'n_questions',
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS experiments (
   label           TEXT NOT NULL DEFAULT '',
   started_at      TEXT NOT NULL DEFAULT '',
   seconds         REAL NOT NULL DEFAULT 0,
+  dataset         TEXT NOT NULL DEFAULT '',
   provider        TEXT NOT NULL DEFAULT '',
   chunker         TEXT NOT NULL DEFAULT '',
   embedder        TEXT NOT NULL DEFAULT '',
@@ -115,7 +117,24 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     db = sqlite3.connect(target)
     db.row_factory = sqlite3.Row
     db.execute(SCHEMA)
+    _migrate(db)
     return db
+
+
+def _migrate(db: sqlite3.Connection) -> None:
+    """Add columns this schema has gained since a ledger was created.
+
+    `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so
+    without this a lab that has been recording experiments since before the
+    column existed fails on its next write — and the failure lands on a judged
+    run that has been going for two hours. A missing column is added with a
+    default, which is exactly what the old rows mean: every experiment recorded
+    before a second corpus existed was measured against the built-in one, and
+    the blank is read that way everywhere else too."""
+    have = {row['name'] for row in db.execute('PRAGMA table_info(experiments)')}
+    for name, kind in (('dataset', "TEXT NOT NULL DEFAULT ''"),):
+        if name not in have:
+            db.execute(f'ALTER TABLE experiments ADD COLUMN {name} {kind}')
 
 
 def stamp() -> str:
@@ -163,6 +182,9 @@ def row_for(job: dict, state: str) -> dict:
         'seconds': round(float(result.get('seconds')
                                or job.get('seconds') or 0.0), 2),
         'provider': config.get('provider') or '',
+        # The resolved corpus: a build records the dataset its index config
+        # names, and a run records what it actually measured.
+        'dataset': result.get('dataset') or index.get('dataset') or '',
         'chunker': index.get('chunker') or '',
         # The model, not just the backend: two `fastembed` rows can be two
         # entirely different representations of the same corpus.

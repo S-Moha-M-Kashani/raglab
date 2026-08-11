@@ -12,6 +12,12 @@ __pycache__/
 # the argument rather than an artifact of a machine — and the one thing this
 # project has already lost to a wiped scratch directory.
 
+# Datasets imported through the panel. The four bundled samples in
+# docs/groundtruth_datasets/ are part of the repository — they are reference
+# points, and the argument for a finding being general rather than true of Farsi
+# diaries. A corpus somebody uploaded is their material, not this repository's.
+.datasets/
+
 # The experiment ledger. Machine-local history, not source.
 *.db
 *.db-journal

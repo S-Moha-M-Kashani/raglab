@@ -171,10 +171,36 @@ def where_clause(scope: TimeScope | None) -> dict | None:
     The date test is an *overlap* test rather than containment, so a chunk whose
     span straddles the edge of the window is kept: a scope is a question about a
     period, not a claim that the evidence sits entirely inside it."""
-    if not scope:
+    return layer_clause(scope)
+
+
+def layer_clause(scope: TimeScope | None,
+                 layers: tuple[str, ...] | None = None,
+                 levels: tuple[int, ...] | None = None) -> dict | None:
+    """The time scope, and — once an index holds summaries — which layers and
+    levels the search may see.
+
+    One clause rather than two, because the store takes one `where`; kept in
+    lockstep with `pipeline._mask`, which is the same restriction expressed
+    over the BM25 side. If the two disagree, hybrid fusion silently compares
+    two different candidate pools.
+    """
+    clauses: list[dict] = []
+    if scope:
+        clauses.append({'span_from': {'$lte': scope.to_int}})
+        clauses.append({'span_to': {'$gte': scope.from_int}})
+    if layers is not None:
+        clauses.append({'layer': {'$in': list(layers)}})
+    if levels:
+        # A level filter is about the summaries. Under `mixed` the leaves are
+        # still in the pool and are level 0, so they are exempted explicitly —
+        # `pipeline._mask` makes the same exemption, and the two must agree.
+        chosen = {'level': {'$in': list(levels)}}
+        clauses.append(chosen if layers == ('summary',)
+                       else {'$or': [{'layer': {'$eq': ''}}, chosen]})
+    if not clauses:
         return None
-    return {'$and': [{'span_from': {'$lte': scope.to_int}},
-                     {'span_to': {'$gte': scope.from_int}}]}
+    return clauses[0] if len(clauses) == 1 else {'$and': clauses}
 
 
 def keyword_query(question: str) -> str:

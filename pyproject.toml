@@ -1,0 +1,53 @@
+[project]
+name = "raglab"
+version = "0.0.0"
+description = "RAG lab — a retrieval workbench where choices are decided by measurement"
+requires-python = ">=3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "numpy>=2.0",
+  "httpx>=0.27",
+  # ragas 0.4 requires langchain-openai<1, which resolves langchain-core to
+  # 0.3.x. That was only ever a problem while this code shared an environment
+  # with Lodestar's langchain-1.x brain; it no longer does. Everything used here
+  # — BaseChatModel and .invoke() — exists in both majors.
+  "langchain-core",
+  "langchain-openai<1",
+  "langchain-community<0.4",
+  "ragas==0.4.*",
+  # RAGAS's offline string-similarity context metrics need it.
+  "rapidfuzz",
+]
+
+[project.optional-dependencies]
+# Two embedding backends, both optional, because the models are large and a lab
+# that cannot start is worse than one reporting a model as unavailable.
+semantic = ["fastembed>=0.7"]
+# ~1 GB. Reaches the Persian-tuned encoders and Qwen3, which are plain
+# HuggingFace checkpoints fastembed does not serve. The default embedder needs
+# this — see README's launch line and tests/test_ports.py.
+local-embeddings = ["sentence-transformers>=3.0"]
+
+[project.scripts]
+raglab = "raglab.cli.serve:panel"
+raglab-inspector = "raglab.cli.serve:inspector"
+raglab-lab = "raglab.cli.lab:main"
+raglab-sweep = "raglab.sweep:main"
+raglab-judgescreen = "raglab.judgescreen:main"
+raglab-leaderboard = "raglab.leaderboard:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/raglab"]
+
+[tool.pytest.ini_options]
+markers = [
+    "calibration: measures a number the code currently guesses; needs a real model, so it skips by default",
+]

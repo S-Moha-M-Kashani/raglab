@@ -1,0 +1,18 @@
+__pycache__/
+.venv/
+*.pyc
+
+# One JSON file per eval run — the lab's only durable artifact besides the
+# ledger. The index, the retrieved contexts and the answers live in process
+# memory and are discarded with it. Reproducible from the fixtures,
+# machine-specific, appended to on every sweep.
+.runs/
+# `.screens/` is deliberately NOT ignored. A judge screen is the evidence for
+# which model was allowed to grade the four deciding metrics, so it is part of
+# the argument rather than an artifact of a machine — and the one thing this
+# project has already lost to a wiped scratch directory.
+
+# The experiment ledger. Machine-local history, not source.
+*.db
+*.db-journal
+*.db-wal

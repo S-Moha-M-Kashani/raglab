@@ -51,7 +51,7 @@ similar answer from another question — was measured and rejected here: the tru
 answer outscored every distractor on overlap (0.43 vs 0.20), so word-counting
 alone would have passed.
 
-    npm run raglab:judgescreen -- --models qwen3.5:2b gemma4:e2b
+    uv run raglab-judgescreen --models qwen3.5:2b gemma4:e2b
 
 The one rule this tool exists to enforce: the judge is chosen by its score on
 this screen, **before** looking at the leaderboard it would produce. Choosing the

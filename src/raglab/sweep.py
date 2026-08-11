@@ -1,10 +1,10 @@
 """Sweep candidate architectures and rank them on the four deciding metrics.
 
-Run as a module in the lab's own environment (the one `npm run raglab` builds,
-because RAGAS and sentence-transformers live there):
+    uv run --extra local-embeddings raglab-sweep            # the candidate sweep
+    uv run --extra local-embeddings raglab-sweep --final A  # one candidate, all 112
 
-    npm run raglab:sweep                     # the candidate sweep
-    npm run raglab:sweep -- --final A        # re-run one candidate over all 112
+The extra is what puts sentence-transformers in reach. RAGAS and its pins are
+ordinary locked dependencies and need nothing asked for.
 
 Why this exists rather than clicking the panel: the panel runs one job at a time
 and a judged sweep is a couple of hours of model calls. This drives the same
@@ -19,13 +19,13 @@ To run it on models on this machine instead of a paid API — which is the only 
 the expensive candidates get measured at all, since F's relevance gate is *k* LLM
 calls per question:
 
-    RAGLAB_LLM=ollama npm run raglab:sweep -- --workers 2
+    RAGLAB_LLM=ollama uv run raglab-sweep --workers 2
 
 `RAGLAB_LLM` is enough: the answerer/judge pins default per provider (`PAIRINGS`),
 because a slug only means something to the backend that serves it. Override either
 one with `RAGLAB_SWEEP_ANSWER_MODEL` / `RAGLAB_SWEEP_JUDGE_MODEL`.
 
-Screen the judge first (`npm run raglab:judgescreen`). A judge that answers the
+Screen the judge first (`uv run raglab-judgescreen`). A judge that answers the
 same way to every claim scores every candidate identically, and the sweep cannot
 tell you that — its rows would simply look tied.
 """

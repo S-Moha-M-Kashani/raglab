@@ -298,12 +298,18 @@ migration story for a table that will not migrate.
   a `groupby`. Wrong for the write pattern: one row appended per experiment,
   hours apart, from a background thread.
 
-**Why they were not adopted, and what would change it.** Decisively: the board
-server next door is 3,000 lines of backend with **zero npm dependencies** and
-`node:sqlite` doing exactly this. A lab that reached for an ORM to write one
-table would be the odd one out in its own repo. Behind that, `sqlite3` is
-stdlib, so this file adds nothing to `uv.lock` and cannot break the offline
-brain suite.
+**Why they were not adopted, and what would change it.** Decisively: `sqlite3`
+is stdlib, so this file adds nothing to `uv.lock` — and this is one table, five
+columns, written once per experiment and read by two queries. An ORM's value is
+schema evolution and relationships across many tables; neither exists here, and
+what would be bought is a dependency in the path of the one thing that must not
+fail while a two-hour judged run finishes.
+
+Until 2026-08-11 there was a second reason worth more than that one: the board
+server next door was 3,000 lines with zero npm dependencies and `node:sqlite`
+doing exactly this, so a lab reaching for an ORM would have been the odd one out
+in its own repository. That argument left with the split, which is the honest
+thing to record — it was a real reason and it no longer applies.
 
 What would change the decision: a second table with a foreign key to this one —
 per-question rows promoted out of the `detail` blob so a query could ask "which

@@ -207,7 +207,7 @@ def decision_spread(rows: list[dict]) -> dict:
             'stderr': round((variance / n) ** 0.5, 4)}
 
 
-INSTALL_HINT = 'npm run raglab  (it pins these: ' \
+INSTALL_HINT = 'uv sync  (these are locked dependencies now: ' \
     "ragas==0.4.*, langchain-community<0.4, langchain-openai<1, rapidfuzz)"
 
 # These are RAGAS's metrics, under RAGAS's names, so the panel says whose

@@ -43,7 +43,24 @@ What is written down is the account of the work:
 
 Nothing backs any of this up. The ledger is the only thing that would be missed.
 
-## The corpus
+## The corpora
+
+`fixtures/diary_year_fa.json` is the built-in one and the corpus every finding in
+`docs/` is about. Four more ship in `docs/groundtruth_datasets/` — English
+support tickets, German meeting notes, English research notes weighted to
+multi-hop, and a five-session smoke set — so a result can be checked against a
+different language, domain and question shape before it is called a fact about
+retrieval rather than about Farsi diaries.
+
+Bring your own with **Import a dataset** in the panel, or `POST /api/datasets`.
+One JSON file, the shape in `docs/groundtruth-dataset-contract.md`, and the lab
+refuses it rather than repairing it — including when an evidence quote is not
+verbatim in the message it cites, which is what every lexical score in this lab is
+measured against. Imports land in `.datasets/` and are git-ignored; the dataset is
+part of the index config, so it rides in the fingerprint and the leaderboard
+groups by it before anything else.
+
+## The built-in corpus
 
 `fixtures/diary_year_fa.json` — 167 sessions of synthetic colloquial Farsi diary
 chat over one year (2025-08-02 → 2026-07-27), 18 recurring storylines, 5 tracked
@@ -91,6 +108,11 @@ Every variable the lab reads is in `.env.example`, commented out, and
 variable missing from it is undiscoverable, and one lingering after the code
 stopped reading it is a lie. A repo-root `.env` is read without overriding what
 is already in the environment.
+
+The OpenRouter key can also be typed into the panel, which holds it for the life
+of the process and writes it nowhere — not to a run file, not to the ledger, not
+to the browser. `OPENROUTER_API_KEY` in the environment is still how a lab
+*starts* with one.
 
 The chat backend is `RAGLAB_LLM`: `ollama` (the default — a judged run can make
 hundreds of calls, so a default must never silently spend credit), `openrouter`,

@@ -289,6 +289,12 @@ STEPS = (
 @dataclass(frozen=True)
 class IndexConfig:
     """What gets indexed. Its fingerprint names the in-memory index."""
+    # Which corpus. '' is the built-in Farsi diary; anything else names a file
+    # under docs/groundtruth_datasets/ or .datasets/ (see raglab/datasets.py).
+    # It belongs here rather than beside the run controls because it decides what
+    # is stored: an index built over one corpus must never be handed a question
+    # from another, and the fingerprint is what makes that impossible.
+    dataset: str = ''
     chunker: str = 'semantic-drift'
     chunk_chars: int = 500
     overlap: int = 100          # fixed-overlap only
@@ -310,7 +316,15 @@ class IndexConfig:
                                           else ''))
 
     def fingerprint(self) -> str:
-        payload = json.dumps(asdict(self.normalized()), sort_keys=True)
+        fields = asdict(self.normalized())
+        # The built-in corpus is fingerprinted as it always was. A new field in
+        # this dataclass otherwise changes every hash, and the collection names
+        # recorded on the runs already in `.runs/` would stop matching anything a
+        # rebuild produces — a whole leaderboard's worth of rows quietly
+        # describing indexes that can no longer be reproduced by name.
+        if not fields.get('dataset'):
+            fields.pop('dataset', None)
+        payload = json.dumps(fields, sort_keys=True)
         return hashlib.sha1(payload.encode()).hexdigest()[:12]
 
     def collection(self) -> str:
@@ -442,6 +456,17 @@ def __getattr__(name: str):
 # model fields are explained by models.ROLES instead, and 'run.*' describes the
 # controls that belong to one run rather than to a configuration.
 HELP = {
+    'index.dataset': (
+        'Which corpus this experiment measures against. The built-in one is a '
+        'year of Farsi diary chat with 112 ground-truth questions, and every '
+        'finding in docs/report is about it; the bundled samples are there to '
+        'tell a general result from one that is true of Farsi diaries. Changing '
+        'it rebuilds the index — a corpus is what gets stored — and the '
+        'leaderboard groups by it before anything else, because two corpora are '
+        'not two configurations of one measurement. Import your own with the '
+        'button beside it: docs/groundtruth-dataset-contract.md is the shape, '
+        'and the lab refuses a dataset whose evidence quotes are not verbatim '
+        'in the messages they cite.'),
     'index.chunker': (
         'How a day of chat is cut into the pieces that get embedded. '
         '"fixed" packs 500 characters regardless of meaning; "message" keeps one '

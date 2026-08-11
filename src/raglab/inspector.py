@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import evaluate, explain, metrics, models, pipeline
 from .config import LabConfig, load_lab_settings, settings_for_provider
+from . import datasets
 from .corpus import load_diary, load_ground_truth
 from .index import IndexRegistry, _lab_llm
 from .present import chunks_by_session, gold_available, mark_gold
@@ -74,6 +75,17 @@ def create_inspector_app() -> FastAPI:
     settings = load_lab_settings()
     diary = load_diary()
     ground_truth = load_ground_truth()
+    def truth_for(cfg) -> dict:
+        """The ground truth of the corpus a followed config names.
+
+        The Inspector builds its own index from the config the lab last ran, so
+        it has to read the questions out of the same dataset — a trace of a
+        question from one corpus against an index built over another is the one
+        thing this page could show that would be worse than showing nothing."""
+        if not cfg.index.dataset:
+            return ground_truth
+        return datasets.load(cfg.index.dataset)[1]
+
     registry = IndexRegistry(settings, diary)
     # No recorder, deliberately: the lab's job runner writes a row per finished
     # job into raglab.db, and this service must not. Its chunk build is a scratch
@@ -122,9 +134,14 @@ def create_inspector_app() -> FastAPI:
         return {'metrics': explain.measures(), 'help': explain.topics()}
 
     @app.get('/api/groundtruth')
-    def groundtruth():
-        return {'meta': ground_truth['meta'],
-                'questions': ground_truth['questions']}
+    def groundtruth(dataset: str = ''):
+        """The pairs, for whichever corpus is being followed. The lab's job
+        config carries the dataset, so the page asks for it by name rather than
+        assuming the built-in one."""
+        asked = datasets.load(dataset)[1] if dataset else ground_truth
+        return {'meta': asked['meta'], 'questions': asked['questions'],
+                'dataset': dataset or datasets.BUILTIN,
+                'datasets': [found.as_dict() for found in datasets.catalogue()]}
 
     @app.post('/api/chunks')
     def chunks(payload: dict):
@@ -141,14 +158,15 @@ def create_inspector_app() -> FastAPI:
     @app.post('/api/trace')
     def trace(payload: dict):
         cfg = LabConfig.from_dict(payload)
+        asked = truth_for(cfg)
         qid = payload.get('question_id')
-        question = next((q for q in ground_truth['questions']
+        question = next((q for q in asked['questions']
                          if q['id'] == qid), None)
         if question is None:
             raise HTTPException(404, f'unknown question id: {qid!r}')
         run_settings = settings_for_provider(settings,
                                              payload.get('provider') or '')
-        query_date = payload.get('query_date') or ground_truth['meta']['query_date']
+        query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
             index = registry.get(
@@ -186,8 +204,9 @@ def create_inspector_app() -> FastAPI:
         first question pays for embedding the corpus again, then the registry
         keeps it for the rest of the session."""
         cfg = LabConfig.from_dict(payload)
+        asked = truth_for(cfg)
         qid = payload.get('question_id')
-        question = next((q for q in ground_truth['questions']
+        question = next((q for q in asked['questions']
                          if q['id'] == qid), None)
         if question is None:
             raise HTTPException(404, f'unknown question id: {qid!r}')
@@ -196,7 +215,7 @@ def create_inspector_app() -> FastAPI:
         problems = cfg.validate() + models.provider_problems(cfg, run_settings)
         if problems:
             raise HTTPException(400, '; '.join(problems))
-        query_date = payload.get('query_date') or ground_truth['meta']['query_date']
+        query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
             index = registry.get(

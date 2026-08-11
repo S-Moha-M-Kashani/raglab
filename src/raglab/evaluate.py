@@ -13,7 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
-from . import corpus, embedding, metrics, models, pipeline, ragas_eval
+from . import corpus, datasets, embedding, metrics, models, pipeline, ragas_eval
 from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
 from .index import IndexRegistry, _lab_llm
 from .llm import lab_chat
@@ -81,6 +81,10 @@ class RunResult:
     config: dict
     index: dict
     summary: dict
+    # Which corpus this was measured against, resolved rather than left blank —
+    # the leaderboard groups by it first, and a row that does not say which
+    # corpus produced a mean cannot be compared with anything.
+    dataset: str = ''
     rows: list = field(default_factory=list)
     ragas: dict = field(default_factory=dict)
     seconds: float = 0.0
@@ -102,6 +106,7 @@ class RunResult:
 
     def as_dict(self) -> dict:
         return {'run_id': self.run_id, 'label': self.label, 'config': self.config,
+                'dataset': self.dataset,
                 'index': self.index, 'summary': self.summary, 'rows': self.rows,
                 'ragas': self.ragas, 'seconds': self.seconds,
                 'started_at': self.started_at, 'notes': self.notes,
@@ -116,7 +121,8 @@ class RunResult:
         checked against the run it came from."""
         return {'run_id': self.run_id, 'label': self.label,
                 'started_at': self.started_at, 'seconds': self.seconds,
-                'config': self.config, 'summary': self.summary,
+                'config': self.config, 'dataset': self.dataset,
+                'summary': self.summary,
                 'ragas': self.ragas.get('metrics', {}),
                 'ragas_decision': self.ragas.get('decision'),
                 # The error travels with the mean it qualifies. These candidates
@@ -355,6 +361,7 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                _question_note(i + 1, questions, question['difficulty']))
     report('done', 1.0, 'done')
     return {'selection': selection_note(questions, limit, balance),
+            'dataset': cfg.index.dataset or datasets.BUILTIN,
             'index': {'collection': index.stats.collection,
                       'chunks': index.stats.chunks,
                       'reused': index.stats.reused},
@@ -486,7 +493,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     summary = metrics.aggregate(rows)
     ragas_report: dict = {}
     if ragas_mode != 'off':
-        sessions = corpus.sessions_by_id(registry.diary)
+        sessions = corpus.sessions_by_id(registry.corpus_for(cfg.index.dataset))
         references = {q['id']: corpus.evidence_texts(sessions, q) for q in questions}
         ragas_report = ragas_eval.run(pairs, settings, index.embedder,
                                       mode=ragas_mode, sample_limit=ragas_limit,
@@ -496,6 +503,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     report('done', 1.0, 'done')
     result = RunResult(run_id=run_id, label=cfg.label or cfg.index.chunker,
                        config=cfg.to_dict(),
+                       dataset=cfg.index.dataset or datasets.BUILTIN,
                        index={'collection': index.stats.collection,
                               'chunks': index.stats.chunks,
                               'avg_chars': index.stats.avg_chars,
@@ -550,6 +558,11 @@ def list_runs(limit: int = 50) -> list[dict]:
         ragas = data.get('ragas') or {}
         out.append({'run_id': data['run_id'], 'label': data.get('label', ''),
                     'started_at': data.get('started_at', ''),
+                    # Absent on every run recorded before a second corpus
+                    # existed — and those runs *are* the built-in diary, which
+                    # is the only corpus there was. Filling it in is what keeps
+                    # them comparable with new ones rather than quarantined.
+                    'dataset': data.get('dataset') or datasets.BUILTIN,
                     'seconds': data.get('seconds', 0), 'config': data.get('config'),
                     'summary': data.get('summary', {}),
                     'ragas': ragas.get('metrics', {}),

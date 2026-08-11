@@ -112,8 +112,27 @@ def importance_of(session: dict) -> float:
     return round(min(1.0, 0.6 * arousal + 0.4 * extremity), 3)
 
 
-def _speaker(role: str) -> str:
-    return 'کاربر' if role == 'user' else 'دستیار'
+# Who said it, and the header that situates a chunk — in the corpus's own
+# language. Both strings are prepended to text that gets embedded, so writing
+# them in Farsi over an English corpus adds a constant foreign phrase to every
+# vector. Farsi stays the default because the corpus this lab was built for is
+# Farsi and its chunks must not change.
+SPEAKERS = {'fa': ('کاربر', 'دستیار'), 'de': ('Nutzer', 'Assistent')}
+SPEAKERS_DEFAULT = ('User', 'Assistant')
+HEADERS = {'fa': ('حال', 'موضوع', 'رشته', '، '),
+           'de': ('Stimmung', 'Thema', 'Strang', ', ')}
+HEADERS_DEFAULT = ('mood', 'topic', 'thread', ', ')
+
+
+def _language(session: dict) -> str:
+    """The corpus's language, carried on every session by `datasets._split`.
+    Absent — which is every session of the built-in fixture — it is Farsi."""
+    return session.get('language') or 'fa'
+
+
+def _speaker(role: str, language: str = 'fa') -> str:
+    user, assistant = SPEAKERS.get(language, SPEAKERS_DEFAULT)
+    return user if role == 'user' else assistant
 
 
 def _base(session: dict) -> dict:
@@ -131,9 +150,12 @@ def contextual_prefix(session: dict) -> str:
     """A two-line header naming when this was said, how it felt, and what the
     session was about. Deliberately short: it is duplicated into every chunk of
     the session, so anything longer starts to dominate the embedding."""
-    threads = '، '.join(session['recurring_threads']) or '—'
-    head = (f"[{session['date']} | حال: {session['mood']['label']} | "
-            f"موضوع: {'، '.join(session['topics']) or '—'} | رشته: {threads}]")
+    mood_word, topic_word, thread_word, comma = HEADERS.get(_language(session),
+                                                            HEADERS_DEFAULT)
+    threads = comma.join(session['recurring_threads']) or '—'
+    head = (f"[{session['date']} | {mood_word}: {session['mood']['label'] or '—'} | "
+            f"{topic_word}: {comma.join(session['topics']) or '—'} | "
+            f"{thread_word}: {threads}]")
     return head + '\n'
 
 
@@ -201,6 +223,7 @@ def chunk_session(session: dict, cfg, embedder) -> list[Chunk]:
     prefix = contextual_prefix(session) if cfg.contextual else ''
     messages = session['messages']
     out: list[Chunk] = []
+    language = _language(session)
 
     def emit(text: str, i: int, start: int, end: int) -> None:
         out.append(Chunk(id=f"{session['session_id']}:c{i}", text=prefix + text,
@@ -210,7 +233,7 @@ def chunk_session(session: dict, cfg, embedder) -> list[Chunk]:
         emit(session_text(session), 0, 0, len(messages) - 1)
     elif cfg.chunker == 'message':
         for i, m in enumerate(messages):
-            emit(f"{_speaker(m['role'])}: {m['content']}", i, i, i)
+            emit(f"{_speaker(m['role'], language)}: {m['content']}", i, i, i)
     elif cfg.chunker == 'turn-pair':
         i = 0
         while i < len(messages):
@@ -220,13 +243,14 @@ def chunk_session(session: dict, cfg, embedder) -> list[Chunk]:
                     and messages[i + 1]['role'] == 'assistant'):
                 group.append(messages[i + 1])
                 end = i + 1
-            emit('\n'.join(f"{_speaker(m['role'])}: {m['content']}" for m in group),
+            emit('\n'.join(f"{_speaker(m['role'], language)}: {m['content']}"
+                           for m in group),
                  len(out), i, end)
             i = end + 1
     elif cfg.chunker == 'semantic-drift':
         for i, segment in enumerate(_semantic_segments(session, embedder,
                                                        cfg.chunk_chars)):
-            emit('\n'.join(f"{_speaker(messages[j]['role'])}: "
+            emit('\n'.join(f"{_speaker(messages[j]['role'], language)}: "
                            f"{messages[j]['content']}" for j in segment),
                  i, segment[0], segment[-1])
     elif cfg.chunker == 'fixed-overlap':

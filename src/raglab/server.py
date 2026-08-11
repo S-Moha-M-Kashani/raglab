@@ -24,8 +24,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import (credentials, embedding, evaluate, explain, ledger, metrics,
-               models, pipeline, ragas_eval, retrieval)
+from . import (credentials, datasets, embedding, evaluate, explain, ledger,
+               metrics, models, pipeline, ragas_eval, retrieval)
 from .config import (ANSWERERS, BALANCES, CHUNKERS, DEPENDENCIES,
                      DIFFICULTIES, EMBEDDERS, GRADERS, PRODUCTION_CONFIG,
                      RERANKERS, RETRIEVERS, ROOT, RUNS_DIR, STEPS, LabConfig,
@@ -201,6 +201,18 @@ def create_app() -> FastAPI:
     settings = boot_settings
     diary = load_diary()
     ground_truth = load_ground_truth()
+
+    def questions_for(cfg: LabConfig) -> dict:
+        """The ground truth of the corpus this config names.
+
+        Read through `datasets` rather than closed over at boot, because the
+        dataset is a field of the config: the questions a run is scored on and
+        the sessions its index was built from have to come from the same file,
+        and the one way to guarantee that is to resolve both from the same id."""
+        if not cfg.index.dataset:
+            return ground_truth
+        return datasets.load(cfg.index.dataset)[1]
+
     registry = IndexRegistry(settings, diary)
     # This service owns the ledger, so this is the one place a recorder is passed.
     jobs = Jobs(record=ledger.record)
@@ -319,6 +331,12 @@ def create_app() -> FastAPI:
                             # or to clear out.
                             'experiments': _relative(ledger.db_path())},
             },
+            # Every corpus this lab can be pointed at, the built-in one first.
+            # Served rather than listed in the frontend for the reason the modes
+            # and the steps are: a panel with its own list is a panel that will
+            # offer a dataset the service cannot load.
+            'datasets': [found.as_dict() for found in datasets.catalogue()],
+            'dataset_contract': 'docs/groundtruth-dataset-contract.md',
             'indexes': registry.known(),
         }
 
@@ -377,7 +395,7 @@ def create_app() -> FastAPI:
                 if cancelled():
                     raise JobCancelled()
             result = evaluate.run_eval(
-                registry, ground_truth, cfg, run_settings,
+                registry, questions_for(cfg), cfg, run_settings,
                 types=payload.get('types') or None,
                 difficulty=payload.get('difficulty') or None,
                 limit=payload.get('limit') or None,
@@ -421,7 +439,7 @@ def create_app() -> FastAPI:
                 if cancelled():
                     raise JobCancelled()
             return evaluate.run_retrieval(
-                registry, ground_truth, cfg, run_settings,
+                registry, questions_for(cfg), cfg, run_settings,
                 types=payload.get('types') or None,
                 difficulty=payload.get('difficulty') or None,
                 limit=payload.get('limit') or None,
@@ -502,7 +520,8 @@ def create_app() -> FastAPI:
         problems = cfg.validate() + models.provider_problems(cfg, run_settings)
         if problems:
             raise HTTPException(400, '; '.join(problems))
-        query_date = payload.get('query_date') or ground_truth['meta']['query_date']
+        asked = questions_for(cfg)
+        query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
             # The implicit build is the long silent part — hand it the front of
@@ -527,7 +546,7 @@ def create_app() -> FastAPI:
             # Exact match only, never fuzzy: a question that happens to equal
             # a ground-truth one gets its gold marks, everything else is
             # plainly ungraded rather than guessed at.
-            gt_question = next((q for q in ground_truth['questions']
+            gt_question = next((q for q in asked['questions']
                                 if q['question_fa'] == question), None)
             if gt_question is not None:
                 quotes = [ev['quote'] for ev in gt_question.get('evidence', [])]
@@ -548,15 +567,34 @@ def create_app() -> FastAPI:
                                     config=_with_backend(cfg, run_settings)))
 
     @app.get('/api/questions')
-    def questions(limit: int = 200):
+    def questions(limit: int = 200, dataset: str = ''):
         """The ground truth without its answers — for picking a question to
         inspect in the query panel."""
+        asked = (datasets.load(dataset)[1] if dataset else ground_truth)
         return {'questions': [
             {'id': q['id'], 'type': q['type'], 'difficulty': q['difficulty'],
              'question_fa': q['question_fa'], 'question_en': q['question_en'],
              'answerable': q['answerable'],
              'evidence_sessions': [ev['session_id'] for ev in q['evidence']]}
-            for q in ground_truth['questions'][:limit]]}
+            for q in asked['questions'][:limit]]}
+
+    @app.get('/api/datasets')
+    def list_datasets():
+        return {'datasets': [found.as_dict() for found in datasets.catalogue()]}
+
+    @app.post('/api/datasets')
+    def import_dataset(payload: dict):
+        """Take one dataset file, check it against the contract, keep it.
+
+        400 with every problem at once rather than the first: fixing a corpus is
+        a slow loop if each attempt reports one broken quote out of nine. The
+        lab refuses rather than repairs — a silently mended dataset measures
+        something nobody described."""
+        try:
+            found = datasets.import_dataset(payload)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        return found.as_dict()
 
     @app.post('/api/credentials')
     def set_credentials(payload: dict):

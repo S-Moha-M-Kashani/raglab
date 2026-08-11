@@ -25,11 +25,13 @@ def date_int(date: str) -> int:
 
 def session_text(session: dict) -> str:
     """One session as plain dialogue text, role-tagged so a chunk read in
-    isolation still shows who said what."""
+    isolation still shows who said what — in the corpus's own language, since
+    this text is what gets embedded."""
+    from .chunking import _language, _speaker
+    language = _language(session)
     lines = []
     for message in session['messages']:
-        speaker = 'کاربر' if message['role'] == 'user' else 'دستیار'
-        lines.append(f"{speaker}: {message['content']}")
+        lines.append(f"{_speaker(message['role'], language)}: {message['content']}")
     return '\n'.join(lines)
 
 

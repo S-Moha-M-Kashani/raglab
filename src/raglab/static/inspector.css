@@ -1,11 +1,16 @@
-/* The RAG Lab Inspector, in the board's own hand.
+/* The RAG Lab Inspector, in the lab's own hand.
  *
- * This page used to carry a palette of its own (#faf8f2 paper, #23201a ink) that
- * resembled the board without matching it, which reads as a different product
- * rather than the same one's instrument panel. Every token below is the board's
- * (styles.css), including the pen inks: the lab's rule that colour means a
- * pipeline step is served by *which pen* wrote a thing — amber for index, green
- * for retrieval, blue for generation — rather than by hues invented here.
+ * The panel on :9002 and this page are one instrument in two windows, so the
+ * tokens below are the panel's: a graphite chassis carrying identity and state,
+ * porcelain plates holding the readings, and three step inks — saffron for
+ * index, verdigris for retrieval, lapis for generation — which are the only
+ * saturated hues either page spends. A colour meaning a pipeline step is a fact
+ * the service serves (`/api/options` → steps); it must not be a hue invented
+ * once per page.
+ *
+ * `--ink-amber/green/blue` survive as the names the rest of this file is written
+ * in, aliased to the step tokens rather than given values of their own — so
+ * there is exactly one place a step's colour is decided.
  *
  * Farsi gets a stack of its own. It was being set in SF Mono, which has no
  * Persian glyphs to speak of, so the corpus this page exists to display arrived
@@ -13,30 +18,43 @@
  * Farsi.
  */
 :root {
-  --display: "American Typewriter", "Courier New", "Courier", serif;
-  --body: "Avenir Next", "Avenir", "Segoe UI", system-ui, sans-serif;
-  --mono: "SF Mono", "Menlo", "Consolas", monospace;
+  --display: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
+  --body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", "Menlo", monospace;
   /* Persian first, then the faces macOS and Windows actually ship. */
   --farsi: "Vazirmatn", "IRANSansX", "IRANSans", "Geeza Pro", "Tahoma",
            "Segoe UI", sans-serif;
 
-  --paper: #f5f7f2;
-  --grid: rgba(47, 90, 143, 0.08);
-  --card: #ffffff;
-  --card-line: #dfe4dc;
-  --line: #d3dad1;
-  --ink: #22303a;
-  --ink-soft: #64707a;
-  --rule-red: #c8574a;
+  --chassis: #101620;
+  --chassis-soft: #1c2734;
+  --chassis-ink: #c3cdda;
+  --chassis-ink-soft: #7d8b9c;
 
-  --ink-amber: #a8752c;     /* index */
-  --ink-green: #4a7a54;     /* retrieval */
-  --ink-blue: #2f5a8f;      /* generation */
+  --paper: #edf0f3;
+  --card: #ffffff;
+  --card-line: #e8ecf1;
+  --line: #d3dae2;
+  --ink: #17202b;
+  --ink-soft: #5b6875;
+  --rule-red: #a33227;
+
+  --step-index: oklch(0.56 0.14 58);
+  --step-retrieval: oklch(0.49 0.11 168);
+  --step-generation: oklch(0.50 0.15 262);
+  /* The same three, lifted for the chassis: an ink chosen to sit on porcelain is
+     close to unreadable on graphite, and the tab bar is on graphite. */
+  --step-index-lit: oklch(0.78 0.13 62);
+  --step-retrieval-lit: oklch(0.75 0.11 168);
+  --step-generation-lit: oklch(0.76 0.11 258);
+
+  --ink-amber: var(--step-index);        /* index */
+  --ink-green: var(--step-retrieval);    /* retrieval */
+  --ink-blue: var(--step-generation);    /* generation */
 
   /* The row shading is the ground truth's verdict at chunk granularity: paper
      for relevant, a shade back for not. It used to be a 4% difference nobody
      could see; a table's most important distinction has to survive a glance. */
-  --row-plain: #e7ebe4;
+  --row-plain: #e3e8ee;
   /* Evidence: a highlighter wash, plus an underline so the mark never depends
      on hue alone. Kept apart from the retrieval pen by treatment — a wash is
      never a rule, and a rule is never a wash. */
@@ -47,22 +65,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #20241f;
-    --grid: rgba(170, 195, 220, 0.055);
-    --card: #2a2f29;
-    --card-line: #3d453d;
-    --line: #39413a;
-    --ink: #e6e4d8;
-    --ink-soft: #9aa69b;
-    --rule-red: #d07a6c;
-    --ink-amber: #d2a35c;
-    --ink-green: #86b08c;
-    --ink-blue: #7fa7d9;
+    --paper: #151b24;
+    --card: #1e2733;
+    --card-line: #2c3745;
+    --line: #33404f;
+    --ink: #e3e9ef;
+    --ink-soft: #97a4b3;
+    --rule-red: #d98376;
+    /* The lit inks become the working inks: on this theme every surface is the
+       chassis, so a step reads at the weight the chassis needs. */
+    --step-index: var(--step-index-lit);
+    --step-retrieval: var(--step-retrieval-lit);
+    --step-generation: var(--step-generation-lit);
     /* Well below --card, not a shade beside it. In light mode paper-versus-shade
        is obvious; the first dark build had #23281f against a #2a2f29 card, which
        is seven units apart and left the table's most important distinction
        invisible on exactly the theme this page is read in at night. */
-    --row-plain: #191d18;
+    --row-plain: #121821;
     --evidence: #2f6a3a;
     --evidence-rule: #86b08c;
     --evidence-ink: #eafbe8;
@@ -76,39 +95,42 @@ body {
   font-family: var(--body);
   color: var(--ink);
   background-color: var(--paper);
-  background-image:
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: 24px 24px;
-  line-height: 1.5;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
 }
 
 button { font: inherit; cursor: pointer; color: inherit; }
 select { font: inherit; color: inherit; }
-:focus-visible { outline: 2px solid var(--rule-red); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
 
 /* --- the instrument header ------------------------------------------------- */
-/* Not a hero: a readout. The first thing worth knowing here is which run you
-   are looking at, so the title stays small and the run's identity is what the
-   eye lands on. */
+/* Not a hero: a readout, and the same chassis the panel wears — the two windows
+   are one instrument. The first thing worth knowing here is which run you are
+   looking at, so the title stays small and the lab's state is what the eye
+   lands on. */
 .inspector-header {
-  padding: .9rem 1.25rem .5rem;
-  background: var(--card);
-  border-bottom: 1px solid var(--card-line);
-  box-shadow: 0 1px 0 var(--line);
+  padding: .85rem 1.25rem 0;
+  background: var(--chassis);
+  color: var(--chassis-ink);
 }
 .inspector-header h1 {
   font-family: var(--display);
-  font-size: 1.05rem;
-  font-weight: 400;
-  letter-spacing: .09em;
-  text-transform: uppercase;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  text-transform: none;
+  color: #fff;
   margin: 0 0 .1rem;
+}
+.inspector-header h1 .lab-mark {
+  display: inline-block; margin-right: .5rem; padding: .18rem .42rem;
+  background: var(--step-retrieval-lit); color: var(--chassis);
+  font: 700 .8rem/1 var(--mono); vertical-align: .18em; border-radius: 2px;
 }
 .follow-state {
   font-family: var(--mono);
   font-size: .72rem;
-  color: var(--ink-soft);
+  color: var(--chassis-ink-soft);
   display: block;
   margin-bottom: .7rem;
 }
@@ -118,11 +140,11 @@ select { font: inherit; color: inherit; }
   width: .45rem; height: .45rem;
   margin-right: .4rem;
   border-radius: 50%;
-  background: var(--ink-soft);
+  background: var(--chassis-ink-soft);
   vertical-align: .05rem;
 }
-.follow-state[data-lab="up"]::before { background: var(--ink-green); }
-.follow-state[data-lab="down"]::before { background: var(--rule-red); }
+.follow-state[data-lab="up"]::before { background: var(--step-retrieval-lit); }
+.follow-state[data-lab="down"]::before { background: #e07a6c; }
 
 /* --- tabs: the pipeline, left to right ------------------------------------ */
 /* Each tab is inked by the step it belongs to, and the selected one is the only
@@ -130,22 +152,21 @@ select { font: inherit; color: inherit; }
    where in the pipeline you are standing. */
 .inspector-tabs { display: flex; gap: 1.4rem; }
 .inspector-tab {
-  font-family: var(--display);
-  font-size: .82rem;
-  letter-spacing: .06em;
+  font: 700 .68rem/1.4 var(--body);
+  letter-spacing: .13em;
   text-transform: uppercase;
   background: transparent;
   border: 0;
   border-bottom: 3px solid transparent;
-  padding: .3rem 0 .55rem;
-  color: var(--ink-soft);
+  padding: .35rem 0 .5rem;
+  color: var(--chassis-ink-soft);
 }
-.inspector-tab:hover { color: var(--ink); }
-.inspector-tab[aria-selected="true"] { color: var(--ink); }
-.inspector-tab[data-step="index"][aria-selected="true"] { border-bottom-color: var(--ink-amber); }
-.inspector-tab[data-step="retrieval"][aria-selected="true"] { border-bottom-color: var(--ink-green); }
-.inspector-tab[data-step="generation"][aria-selected="true"] { border-bottom-color: var(--ink-blue); }
-.inspector-tab#tab-groundtruth[aria-selected="true"] { border-bottom-color: var(--ink); }
+.inspector-tab:hover { color: #fff; }
+.inspector-tab[aria-selected="true"] { color: #fff; }
+.inspector-tab[data-step="index"][aria-selected="true"] { border-bottom-color: var(--step-index-lit); }
+.inspector-tab[data-step="retrieval"][aria-selected="true"] { border-bottom-color: var(--step-retrieval-lit); }
+.inspector-tab[data-step="generation"][aria-selected="true"] { border-bottom-color: var(--step-generation-lit); }
+.inspector-tab#tab-groundtruth[aria-selected="true"] { border-bottom-color: #fff; }
 
 /* --- views ---------------------------------------------------------------- */
 .inspector-view { padding: 1.1rem 1.25rem 4rem; max-width: 92rem; }
@@ -157,6 +178,7 @@ select { font: inherit; color: inherit; }
   font-size: .74rem;
   color: var(--ink-soft);
   background: var(--card);
+  border: 1px solid var(--card-line); border-radius: 0 4px 4px 0;
   border-left: 3px solid var(--line);
   padding: .45rem .7rem;
   margin-bottom: .9rem;
@@ -172,12 +194,12 @@ select { font: inherit; color: inherit; }
   font-family: var(--mono); font-size: .78rem;
 }
 .inspector-controls button {
-  font-family: var(--display); font-size: .76rem; letter-spacing: .05em;
-  text-transform: uppercase;
+  font: 600 .78rem/1.4 var(--body);
   background: var(--card); color: var(--ink);
-  border: 1px solid var(--ink); padding: .35rem .8rem;
+  border: 1px solid var(--line); border-radius: 3px; padding: .38rem .8rem;
 }
-.inspector-controls button:hover { background: var(--ink); color: var(--card); }
+.inspector-controls button:hover { background: var(--chassis); color: #fff;
+                                     border-color: var(--chassis); }
 .inspector-controls select { border: 1px solid var(--line); background: var(--card);
                              padding: .25rem .35rem; max-width: 22rem; }
 
@@ -196,7 +218,8 @@ select { font: inherit; color: inherit; }
    stranded in the middle with a page of nothing between them and their text. */
 .gt-row {
   background: var(--card);
-  border: 1px solid var(--card-line);
+  border: 1px solid var(--card-line); border-radius: 4px;
+  box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   border-left: 3px solid var(--ink);
   padding: .65rem .85rem;
   margin-bottom: .5rem;
@@ -220,7 +243,8 @@ select { font: inherit; color: inherit; }
 /* --- chunks: a session is a page of the diary ----------------------------- */
 .chunk-session {
   background: var(--card);
-  border: 1px solid var(--card-line);
+  border: 1px solid var(--card-line); border-radius: 4px;
+  box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   border-left: 3px solid var(--ink-amber);
   margin-bottom: .4rem;
   padding: .45rem .7rem;
@@ -235,7 +259,7 @@ select { font: inherit; color: inherit; }
 }
 .chunk-line > div:last-child { font-size: .88rem; }
 .chunk-no {
-  font-family: var(--display); font-size: .68rem; letter-spacing: .09em;
+  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-amber);
   margin-bottom: .15rem;
 }
@@ -270,9 +294,9 @@ select { font: inherit; color: inherit; }
 }
 .q-legend-note { font-size: .74rem; color: var(--ink-soft); }
 .q-chip {
-  font-family: var(--display); font-size: .62rem; letter-spacing: .08em;
+  font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
   text-transform: uppercase; padding: .1rem .4rem;
-  border: 1px solid currentColor;
+  border: 1px solid currentColor; border-radius: 2px;
 }
 .q-chip--hard { color: var(--rule-red); }
 .q-chip--medium { color: var(--ink-amber); }
@@ -296,7 +320,7 @@ select { font: inherit; color: inherit; }
 .q-option-id { font-family: var(--mono); font-size: .74rem; }
 .q-option-en { color: var(--ink); flex: 1; }
 .q-option-added {
-  font-family: var(--display); font-size: .62rem; letter-spacing: .08em;
+  font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
   text-transform: uppercase; color: var(--ink-green);
 }
 /* Everything you need to decide whether this question is worth adding, without
@@ -329,7 +353,7 @@ select { font: inherit; color: inherit; }
    and scoping it to `.question-head` was why those labels rendered as body text
    instead of eyebrows. */
 .qh-label {
-  font-family: var(--display); font-size: .68rem; letter-spacing: .1em;
+  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: .55rem 0 .15rem;
 }
@@ -343,7 +367,8 @@ select { font: inherit; color: inherit; }
    is a set of questions, and the unit you reason about is one question. */
 .retrieval-question, .gen-question {
   background: var(--card);
-  border: 1px solid var(--card-line);
+  border: 1px solid var(--card-line); border-radius: 4px;
+  box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   margin-bottom: .5rem;
   padding: .5rem .8rem .7rem;
 }
@@ -375,8 +400,8 @@ select { font: inherit; color: inherit; }
    headers ranged left while the numbers under them ranged right, so each label
    sat over the wrong end of its own column. */
 .retrieval-table th {
-  text-align: center; font-weight: 400; color: var(--ink-soft);
-  font-size: .66rem; letter-spacing: .07em; text-transform: uppercase;
+  text-align: center; color: var(--ink-soft);
+  font: 600 .64rem/1.5 var(--body); letter-spacing: .08em; text-transform: uppercase;
   padding: .3rem .45rem; border-bottom: 1px solid var(--ink);
   white-space: nowrap;
 }
@@ -387,10 +412,10 @@ select { font: inherit; color: inherit; }
    click, the colour about the pipeline, and they never contend for the same mark.
    A pseudo-element rather than text, so a header stays the string it was. */
 th.sort-col { cursor: pointer; user-select: none; }
-th.sort-col:hover { color: var(--rule-red); }
-th.sort-col:focus-visible { outline: 2px solid var(--rule-red); outline-offset: 1px; }
-th[aria-sort="ascending"]::after { content: " ▲"; color: var(--rule-red); }
-th[aria-sort="descending"]::after { content: " ▼"; color: var(--rule-red); }
+th.sort-col:hover { color: var(--ink); }
+th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
+th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
+th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .retrieval-table td {
   padding: .32rem .45rem; border-bottom: 1px solid var(--card-line);
   vertical-align: top;
@@ -472,8 +497,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--rule-red); }
 }
 .gen-answer { padding: .6rem .75rem; border: 1px solid var(--card-line); }
 .gen-answer h4 {
-  font-family: var(--display); font-size: .68rem; font-weight: 400;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft);
+  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 .35rem;
 }
 /* The fixture's answer is the reference, so it is written on clean paper; what
@@ -495,8 +520,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--rule-red); }
   padding: .6rem .8rem; margin-bottom: .8rem;
 }
 .gen-ragas h4 {
-  font-family: var(--display); font-size: .68rem; font-weight: 400;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft);
+  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 .3rem;
 }
 .gen-trace { margin-top: .6rem; }
@@ -508,9 +533,9 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--rule-red); }
 /* --- the '!' beside a score, and the sentence it opens ------------------- */
 /* The same affordance the lab's panel carries, reading the same served text. */
 .inspector-why {
-  font-family: var(--display); font-size: .66rem; line-height: 1;
+  font: 700 .6rem/1 var(--mono);
   background: transparent; color: var(--ink-soft);
-  border: 1px solid var(--line); padding: .1em .3em;
+  border: 1px solid var(--line); border-radius: 999px; padding: .12em .34em;
   margin-left: .35em;
 }
 .inspector-why:hover { border-color: var(--rule-red); color: var(--rule-red); }

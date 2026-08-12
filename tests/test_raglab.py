@@ -3029,6 +3029,27 @@ def test_the_sweep_refuses_a_judge_that_grades_its_own_answers(monkeypatch,
 
 
 # This is a unit test.
+def test_the_answering_phase_is_capped_where_the_judging_phase_is():
+    """`--workers` defaults to 6 and every LLM call on a CLI backend is a whole
+    process — so the answering phase ran twice as many of them as the judge is
+    allowed, on the same laptop, unmeasured. JUDGE_LOAD's cap of three was argued
+    from what this machine does with more than three of these processes, which is
+    a fact about the machine rather than about which phase is running, so both
+    phases read it off that one table instead of a second number invented to
+    disagree with it."""
+    cli = replace(LAB_SETTINGS, llm_provider='claude')
+    cap = ragas_eval.JUDGE_LOAD['claude']['max_workers']
+    assert sweep.capped_workers(6, cli) == cap
+    # A lower figure is a deliberate choice about someone's machine; the cap
+    # exists to stop an unmeasured default, not to overrule a measured one.
+    assert sweep.capped_workers(1, cli) == 1
+    # And it changes nothing where a call is a socket rather than a process.
+    for provider in ('openrouter', 'ollama', 'fake'):
+        settings = replace(LAB_SETTINGS, llm_provider=provider)
+        assert sweep.capped_workers(6, settings) == 6, provider
+
+
+# This is a unit test.
 def test_the_sweep_starts_with_a_local_judge_and_no_api_key(monkeypatch):
     """The guard used to test for a credential, so anyone judging locally was
     sent away from a run they could have made."""

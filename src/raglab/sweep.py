@@ -167,10 +167,20 @@ def judged_settings():
     used to send anyone without one away from a run they could have made."""
     settings = load_lab_settings()
     if not settings.llm_ready:
+        # Every way out, not the two that existed when this was written. A hint
+        # listing some of them is worse than one listing none, because a reader
+        # takes it for the whole set — and the two that need no key are the ones
+        # a reader is least likely to already know about.
         sys.exit('no LLM backend: the four deciding metrics are judged, so there '
-                 'is nothing to rank without one. Set OPENROUTER_API_KEY, or '
-                 'RAGLAB_LLM=ollama with RAGLAB_SWEEP_ANSWER_MODEL / '
-                 'RAGLAB_SWEEP_JUDGE_MODEL naming two models it serves.')
+                 'is nothing to rank without one. Four ways out: '
+                 'RAGLAB_LLM=claude and RAGLAB_LLM=codex run a CLI already '
+                 'installed and logged in on this machine and need no key at '
+                 'all; RAGLAB_LLM=ollama runs a model on it; '
+                 'RAGLAB_LLM=openrouter needs OPENROUTER_API_KEY. Each has a '
+                 'pinned answerer/judge pair except codex, where one alias is '
+                 'verified here and a model grading its own output is not '
+                 'evidence — name both with RAGLAB_SWEEP_ANSWER_MODEL / '
+                 'RAGLAB_SWEEP_JUDGE_MODEL.')
     if not ANSWER_MODEL or not JUDGE_MODEL:
         sys.exit(f'no answerer/judge pair for RAGLAB_LLM={_PROVIDER!r}: name '
                  'both with RAGLAB_SWEEP_ANSWER_MODEL and '

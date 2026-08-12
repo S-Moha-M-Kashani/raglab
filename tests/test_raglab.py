@@ -6,6 +6,7 @@ the real one-year fixture rather than a toy corpus, because the properties worth
 asserting — that a Farsi question finds its evidence session, that the current
 production embedder finds nothing at all — only exist at that scale.
 """
+import ast
 import json
 import os
 import re
@@ -5010,3 +5011,27 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it():
         # problem rather than the fix.
         if provider and provider != 'fake':
             assert provider in hint[0], provider
+
+
+# This is a unit test.
+def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():
+    """The panel's hint is one of three places this sentence is written, and the
+    other two are the entry points a sweep and a judge screen actually stop at.
+    They named OPENROUTER_API_KEY and ollama for as long as those were the only
+    answers; a reader takes a partial list for the whole set, and the two the
+    branch added are the ones nobody would guess, because they need no key.
+
+    Read out of the source rather than triggered: `judged_settings` and `screen`
+    answer with `sys.exit`, so calling them to read their message would end the
+    test that read it."""
+    for name in ('sweep.py', 'judgescreen.py'):
+        tree = ast.parse((RAGLAB_DIR / name).read_text(encoding='utf-8'))
+        refusals = [node.args[0].value for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and getattr(node.func, 'attr', '') == 'exit'
+                    and node.args and isinstance(node.args[0], ast.Constant)
+                    and 'no LLM backend' in str(node.args[0].value)]
+        assert len(refusals) == 1, (name, refusals)
+        for provider in config.LLM_PROVIDERS:
+            if provider and provider != 'fake':
+                assert provider in refusals[0], (name, provider)

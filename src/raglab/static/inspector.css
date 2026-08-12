@@ -264,6 +264,37 @@ select { font: inherit; color: inherit; }
   margin-bottom: .15rem;
 }
 
+/* Which kind of row this view is listing. A segmented pair rather than two loose
+   buttons: the choice is exclusive, and the pressed one has to read as a position
+   rather than as an action just taken. Carries the index ink because both halves
+   are index-stage material — the leaves the chunker cut and the summaries a
+   grouping wrote beside them. */
+.mode-toggle {
+  display: inline-flex; margin: 0 0 .6rem;
+  border: 1px solid var(--card-line); border-radius: 3px; overflow: hidden;
+}
+.mode-toggle button {
+  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  text-transform: uppercase;
+  background: var(--card); color: var(--ink-soft);
+  border: 0; padding: .3rem .7rem; cursor: pointer;
+}
+.mode-toggle button + button { border-left: 1px solid var(--card-line); }
+.mode-toggle button:hover { color: var(--ink); }
+.mode-toggle button[aria-pressed="true"] {
+  background: var(--step-index); color: #fff;
+}
+/* The member ids a summary was written over, in the data face because they are
+   identifiers to be matched against the chunk list, not prose. LTR explicitly:
+   these are Latin ids sitting on a page whose text runs the other way. */
+.summary-members {
+  font-family: var(--mono); font-size: .7rem; line-height: 1.6;
+  color: var(--ink-soft); direction: ltr; word-break: break-all;
+}
+/* An empty view says what to do next rather than leaving a blank pane, which
+   reads as a page that failed to load. */
+.empty-note { font-size: .78rem; color: var(--ink-soft); max-width: 44rem; }
+
 /* --- the question picker -------------------------------------------------- */
 /* A listbox rather than a <select>, because a <select> can carry neither the
    difficulty colour nor the hover detail: styling <option> is unreliable outside

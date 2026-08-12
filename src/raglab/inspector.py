@@ -30,7 +30,8 @@ from .config import LabConfig, load_lab_settings, settings_for_provider
 from . import datasets
 from .corpus import load_diary, load_ground_truth
 from .index import IndexRegistry, _lab_llm
-from .present import chunks_by_session, gold_available, mark_gold
+from .present import (chunks_by_session, gold_available, mark_gold,
+                      summary_rows)
 from .server import Jobs
 
 STATIC = Path(__file__).resolve().parent / 'static'
@@ -150,8 +151,15 @@ def create_inspector_app() -> FastAPI:
         def work(report):
             index = registry.get(cfg.index, progress=report)
             groups = chunks_by_session(index)
+            summaries = summary_rows(index)
+            # Both halves in one job, so the toggle needs no second request and
+            # cannot show two different builds. `total` stays the leaf count: it
+            # is what the chunk-size knob is read against, and mixing in rows a
+            # summariser wrote would make that number unreadable.
             return {'chunks_by_session': groups,
-                    'total': sum(len(g['chunks']) for g in groups)}
+                    'total': sum(len(g['chunks']) for g in groups),
+                    'summaries': summaries,
+                    'total_summaries': len(summaries)}
 
         return _accepted(jobs.start('chunks', work))
 
@@ -336,12 +344,19 @@ def create_inspector_app() -> FastAPI:
                 if entry.get('state') != 'done':
                     continue
                 full = _lab_get(f"/api/jobs/{entry['id']}")
-                groups = ((full or {}).get('result') or {}).get('chunks_by_session')
+                result = (full or {}).get('result') or {}
+                groups = result.get('chunks_by_session')
                 if not groups:
                     continue        # a query job, or a run from before this
                 return {'kind': entry.get('kind'), 'job_id': entry['id'],
                         'config': full.get('config'),
-                        'chunks_by_session': groups}
+                        'chunks_by_session': groups,
+                        # `or []` rather than the raw value: a job recorded before
+                        # the lab reported summaries has no such key, and a lab
+                        # this Inspector cannot fully understand must still be a
+                        # lab it can display. Absent and none are the same thing
+                        # to render — neither is an error.
+                        'summaries': result.get('summaries') or []}
             return None
 
         def generation() -> dict | None:

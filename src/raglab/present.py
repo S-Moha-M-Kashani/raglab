@@ -97,13 +97,73 @@ def evidence_spans(text: str, evidence_quotes: list[str]) -> list[list[int]]:
 
 
 def chunks_by_session(index) -> list[dict]:
-    """Every chunk the index holds, grouped by session in index order — the
-    'chunks after indexing' view. `by_session` is built in chunk order, which
-    follows diary order, so no sorting is needed or wanted."""
+    """Every chunk the *chunker* produced, grouped by session in index order —
+    the 'chunks after indexing' view. `by_session` is built in chunk order, which
+    follows diary order, so no sorting is needed or wanted.
+
+    Leaves only. A summary is a row the build wrote rather than something the
+    diarist said, and one whose group happens to fall inside a single session
+    keeps that session's id — so before the split it appeared here mixed in among
+    real entries with nothing marking it as a different kind of thing.
+    `summary_rows` is the other half; between them they account for every row in
+    the index exactly once."""
     groups = []
     for session_id, chunks in index.by_session.items():
+        leaves = [c for c in chunks if c.layer != 'summary']
+        if not leaves:
+            continue
         groups.append({
             'session_id': session_id,
-            'date': chunks[0].date if chunks else '',
-            'chunks': [{'id': c.id, 'text': c.text} for c in chunks]})
+            'date': leaves[0].date,
+            'chunks': [{'id': c.id, 'text': c.text} for c in leaves]})
     return groups
+
+
+def _leaf_sessions(index, chunk) -> set[str]:
+    """The sessions a summary ultimately speaks for.
+
+    Resolved through the members rather than read off the row, because a summary
+    spanning more than one session carries `session_id=''` — naming one of
+    several would put a citation on a row that is mostly about the others. And
+    resolved *transitively*: at two levels the members of a level-2 group are
+    themselves summaries, which carry no session id either, so counting only the
+    direct members would report 0 sessions for the rows that span the most.
+    """
+    if chunk.layer != 'summary':
+        return {chunk.session_id} if chunk.session_id else set()
+    found: set[str] = set()
+    for member_id in chunk.member_ids:
+        member = index.by_id.get(member_id)
+        if member is not None:
+            found |= _leaf_sessions(index, member)
+    return found
+
+
+def summary_rows(index) -> list[dict]:
+    """Every row a hierarchy wrote, in index order — the other half of the chunk
+    view.
+
+    These used to be unreachable from any screen. A build reported `chunks=174`
+    over 167 leaves and 7 summaries, and the only view that lists rows could show
+    167 of them, so "the grouping produced nothing" and "the grouping produced
+    seven rows nobody can see" read identically. Each row therefore states what
+    its text cannot: which group it speaks for, at which level, over how many
+    members, and across how many sessions — the last being what says a group is
+    the multi-session kind that was wholly invisible.
+
+    An empty list on a flat index, never a missing key: "no hierarchy" and "a
+    hierarchy that found nothing" are different facts about a build, and the same
+    distinction `IndexStats.hierarchy` keeps by being `None` rather than `{}`.
+    """
+    rows = []
+    for chunk in index.chunks:
+        if chunk.layer != 'summary':
+            continue
+        rows.append({
+            'id': chunk.id, 'text': chunk.text,
+            'group_id': chunk.group_id, 'level': chunk.level,
+            'members': len(chunk.member_ids),
+            'member_ids': list(chunk.member_ids),
+            'sessions': len(_leaf_sessions(index, chunk)),
+            'date': chunk.date, 'chars': len(chunk.text)})
+    return rows

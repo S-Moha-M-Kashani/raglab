@@ -4018,6 +4018,49 @@ def test_jobs_index_lists_runs_with_their_config(client):
     assert chunks_total == job['result']['chunks']
 
 
+# This is an integration test.
+def test_a_hierarchical_build_reports_the_summaries_it_wrote(client):
+    """The Inspector cannot see a summary the lab does not report.
+
+    :9003 holds no index of its own on the followed path — it renders what a job
+    on :9002 returned — so a build that adds seven summary rows and reports only
+    its leaves makes them unreachable from the one screen that lists rows. The
+    two numbers together are what say which happened: `chunks` counts every row
+    in the index, and the leaves plus the summaries have to come back to it. A
+    build whose grouping found nothing reports an empty list, which is a
+    different fact from a build that found something and did not say."""
+    posted = client.post('/api/indexes', json={
+        'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+                  'hierarchy': 'metadata', 'summarizer': 'centroid'}})
+    assert posted.status_code == 202
+    job = _finished(client, posted.json()['job_id'], timeout=120.0)
+    assert job['state'] == 'done', job.get('error')
+    result = job['result']
+
+    leaves = sum(len(g['chunks']) for g in result['chunks_by_session'])
+    summaries = result['summaries']
+    assert summaries, 'a metadata hierarchy over this corpus has groups to summarise'
+    assert leaves + len(summaries) == result['chunks'], (
+        'every row in the index must be reachable from one of the two views')
+    assert leaves == result['leaves'], \
+        'the chunk view holds the chunker output and nothing the summariser wrote'
+
+    # each row carries what the summaries view labels it with
+    for summary in summaries:
+        for key in ('id', 'text', 'group_id', 'level', 'members', 'member_ids',
+                    'sessions', 'chars'):
+            assert key in summary, f'missing {key}'
+        assert summary['members'] == len(summary['member_ids'])
+
+    # a flat build says "none", rather than leaving the key out and making the
+    # Inspector guess whether this lab is simply older than the feature
+    flat = client.post('/api/indexes', json={
+        'index': {'chunker': 'session', 'embedder': 'ascii-hash'}})
+    flat_job = _finished(client, flat.json()['job_id'], timeout=120.0)
+    assert flat_job['state'] == 'done', flat_job.get('error')
+    assert flat_job['result']['summaries'] == []
+
+
 # ---------------------------------------------------------------------------
 # The panel's two usability guarantees, held by the served data rather than by
 # either frontend — a rule copied into two panels is a rule that will disagree.

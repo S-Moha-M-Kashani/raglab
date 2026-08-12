@@ -34,7 +34,7 @@ from .config import (ANSWERERS, BALANCES, CHUNKERS, DEPENDENCIES,
 from .corpus import load_diary, load_ground_truth
 from . import hierarchy
 from .index import IndexRegistry, _lab_llm
-from .present import chunks_by_session, mark_gold
+from .present import chunks_by_session, mark_gold, summary_rows
 
 STATIC = Path(__file__).resolve().parent / 'static'
 
@@ -404,7 +404,12 @@ def create_app() -> FastAPI:
                     'reused': index.stats.reused, 'notes': index.stats.notes,
                     # So a follower (the Inspector, :9003) can render what an
                     # index job actually built without holding its own index.
-                    'chunks_by_session': chunks_by_session(index)}
+                    # Both halves, because `chunks_by_session` is the chunker's
+                    # output alone: reporting it by itself left every summary a
+                    # grouping wrote unreachable from the only view that lists
+                    # rows, while `chunks` above counted them.
+                    'chunks_by_session': chunks_by_session(index),
+                    'summaries': summary_rows(index)}
 
         return _accepted(jobs.start('index', work, config=cfg.to_dict()))
 
@@ -442,7 +447,8 @@ def create_app() -> FastAPI:
             # chunk text in it.
             return result.as_dict() | {
                 'traces': result.traces,
-                'chunks_by_session': result.chunks_by_session}
+                'chunks_by_session': result.chunks_by_session,
+                'summaries': result.summaries}
 
         return _accepted(jobs.start('run', work, config=_with_backend(cfg, run_settings)))
 

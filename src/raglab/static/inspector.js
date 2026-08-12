@@ -172,6 +172,68 @@ function renderChunkGroups(container, groups) {
   }
 }
 
+// A summary is not a diary entry, and the whole point of listing it apart is that
+// a reader can tell. Each card leads with what its text cannot say — the group it
+// speaks for, its level, how many chunks it was written over and how many sessions
+// those span. The session count is the one that was wholly unreadable before: a
+// group spanning several sessions carries no session id at all, which is exactly
+// why these rows used to be absent from the chunk view rather than merely unlabelled.
+function renderSummaries(container, summaries) {
+  container.innerHTML = '';
+  if (!summaries.length) {
+    // "No hierarchy" and "a hierarchy that found nothing" are different facts, and
+    // this view must not read as the second when it is the first.
+    container.innerHTML = '<p class="empty-note">This index is flat — no grouping was '
+      + 'asked for, so there are no summaries to list. Pick a grouping under '
+      + '"Summary hierarchy" on the lab to build some.</p>';
+    return;
+  }
+  for (const s of summaries) {
+    const det = document.createElement('details');
+    det.className = 'chunk-session';
+    det.innerHTML = `<summary>`
+      + `<span class="layer-badge" data-step="index">L${s.level} `
+      + `${escapeHtml(s.group_id || '')} · ${s.members}</span> `
+      + `<span class="q-tally">${s.members} chunk${s.members === 1 ? '' : 's'} `
+      + `· ${s.sessions} session${s.sessions === 1 ? '' : 's'}`
+      + `${s.chars ? ' · ' + s.chars + ' chars' : ''}</span></summary>`;
+    const line = document.createElement('div');
+    line.className = 'chunk-line';
+    line.innerHTML = `<div class="chunk-no">summary</div>`
+      + `<div dir="rtl">${escapeHtml(s.text)}</div>`;
+    det.appendChild(line);
+    // The members by id, so a summary can be traced back to the rows it stands
+    // for — without them the card is an assertion the reader cannot check.
+    const members = document.createElement('div');
+    members.className = 'chunk-line';
+    members.innerHTML = '<div class="chunk-no">members</div>'
+      + `<div class="summary-members">${(s.member_ids || [])
+          .map((id) => escapeHtml(id)).join(', ')}</div>`;
+    det.appendChild(members);
+    container.appendChild(det);
+  }
+}
+
+// The two halves are held here rather than re-fetched, so switching costs nothing
+// and can never show one build's leaves beside another's summaries.
+const chunkView = { summaries: [] };
+
+function showChunkMode(mode) {
+  document.getElementById('chunks-body').hidden = mode !== 'chunks';
+  document.getElementById('summaries-body').hidden = mode !== 'summaries';
+  for (const button of document.querySelectorAll('#chunks-mode button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+  }
+  if (mode === 'summaries') {
+    renderSummaries(document.getElementById('summaries-body'),
+                    chunkView.summaries);
+  }
+}
+
+for (const button of document.querySelectorAll('#chunks-mode button')) {
+  button.addEventListener('click', () => showChunkMode(button.dataset.mode));
+}
+
 document.getElementById('build-chunks').addEventListener('click', async () => {
   const status = document.getElementById('chunks-status');
   try {
@@ -180,9 +242,15 @@ document.getElementById('build-chunks').addEventListener('click', async () => {
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(CHOSEN) });
     const result = await pollJob(await startedJob(response));
-    status.textContent = `${result.total} chunks`;
+    // Both counts, because "167 chunks" over an index of 174 rows is the exact
+    // statement that made seven summaries invisible.
+    status.textContent = `${result.total} chunks · `
+      + `${result.total_summaries || 0} summaries`;
     document.getElementById('chunks-active-config').textContent = formatConfig(CHOSEN);
     renderChunkGroups(document.getElementById('chunks-body'), result.chunks_by_session);
+    chunkView.summaries = result.summaries || [];
+    showChunkMode(document.getElementById('summaries-body').hidden
+      ? 'chunks' : 'summaries');
   } catch (error) {
     status.textContent = error.message;
   }
@@ -656,9 +724,20 @@ function renderFollow(body) {
       // are different claims and the reader has to be able to tell them apart.
       const source = { run: 'the last evaluation', retrieve: 'the last retrieval run' }[body.index.kind]
         || 'the last index build';
-      chunksCfg.textContent = `${total} chunks in ${groups.length} sessions, `
-        + `from ${source} — ${formatConfig(body.index.config)}`;
+      const summaries = body.index.summaries || [];
+      // The summary count belongs in the same sentence as the chunk count: the
+      // two together are what say whether a grouping ran, and the config line is
+      // the only place on this view that describes the build as a whole.
+      chunksCfg.textContent = `${total} chunks in ${groups.length} sessions`
+        + (summaries.length ? ` · ${summaries.length} summar`
+            + `${summaries.length === 1 ? 'y' : 'ies'}` : '')
+        + `, from ${source} — ${formatConfig(body.index.config)}`;
       renderChunkGroups(document.getElementById('chunks-body'), groups);
+      chunkView.summaries = summaries;
+      // Redraw whichever half is on screen, so a new run does not leave the
+      // previous build's summaries showing under this build's config line.
+      showChunkMode(document.getElementById('summaries-body').hidden
+        ? 'chunks' : 'summaries');
     }
   } else {
     chunksCfg.textContent = 'Build an index on the lab to read its chunks here.';

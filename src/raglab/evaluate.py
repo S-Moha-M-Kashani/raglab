@@ -18,7 +18,7 @@ from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
 from .index import IndexRegistry, _lab_llm
 from .llm import lab_chat
 from .present import (chunks_by_session, evidence_spans, gold_available,
-                      mark_gold, normalised_chunks)
+                      mark_gold, normalised_chunks, summary_rows)
 
 KEY_FACTS_PROMPT = (
     'You check whether an answer contains specific facts. The answer is in '
@@ -103,6 +103,11 @@ class RunResult:
     # Inspector's chunks window can only show whatever index job was last
     # started — a different chunker beside these rankings, silently.
     chunks_by_session: list = field(default_factory=list)
+    # The rows the grouping wrote, beside the leaves above and under the same
+    # rule. They are not in `chunks_by_session` — a summary is not something the
+    # diarist said — so a run that reported only that half left every summary it
+    # built unreachable from the one view that lists rows.
+    summaries: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {'run_id': self.run_id, 'label': self.label, 'config': self.config,
@@ -371,6 +376,7 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
             # it built the index implicitly, so there is no index job the
             # Inspector could read them from.
             'chunks_by_session': chunks_by_session(index),
+            'summaries': summary_rows(index),
             'questions': rows}
 
 
@@ -516,7 +522,8 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                        started_at=started_at, notes=notes,
                        selection=selection, traces=traces,
                        chunks_by_session=(chunks_by_session(index)
-                                          if trace else []))
+                                          if trace else []),
+                       summaries=summary_rows(index) if trace else [])
     save_run(result)
     return result
 

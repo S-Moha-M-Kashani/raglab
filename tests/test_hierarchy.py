@@ -479,3 +479,109 @@ def test_the_graph_methods_are_named_as_chunk_graphs_and_not_as_graphrag():
     assert 'GraphRAG' in text
     assert 'bipartite-terms' in config.HELP['index.graph_source']
     assert all(name in text for name in GRAPH_HIERARCHIES)
+
+
+# --- determinism: one fingerprint must name one index ------------------------
+
+# Every token here is shared by exactly two documents, so every token has the
+# same document frequency and therefore the *same IDF*. That makes the per-chunk
+# "top terms by IDF" cut a pure tie, which is the state the ordering bug lives
+# in: with 20 documents each holding 19 tied candidates and room for only 12,
+# something has to choose, and until it chooses deterministically the choice is
+# whatever `set` iteration happened to yield in this process.
+TIED_DOCS = 20
+
+
+def _tied_corpus() -> list[str]:
+    """One document per node; the token for a pair names that pair."""
+    return [' '.join(f'p{min(i, j):02d}x{max(i, j):02d}'
+                     for j in range(TIED_DOCS) if j != i)
+            for i in range(TIED_DOCS)]
+
+
+# This is a unit test.
+def test_terms_that_tie_on_idf_are_chosen_by_a_stated_rule():
+    """A tie has to be broken by something written down, not by hash order.
+
+    `_term_postings` keeps only the top terms by IDF per chunk, and `sorted` is
+    stable — so when candidates tie, the survivors are whichever ones `set`
+    iteration offered first. Python randomises string hashing per process, so
+    that is a different twelve every run, and everything downstream (the lexical
+    edges, the graph, the partition, the summaries, the fingerprint's meaning)
+    follows it.
+
+    The rule asserted here is lexicographic: among terms of equal IDF, the ones
+    that sort first win. Any total order would do; what matters is that it is a
+    property of the corpus rather than of the process.
+
+    This can pass against the broken code only if hash order happens to agree
+    with sorted order across all nineteen candidates, which is one arrangement
+    out of more than 10^12.
+    """
+    postings, idf = hierarchy._term_postings(_tied_corpus(), top_terms=12)
+
+    # the premise: every candidate really does tie, so the cut is arbitrary
+    # unless something breaks it
+    assert len({round(v, 12) for v in idf.values()}) == 1, \
+        'the corpus no longer produces a tie, so it tests nothing'
+
+    for doc in range(TIED_DOCS):
+        chosen = sorted(t for t, docs in postings.items() if doc in docs)
+        candidates = sorted(t for t in idf
+                            if t.startswith(f'p{doc:02d}x') or t.endswith(f'x{doc:02d}'))
+        assert len(chosen) == 12, f'doc {doc} kept {len(chosen)} terms, expected 12'
+        assert chosen == candidates[:12], (
+            f'doc {doc} kept an arbitrary twelve of its {len(candidates)} tied '
+            'terms rather than the twelve that sort first')
+
+
+# This is an integration test (two subprocesses, so it tests the thing that
+# actually varies: PYTHONHASHSEED, which is fixed within any one process).
+def test_the_same_corpus_builds_the_same_graph_in_a_different_process():
+    """One fingerprint must name one index, across processes and not merely
+    within one.
+
+    Measured 2026-08-12 on the diary, `louvain` + `hybrid`, identical config and
+    identical fingerprint `raglab-6561f330c7c8`: three fresh processes produced
+    **8, 8 and 6 groups** with modularity 0.2657, 0.2689 and 0.2732 and entirely
+    different group sizes. Under `PYTHONHASHSEED=0` all three were byte-identical.
+    So `SEED` was never the whole story — it fixes Louvain's own RNG, not the
+    order of the input it is handed.
+
+    That makes every `index.collection` recorded in `.runs/` for a graph
+    hierarchy a name for an index a rebuild does not reproduce, which is the one
+    thing a fingerprint exists to prevent.
+
+    Two subprocesses rather than one test body, because string hashing is fixed
+    for the life of a process: a single-process test cannot see this at all.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    program = (
+        'import json, numpy as np;'
+        'from raglab.hierarchy import build_graph;'
+        f'n = {TIED_DOCS};'
+        "texts = [' '.join('p%02dx%02d' % (min(i, j), max(i, j))"
+        '           for j in range(n) if j != i) for i in range(n)];'
+        "graph = build_graph(texts, np.zeros((n, 4), dtype=np.float32), 'lexical', 0);"
+        "print(json.dumps(sorted([min(a, b), max(a, b)] for a, b in graph.edges())))"
+    )
+
+    def edges_under(seed: str) -> list:
+        env = dict(os.environ, PYTHONHASHSEED=seed)
+        done = subprocess.run([sys.executable, '-c', program], env=env,
+                              capture_output=True, encoding='utf-8', timeout=180)
+        assert done.returncode == 0, done.stderr[-2000:]
+        return json.loads(done.stdout.strip().splitlines()[-1])
+
+    first, second = edges_under('1'), edges_under('2')
+    assert first, 'the corpus produced no lexical edges, so it tests nothing'
+    assert first == second, (
+        f'the same corpus produced {len(first)} edges in one process and '
+        f'{len(second)} in another, sharing '
+        f'{len(set(map(tuple, first)) & set(map(tuple, second)))} — a build is '
+        'not reproducible, so its fingerprint names an index that cannot be '
+        'rebuilt')

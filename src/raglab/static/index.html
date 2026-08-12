@@ -276,6 +276,13 @@ p.explain {
   font: 700 .62rem/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
   color: var(--step);
 }
+/* The same tag used to head a group of knobs *inside* a card, where it needs a
+   rule above it to say where one group of controls ends and the next begins —
+   a card with two subjects and no divider reads as one long list. */
+.group-tag {
+  margin: 1.1rem 0 .5rem; padding-top: .7rem;
+  border-top: 1px solid var(--rule-soft);
+}
 
 /* ── readings ────────────────────────────────────────────────────────────── */
 .scores { display: grid; gap: .55rem;
@@ -481,6 +488,32 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <div class="switches">
       <label><input type="checkbox" id="contextual"> contextual chunk headers</label>
     </div>
+    <!-- The summary hierarchy. Below the chunker because it operates on what
+         the chunker produced, and additive to it: the leaves stay indexed
+         whatever this says. Every control here is greyed out until a grouping
+         is chosen, by the served dependency rules rather than by a rule
+         written twice. -->
+    <div class="step-tag group-tag" data-step="index">Summary hierarchy</div>
+    <div class="field">
+      <label>Grouping</label>
+      <select id="hierarchy"></select>
+    </div>
+    <div class="field">
+      <label>Graph edges</label>
+      <select id="graph_source"></select>
+    </div>
+    <div class="field-row">
+      <div><label>kNN neighbours</label><input type="number" id="graph_knn" min="1" max="64"></div>
+      <div><label>Granularity</label><input type="number" id="granularity" min="0.1" max="8" step="0.1"></div>
+    </div>
+    <div class="field-row">
+      <div><label>Levels</label><input type="number" id="hierarchy_levels" min="1" max="5"></div>
+      <div><label>Min group</label><input type="number" id="min_group" min="2" max="50"></div>
+    </div>
+    <div class="field">
+      <label>Summariser <span class="muted">· extractive, no model call</span></label>
+      <select id="summarizer"></select>
+    </div>
     <div class="actions">
       <button class="step-action" id="build">Build / reuse index</button>
       <button class="ghost" id="rebuild">Force rebuild</button>
@@ -514,6 +547,18 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <div class="field">
       <label>Relevance gate (enables abstention)</label>
       <select id="grader"></select>
+    </div>
+    <!-- Live only when the index above holds summaries — what retrieval may do
+         with them is decided by whether the build wrote any. Outside the index
+         fingerprint, so all four scopes sweep free against a single build. -->
+    <div class="step-tag group-tag" data-step="retrieval">Summaries</div>
+    <div class="field">
+      <label>Summary scope</label>
+      <select id="summary_scope"></select>
+    </div>
+    <div class="field-row">
+      <div><label>Summary boost (1 = off)</label><input type="number" id="summary_boost" min="0.1" max="50" step="0.1"></div>
+      <div><label>Levels <span class="muted">· blank = all</span></label><input type="text" id="summary_levels" placeholder="1 2"></div>
     </div>
     <div class="switches">
       <label><input type="checkbox" id="time_filter"> Farsi time-scope filter</label>
@@ -716,6 +761,57 @@ const CHUNKER_HELP = {
 function fill(select, values, help) {
   select.innerHTML = values.map((v) =>
     `<option value="${v}">${v}${help && help[v] ? ' — ' + help[v] : ''}</option>`).join('');
+}
+
+// One line per grouping, saying which family it belongs to — a reader picking
+// between eight of them needs to know that leiden and kmeans are not two
+// versions of one idea. Kept beside the dropdown rather than in config.HELP
+// because HELP explains the *knob*; these label its options, as CHUNKER_HELP
+// already does for the chunkers.
+const HIERARCHY_HELP = {
+  '': 'flat, no summaries (default)',
+  'louvain': 'graph · modularity communities',
+  'leiden': 'graph · Louvain, refined for connectedness',
+  'label-prop': 'graph · label propagation, no granularity knob',
+  'raptor': 'vectors · GMM, soft, recursive',
+  'agglomerative': 'vectors · Ward, a real dendrogram',
+  'kmeans': 'vectors · the naive control',
+  'metadata': "the corpus's own storylines — the 2026-07-31 control",
+};
+const GRAPH_SOURCE_HELP = {
+  'hybrid': 'cosine neighbours + shared rare words',
+  'knn': 'cosine neighbours only',
+  'lexical': 'shared rare words only',
+  'bipartite-terms': 'terms are nodes too — the offline analogue of an entity graph',
+};
+const SUMMARIZER_HELP = {
+  'centroid': 'members nearest the group centre',
+  'lead-idf': 'sentences covering the most rare words',
+  'mmr': 'members picked for coverage, not repetition',
+  'card': 'no prose — terms, span, count, sessions',
+};
+const SUMMARY_SCOPE_HELP = {
+  'mixed': 'summaries and leaves in one pool (default)',
+  'leaves': 'ignore the summaries — the control',
+  'summaries': 'summaries only',
+  'drill-down': 'retrieve summaries, then expand to their members',
+};
+
+// A grouping whose library is missing is offered as NA and refused by the
+// service if picked — never quietly served by a different partition. The same
+// rule the embedder catalogue follows, and the reason availability is served
+// rather than guessed in the browser.
+function fillHierarchies() {
+  const support = OPTIONS.hierarchy_support || {};
+  $('hierarchy').innerHTML = (OPTIONS.hierarchies || []).map((v) => {
+    const state = support[v];
+    const na = (state && state.available === false)
+      ? ` — NA, needs \`${state.install}\`` : '';
+    const help = HIERARCHY_HELP[v] ? ' — ' + HIERARCHY_HELP[v] : '';
+    const label = v || '(none)';
+    return `<option value="${escapeHtml(v)}"${na ? ' disabled' : ''}>`
+      + `${escapeHtml(label)}${escapeHtml(help)}${escapeHtml(na)}</option>`;
+  }).join('');
 }
 
 // A model's label always carries where its weights stand, and a model this lab
@@ -973,6 +1069,10 @@ function readConfig() {
       chunker: $('chunker').value, chunk_chars: +$('chunk_chars').value,
       overlap: +$('overlap').value, contextual: $('contextual').checked,
       embedder: $('embedder').value, embed_model: $('embed_model').value,
+      hierarchy: $('hierarchy').value, graph_source: $('graph_source').value,
+      graph_knn: +$('graph_knn').value, granularity: +$('granularity').value,
+      hierarchy_levels: +$('hierarchy_levels').value,
+      min_group: +$('min_group').value, summarizer: $('summarizer').value,
     },
     retrieval: {
       retriever: $('retriever').value, k: +$('k').value,
@@ -982,6 +1082,9 @@ function readConfig() {
       rerank_depth: +$('rerank_depth').value,
       recency_half_life_days: +$('recency_half_life_days').value,
       grader: $('grader').value, grade_threshold: +$('grade_threshold').value,
+      summary_scope: $('summary_scope').value,
+      summary_boost: +$('summary_boost').value,
+      summary_levels: $('summary_levels').value,
     },
     generation: {
       answerer: $('answerer').value, key_facts_judge: $('key_facts_judge').checked,
@@ -1006,21 +1109,48 @@ function readConfig() {
 // and the Inspector grey out the same knobs for the same stated reason.
 // Editing a knob the pipeline ignores is how you spend an afternoon tuning a
 // number that was never read.
+// A control whose owner is itself dead is dead, and it shows its owner's reason.
+// This mirrors `config.dependency_state` deliberately: the *rules* are served,
+// but resolving them has to happen per keystroke without a round trip, so the
+// resolution exists twice and the two copies must agree — `test_the_panel_
+// resolves_a_dependency_chain_the_way_the_service_does` is what holds them
+// together. Without the chain, `graph_knn` asked only whether the edge source
+// builds kNN edges, and the default source does, so it stayed live under a
+// grouping that builds no graph at all.
+function dependencyState(rules, cfg) {
+  const state = {};
+  const resolve = (path, seen) => {
+    if (state[path]) return state[path];
+    const rule = rules[path];
+    const [group, name] = rule.field.split('.');
+    const current = (cfg[group] || {})[name];
+    let enabled = rule.on_true ? Boolean(current)
+      : (rule.on || []).indexOf(current) !== -1;
+    let reason = enabled ? '' : rule.reason;
+    if (enabled && rules[rule.field] && seen.indexOf(path) === -1) {
+      const above = resolve(rule.field, seen.concat([path]));
+      if (!above.enabled) { enabled = false; reason = above.reason; }
+    }
+    state[path] = { enabled, reason };
+    return state[path];
+  };
+  for (const path of Object.keys(rules)) resolve(path, []);
+  return state;
+}
+
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
   const cfg = readConfig();
-  for (const [path, rule] of Object.entries(rules)) {
+  const state = dependencyState(rules, cfg);
+  for (const path of Object.keys(rules)) {
     const el = controlFor(path);
     if (!el) continue;
-    const [group, name] = rule.field.split('.');
-    const current = (cfg[group] || {})[name];
-    const enabled = rule.on_true ? Boolean(current)
-      : (rule.on || []).indexOf(current) !== -1;
+    const { enabled, reason } = state[path];
     el.disabled = !enabled;
     const holder = el.closest('div') || el.parentElement;
     if (!holder) continue;
     holder.classList.toggle('rag-field-off', !enabled);
-    holder.title = enabled ? '' : 'Disabled because ' + rule.reason;
+    holder.title = enabled ? '' : 'Disabled because ' + reason;
     let note = holder.querySelector('.rag-when-dep');
     if (!enabled) {
       if (!note) {
@@ -1028,7 +1158,7 @@ function applyDependencies() {
         note.className = 'rag-when rag-when-dep';
         holder.appendChild(note);
       }
-      note.textContent = rule.reason;
+      note.textContent = reason;
     } else if (note) {
       note.remove();
     }
@@ -1049,6 +1179,16 @@ function applyDefaults(d) {
   $('overlap').value = d.index.overlap; $('contextual').checked = d.index.contextual;
   $('embedder').value = d.index.embedder;
   $('embed_model').value = d.index.embed_model || '';
+  $('hierarchy').value = d.index.hierarchy || '';
+  $('graph_source').value = d.index.graph_source;
+  $('graph_knn').value = d.index.graph_knn;
+  $('granularity').value = d.index.granularity;
+  $('hierarchy_levels').value = d.index.hierarchy_levels;
+  $('min_group').value = d.index.min_group;
+  $('summarizer').value = d.index.summarizer;
+  $('summary_scope').value = d.retrieval.summary_scope;
+  $('summary_boost').value = d.retrieval.summary_boost;
+  $('summary_levels').value = d.retrieval.summary_levels || '';
   $('retriever').value = d.retrieval.retriever; $('k').value = d.retrieval.k;
   $('candidates').value = d.retrieval.candidates;
   $('time_filter').checked = d.retrieval.time_filter;
@@ -1129,6 +1269,10 @@ async function boot() {
   fillDatasets();
   fill($('chunker'), o.chunkers, CHUNKER_HELP);
   fillEmbedders();
+  fillHierarchies();
+  fill($('graph_source'), o.graph_sources, GRAPH_SOURCE_HELP);
+  fill($('summarizer'), o.summarizers, SUMMARIZER_HELP);
+  fill($('summary_scope'), o.summary_scopes, SUMMARY_SCOPE_HELP);
   fill($('retriever'), o.retrievers);
   fill($('reranker'), o.rerankers);
   fill($('grader'), o.graders);
@@ -1192,7 +1336,7 @@ function renderCapabilities() {
     // fake provider — where every LLM number is meaningless, which is worth
     // seeing before the run rather than after.
     chip(caps.llm, caps.llm ? `LLM ${caps.llm_provider} · ${caps.llm_model}`
-                            : 'no LLM backend — set OPENROUTER_API_KEY or RAGLAB_LLM=ollama'),
+                            : 'no LLM backend — pick one under Models · Backend, or set RAGLAB_LLM to ollama, claude or codex (the two CLIs need no key), or an OPENROUTER_API_KEY for openrouter'),
     chip(caps.ragas.installed, `ragas ${caps.ragas.installed ? caps.ragas.version : 'missing'}`),
     chip(caps.ragas.llm_ready, `ragas LLM metrics ${caps.ragas.llm_ready ? 'ready' : 'off'}`),
     // Not a service chip: the index is process memory and is discarded with the
@@ -1292,6 +1436,37 @@ function renderIndexes(indexes) {
   ).join('<br>');
 }
 
+// What the grouping did — reported because "the index built" is not a result.
+// The quality number leads: a partition with modularity 0.05 found no community
+// structure, and every retrieval score under it is uninformative. That is worth
+// knowing before reading them, not after.
+function hierarchyReport(h) {
+  if (!h) return '';
+  const rows = [];
+  const quality = h.modularity !== null && h.modularity !== undefined
+    ? `modularity ${h.modularity}`
+    : (h.silhouette !== null && h.silhouette !== undefined
+        ? `silhouette ${h.silhouette}` : 'no partition quality measured');
+  rows.push(`<b>${escapeHtml(h.hierarchy)}</b>`
+    + (h.graph_source ? ` · ${escapeHtml(h.graph_source)} edges` : '')
+    + ` · ${escapeHtml(h.summarizer)} — <b>${quality}</b>`);
+  rows.push(`${h.summaries} summaries over ${h.groups} groups, `
+    + `${h.levels} level${h.levels === 1 ? '' : 's'}, `
+    + `coverage ${Math.round((h.coverage || 0) * 100)}% of leaves, `
+    + `avg ${h.avg_summary_chars} chars, ${h.seconds}s`);
+  if (h.nodes) {
+    rows.push(`graph: ${h.nodes} nodes, ${h.edges} edges, `
+      + `density ${h.density}, ${h.components} component`
+      + `${h.components === 1 ? '' : 's'}`);
+  }
+  for (const level of h.per_level || []) {
+    rows.push(`level ${level.level}: ${level.groups} groups · `
+      + `size ${level.min}/${level.median}/${level.max} (min/median/max)`
+      + (level.singletons ? ` · ${level.singletons} singleton` : ''));
+  }
+  return `<div class="note">${rows.join('<br>')}</div>`;
+}
+
 async function poll(jobId, onDone) {
   const box = $('jobBox');
   $('cancel').dataset.jobId = jobId;
@@ -1343,6 +1518,7 @@ async function doBuild(force) {
         `<b>${escapeHtml(result.collection)}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
         `p95 ${result.p95_chars}, dim ${result.embed_dim}, ${result.build_seconds}s` +
         (result.reused ? ' (reused)' : '') +
+        hierarchyReport(result.hierarchy) +
         (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
     });
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }

@@ -28,15 +28,26 @@ RUNS_DIR = ROOT / '.runs'
 # Which backend serves the lab's chat models. Local Ollama is the default: the
 # lab's judged runs can make hundreds of model calls, so a default must never
 # silently spend API credit. Naming another provider is an explicit opt-in.
-LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'fake')
+#
+# `claude` and `codex` are a third kind (see clichat.py): not an endpoint but a
+# CLI on this machine, run as a subprocess. They need no key, which is what they
+# are for — the four deciding metrics are judged, so an unkeyed lab measures
+# nothing on the remote backend.
+LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'claude', 'codex', 'fake')
 
 # The default chat model per backend, because a slug only means something to the
 # backend that serves it. The local default is the model the judge screen has a
 # row for (`.screens/`) — a default nobody screened is judge-shopping with extra
 # steps. 'fake' keeps the remote slug: it ignores the model entirely, and changing
-# it would make the offline runs' notes disagree with every earlier one.
+# it would make the offline runs' notes disagree with every earlier one. The two
+# CLI defaults are the aliases that actually ran here (3.9s and 8.2s per call on
+# a short grade probe, and 5.6s for claude on the lab's real grade prompt — a
+# longer prompt costs more); `gpt-5.6-terra` is what this installation's codex serves, and
+# RAGLAB_MODEL names another.
 PROVIDER_MODELS = {'openrouter': 'openai/gpt-5-nano',
                    'ollama': '4skl/gemma4-e2b-mtp',
+                   'claude': 'sonnet',
+                   'codex': 'gpt-5.6-terra',
                    'fake': 'openai/gpt-5-nano'}
 
 
@@ -65,6 +76,12 @@ class LabSettings:
     # question) measurable without buying credit.
     llm_provider: str = 'ollama'
     ollama_base_url: str = 'http://localhost:11434/v1'
+    # How hard a CLI backend is asked to think. A setting rather than a constant
+    # in the argv because it moves the numbers: under 'low' the grade probe
+    # scored 8 where the default scored 9. The two CLIs accept different values
+    # and `clichat.checked_effort` refuses one the chosen CLI does not — codex
+    # answers an unaccepted value with exit 0 and no text at all.
+    cli_effort: str = 'low'
     # '' = the provider's own default (PROVIDER_MODELS), resolved in __post_init__
     # so every reader sees a concrete slug. It has to follow the provider: a
     # remote slug left standing under RAGLAB_LLM=ollama made
@@ -104,8 +121,9 @@ class LabSettings:
         """Whether an LLM stage would reach a real model. 'fake' answers and
         judges without ever failing, which is why this is not `bool(key)`: the
         thing worth knowing is not whether a credential exists but whether the
-        numbers a run produces mean anything."""
-        return self.provider in ('openrouter', 'ollama')
+        numbers a run produces mean anything. A CLI backend reaches a real model
+        on somebody's subscription, so it counts."""
+        return self.provider in ('openrouter', 'ollama', 'claude', 'codex')
 
 
 def load_lab_settings(env: dict | None = None) -> LabSettings:
@@ -121,6 +139,7 @@ def load_lab_settings(env: dict | None = None) -> LabSettings:
         llm_provider=env.get('RAGLAB_LLM', 'ollama'),
         ollama_base_url=env.get('RAGLAB_OLLAMA_BASE_URL',
                                 'http://localhost:11434/v1'),
+        cli_effort=env.get('RAGLAB_CLI_EFFORT', 'low'),
         llm_model=env.get('RAGLAB_MODEL', ''),
         fastembed_model=env.get(
             'RAGLAB_FASTEMBED_MODEL',
@@ -174,7 +193,46 @@ OVERLAP_CHUNKERS = ('fixed-overlap',)
 EMBEDDERS = ('sentence-transformers', 'fastembed',
              'ascii-hash', 'token-hash', 'char-hash')
 MODEL_EMBEDDERS = ('fastembed', 'sentence-transformers')
+# How chunks are grouped before they are summarised, and the summaries indexed
+# *beside* the leaves. '' is flat — today's index, and the default, because the
+# five metadata rollups this lab used to ship were deleted on 2026-07-31 for
+# scoring within 0.006 of the baseline. Re-adding a hierarchy is a new
+# experiment, so it is offered rather than assumed.
+#
+# Three families, and the order is the order they are worth reading in: the
+# graph partitions, the embedding clusterings, then the declared control.
+# Grouping is over *chunks*, never over entities: GraphRAG extracts entities
+# with a model, and a lab that builds offline over a Farsi corpus has no
+# extractor — `bipartite-terms` below is the closest honest analogue, and the
+# help text says so rather than letting a `leiden` row imply GraphRAG.
+HIERARCHIES = ('', 'louvain', 'leiden', 'label-prop',
+               'raptor', 'agglomerative', 'kmeans', 'metadata')
+GRAPH_HIERARCHIES = ('louvain', 'leiden', 'label-prop')
+CLUSTER_HIERARCHIES = ('raptor', 'agglomerative', 'kmeans')
+# Which groupings can be asked for more than one level. `metadata` groups are
+# given, and `label-prop` and `kmeans` produce one partition and stop.
+LEVELLED_HIERARCHIES = ('raptor', 'agglomerative', 'louvain', 'leiden')
+# Which groupings read `granularity` at all — see IndexConfig for the two things
+# it means. Label propagation is the control precisely because it has no such
+# parameter, and the metadata groups are given rather than chosen.
+TUNED_HIERARCHIES = GRAPH_HIERARCHIES[:2] + CLUSTER_HIERARCHIES
+# What the chunk graph's edges are made of. Declared metadata is deliberately
+# absent: the lab already measured grouping by declared structure and deleted
+# it, so letting topic and thread edges in here would re-derive the answered
+# question inside the new one. `hierarchy='metadata'` is where declared
+# structure is measured, on its own, as a control.
+GRAPH_SOURCES = ('hybrid', 'knn', 'lexical', 'bipartite-terms')
+KNN_SOURCES = ('hybrid', 'knn')
+# How a group becomes text. All four are extractive, because a build makes no
+# model call: a summariser that needed one would make an index unsweepable and
+# would let the `fake` provider fill a collection with confident invention that
+# no field on the row contradicts.
+SUMMARIZERS = ('centroid', 'lead-idf', 'mmr', 'card')
 RETRIEVERS = ('hybrid-rrf', 'dense', 'bm25')
+# What retrieval does with the summaries, once an index has any. `mixed` is the
+# default so that building a hierarchy changes nothing about retrieval until a
+# knob moves — the first row is then a clean answer to one question.
+SUMMARY_SCOPES = ('mixed', 'leaves', 'summaries', 'drill-down')
 RERANKERS = ('lexical', 'none', 'recency', 'agentic', 'cross-encoder', 'llm')
 GRADERS = ('none', 'lexical', 'llm')
 ANSWERERS = ('extractive', 'none', 'llm')
@@ -205,6 +263,40 @@ DEPENDENCIES = {
     'index.embed_model': {
         'field': 'index.embedder', 'on': list(MODEL_EMBEDDERS),
         'reason': 'the hash embedders load no model'},
+    'index.graph_source': {
+        'field': 'index.hierarchy', 'on': list(GRAPH_HIERARCHIES),
+        'reason': 'the embedding clusterings and the metadata grouping build no '
+                  'graph'},
+    'index.graph_knn': {
+        'field': 'index.graph_source', 'on': list(KNN_SOURCES),
+        'reason': 'this edge source builds no nearest-neighbour edges'},
+    'index.granularity': {
+        'field': 'index.hierarchy', 'on': list(TUNED_HIERARCHIES),
+        'reason': 'label propagation has no granularity parameter — that is what '
+                  'makes it the control — and the metadata groups are given '
+                  'rather than chosen'},
+    'index.hierarchy_levels': {
+        'field': 'index.hierarchy', 'on': list(LEVELLED_HIERARCHIES),
+        'reason': 'this grouping produces one level and stops'},
+    'index.min_group': {
+        'field': 'index.hierarchy', 'on': [h for h in HIERARCHIES if h],
+        'reason': 'nothing is grouped'},
+    'index.summarizer': {
+        'field': 'index.hierarchy', 'on': [h for h in HIERARCHIES if h],
+        'reason': 'nothing is grouped, so nothing is summarised'},
+    # The three below gate on an *index* field from the retrieval group, which
+    # `dependency_state` resolves because it reads the whole config dict: what
+    # retrieval may do with summaries is decided by whether the build wrote any.
+    'retrieval.summary_scope': {
+        'field': 'index.hierarchy', 'on': [h for h in HIERARCHIES if h],
+        'reason': 'this index is flat — it holds no summaries to scope'},
+    'retrieval.summary_boost': {
+        'field': 'index.hierarchy', 'on': [h for h in HIERARCHIES if h],
+        'reason': 'this index is flat — there is nothing to boost'},
+    'retrieval.summary_levels': {
+        'field': 'index.hierarchy', 'on': list(LEVELLED_HIERARCHIES),
+        'reason': 'only a grouping with more than one level has levels to '
+                  'choose between'},
     'retrieval.rrf_k': {
         'field': 'retrieval.retriever', 'on': ['hybrid-rrf'],
         'reason': 'only hybrid-rrf fuses two rankings'},
@@ -244,14 +336,39 @@ def dependency_state(cfg_dict: dict) -> dict:
 
     Returns `{'<group>.<field>': {'enabled': bool, 'reason': str}}`. Shared by
     both panels and by the tests, so what the UI greys out and what the pipeline
-    ignores cannot disagree."""
-    state = {}
-    for key, rule in DEPENDENCIES.items():
-        group, _, name = rule['field'].partition('.')
+    ignores cannot disagree.
+
+    **A control whose owner is itself dead is dead**, and it reports its owner's
+    reason rather than its own. Without that the chain lies: `graph_knn` asks
+    whether the edge source builds nearest-neighbour edges, and the default
+    source does — so under a grouping that builds no graph at all it lit up,
+    offering a number for a stage that does not run. The rule is transitive
+    rather than a special case, because the next two-deep chain would have the
+    same defect.
+    """
+    state: dict = {}
+
+    def resolve(key: str, seen: frozenset) -> dict:
+        if key in state:
+            return state[key]
+        rule = DEPENDENCIES[key]
+        owner = rule['field']
+        group, _, name = owner.partition('.')
         current = (cfg_dict.get(group) or {}).get(name)
         enabled = (bool(current) if rule.get('on_true')
                    else current in rule.get('on', ()))
-        state[key] = {'enabled': enabled, 'reason': '' if enabled else rule['reason']}
+        reason = '' if enabled else rule['reason']
+        # A cycle would be a bug in the table above, not a runtime condition;
+        # the guard stops it taking the whole panel down with it.
+        if enabled and owner in DEPENDENCIES and owner not in seen:
+            above = resolve(owner, seen | {key})
+            if not above['enabled']:
+                enabled, reason = False, above['reason']
+        state[key] = {'enabled': enabled, 'reason': reason}
+        return state[key]
+
+    for key in DEPENDENCIES:
+        resolve(key, frozenset())
     return state
 
 
@@ -306,6 +423,26 @@ class IndexConfig:
     # heydariAI/persian-embeddings.
     embedder: str = 'sentence-transformers'
     embed_model: str = ''       # model-backed kinds only; '' = backend default
+    # --- the summary hierarchy, all of it built with no model call ----------
+    # '' is flat, and flat is fingerprinted exactly as it was before these seven
+    # fields existed (see fingerprint()).
+    hierarchy: str = ''
+    graph_source: str = 'hybrid'
+    graph_knn: int = 8
+    # One dial, two meanings, because a reader should not have to hold two
+    # knobs that grey each other out: for the graph partitions it is the
+    # modularity resolution γ, and for the clusterings it is the group count
+    # `k = max(2, round(granularity * sqrt(n / 2)))`. 1.0 is therefore "this
+    # family's own default" — the same idiom `''` already carries for a model.
+    granularity: float = 1.0
+    hierarchy_levels: int = 1
+    min_group: int = 3
+    summarizer: str = 'centroid'
+
+    # Fields that describe the hierarchy and mean nothing without one. Listed
+    # once, because both `normalized()` and `fingerprint()` need the same answer.
+    HIERARCHY_FIELDS = ('graph_source', 'graph_knn', 'granularity',
+                        'hierarchy_levels', 'min_group', 'summarizer')
 
     def normalized(self) -> 'IndexConfig':
         # A model that is not consulted is blanked, because this object's
@@ -324,6 +461,26 @@ class IndexConfig:
         # describing indexes that can no longer be reproduced by name.
         if not fields.get('dataset'):
             fields.pop('dataset', None)
+        # Same rule, seven fields at once: a flat index is the index it always
+        # was, so none of the hierarchy settings may enter its hash. They are
+        # not merely defaulted out — `hierarchy=''` means nothing below it ran,
+        # so a stale graph_knn left in a browser must not name a second index
+        # holding byte-identical rows.
+        if not fields.get('hierarchy'):
+            for name in ('hierarchy', *self.HIERARCHY_FIELDS):
+                fields.pop(name, None)
+        else:
+            # Within a hierarchy, the same argument one level down: a graph knob
+            # no partition reads must not cost a rebuild.
+            if fields['hierarchy'] not in GRAPH_HIERARCHIES:
+                fields.pop('graph_source', None)
+                fields.pop('graph_knn', None)
+            elif fields.get('graph_source') not in KNN_SOURCES:
+                fields.pop('graph_knn', None)
+            if fields['hierarchy'] not in TUNED_HIERARCHIES:
+                fields.pop('granularity', None)
+            if fields['hierarchy'] not in LEVELLED_HIERARCHIES:
+                fields.pop('hierarchy_levels', None)
         payload = json.dumps(fields, sort_keys=True)
         return hashlib.sha1(payload.encode()).hexdigest()[:12]
 
@@ -354,6 +511,17 @@ class RetrievalConfig:
     grade_threshold: float = 0.0
     grader_model: str = ''           # grader='llm' only
     max_context_chars: int = 6000
+    # --- what retrieval does with an index that has summaries in it ---------
+    # These are retrieval settings, not index ones, so they are outside the
+    # fingerprint and all four scopes sweep free against a single build. That
+    # is the whole reason the hierarchy is worth putting in a lab.
+    summary_scope: str = 'mixed'
+    # Applied **before the candidate cut, never after**: there are far more
+    # leaves than summaries, so a summary that had not already survived the cut
+    # could never be promoted into it, and a boost applied afterwards is a no-op
+    # that looks like a knob. Measured, in the 2026-07-30 sweep's candidate G.
+    summary_boost: float = 1.0
+    summary_levels: str = ''         # '' = every level
 
     def normalized(self) -> 'RetrievalConfig':
         return replace(self, agentic_weights=tuple(self.agentic_weights))
@@ -396,6 +564,10 @@ class LabConfig:
         bad = []
         checks = ((self.index.chunker, CHUNKERS, 'chunker'),
                   (self.index.embedder, EMBEDDERS, 'embedder'),
+                  (self.index.hierarchy, HIERARCHIES, 'hierarchy'),
+                  (self.index.graph_source, GRAPH_SOURCES, 'graph_source'),
+                  (self.index.summarizer, SUMMARIZERS, 'summarizer'),
+                  (self.retrieval.summary_scope, SUMMARY_SCOPES, 'summary_scope'),
                   (self.retrieval.retriever, RETRIEVERS, 'retriever'),
                   (self.retrieval.reranker, RERANKERS, 'reranker'),
                   (self.retrieval.grader, GRADERS, 'grader'),
@@ -406,6 +578,25 @@ class LabConfig:
                            f'{", ".join(allowed)})')
         if self.retrieval.k < 1:
             bad.append('k must be >= 1')
+        # A grouping whose library is not installed is refused, never
+        # substituted. The embedder rule applied to partitions: a row labelled
+        # `leiden` that was actually partitioned by Louvain is exactly the
+        # artefact this lab exists not to produce, and no other field on it
+        # would disagree.
+        if self.index.hierarchy:
+            from .hierarchy import EXTRAS, hierarchy_available
+            if not hierarchy_available(self.index.hierarchy):
+                bad.append(
+                    f'{self.index.hierarchy} needs a package this installation '
+                    f'does not have: install it with '
+                    f'{EXTRAS[self.index.hierarchy]}. It is refused rather '
+                    f'than replaced by another grouping.')
+            if self.index.hierarchy_levels < 1:
+                bad.append('hierarchy_levels must be >= 1')
+            if self.index.min_group < 2:
+                bad.append('min_group must be >= 2 — a group of one is a chunk')
+            if self.index.graph_knn < 1 and self.index.graph_source in KNN_SOURCES:
+                bad.append('graph_knn must be >= 1')
         # A model belongs to exactly one backend. Loading the backend's default
         # instead of the model that was asked for would produce a run labelled
         # with one encoder that measured a different one — the single worst
@@ -509,6 +700,90 @@ HELP = {
         'the E5 family needs its "query:"/"passage:" prefixes, which the lab '
         'applies for you. Changing this rebuilds the index, because it changes '
         'what is stored.'),
+    'index.hierarchy': (
+        'Groups the chunks and indexes one summary per group *beside* them — '
+        'the leaves always stay, because a summary that drops "the sixth '
+        'rejection" makes the counting question unanswerable forever. Three '
+        'families: "louvain", "leiden" and "label-prop" partition a graph built '
+        'over the chunks; "raptor", "agglomerative" and "kmeans" cluster the '
+        'chunk vectors; "metadata" groups by the corpus\'s own storylines and is '
+        'the control — that grouping was measured in July 2026 and deleted for '
+        'scoring within 0.006 of no hierarchy at all. **These are not GraphRAG.** '
+        'GraphRAG extracts entities with a model; this lab builds offline, so '
+        'the nodes are chunks and "bipartite-terms" below is the closest honest '
+        'analogue. Expect Leiden and Louvain to tie at this corpus size: '
+        'Leiden\'s advantage is over badly-connected communities, which needs '
+        'scale to show.'),
+    'index.graph_source': (
+        'What an edge between two chunks means. "knn" is cosine similarity — '
+        'each chunk joined to its nearest neighbours; "lexical" is shared rare '
+        'words, which is what catches names and numbers a vector blurs; '
+        '"hybrid" is both. "bipartite-terms" makes the rare words nodes too and '
+        'partitions chunks and terms together, so a community has a nameable '
+        'subject — the nearest thing to an entity graph available without a '
+        'model. The corpus\'s declared topics and storylines are deliberately '
+        'not an edge source: that grouping is measurable on its own as '
+        'hierarchy="metadata", and mixing it in here would re-derive an already '
+        'answered question inside a new one.'),
+    'index.graph_knn': (
+        'How many nearest neighbours each chunk is joined to. Low values leave '
+        'the graph in disconnected pieces and every piece becomes its own '
+        'community; high values connect everything to everything and modularity '
+        'collapses toward one giant group. The build reports both, so this is a '
+        'knob you can tune by reading the index statistics rather than by '
+        'running an evaluation.'),
+    'index.granularity': (
+        'How coarse the grouping is, and it means two different things because '
+        'the two families take two different parameters. For the graph '
+        'partitions it is the modularity resolution: above 1.0 gives more, '
+        'smaller communities. For the clusterings it is the group count, taken '
+        'as granularity × √(n/2) over the leaf chunks — the usual rule of '
+        'thumb, about 27 groups on the built-in diary. Either way 1.0 means '
+        '"this family\'s own default".'),
+    'index.hierarchy_levels': (
+        'How many times to group the groups. Level 1 summarises chunks; level 2 '
+        'summarises those summaries. More levels answer broader questions and '
+        'cost precision, because a summary of summaries is two extractions away '
+        'from anything the diarist actually said.'),
+    'index.min_group': (
+        'The smallest group worth summarising. Below it the members are left as '
+        'leaves and no summary row is written — a "summary" of two chunks is '
+        'the two chunks with a header on top, and it competes against its own '
+        'members in the search.'),
+    'index.summarizer': (
+        'How a group becomes one piece of text, without a model — a build that '
+        'called an LLM would take hours instead of seconds and would let the '
+        'offline fake backend fill the index with confident invention. '
+        '"centroid" concatenates the members nearest the group\'s centre; '
+        '"lead-idf" takes the sentences covering the most rare words; "mmr" '
+        'picks members for coverage without repetition; "card" writes no prose '
+        'at all — top terms, date span, member count, session ids — which is '
+        'the cheapest and the most likely to help a counting question, because '
+        'it states a number instead of asking the model to count chunks.'),
+    'retrieval.summary_scope': (
+        'What the search is allowed to see. "mixed" puts summaries and leaves '
+        'in one pool, so a hierarchy changes nothing until you move this; '
+        '"leaves" ignores the summaries entirely and is the control that says '
+        'whether building them bought anything; "summaries" searches only them. '
+        '"drill-down" retrieves among summaries and then expands each to its '
+        'members — the shape of GraphRAG\'s local search, and the one mechanism '
+        'that answers the failure this lab actually measured: in July 2026 the '
+        'habit ledger was correct and reachable and was retrieved for 1 question '
+        'in 24, because twenty times more leaves outvoted it.'),
+    'retrieval.summary_boost': (
+        'Multiplies every summary\'s score before the candidates are cut. 1.0 is '
+        'off. Applied before the cut and never after, because a summary that '
+        'had not already survived the cut cannot be promoted into it — that '
+        'version was measured and was a no-op that looked like a knob. Be '
+        'careful with it even so: a boost lifts every summary equally, so it '
+        'buys visibility for whichever kind of group is most numerous, which is '
+        'how the same idea failed in July. "drill-down" is the targeted '
+        'alternative.'),
+    'retrieval.summary_levels': (
+        'Which levels of the hierarchy may be retrieved, as a space-separated '
+        'list ("1", "1 2"). Empty means all of them. Worth setting when a deep '
+        'hierarchy is answering broad questions well and specific ones badly: '
+        'the top level is the one most likely to be retrieved for everything.'),
     'retrieval.retriever': (
         '"dense" searches vectors (meaning), "bm25" searches words (exact names, '
         'numbers, rare terms), "hybrid-rrf" runs both and fuses the two rankings '

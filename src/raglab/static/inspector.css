@@ -459,6 +459,18 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
    text is always in the DOM and revealed on hover — and on keyboard focus,
    because a reveal only a mouse can open is one half the readers never get. */
 .chunk-cell { position: relative; width: 40%; }
+/* A summary row, named in the index ink because that is the step that wrote it.
+   This is the step axis, not the gold axis: the row's white-or-gray background
+   still says whether the ground truth considers it relevant, and the two answer
+   different questions about the same row. */
+.layer-badge {
+  display: inline-block; margin-bottom: .2rem;
+  font: 600 .64rem/1.5 var(--mono);
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--step-index);
+  border: 1px solid currentColor; border-radius: 2px;
+  padding: 0 .3em; cursor: help;
+}
 .chunk-preview {
   display: block; cursor: help;
   font-family: var(--farsi); font-size: .82rem; line-height: 1.7;

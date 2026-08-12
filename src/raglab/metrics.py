@@ -182,6 +182,26 @@ MEASURES = (
             'How much text the answerer was given. Worth watching next to '
             'precision: two configs with the same recall can differ by 3x here, '
             'and the bigger one is paying for it in tokens and in dilution.'),
+    Measure('n_summaries', 'Summaries used', 'summary rows in the context', 'index',
+            'mean count of contexts whose layer is summary',
+            'metrics.score_question' + NO_MODEL,
+            'How often the summary hierarchy was actually retrieved. This is the '
+            'number that had to exist: in July 2026 the lab deleted five summary '
+            'layers for scoring within 0.006 of no hierarchy at all, and the '
+            'post-mortem found the habit ledger had been correct, reachable, and '
+            'retrieved for one question in twenty-four. A hierarchy scoring flat '
+            'because nothing retrieved it and a hierarchy scoring flat because it '
+            'did not help are different findings, and no other field on the row '
+            'tells them apart. Zero here means the second reading is unavailable.'),
+    Measure('n_expanded', 'Drilled down', 'members reached through a summary',
+            'retrieval',
+            'mean count of contexts expanded from a retrieved summary',
+            'metrics.score_question' + NO_MODEL,
+            'Contexts that arrived because a summary was retrieved first and then '
+            'expanded to the chunks it stands for — the drill-down scope. Zero '
+            'under any other scope, by construction. Read beside Summaries used: '
+            'the summary is what states an aggregate, and these are the leaves the '
+            'answerer can actually quote.'),
 )
 
 MEASURE_HELP = {f'metric.{measure.key}':
@@ -303,6 +323,14 @@ def score_question(question: dict, outcome, k: int) -> dict:
         'difficulty': question['difficulty'], 'answerable': answerable,
         'retrieved_sessions': retrieved[:k],
         'n_contexts': len(outcome.contexts),
+        # Which layers reached the answerer. Recorded per question rather than
+        # inferred from the config, because 'the hierarchy was configured' and
+        # 'the hierarchy was retrieved' are the two facts the 2026-07-31
+        # post-mortem had to be reconstructed by hand to tell apart.
+        'n_summaries': (outcome.diagnostics.get('contexts_by_layer') or {}
+                        ).get('summary', 0),
+        'n_expanded': (outcome.diagnostics.get('contexts_by_layer') or {}
+                       ).get('expanded', 0),
         'context_chars': len(context_text),
         'abstained': outcome.abstained,
         'time_scope': outcome.time_scope,
@@ -328,6 +356,19 @@ def score_question(question: dict, outcome, k: int) -> dict:
         # (adversarial). Both show up as `abstained`, because the answerer sets
         # it when it emits the refusal phrase.
         row['abstained_correctly'] = float(outcome.abstained)
+    if outcome.diagnostics.get('answer_error'):
+        # Why the answerer refused, when it refused because it could not be
+        # reached at all. `pipeline._llm_answer` catches everything the model
+        # raises and returns the canonical refusal, so a CliError, a 600s timeout
+        # and an unreachable daemon all arrive here looking exactly like "the
+        # diary is silent about that" — and RAGAS then judges the refusal,
+        # producing low, confident faithfulness and answer relevancy with no
+        # field anywhere saying the model never answered. `GradeUnavailable`
+        # refuses loudly one stage earlier; this is the same distinction the
+        # n_summaries / n_expanded fields exist to make, and like them it belongs
+        # on the row rather than in an aggregate, because it is per question:
+        # three of thirty timing out is a different fault from all thirty.
+        row['answer_error'] = outcome.diagnostics['answer_error']
     if outcome.answer is not None:
         row['answer'] = outcome.answer
         reference = question.get('answer_fa', '')
@@ -349,7 +390,8 @@ def _isnan(value) -> bool:
 AGGREGATED = ('recall', 'precision', 'mrr', 'ndcg', 'hit', 'quote_recall',
               'latest_state_hit', 'false_abstention', 'abstained_correctly',
               'answer_similarity', 'answer_token_f1', 'key_fact_coverage',
-              'latency_ms', 'n_contexts', 'context_chars')
+              'latency_ms', 'n_contexts', 'n_summaries', 'n_expanded',
+              'context_chars')
 
 
 def aggregate(rows: list[dict]) -> dict:

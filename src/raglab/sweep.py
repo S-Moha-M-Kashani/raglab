@@ -36,7 +36,7 @@ import sys
 import time
 from dataclasses import replace
 
-from . import corpus, leaderboard, ragas_eval
+from . import clichat, corpus, leaderboard, ragas_eval
 from .config import (BALANCES, GenerationConfig, IndexConfig, LabConfig,
                      RetrievalConfig, RUNS_DIR, load_lab_settings)
 from .evaluate import run_eval
@@ -72,16 +72,27 @@ PAIRINGS = {'openrouter': {'answerer': 'openai/gpt-5-nano',
             # belongs on the row (`report['judge']` carries both).
             'ollama': {'answerer': '4skl/gemma4-e2b-mtp',
                        'judge': 'gemma4:e2b'},
+            # Two different aliases of one family, because judged_settings
+            # refuses a model grading its own output. Codex is deliberately
+            # absent: one alias has been verified on this installation, so
+            # there is no honest pair, and a sweep there must name both models
+            # by hand rather than be handed a guess.
+            'claude': {'answerer': 'sonnet',
+                       'judge': 'opus'},
             'fake': {'answerer': 'openai/gpt-5-nano',
                      'judge': 'openai/gpt-5-mini'}}
 
 # Which provider the pins default to is read at import, so the env that chooses
 # the backend also chooses the pairing. Still individually overridable, because a
-# screened judge is a per-machine fact.
-_PAIR = PAIRINGS.get(os.environ.get('RAGLAB_LLM', '') or 'openrouter',
-                     PAIRINGS['openrouter'])
-ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL', _PAIR['answerer'])
-JUDGE_MODEL = os.environ.get('RAGLAB_SWEEP_JUDGE_MODEL', _PAIR['judge'])
+# screened judge is a per-machine fact. No fallback to another backend's pins:
+# that used to hand a CLI backend `openai/gpt-5-nano`, a slug it has never heard
+# of, and a run labelled with a model that could not have produced it is the one
+# artefact this lab must never make.
+_PROVIDER = os.environ.get('RAGLAB_LLM', '') or 'openrouter'
+_PAIR = PAIRINGS.get(_PROVIDER, {})
+ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL',
+                              _PAIR.get('answerer', ''))
+JUDGE_MODEL = os.environ.get('RAGLAB_SWEEP_JUDGE_MODEL', _PAIR.get('judge', ''))
 
 # Every candidate is measured on the same 30 questions — 10 easy, 10 medium, 10
 # hard. The full 112 stay available for a final run, but a candidate sweep pays
@@ -156,15 +167,50 @@ def judged_settings():
     used to send anyone without one away from a run they could have made."""
     settings = load_lab_settings()
     if not settings.llm_ready:
+        # Every way out, not the two that existed when this was written. A hint
+        # listing some of them is worse than one listing none, because a reader
+        # takes it for the whole set — and the two that need no key are the ones
+        # a reader is least likely to already know about.
         sys.exit('no LLM backend: the four deciding metrics are judged, so there '
-                 'is nothing to rank without one. Set OPENROUTER_API_KEY, or '
-                 'RAGLAB_LLM=ollama with RAGLAB_SWEEP_ANSWER_MODEL / '
-                 'RAGLAB_SWEEP_JUDGE_MODEL naming two models it serves.')
+                 'is nothing to rank without one. Four ways out: '
+                 'RAGLAB_LLM=claude and RAGLAB_LLM=codex run a CLI already '
+                 'installed and logged in on this machine and need no key at '
+                 'all; RAGLAB_LLM=ollama runs a model on it; '
+                 'RAGLAB_LLM=openrouter needs OPENROUTER_API_KEY. Each has a '
+                 'pinned answerer/judge pair except codex, where one alias is '
+                 'verified here and a model grading its own output is not '
+                 'evidence — name both with RAGLAB_SWEEP_ANSWER_MODEL / '
+                 'RAGLAB_SWEEP_JUDGE_MODEL.')
+    if not ANSWER_MODEL or not JUDGE_MODEL:
+        sys.exit(f'no answerer/judge pair for RAGLAB_LLM={_PROVIDER!r}: name '
+                 'both with RAGLAB_SWEEP_ANSWER_MODEL and '
+                 'RAGLAB_SWEEP_JUDGE_MODEL. Two different models, because a '
+                 'model grading its own output is not evidence.')
     if ANSWER_MODEL == JUDGE_MODEL:
         sys.exit(f'answerer and judge are both {ANSWER_MODEL!r}: a model grading '
                  'its own output is not evidence, and these four metrics are the '
                  'whole basis of the ranking')
     return settings
+
+
+def capped_workers(workers: int, settings) -> int:
+    """How many questions may be answered at once, on this backend.
+
+    On a CLI backend every LLM call in the answering phase — HyDE, the reranker,
+    the gate, the answerer, the key-facts judge — is a whole process, and the
+    default here is six questions in parallel. `ragas_eval.JUDGE_LOAD` already
+    caps the *judging* phase at three for exactly that reason, and the argument
+    it was capped on ("the lab has no measurement of what this laptop does with
+    more than three of these processes") is a statement about the machine, not
+    about which phase is running. So the same table caps both, rather than a
+    second number invented here to disagree with it.
+
+    Never *raises* what was asked for: a lower `--workers` is a deliberate choice
+    about someone's machine, and the cap exists to stop an unmeasured default,
+    not to overrule a measured one."""
+    if settings.provider not in clichat.CLIS:
+        return workers
+    return min(workers, ragas_eval.judge_load(settings)['max_workers'])
 
 
 BAR_WIDTH = 28
@@ -204,11 +250,15 @@ def sweep(limit: int, workers: int, only: list[str] | None = None,
     ground_truth = corpus.load_ground_truth()
     registry = IndexRegistry(settings, diary)
 
+    asked, workers = workers, capped_workers(workers, settings)
     picked = [c for c in candidates()
               if not only or c.label.split()[0] in only]
     print(f'{len(picked)} candidates · {limit} questions each ({balance}) · '
           f'{workers} workers · {settings.provider} · judge {JUDGE_MODEL} · '
           f'answerer {ANSWER_MODEL}')
+    if workers != asked:
+        print(f'  (asked for {asked}; a call here is a process, and this backend '
+              f'is capped at {workers} by ragas_eval.JUDGE_LOAD)')
     # What this is going to cost, before it starts rather than after. Context
     # precision is one judge call per retrieved chunk, so k moves this more than
     # anything else on the row.
@@ -303,6 +353,7 @@ def final(limit: int | None, workers: int, label: str,
     registry = IndexRegistry(settings, diary)
     cfg = next(c for c in candidates() if c.label.split()[0] == label)
     cfg = replace(cfg, label=f'WINNER {cfg.label} · full set')
+    workers = capped_workers(workers, settings)
     n = limit or len(ground_truth['questions'])
     started = time.time()
     print(f'final run: {cfg.label} over {n} questions, {workers} workers',
@@ -334,7 +385,9 @@ def main() -> None:
                         help='questions scored in parallel; the judged stages '
                              'are dominated by waiting on the model. Drop this '
                              'to 2–3 for a local model, which serves far fewer '
-                             'concurrent requests than a remote API')
+                             'concurrent requests than a remote API. On a CLI '
+                             'backend it is capped from ragas_eval.JUDGE_LOAD, '
+                             'because there every call is a whole process')
     parser.add_argument('--only', nargs='*',
                         help='candidate letters to run, e.g. --only A F')
     parser.add_argument('--final', metavar='LETTER',

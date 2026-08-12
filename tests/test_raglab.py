@@ -2756,6 +2756,24 @@ def test_the_judge_is_pushed_far_less_hard_when_it_runs_locally():
 
 
 # This is a unit test.
+def test_a_judged_run_is_throttled_by_process_count_not_by_a_rate_limit():
+    """RAGAS defaults to 16 concurrent calls, which against a laptop model cost
+    a run three of its four deciding metrics to TimeoutError. A CLI backend has
+    the same problem for a different reason: each call is a whole process, so
+    sixteen of them is a machine that stops responding. Concurrency and timeout
+    can only change whether a score arrives, never what it is."""
+    for provider in ('claude', 'codex'):
+        load = ragas_eval.judge_load(config.LabSettings(llm_provider=provider))
+        assert load['max_workers'] == 3
+        assert load['timeout'] >= 600
+    # Every backend a run can use has an answer here; the fallback exists for
+    # an unknown one, not as the row for a known one.
+    for provider in config.LLM_PROVIDERS:
+        if provider:
+            assert provider in ragas_eval.JUDGE_LOAD, provider
+
+
+# This is a unit test.
 def test_a_run_records_which_backend_judged_it():
     """A decision score is comparable only within one judge, and the model slug
     alone does not say whether it ran locally or was paid for."""
@@ -2869,8 +2887,7 @@ def test_each_provider_names_its_own_pairing_and_never_crosses_them():
     exists to stop, and a default must not be the thing that trips it."""
     for provider, pair in sweep.PAIRINGS.items():
         assert pair['answerer'] != pair['judge'], provider
-        served = (models.OLLAMA_MODELS if provider == 'ollama'
-                  else models.CHAT_MODELS)
+        served = models.known_models(config.LabSettings(llm_provider=provider))
         slugs = {m.id for m in served}
         assert pair['answerer'] in slugs, (provider, pair)
         assert pair['judge'] in slugs, (provider, pair)
@@ -2940,6 +2957,31 @@ def test_the_local_pairing_is_the_one_that_was_screened():
     extra steps."""
     assert sweep.PAIRINGS['ollama'] == {'answerer': '4skl/gemma4-e2b-mtp',
                                         'judge': 'gemma4:e2b'}
+
+
+# This is a unit test.
+def test_the_sweep_refuses_a_backend_it_has_no_screened_pair_for(monkeypatch):
+    """The pins used to fall back to the OpenRouter slugs for any unknown
+    backend, which under a CLI backend hands `openai/gpt-5-nano` to a command
+    that has never heard of it — a run that dies, or worse, one labelled with a
+    model that could not have produced it. Codex has one verified alias here, so
+    there is no honest answerer/judge pair and the sweep says so."""
+    monkeypatch.setattr(sweep, 'ANSWER_MODEL', 'gpt-5.6-terra')
+    monkeypatch.setattr(sweep, 'JUDGE_MODEL', '')
+    monkeypatch.setattr(sweep, '_PROVIDER', 'codex')
+    monkeypatch.setenv('RAGLAB_LLM', 'codex')
+    with pytest.raises(SystemExit, match='RAGLAB_SWEEP_JUDGE_MODEL'):
+        sweep.judged_settings()
+
+
+# This is a unit test.
+def test_the_claude_pairing_never_lets_the_answerer_grade_itself():
+    """Every pairing here has to survive judged_settings' own check, because a
+    model grading its own output is not evidence and these four metrics are the
+    whole basis of the ranking."""
+    for provider, pair in sweep.PAIRINGS.items():
+        assert pair['answerer'] != pair['judge'], provider
+    assert sweep.PAIRINGS['claude'] == {'answerer': 'sonnet', 'judge': 'opus'}
 
 
 # This is a unit test.

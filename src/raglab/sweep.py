@@ -72,16 +72,27 @@ PAIRINGS = {'openrouter': {'answerer': 'openai/gpt-5-nano',
             # belongs on the row (`report['judge']` carries both).
             'ollama': {'answerer': '4skl/gemma4-e2b-mtp',
                        'judge': 'gemma4:e2b'},
+            # Two different aliases of one family, because judged_settings
+            # refuses a model grading its own output. Codex is deliberately
+            # absent: one alias has been verified on this installation, so
+            # there is no honest pair, and a sweep there must name both models
+            # by hand rather than be handed a guess.
+            'claude': {'answerer': 'sonnet',
+                       'judge': 'opus'},
             'fake': {'answerer': 'openai/gpt-5-nano',
                      'judge': 'openai/gpt-5-mini'}}
 
 # Which provider the pins default to is read at import, so the env that chooses
 # the backend also chooses the pairing. Still individually overridable, because a
-# screened judge is a per-machine fact.
-_PAIR = PAIRINGS.get(os.environ.get('RAGLAB_LLM', '') or 'openrouter',
-                     PAIRINGS['openrouter'])
-ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL', _PAIR['answerer'])
-JUDGE_MODEL = os.environ.get('RAGLAB_SWEEP_JUDGE_MODEL', _PAIR['judge'])
+# screened judge is a per-machine fact. No fallback to another backend's pins:
+# that used to hand a CLI backend `openai/gpt-5-nano`, a slug it has never heard
+# of, and a run labelled with a model that could not have produced it is the one
+# artefact this lab must never make.
+_PROVIDER = os.environ.get('RAGLAB_LLM', '') or 'openrouter'
+_PAIR = PAIRINGS.get(_PROVIDER, {})
+ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL',
+                              _PAIR.get('answerer', ''))
+JUDGE_MODEL = os.environ.get('RAGLAB_SWEEP_JUDGE_MODEL', _PAIR.get('judge', ''))
 
 # Every candidate is measured on the same 30 questions — 10 easy, 10 medium, 10
 # hard. The full 112 stay available for a final run, but a candidate sweep pays
@@ -160,6 +171,11 @@ def judged_settings():
                  'is nothing to rank without one. Set OPENROUTER_API_KEY, or '
                  'RAGLAB_LLM=ollama with RAGLAB_SWEEP_ANSWER_MODEL / '
                  'RAGLAB_SWEEP_JUDGE_MODEL naming two models it serves.')
+    if not ANSWER_MODEL or not JUDGE_MODEL:
+        sys.exit(f'no answerer/judge pair for RAGLAB_LLM={_PROVIDER!r}: name '
+                 'both with RAGLAB_SWEEP_ANSWER_MODEL and '
+                 'RAGLAB_SWEEP_JUDGE_MODEL. Two different models, because a '
+                 'model grading its own output is not evidence.')
     if ANSWER_MODEL == JUDGE_MODEL:
         sys.exit(f'answerer and judge are both {ANSWER_MODEL!r}: a model grading '
                  'its own output is not evidence, and these four metrics are the '

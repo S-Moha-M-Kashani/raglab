@@ -114,8 +114,11 @@ OLLAMA_MODELS = (
 # refuses. The measurement lives in the note instead.
 CLAUDE_MODELS = (
     ModelOption('sonnet', 'Claude Sonnet (CLI)', 'closed',
-                note='what this backend was measured on: 3.9s per call at '
-                     'effort=low on the lab\'s own grade prompt'),
+                note='what this backend was measured on, all at effort=low: '
+                     '3.9s per call on a short grade probe, 5.6s on the lab\'s '
+                     'real grade prompt, and ~7.4s per call-slot across a '
+                     'judged run — a longer prompt costs more, so the probe '
+                     'figure is the floor rather than the price'),
     ModelOption('opus', 'Claude Opus (CLI)', 'closed',
                 note='the sweep\'s judge under this backend — a model grading '
                      'its own output is not evidence, so the answerer stays '
@@ -431,8 +434,10 @@ MODES = (
                  note='the full LLM pipeline on the Claude Code CLI already '
                       'logged in on this machine, so no API key is needed at '
                       'all — HyDE, LLM reranker, relevance gate, answerer and '
-                      'both judges. ~3.9s per call at effort=low, and the calls '
-                      'bill your Claude account rather than nothing'),
+                      'both judges. At effort=low a call cost 3.9s on a short '
+                      'probe and 5.6–7.4s on the prompts the lab actually '
+                      'sends, and the calls bill your Claude account rather '
+                      'than nothing'),
     ProviderMode('codex', 'Codex (CLI)', 'codex',
                  note='the same full pipeline on the Codex CLI. ~8.2s per call '
                       'at effort=low, and every call carries codex\'s own '

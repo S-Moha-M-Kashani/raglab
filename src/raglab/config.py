@@ -41,7 +41,8 @@ LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'claude', 'codex', 'fake')
 # steps. 'fake' keeps the remote slug: it ignores the model entirely, and changing
 # it would make the offline runs' notes disagree with every earlier one. The two
 # CLI defaults are the aliases that actually ran here (3.9s and 8.2s per call on
-# the grade prompt); `gpt-5.6-terra` is what this installation's codex serves, and
+# a short grade probe, and 5.6s for claude on the lab's real grade prompt — a
+# longer prompt costs more); `gpt-5.6-terra` is what this installation's codex serves, and
 # RAGLAB_MODEL names another.
 PROVIDER_MODELS = {'openrouter': 'openai/gpt-5-nano',
                    'ollama': '4skl/gemma4-e2b-mtp',

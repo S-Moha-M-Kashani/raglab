@@ -123,9 +123,15 @@ Two more backends run a CLI already installed on this machine, so they need no
 API key at all:
 
 ```bash
-RAGLAB_LLM=claude uv run --extra local-embeddings raglab   # ~3.9s per call
-RAGLAB_LLM=codex  uv run --extra local-embeddings raglab   # ~8.2s per call
+RAGLAB_LLM=claude uv run --extra local-embeddings raglab
+RAGLAB_LLM=codex  uv run --extra local-embeddings raglab
 ```
+
+The price is a process spawn per call, measured at `effort=low`: on a short
+grade probe claude cost 3.9 s and codex 8.2 s, and on the prompts the lab
+actually sends claude cost 5.6 s for its own grade prompt and ~7.4 s per
+call-slot across a judged run. A judged run is hundreds of calls, so read the
+larger figures rather than the probe.
 
 Or pick **Claude (CLI)** / **Codex (CLI)** from *Models · Backend* in the panel,
 which also applies the full-pipeline preset for that backend.

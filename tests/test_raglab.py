@@ -507,6 +507,34 @@ def test_aggregate_reports_per_type_and_a_headline():
     assert 0 < summary['overall']['headline'] <= 1.0
 
 
+# This is a unit test.
+def test_an_answerer_that_could_not_be_reached_says_so_on_the_row(ground_truth):
+    """`pipeline._llm_answer` catches everything the model raises and returns the
+    canonical refusal, so a CliError, a 600s timeout and an unreachable daemon all
+    look exactly like "the diary is silent about that". RAGAS then judges that
+    refusal and reports low, confident faithfulness and answer relevancy — with no
+    field anywhere saying the model was never asked. `GradeUnavailable` refuses
+    loudly one stage earlier; this is the same distinction n_summaries and
+    n_expanded exist to make, and it belongs on the row because it is per
+    question: three of thirty timing out is a different fault from thirty."""
+    class Unreachable:
+        def invoke(self, messages, **kwargs):
+            raise clichat.CliError('claude did not answer within 600s')
+
+    question = next(q for q in ground_truth['questions'] if q['answerable'])
+    outcome = pipeline.Outcome(question=question['question_fa'], contexts=[])
+    outcome.answer = pipeline._llm_answer(outcome, Unreachable(), 'sonnet')
+    row = metrics.score_question(question, outcome, k=5)
+    assert row['answer'] == pipeline.REFUSAL
+    assert 'did not answer' in row['answer_error']
+
+    # And a run where the model did answer carries no such field, so its presence
+    # means one thing.
+    answered = pipeline.Outcome(question=question['question_fa'], contexts=[],
+                                answer='یک جواب')
+    assert 'answer_error' not in metrics.score_question(question, answered, k=5)
+
+
 # --- the ephemeral vector store --------------------------------------------
 # An experiment's vectors, contexts and answers live for the process and no
 # longer: the lab owns a store in memory instead of a Chroma database, and its

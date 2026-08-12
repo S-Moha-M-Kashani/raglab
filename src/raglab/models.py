@@ -391,13 +391,21 @@ def catalogue(settings: LabSettings) -> list[dict]:
         # An id set by RAGLAB_MODEL is by definition one the user wants, so it is
         # offered even though nothing is known about its weights.
         #
-        # `verified=not live` is the honest reading of the two cases: with a
-        # served list in hand, membership of that list decides — including for
-        # the user's own pick, which is exactly the case provider_problems will
-        # refuse a run over. With no list, nothing can be checked, so the user's
-        # choice is taken at face value rather than shown as NA.
+        # `verified` makes an option available *unconditionally*, which is the
+        # right escape hatch when availability cannot be checked and the wrong one
+        # when it can. Three cases, not two. With a served list in hand,
+        # membership of that list decides — including for the user's own pick,
+        # which is exactly the case provider_problems will refuse a run over. With
+        # no list on an HTTP backend, nothing could be *asked* — a daemon that did
+        # not answer — so the user's choice is taken at face value rather than
+        # shown as NA. With no list on a CLI backend the emptiness is a *checked*
+        # fact: `cli_available` read the filesystem and the command is not there,
+        # so every alias is NA and this one has to be too. Otherwise the panel
+        # offers the one model the lab refuses to run, which is the fault
+        # CLAUDE_MODELS' own comment argues against.
+        verified = not live and settings.provider not in clichat.CLIS
         known.insert(0, ModelOption(settings.llm_model, settings.llm_model,
-                                    'unknown', verified=not live,
+                                    'unknown', verified=verified,
                                     note='named by RAGLAB_MODEL'))
     entries = [option.as_dict(live) for option in known]
     # Usable models first; NA sinks to the bottom without leaving the list.

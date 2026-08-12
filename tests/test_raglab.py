@@ -4314,6 +4314,32 @@ def test_a_cli_catalogue_reports_availability_from_the_binary(monkeypatch):
 
 
 # This is a unit test.
+def test_a_cli_with_no_command_offers_nothing_not_even_the_users_own_pick(monkeypatch):
+    """`verified` makes an option available unconditionally — the escape hatch for
+    a backend whose availability cannot be checked. A CLI's can be: the command is
+    on this machine or it is not, and `cli_available` reads the filesystem to find
+    out. So an empty served list means two different things by backend, and read as
+    "cannot check" it made a model named by RAGLAB_MODEL show as usable while every
+    catalogue alias showed NA and `provider_problems` refused the run — the panel
+    offering the one thing the lab refuses."""
+    settings = config.LabSettings(llm_provider='claude',
+                                  llm_model='some-unpublished-alias')
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: None)
+    offered = [e for e in models.catalogue(settings) if e['source'] != 'default']
+    assert offered and not any(e['available'] for e in offered)
+    # With the command there, the user's own pick is offered again — nothing here
+    # claims to know whether that alias exists, only that the backend does.
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: '/usr/bin/claude')
+    back = {e['id']: e for e in models.catalogue(settings)}
+    assert back['some-unpublished-alias']['available'] is True
+    # And the HTTP backends keep the old reading: an unanswered daemon checked
+    # nothing, so the user's choice stands rather than being shown as NA.
+    monkeypatch.setattr(models, 'ollama_ids', lambda settings: frozenset())
+    local = config.LabSettings(llm_provider='ollama', llm_model='some-tag')
+    assert {e['id']: e for e in models.catalogue(local)}['some-tag']['available']
+
+
+# This is a unit test.
 def test_a_backend_whose_command_is_absent_stops_the_run_naming_it(monkeypatch):
     """The embedder rule applied to a backend: refuse rather than measure
     something other than what the row will claim. And only the *binary* is

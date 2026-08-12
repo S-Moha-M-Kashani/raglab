@@ -3880,7 +3880,12 @@ def test_every_option_list_leads_with_the_default():
             ('retrievers', config.RETRIEVERS, cfg.retrieval.retriever),
             ('rerankers', config.RERANKERS, cfg.retrieval.reranker),
             ('graders', config.GRADERS, cfg.retrieval.grader),
-            ('answerers', config.ANSWERERS, cfg.generation.answerer)):
+            ('answerers', config.ANSWERERS, cfg.generation.answerer),
+            ('hierarchies', config.HIERARCHIES, cfg.index.hierarchy),
+            ('graph_sources', config.GRAPH_SOURCES, cfg.index.graph_source),
+            ('summarizers', config.SUMMARIZERS, cfg.index.summarizer),
+            ('summary_scopes', config.SUMMARY_SCOPES,
+             cfg.retrieval.summary_scope)):
         assert options[0] == default, (
             f'{name} leads with {options[0]!r} but the default is {default!r}')
 

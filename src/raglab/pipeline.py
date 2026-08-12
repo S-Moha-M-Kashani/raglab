@@ -75,7 +75,8 @@ class Outcome:
                 'timings': self.timings}
 
 
-def _mask(index, scope) -> np.ndarray:
+def _mask(index, scope, layers: tuple[str, ...] | None = None,
+          levels: tuple[int, ...] | None = None) -> np.ndarray:
     """The BM25 equivalent of the store's `where` clause. Kept in lockstep with
     query.where_clause: if the two disagree, hybrid fusion silently compares two
     different candidate pools."""
@@ -84,7 +85,28 @@ def _mask(index, scope) -> np.ndarray:
         if scope and (chunk.span_from > scope.to_int
                       or chunk.span_to < scope.from_int):
             allowed[i] = False
+        elif layers is not None and chunk.layer not in layers:
+            allowed[i] = False
+        elif levels and chunk.layer == 'summary' and chunk.level not in levels:
+            allowed[i] = False
     return allowed
+
+
+def summary_filter(cfg: RetrievalConfig) -> tuple[tuple[str, ...] | None,
+                                                  tuple[int, ...] | None]:
+    """Which layers and levels this scope may retrieve.
+
+    `None` for layers means "no restriction" — the flat behaviour, and what
+    `mixed` gets, so an index with no summaries in it is searched by exactly the
+    code path it was searched by before this setting existed.
+    """
+    levels = tuple(int(part) for part in cfg.summary_levels.split()
+                   if part.isdigit()) or None
+    if cfg.summary_scope == 'leaves':
+        return ('',), None
+    if cfg.summary_scope in ('summaries', 'drill-down'):
+        return ('summary',), levels
+    return None, levels
 
 
 def lexical_grade(index, question: str, text: str) -> float:
@@ -118,8 +140,9 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
     queries = query_mod.expand(question) if cfg.multi_query else [question]
     if cfg.hyde and llm is not None:
         queries = queries + [query_mod.hyde(llm, roles.expand, question)]
-    where = query_mod.where_clause(scope)
-    allowed = _mask(index, scope)
+    layers, levels = summary_filter(cfg)
+    where = query_mod.layer_clause(scope, layers, levels)
+    allowed = _mask(index, scope, layers, levels)
     timings['understand_ms'] = round((clock() - start) * 1000, 1)
     diagnostics['queries'] = queries
     diagnostics['candidates_in_scope'] = int(allowed.sum())
@@ -155,6 +178,18 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
         base = {cid: lexical_scores[cid] for cid in lexical_ranked}
     else:
         base = retrieval.rrf([dense_ranked, lexical_ranked], cfg.rrf_k)
+    # Before the candidate cut below, never after: there are far more leaves
+    # than summaries, so a summary that had not already survived the cut could
+    # not be promoted into it, and the boost would be a no-op that looks like a
+    # knob. Measured that way in the 2026-07-30 sweep's candidate G.
+    if cfg.summary_boost != 1.0:
+        boosted = 0
+        for chunk_id in base:
+            chunk = index.by_id.get(chunk_id)
+            if chunk is not None and chunk.layer == 'summary':
+                base[chunk_id] *= cfg.summary_boost
+                boosted += 1
+        diagnostics['summaries_boosted'] = boosted
     if not base:
         if trace is not None:
             trace.update({'dense': list(dense_ranked), 'bm25': list(lexical_ranked),
@@ -195,7 +230,15 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
     timings['grade_ms'] = round((clock() - start) * 1000, 1)
     diagnostics['graded_out'] = len(contexts) - len(kept)
 
+    if cfg.summary_scope == 'drill-down':
+        kept = _drill_down(index, cfg, question, kept)
     kept = _fit_budget(kept, cfg.max_context_chars)
+    # Which layers actually reached the answerer. A run whose summaries were
+    # never retrieved is precisely the failure measured on 2026-07-31 — the
+    # habit ledger was correct, reachable, and retrieved for 1 question in 24 —
+    # so it is a field on the row rather than something to infer from a flat
+    # score.
+    diagnostics['contexts_by_layer'] = _by_layer(index, kept)
     if trace is not None:
         fused_order = sorted(base, key=lambda cid: -base[cid])
         dense_pos = {cid: r + 1 for r, cid in enumerate(dense_ranked)}
@@ -210,6 +253,13 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
             candidates.append({
                 'chunk_id': cid, 'text': chunk.text,
                 'session_id': chunk.session_id, 'date': chunk.date,
+                # Which layer a candidate belongs to is a different axis from
+                # its rank at each step, and the Inspector renders it as one:
+                # a summary that ranked first and expanded into three
+                # irrelevant leaves has to be visible as that, not as a score.
+                'layer': chunk.layer, 'level': chunk.level,
+                'group_id': chunk.group_id,
+                'members': len(chunk.member_ids),
                 'dense_rank': dense_pos.get(cid), 'bm25_rank': bm25_pos.get(cid),
                 'fused_rank': fused_pos.get(cid),
                 'retrieval_score': round(float(relevance[i]), 4),
@@ -299,6 +349,55 @@ def _grade(index, cfg, question, contexts, llm, model):
         if grade >= cfg.grade_threshold:
             kept.append(context)
     return kept, not kept
+
+
+def _by_layer(index, contexts) -> dict:
+    """`{'leaf': n, 'summary': n, 'expanded': n}` for one question's context."""
+    counts = {'leaf': 0, 'summary': 0, 'expanded': 0}
+    for context in contexts:
+        chunk = index.by_id.get(context.chunk_id)
+        if context.expanded_from:
+            counts['expanded'] += 1
+        elif chunk is not None and chunk.layer == 'summary':
+            counts['summary'] += 1
+        else:
+            counts['leaf'] += 1
+    return counts
+
+
+def _drill_down(index, cfg, question: str, contexts):
+    """Expand each retrieved summary to the members it stands for.
+
+    This is the mechanism the 2026-07-31 post-mortem asked for and
+    `rollup_boost` was not: there, summaries competed against twenty times more
+    leaves and lost, and a uniform boost only promoted whichever kind of summary
+    was most numerous. Under `drill-down` the search already ran over summaries
+    alone, so being outnumbered cannot happen — and the members arrive as
+    evidence the answerer can quote, which a summary is not.
+
+    The summary itself is kept, first: for a counting question it is the row
+    that states the number, which is the whole reason it was written. Members
+    are ordered by IDF coverage of the question rather than by a stored score,
+    because no per-member score exists at this point and re-embedding here would
+    put a second encoder pass inside every query.
+    """
+    out = []
+    for context in contexts:
+        out.append(context)
+        chunk = index.by_id.get(context.chunk_id)
+        if chunk is None or chunk.layer != 'summary':
+            continue
+        members = [index.by_id[cid] for cid in chunk.member_ids
+                   if cid in index.by_id]
+        ranked = sorted(members,
+                        key=lambda c: -lexical_grade(index, question, c.text))
+        for member in ranked[:max(1, cfg.k)]:
+            out.append(Context(chunk_id=member.id, text=member.text,
+                               session_id=member.session_id, date=member.date,
+                               score=context.score,
+                               stages=dict(context.stages),
+                               expanded_from=chunk.id))
+    return out
 
 
 def _fit_budget(contexts, max_chars: int):

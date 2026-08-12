@@ -15,6 +15,7 @@ class Stub:
     openrouter_api_key: str = ''
     openrouter_base_url: str = 'https://openrouter.ai/api/v1'
     ollama_base_url: str = 'http://localhost:11434/v1'
+    cli_effort: str = 'low'
 
 
 # This is a unit test.
@@ -72,3 +73,30 @@ def test_a_per_role_model_is_forwarded_per_request_not_bound():
     assert 'model' not in captured
     llm.lab_chat(Recorder(), [{'role': 'user', 'content': 'hi'}], model='qwen3.5:2b')
     assert captured['model'] == 'qwen3.5:2b'
+
+
+# This is a unit test.
+def test_a_cli_backend_is_built_through_the_same_one_construction_site():
+    """The seam's whole claim: adding a backend is a branch here and never an
+    edit to a call site. A CLI is not an endpoint, so it takes no base url — and
+    it gets the local timeout, because a process spawn plus an agent turn is not
+    a thing to be patient about for 90 seconds only."""
+    model = llm.make_chat_model(Stub(provider='claude', llm_model='sonnet'))
+    assert model.cli == 'claude' and model.model == 'sonnet'
+    assert model.timeout == llm.CLI_TIMEOUT
+    assert llm.CLI_TIMEOUT > llm.REMOTE_TIMEOUT
+    codex = llm.make_chat_model(Stub(provider='codex',
+                                     llm_model='gpt-5.6-terra'))
+    assert codex.cli == 'codex'
+
+
+# This is a unit test.
+def test_a_reasoning_effort_the_backend_rejects_stops_the_run_at_build_time():
+    """Earlier than the call, because codex answers an effort it does not accept
+    with exit 0 and no text — and the lab would rather refuse to build a client
+    than produce a stage that scored every document 0.5."""
+    llm.make_chat_model(Stub(provider='codex', llm_model='gpt-5.6-terra',
+                             cli_effort='none'))
+    with pytest.raises(ValueError, match='none'):
+        llm.make_chat_model(Stub(provider='claude', llm_model='sonnet',
+                                 cli_effort='none'))

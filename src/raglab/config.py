@@ -28,15 +28,25 @@ RUNS_DIR = ROOT / '.runs'
 # Which backend serves the lab's chat models. Local Ollama is the default: the
 # lab's judged runs can make hundreds of model calls, so a default must never
 # silently spend API credit. Naming another provider is an explicit opt-in.
-LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'fake')
+#
+# `claude` and `codex` are a third kind (see clichat.py): not an endpoint but a
+# CLI on this machine, run as a subprocess. They need no key, which is what they
+# are for — the four deciding metrics are judged, so an unkeyed lab measures
+# nothing on the remote backend.
+LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'claude', 'codex', 'fake')
 
 # The default chat model per backend, because a slug only means something to the
 # backend that serves it. The local default is the model the judge screen has a
 # row for (`.screens/`) — a default nobody screened is judge-shopping with extra
 # steps. 'fake' keeps the remote slug: it ignores the model entirely, and changing
-# it would make the offline runs' notes disagree with every earlier one.
+# it would make the offline runs' notes disagree with every earlier one. The two
+# CLI defaults are the aliases that actually ran here (3.9s and 8.2s per call on
+# the grade prompt); `gpt-5.6-terra` is what this installation's codex serves, and
+# RAGLAB_MODEL names another.
 PROVIDER_MODELS = {'openrouter': 'openai/gpt-5-nano',
                    'ollama': '4skl/gemma4-e2b-mtp',
+                   'claude': 'sonnet',
+                   'codex': 'gpt-5.6-terra',
                    'fake': 'openai/gpt-5-nano'}
 
 
@@ -65,6 +75,12 @@ class LabSettings:
     # question) measurable without buying credit.
     llm_provider: str = 'ollama'
     ollama_base_url: str = 'http://localhost:11434/v1'
+    # How hard a CLI backend is asked to think. A setting rather than a constant
+    # in the argv because it moves the numbers: under 'low' the grade probe
+    # scored 8 where the default scored 9. The two CLIs accept different values
+    # and `clichat.checked_effort` refuses one the chosen CLI does not — codex
+    # answers an unaccepted value with exit 0 and no text at all.
+    cli_effort: str = 'low'
     # '' = the provider's own default (PROVIDER_MODELS), resolved in __post_init__
     # so every reader sees a concrete slug. It has to follow the provider: a
     # remote slug left standing under RAGLAB_LLM=ollama made
@@ -104,8 +120,9 @@ class LabSettings:
         """Whether an LLM stage would reach a real model. 'fake' answers and
         judges without ever failing, which is why this is not `bool(key)`: the
         thing worth knowing is not whether a credential exists but whether the
-        numbers a run produces mean anything."""
-        return self.provider in ('openrouter', 'ollama')
+        numbers a run produces mean anything. A CLI backend reaches a real model
+        on somebody's subscription, so it counts."""
+        return self.provider in ('openrouter', 'ollama', 'claude', 'codex')
 
 
 def load_lab_settings(env: dict | None = None) -> LabSettings:
@@ -121,6 +138,7 @@ def load_lab_settings(env: dict | None = None) -> LabSettings:
         llm_provider=env.get('RAGLAB_LLM', 'ollama'),
         ollama_base_url=env.get('RAGLAB_OLLAMA_BASE_URL',
                                 'http://localhost:11434/v1'),
+        cli_effort=env.get('RAGLAB_CLI_EFFORT', 'low'),
         llm_model=env.get('RAGLAB_MODEL', ''),
         fastembed_model=env.get(
             'RAGLAB_FASTEMBED_MODEL',

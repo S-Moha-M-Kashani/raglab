@@ -2896,11 +2896,41 @@ def test_an_explicit_model_is_never_replaced_by_the_provider_default():
 
 
 # This is a unit test.
-def test_every_provider_has_a_default_model_it_can_actually_serve():
+def test_every_provider_has_a_default_model_its_own_catalogue_offers():
+    """A slug only means something to the backend that serves it, so each
+    backend's default has to appear in that backend's own list. Four lists now,
+    for the same reason there were two."""
     for provider, model in config.PROVIDER_MODELS.items():
-        served = (models.OLLAMA_MODELS if provider == 'ollama'
-                  else models.CHAT_MODELS)
+        served = models.known_models(
+            config.LabSettings(llm_provider=provider, llm_model=model))
         assert model in {m.id for m in served}, (provider, model)
+
+
+# This is a unit test.
+def test_a_cli_backend_counts_as_a_real_model_and_names_its_own_default():
+    """`llm_ready` asks whether the numbers a run produces mean anything, and a
+    CLI reaches a real model — so these may produce leaderboard rows, and both
+    entry points that refuse an unbacked run let them through. The default model
+    follows the backend for the reason it always has: a remote slug left
+    standing under a CLI is a default that cannot run."""
+    for provider, expected in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+        settings = config.LabSettings(llm_provider=provider)
+        assert settings.llm_ready is True
+        assert settings.llm_model == expected
+    # And switching backends does not carry the old backend's default across.
+    remote = config.LabSettings(llm_provider='openrouter')
+    assert (config.settings_for_provider(remote, 'claude').llm_model
+            == 'sonnet')
+
+
+# This is a unit test.
+def test_the_reasoning_effort_is_a_setting_rather_than_an_argv_constant(monkeypatch):
+    """Effort moves the numbers — the probe's grade scores went 9 to 8 under
+    `low` — and a choice that moves numbers must be readable off the config
+    rather than buried in an argv."""
+    assert config.LabSettings().cli_effort == 'low'
+    assert config.load_lab_settings({'RAGLAB_CLI_EFFORT': 'high'}).cli_effort \
+        == 'high'
 
 
 # This is a unit test.

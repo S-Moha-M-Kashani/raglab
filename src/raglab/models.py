@@ -341,11 +341,17 @@ def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:
     was actually scored by gpt-5-mini is the single worst artefact this lab can
     produce, and no field on the row would contradict it.
 
-    Only refuses what it has *verified* is absent. With the daemon unreachable
-    `served_ids` is empty and nothing is claimed, because "cannot check" and
-    "not there" are different facts.
+    Two refusals, and one rule joining them: **this guard only ever refuses what
+    it has verified absent**, so what it checks is whatever the backend can be
+    asked. For `ollama` that is the model — `/api/tags` answers with the tags it
+    serves, and an unreachable daemon claims *nothing*, because "cannot check"
+    and "not there" are different facts. For a CLI there is no `/api/tags` and an
+    alias cannot be checked without paying for a call, so the verifiable fact is
+    the **binary**: a missing command is refused and an unknown alias is not, the
+    CLI naming an alias it cannot serve better at call time than anything guessed
+    here.
 
-    And only for the local backend. OpenRouter's list is authoritative in one
+    `openrouter` is therefore refused nothing. Its list is authoritative in one
     direction only: everything on it works, but a slug missing from it may still
     be perfectly valid — the routing suffixes (`:free`, `:floor`) do not appear as
     ids. Refusing on that basis would block runs that used to work, which is a
@@ -457,9 +463,11 @@ GATE_MODELS = ('cohere/rerank-4-fast', 'cohere/rerank-4-pro')
 
 # The fields a mode presets — and only these. Index is deliberately absent:
 # heydariAI/persian-embeddings is the measured winner regardless of where the
-# chat models run. Both modes patch the same fields, read off this one table,
-# so switching back is a full reset rather than a remote model leaking into a
-# local run's label.
+# chat models run. **Every** mode patches exactly these fields, read off this one
+# table — the three in MODE_MODELS by naming their own model at each stage, and
+# `local` by writing the lab's own defaults back into the same set — so switching
+# back is a full reset rather than a remote model leaking into a local run's
+# label. `mode_config`'s closing assertion is what holds the two paths to it.
 _MODE_FIELDS = {
     'retrieval': ('hyde', 'expansion_model', 'reranker', 'reranker_model',
                   'grader', 'grader_model', 'grade_threshold'),

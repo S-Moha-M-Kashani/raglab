@@ -96,6 +96,44 @@ OLLAMA_MODELS = (
                      'usable to answer, never to grade'),
 )
 
+# Reached by running the CLI already installed and logged in on this machine
+# (clichat.py), so a third and fourth list — an OpenRouter slug is not a thing
+# `claude --model` accepts, and an alias is not a thing OpenRouter serves.
+# Deliberately three entries: the answerer, the judge that must not be the
+# answerer, and the speed candidate. `fable` is reachable through RAGLAB_MODEL
+# and is not offered, because nothing here has measured it.
+#
+# **None of these is `verified`**, and that is not a claim that nothing was
+# measured — `sonnet` and `gpt-5.6-terra` both answered here. `verified` makes an
+# option available *unconditionally* (`ModelOption.as_dict` returns
+# `verified or id in live`), which is the right escape hatch when availability
+# cannot be checked. Here it can: the binary either exists or it does not. A
+# verified option would show as usable on a machine with no `claude` installed,
+# while `provider_problems` refused the run — the panel offering what the lab
+# refuses. The measurement lives in the note instead.
+CLAUDE_MODELS = (
+    ModelOption('sonnet', 'Claude Sonnet (CLI)', 'closed',
+                note='what this backend was measured on: 3.9s per call at '
+                     'effort=low on the lab\'s own grade prompt'),
+    ModelOption('opus', 'Claude Opus (CLI)', 'closed',
+                note='the sweep\'s judge under this backend — a model grading '
+                     'its own output is not evidence, so the answerer stays '
+                     'sonnet'),
+    ModelOption('haiku', 'Claude Haiku (CLI)', 'closed',
+                note='the speed candidate: the judge is ~420 calls per run, '
+                     'and each one here is a process spawn as well as a turn'),
+)
+
+# One entry, and honestly so: the codex CLI publishes no model list to verify
+# against, and this is the alias that has actually answered here. RAGLAB_MODEL
+# names another, and `catalogue` offers whatever it names.
+CODEX_MODELS = (
+    ModelOption('gpt-5.6-terra', 'GPT-5.6 Terra (Codex CLI)', 'closed',
+                note='8.2s per call at effort=low, and every call carries '
+                     'codex\'s own ~18.5k-token agent preamble, which no flag '
+                     'removes'),
+)
+
 
 @dataclass(frozen=True)
 class ModelRole:
@@ -262,10 +300,15 @@ def served_ids(settings: LabSettings) -> frozenset:
             else openrouter_ids(settings))
 
 
+# The candidate list per backend, because a slug only means something to the
+# backend that serves it. Four lists now, and a dropdown that mixed them would
+# offer most users a menu that mostly cannot work.
+_CATALOGUES = {'ollama': OLLAMA_MODELS, 'claude': CLAUDE_MODELS,
+               'codex': CODEX_MODELS}
+
+
 def known_models(settings: LabSettings) -> tuple[ModelOption, ...]:
-    """The candidate list for the active backend. Two lists, because a slug only
-    means something to the provider that serves it."""
-    return OLLAMA_MODELS if settings.provider == 'ollama' else CHAT_MODELS
+    return _CATALOGUES.get(settings.provider, CHAT_MODELS)
 
 
 def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:

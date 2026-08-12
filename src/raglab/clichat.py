@@ -6,8 +6,12 @@ why `llm._endpoint` can hold the whole difference between them. `claude` and
 already logged into, so the lab can reach a strong model with **no API key and
 no new dependency** — which matters because the four deciding metrics are
 judged, and an unkeyed lab measures nothing on the remote backend. The price is
-a process spawn per call: measured 3.9s for claude and 8.2s for codex on the
-lab's own grade prompt.
+a process spawn per call, and it is stated as three numbers because one would be
+a figure this repository's own verification disproves: on a short grade probe
+(three candidates) claude cost 3.9 s and codex 8.2 s; on the lab's *real* grade
+prompt claude cost 5.6 s (`grade_ms=5574.1`, 2026-08-12); and inside a judged run
+its own prompts averaged ~7.4 s per call-slot. A prompt this backend is asked to
+grade is longer than a probe, so the probe figure is the floor, not the price.
 
 What makes a row produced here trustworthy is that the CLI is driven as a
 completion endpoint rather than as an agent, and every flag below prevents one
@@ -34,6 +38,13 @@ specific way a row could otherwise be wrong:
   was the whole of the 17.6s-to-8.2s difference. The 18.5k-token preamble that
   remains is codex's own harness, not this machine's AGENTS.md — measured 18,574
   with the user config against 18,513 without.
+* **An allowlisted environment** (`_KEEP`, `_child_env`). None of the flags above
+  touch the environment, and both CLIs configure themselves from it: a row
+  labelled `sonnet` that `ANTHROPIC_DEFAULT_SONNET_MODEL` pointed at another
+  model is exactly the artefact the whole of this list exists to prevent.
+* **UTF-8 on the decode**, explicitly rather than by the machine's locale. The
+  corpus is a Farsi diary and this is the one backend whose transport is not
+  HTTP+JSON, so it is the one that has to say which encoding it is reading.
 
 **Nothing here falls back.** A non-zero exit, a timeout, an error envelope, a
 reply that cannot be read, or a reply with no text at all raises `CliError`. The
@@ -43,6 +54,7 @@ opinion" and scores every document 0.5 — a `grader='llm'` row measured ungated
 which is the one artefact this lab must never produce.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -64,6 +76,44 @@ API_LINE = ('You are being called as a text completion endpoint, not an '
             'assistant. Follow the instruction exactly and emit only the '
             'requested output: no preamble, no explanation, no code fences, '
             'no tool use, no questions.')
+
+
+# The only variables a call is allowed to see. An **allowlist**, not a denylist:
+# both CLIs read their configuration from the environment and none of the flags
+# above touch it, so `ANTHROPIC_BASE_URL` (or `OPENAI_BASE_URL`) sends the call to
+# a different gateway, `ANTHROPIC_DEFAULT_SONNET_MODEL` remaps the alias the row
+# is labelled with, and `CLAUDE_CODE_MAX_OUTPUT_TOKENS` / `MAX_THINKING_TOKENS` /
+# `CLAUDE_EFFORT` move what the argv says it fixed. All of those are present in
+# the installed binary (checked by name, 2026-08-12), and a row labelled `sonnet`
+# that a different model served is the one artefact this lab must never produce.
+# A denylist would have to be re-read every time either CLI ships a new variable,
+# and an out-of-date denylist fails silently, which is the failure this backend
+# cannot have.
+#
+# Each entry earns its place by being needed to *reach* the model, and none of
+# them can change which model answers. Verified live 2026-08-12: both CLIs
+# authenticate under this list and nothing else.
+_KEEP = (
+    'PATH',                 # find the command, and whatever it execs
+    'HOME',                 # where the login lives: ~/.claude, ~/.codex
+    'CLAUDE_CONFIG_DIR',    # …unless it was moved. Credential location, not
+    'CODEX_HOME',           #    configuration: --ignore-user-config still holds
+    'TMPDIR',               # the per-user temp dir on macOS
+    'USER', 'LOGNAME', 'SHELL',   # identity, which both CLIs read for their logs
+    'LANG', 'LC_ALL', 'LC_CTYPE',  # the child's own idea of text (see `encoding`)
+)
+_KEEP_PREFIX = ('XDG_',)    # where a Linux box keeps that same login
+#
+# Deliberately *not* kept: `HTTPS_PROXY`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`
+# and their kin. A machine that needs one gets a call that cannot connect, which
+# raises `CliError` and says so — the opposite of a redirected base url, which
+# answers.
+
+
+def _child_env() -> dict[str, str]:
+    """The environment one call runs with: `_KEEP`, and nothing else."""
+    return {name: value for name, value in os.environ.items()
+            if name in _KEEP or name.startswith(_KEEP_PREFIX)}
 
 
 class CliError(RuntimeError):
@@ -241,8 +291,18 @@ def _run(spec: CliSpec, argv: list[str], prompt: str, timeout: int) -> tuple[str
     # behind can be read by the next.
     with tempfile.TemporaryDirectory() as empty:
         try:
+            # `encoding='utf-8'` rather than `text=True`, which decodes with
+            # `locale.getpreferredencoding(False)`: under a C/POSIX locale — a
+            # launchd job, cron, a CI shell — that is ASCII, and this corpus is a
+            # Farsi diary, so a correct answer would fail to decode; under a
+            # latin-1 locale it would not fail at all and RAGAS would score
+            # mojibake with confidence. Every other backend gets UTF-8 fixed for
+            # it by HTTP+JSON. `errors='strict'` for the reason nothing else here
+            # falls back: replacing an undecodable byte changes the text that was
+            # scored and leaves no field on the row saying so.
             done = subprocess.run(argv, input=prompt, capture_output=True,
-                                  text=True, timeout=timeout, cwd=empty)
+                                  encoding='utf-8', errors='strict',
+                                  timeout=timeout, cwd=empty, env=_child_env())
         except FileNotFoundError as error:
             raise CliError(f'{spec.binary} is not installed on this machine, so '
                            'this backend cannot run — install it, or pick a '
@@ -250,6 +310,12 @@ def _run(spec: CliSpec, argv: list[str], prompt: str, timeout: int) -> tuple[str
         except subprocess.TimeoutExpired as error:
             raise CliError(f'{spec.binary} did not answer within {timeout}s') \
                 from error
+        except UnicodeDecodeError as error:
+            # Every way this can fail says which, and this one would otherwise
+            # leave `_run` as neither a CliError nor a reply.
+            raise CliError(f'{spec.binary} wrote bytes that are not UTF-8, and '
+                           'guessing an encoding would change the text that '
+                           f'gets scored: {error}') from error
     if done.returncode != 0:
         detail = (done.stderr or done.stdout or '').strip()[:400]
         raise CliError(f'{spec.binary} exited {done.returncode}: {detail}')

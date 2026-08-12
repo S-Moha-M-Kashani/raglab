@@ -59,6 +59,9 @@ class Recorder:
         self.calls.append({'argv': argv, 'input': kwargs.get('input'),
                            'cwd': kwargs.get('cwd'),
                            'timeout': kwargs.get('timeout'),
+                           'env': kwargs.get('env'),
+                           'encoding': kwargs.get('encoding'),
+                           'errors': kwargs.get('errors'),
                            'contents': sorted(os.listdir(kwargs['cwd']))})
         if self.boom is not None:
             raise self.boom
@@ -119,6 +122,62 @@ def test_the_cli_runs_in_an_empty_directory_outside_this_repository(monkeypatch)
         call = recorder.calls[0]
         assert call['contents'] == []
         assert ROOT not in Path(call['cwd']).parents
+
+
+# This is a unit test.
+def test_a_call_sees_an_allowlisted_environment_and_not_this_shell(monkeypatch):
+    """The flags scrub settings files, user config, rules, cwd and tools — and
+    none of them touches the environment, which is where both CLIs also read
+    their configuration. `ANTHROPIC_BASE_URL` sends the call to another gateway
+    and `ANTHROPIC_DEFAULT_SONNET_MODEL` remaps the alias the row is labelled
+    with, so a row saying `sonnet` would name a model that never answered. An
+    allowlist rather than a denylist, because a denylist goes out of date every
+    time either CLI ships a variable and does it silently."""
+    monkeypatch.setenv('ANTHROPIC_BASE_URL', 'https://elsewhere.example')
+    monkeypatch.setenv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'some-other-model')
+    monkeypatch.setenv('CLAUDE_CODE_MAX_OUTPUT_TOKENS', '32')
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://elsewhere.example')
+    monkeypatch.setenv('CLAUDE_EFFORT', 'max')
+    for cli, stdout in (('claude', CLAUDE_ENVELOPE), ('codex', CODEX_EVENTS)):
+        _, recorder = reply(monkeypatch, cli, stdout=stdout)
+        env = recorder.calls[0]['env']
+        assert env is not None, 'inheriting os.environ is the defect'
+        assert not [name for name in env
+                    if name.startswith(('ANTHROPIC_', 'OPENAI_', 'CLAUDE_CODE_'))
+                    or name == 'CLAUDE_EFFORT'], env
+        # …and it still carries what the CLI needs to reach the model at all:
+        # PATH to find the command, HOME to find the login it is already using.
+        assert env['PATH'] == os.environ['PATH']
+        assert env['HOME'] == os.environ['HOME']
+
+
+# This is a unit test.
+def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypatch):
+    """`text=True` decodes with the preferred locale encoding, which under a
+    C/POSIX locale is ASCII — so a correct Farsi answer would raise, and under a
+    latin-1 locale it would not raise at all and RAGAS would score mojibake with
+    confidence. Every other backend has UTF-8 fixed for it by HTTP+JSON; this is
+    the one whose transport is bytes on a pipe."""
+    farsi = 'دیروز برنج خوردم'
+    stdout = json.dumps({'is_error': False, 'usage': {}, 'result': farsi})
+    message, recorder = reply(monkeypatch, 'claude', stdout=stdout)
+    assert message.content == farsi
+    call = recorder.calls[0]
+    assert call['encoding'] == 'utf-8'
+    # Loud rather than lossy: a replaced byte is a changed measurement with no
+    # field on the row saying it changed.
+    assert call['errors'] == 'strict'
+
+
+# This is a unit test.
+def test_undecodable_bytes_are_a_named_failure_and_not_a_bare_one(monkeypatch):
+    """A UnicodeDecodeError raised inside `subprocess.run` used to escape `_run`
+    as neither a reply nor a CliError, so the one contract this module has —
+    every failure is a CliError saying how — had a hole in it exactly where a
+    Farsi corpus would find it."""
+    boom = UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'invalid start byte')
+    with pytest.raises(clichat.CliError, match='not UTF-8'):
+        reply(monkeypatch, 'claude', boom=boom)
 
 
 # This is a unit test.

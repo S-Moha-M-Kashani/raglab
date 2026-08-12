@@ -1336,7 +1336,7 @@ function renderCapabilities() {
     // fake provider — where every LLM number is meaningless, which is worth
     // seeing before the run rather than after.
     chip(caps.llm, caps.llm ? `LLM ${caps.llm_provider} · ${caps.llm_model}`
-                            : 'no LLM backend — set OPENROUTER_API_KEY or RAGLAB_LLM=ollama'),
+                            : 'no LLM backend — pick one under Models · Backend, or set RAGLAB_LLM to ollama, claude or codex (the two CLIs need no key), or an OPENROUTER_API_KEY for openrouter'),
     chip(caps.ragas.installed, `ragas ${caps.ragas.installed ? caps.ragas.version : 'missing'}`),
     chip(caps.ragas.llm_ready, `ragas LLM metrics ${caps.ragas.llm_ready ? 'ready' : 'off'}`),
     // Not a service chip: the index is process memory and is discarded with the

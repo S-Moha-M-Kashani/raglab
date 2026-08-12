@@ -12,6 +12,10 @@ covered by. Since the two differ in nothing but the endpoint and the patience it
 deserves, `_endpoint` holds that difference and there is one construction site: a
 knob that applies to both cannot be added to one and forgotten on the other.
 
+A third kind arrived 2026-08-12 and is not an endpoint at all: `claude` and
+`codex` run a CLI on this machine as a subprocess (`clichat.py`). They still
+arrive through this one function, which is the whole point of it.
+
 Until 2026-08-11 this module translated LabSettings into lodestar_brain's
 Settings and called that project's factory, so there would be exactly one LLM
 path in one repository. With the lab standalone there is nothing to share with,
@@ -25,6 +29,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
+from . import clichat
+
 # A remote API answers in seconds; a local model on a laptop does not. Measured
 # on gemma4:e2b judging this lab: a single call took ~8s, but under three
 # concurrent requests individual calls reached 80–92s — so the 90s that is
@@ -33,6 +39,12 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 # setting, because the right value is a property of *where the model runs*.
 REMOTE_TIMEOUT = 90
 LOCAL_TIMEOUT = 600
+
+# A CLI backend is a process spawn *and* an agent turn, and the process is what
+# `ragas_eval.JUDGE_LOAD` throttles rather than a rate limit. Local patience for
+# the same reason ollama gets it: the right value is a property of where the
+# model runs.
+CLI_TIMEOUT = 600
 
 
 def _endpoint(settings) -> tuple[str, str, int]:
@@ -62,6 +74,15 @@ def make_chat_model(settings, model: str = '') -> BaseChatModel:
     """
     if settings.provider == 'fake':
         return FakeChat()
+    if settings.provider in clichat.CLIS:
+        # Not an endpoint, so no base url and no key: the credential is the
+        # login this machine already has. See clichat.py for why each flag in
+        # the argv is load-bearing.
+        return clichat.CliChat(
+            cli=settings.provider, model=model or settings.llm_model,
+            effort=clichat.checked_effort(settings.provider,
+                                          settings.cli_effort),
+            timeout=CLI_TIMEOUT)
     base_url, api_key, timeout = _endpoint(settings)
     return init_chat_model(model or settings.llm_model, model_provider='openai',
                            base_url=base_url, api_key=api_key, timeout=timeout)

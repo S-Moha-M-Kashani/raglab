@@ -542,11 +542,25 @@ def note_for(cfg: LabConfig, settings: LabSettings) -> str:
     The backend is named as well as the models, because the same slug is a
     different measurement depending on where it ran: 'fake' means every LLM
     number on the row is meaningless, and local versus remote is the difference
-    between a free row and a paid one."""
+    between a free row and a paid one.
+
+    On a CLI backend the reasoning effort is named too, for exactly that reason:
+    it moves the numbers (the grade probe scored 8 under `low` where the default
+    scored 9), and without it two rows on claude/sonnet at `effort=low` and
+    `effort=max` are labelled identically. `leaderboard.group` would then rank
+    them against each other as a comparable pair, which is this repository's one
+    unbreakable rule broken by a knob. **The row is now self-describing but the
+    grouping is not**: effort is deliberately not a `LabConfig` field and not in
+    the index fingerprint — that is a larger change, and doing it here would put
+    an LLM setting into the config that decides whether an index needs
+    rebuilding. So two efforts still group together; the note is what tells the
+    reader they were two."""
     roles = resolve(cfg, settings)
     used = {role.key: getattr(roles, role.key) for role in ROLES}
     distinct = sorted(set(used.values()))
     where = settings.provider
+    if settings.provider in clichat.CLIS:
+        where = f'{where} (effort={settings.cli_effort})'
     if len(distinct) == 1:
         return f'every LLM stage ran on {distinct[0]} via {where}'
     return (f'models per stage (via {where}): '

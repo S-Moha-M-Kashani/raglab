@@ -2783,6 +2783,26 @@ def test_a_run_records_which_backend_judged_it():
 
 
 # This is a unit test.
+def test_a_cli_run_records_the_effort_because_the_effort_moves_the_numbers():
+    """`RAGLAB_CLI_EFFORT` is a setting precisely because it changes the scores —
+    the grade probe went 9 to 8 under `low` — so two rows on claude/sonnet at
+    `low` and at `max` would otherwise be labelled identically, and
+    `leaderboard.group` would rank them against each other as a comparable pair.
+    Only the CLI backends: for the other three, effort is a field nothing reads,
+    and a note stating a setting the backend ignores describes a run that never
+    happened."""
+    low = replace(LAB_SETTINGS, llm_provider='claude', llm_model='sonnet',
+                  cli_effort='low')
+    hard = replace(low, cli_effort='max')
+    assert 'effort=low' in models.note_for(LabConfig(), low)
+    assert 'effort=max' in models.note_for(LabConfig(), hard)
+    assert models.note_for(LabConfig(), low) != models.note_for(LabConfig(), hard)
+    for other in (LAB_SETTINGS, OLLAMA_SETTINGS,
+                  replace(LAB_SETTINGS, llm_provider='openrouter')):
+        assert 'effort' not in models.note_for(LabConfig(), other)
+
+
+# This is a unit test.
 def test_the_dropdown_offers_the_local_models_when_the_backend_is_local():
     """Two lists, not one: an OpenRouter slug is not something Ollama can load,
     and a local tag is not something OpenRouter serves. One merged dropdown would

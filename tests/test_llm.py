@@ -1,10 +1,12 @@
 """The lab's own chat-model seam, after the move off lodestar_brain."""
+import json
+import subprocess
 from dataclasses import dataclass
 
 import pytest
 from langchain_core.messages import AIMessage
 
-from raglab import llm
+from raglab import clichat, llm
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,32 @@ def test_a_cli_backend_is_built_through_the_same_one_construction_site():
     codex = llm.make_chat_model(Stub(provider='codex',
                                      llm_model='gpt-5.6-terra'))
     assert codex.cli == 'codex'
+
+
+# This is a unit test.
+def test_the_configured_effort_is_the_one_that_reaches_the_argv(monkeypatch):
+    """The entire justification for making effort a setting is that it moves the
+    numbers — the grade probe scored 8 under `low` where the default scored 9 — and
+    nothing pinned it past the factory. `CliChat.effort` defaults to `low` too, so
+    hardcoding `'low'` in `make_chat_model` left the whole suite green while the
+    knob silently stopped working, and every row it labelled would have been
+    measured at a different effort than the one that was asked for. So this follows
+    one non-default value from the settings object to the argv the process is
+    actually spawned with."""
+    calls = []
+
+    def record(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(
+            argv, 0, json.dumps({'is_error': False, 'usage': {},
+                                 'result': '1: 8'}), '')
+
+    monkeypatch.setattr(clichat.subprocess, 'run', record)
+    model = llm.make_chat_model(Stub(provider='claude', llm_model='sonnet',
+                                     cli_effort='xhigh'))
+    assert model.effort == 'xhigh'
+    model.invoke([{'role': 'user', 'content': 'hi'}])
+    assert calls[0][calls[0].index('--effort') + 1] == 'xhigh'
 
 
 # This is a unit test.

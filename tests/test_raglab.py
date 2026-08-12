@@ -2990,10 +2990,12 @@ def test_a_cli_backend_counts_as_a_real_model_and_names_its_own_default():
 
 
 # This is a unit test.
-def test_the_reasoning_effort_is_a_setting_rather_than_an_argv_constant(monkeypatch):
+def test_the_reasoning_effort_is_a_setting_rather_than_an_argv_constant():
     """Effort moves the numbers — the probe's grade scores went 9 to 8 under
     `low` — and a choice that moves numbers must be readable off the config
-    rather than buried in an argv."""
+    rather than buried in an argv. That it is *read* is half the claim; that the
+    value read is the one the process is spawned with is
+    `test_the_configured_effort_is_the_one_that_reaches_the_argv`."""
     assert config.LabSettings().cli_effort == 'low'
     assert config.load_lab_settings({'RAGLAB_CLI_EFFORT': 'high'}).cli_effort \
         == 'high'

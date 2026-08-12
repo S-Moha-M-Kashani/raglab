@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.3.0"
+version = "0.4.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -22,6 +22,14 @@ dependencies = [
   "ragas==0.4.*",
   # RAGAS's offline string-similarity context metrics need it.
   "rapidfuzz",
+  # The two grouping families behind `IndexConfig.hierarchy`: networkx partitions
+  # the chunk graph (Louvain, label propagation) and scikit-learn clusters the
+  # chunk vectors (GMM, Ward, k-means) and scores both partitions. Both are
+  # already in the tree via sentence-transformers, and both are declared anyway
+  # for the reason `langchain` is declared beside `langchain-core`: an import
+  # that works by accident is one dependency resolution away from not.
+  "networkx>=3.0",
+  "scikit-learn>=1.4",
 ]
 
 [project.optional-dependencies]
@@ -32,6 +40,11 @@ semantic = ["fastembed>=0.7"]
 # HuggingFace checkpoints fastembed does not serve. The default embedder needs
 # this — see README's launch line and tests/test_ports.py.
 local-embeddings = ["sentence-transformers>=3.0"]
+# Leiden alone needs compiled wheels; every other grouping runs on networkx and
+# scikit-learn, which are core. Optional so a lab that cannot build them still
+# starts — `hierarchy='leiden'` is then reported NA and refused by validation,
+# never quietly served by Louvain.
+graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
 
 [project.scripts]
 raglab = "raglab.cli.serve:panel"

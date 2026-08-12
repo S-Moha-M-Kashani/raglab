@@ -78,6 +78,15 @@ class Chunk:
     msg_end: int = -1
     prefix: str = ''            # the contextual header, kept separately so
                                 # metrics can measure the body alone
+    # Where this row sits in the index. A leaf is `layer=''`, `level=0`; a row
+    # written by `hierarchy.py` is `layer='summary'` at its level. Both fields
+    # are present on every chunk and empty rather than absent on leaves — a
+    # field only some rows carry turns a `where` clause into a silent partial
+    # scan, which reads as a retrieval bug rather than a schema one.
+    layer: str = ''
+    level: int = 0
+    group_id: str = ''
+    member_ids: tuple[str, ...] = ()
 
     def metadata(self) -> dict:
         """Flat and filterable. Lists become space-joined strings: the store can
@@ -93,6 +102,11 @@ class Chunk:
             'topics': ' '.join(self.topics), 'threads': ' '.join(self.threads),
             'msg_start': self.msg_start, 'msg_end': self.msg_end,
             'chars': len(self.text),
+            # Space-joined for the reason topics and threads are: the store
+            # filters on scalars only, and a JSON blob here would not be
+            # filterable either.
+            'layer': self.layer, 'level': self.level,
+            'group_id': self.group_id, 'member_ids': ' '.join(self.member_ids),
         }
 
     @property

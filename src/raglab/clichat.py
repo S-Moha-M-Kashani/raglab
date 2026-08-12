@@ -148,10 +148,26 @@ def _codex_argv(model: str, effort: str, instructions: str) -> list[str]:
 
 
 def _read_claude(stdout: str) -> tuple[str, dict]:
+    """The envelope's `result`, byte-exact, or a refusal saying why not.
+
+    `stop_reason` is read for one value only. A reply cut off at the output limit
+    parses exactly like a complete one — a grade list of eight that stops at four
+    leaves `llm_scores` reading the four it never reached as *no opinion* and
+    scoring them 0.5, which clears the gate's 0.4 threshold. That is the
+    empty-reply rule with the reply half-arrived, so it gets the same answer.
+    Only `max_tokens` is refused, rather than everything that is not `end_turn`:
+    this guard, like `provider_problems`, refuses what it has verified and not
+    what it fails to recognise, and a stop reason a later version ships is not a
+    truncation.
+    """
     envelope = json.loads(stdout)
     if envelope.get('is_error'):
         raise CliError(f'claude reported an error: '
                        f'{envelope.get("result") or envelope}')
+    if envelope.get('stop_reason') == 'max_tokens':
+        raise CliError('claude stopped at its output limit, so the reply is a '
+                       'fragment — and a fragment of a grade list scores every '
+                       'document it never reached 0.5, which clears the gate')
     spent = envelope.get('usage') or {}
     return envelope.get('result') or '', spent
 

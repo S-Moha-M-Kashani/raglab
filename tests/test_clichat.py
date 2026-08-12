@@ -247,6 +247,34 @@ def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(mon
     message, _ = reply(monkeypatch, 'claude', stdout=prose)
     assert message.content == 'scores:\n```\n1: 8\n```\nand that is all'
 
+    # A reply that opens and closes with a fence but holds one *inside* is not
+    # one fenced block, however much it looks like one to an anchored regex —
+    # unwrapping it would hand the stage a stray fence line in the middle of the
+    # scores and leave nothing on the row saying the text had been edited.
+    nested = json.dumps({'is_error': False, 'usage': {},
+                         'result': '```\n1: 8\n```\nand\n```\n2: 0\n```'})
+    message, _ = reply(monkeypatch, 'claude', stdout=nested)
+    assert message.content == '```\n1: 8\n```\nand\n```\n2: 0\n```'
+
+
+# This is a unit test.
+def test_a_reply_cut_off_at_the_output_limit_is_refused_not_scored(monkeypatch):
+    """A truncated reply parses exactly like a complete one, and a grade list of
+    eight that stops at four leaves `llm_scores` reading the four it never
+    reached as "no opinion" and scoring them 0.5 — which clears the gate's 0.4
+    threshold. Same argument as the empty reply, with the reply half-arrived.
+    Only `max_tokens` is refused: a stop reason a later version ships is not a
+    truncation, and this guard refuses what it has verified."""
+    cut = json.dumps({'is_error': False, 'stop_reason': 'max_tokens',
+                      'usage': {'input_tokens': 369, 'output_tokens': 4},
+                      'result': '1: 8\n2: 0'})
+    with pytest.raises(clichat.CliError, match='output limit'):
+        reply(monkeypatch, 'claude', stdout=cut)
+    # And the ordinary end is still ordinary — CLAUDE_ENVELOPE carries
+    # stop_reason='end_turn', which every other test here relies on.
+    message, _ = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
+    assert message.content == '1: 8\n2: 0\n3: 8'
+
 
 # This is a unit test.
 def test_an_empty_reply_raises_instead_of_reaching_a_tolerant_parser(monkeypatch):

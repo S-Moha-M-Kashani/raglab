@@ -330,8 +330,14 @@ def verdict_line(model: str, result: dict) -> str:
 def screen(models: list[str], pairs: int = 6) -> dict:
     settings = load_lab_settings()
     if not settings.llm_ready:
-        sys.exit('no LLM backend to screen: set RAGLAB_LLM=ollama, or '
-                 'OPENROUTER_API_KEY for a remote candidate')
+        # All four, for the reason the panel's hint names all four: a reader takes
+        # a partial list for the whole set, and the two CLI backends are both the
+        # newest and the only ones that cost no key.
+        sys.exit('no LLM backend to screen: RAGLAB_LLM=claude and '
+                 'RAGLAB_LLM=codex run a CLI already installed and logged in on '
+                 'this machine and need no key at all; RAGLAB_LLM=ollama runs a '
+                 'model on it; RAGLAB_LLM=openrouter needs OPENROUTER_API_KEY '
+                 'for a remote candidate')
     diary = corpus.load_diary()
     sessions = corpus.sessions_by_id(diary)
     items = build_items(corpus.load_ground_truth(), sessions, pairs)

@@ -27,6 +27,7 @@ present, and never guessed when it is not.
 """
 from dataclasses import dataclass, fields
 
+from . import clichat
 from .config import LabConfig, LabSettings, settings_for_provider
 
 SOURCES = ('default', 'open', 'closed', 'unknown')
@@ -94,6 +95,47 @@ OLLAMA_MODELS = (
     ModelOption('llama3.1:8b', 'Llama 3.1 8B', 'open',
                 note='read the Farsi but was a constant predictor as a judge — '
                      'usable to answer, never to grade'),
+)
+
+# Reached by running the CLI already installed and logged in on this machine
+# (clichat.py), so a third and fourth list — an OpenRouter slug is not a thing
+# `claude --model` accepts, and an alias is not a thing OpenRouter serves.
+# Deliberately three entries: the answerer, the judge that must not be the
+# answerer, and the speed candidate. `fable` is reachable through RAGLAB_MODEL
+# and is not offered, because nothing here has measured it.
+#
+# **None of these is `verified`**, and that is not a claim that nothing was
+# measured — `sonnet` and `gpt-5.6-terra` both answered here. `verified` makes an
+# option available *unconditionally* (`ModelOption.as_dict` returns
+# `verified or id in live`), which is the right escape hatch when availability
+# cannot be checked. Here it can: the binary either exists or it does not. A
+# verified option would show as usable on a machine with no `claude` installed,
+# while `provider_problems` refused the run — the panel offering what the lab
+# refuses. The measurement lives in the note instead.
+CLAUDE_MODELS = (
+    ModelOption('sonnet', 'Claude Sonnet (CLI)', 'closed',
+                note='what this backend was measured on, all at effort=low: '
+                     '3.9s per call on a short grade probe, 5.6s on the lab\'s '
+                     'real grade prompt, and ~7.4s per call-slot across a '
+                     'judged run — a longer prompt costs more, so the probe '
+                     'figure is the floor rather than the price'),
+    ModelOption('opus', 'Claude Opus (CLI)', 'closed',
+                note='the sweep\'s judge under this backend — a model grading '
+                     'its own output is not evidence, so the answerer stays '
+                     'sonnet'),
+    ModelOption('haiku', 'Claude Haiku (CLI)', 'closed',
+                note='the speed candidate: the judge is ~420 calls per run, '
+                     'and each one here is a process spawn as well as a turn'),
+)
+
+# One entry, and honestly so: the codex CLI publishes no model list to verify
+# against, and this is the alias that has actually answered here. RAGLAB_MODEL
+# names another, and `catalogue` offers whatever it names.
+CODEX_MODELS = (
+    ModelOption('gpt-5.6-terra', 'GPT-5.6 Terra (Codex CLI)', 'closed',
+                note='8.2s per call at effort=low, and every call carries '
+                     'codex\'s own ~18.5k-token agent preamble, which no flag '
+                     'removes'),
 )
 
 
@@ -256,16 +298,42 @@ def ollama_ids(settings: LabSettings) -> frozenset:
     return ids
 
 
+def cli_ids(settings: LabSettings) -> frozenset:
+    """Aliases the configured CLI backend can be asked for, or an empty set.
+
+    For a CLI the checkable fact is the *binary*: there is no `/api/tags` to
+    ask, and an alias cannot be verified without paying for a call. So with the
+    command present its catalogue is offerable — plus whatever RAGLAB_MODEL
+    named, which is by definition a model the user wants — and with the command
+    absent nothing is, which is what makes the catalogue say NA instead of
+    claiming an alias on a machine that cannot run any of them.
+    """
+    if settings.provider not in clichat.CLIS:
+        return frozenset()
+    if not clichat.cli_available(settings.provider):
+        return frozenset()
+    return frozenset({option.id for option in known_models(settings)}
+                     | {settings.llm_model})
+
+
 def served_ids(settings: LabSettings) -> frozenset:
     """Whatever the active backend is serving right now."""
-    return (ollama_ids(settings) if settings.provider == 'ollama'
-            else openrouter_ids(settings))
+    if settings.provider == 'ollama':
+        return ollama_ids(settings)
+    if settings.provider in clichat.CLIS:
+        return cli_ids(settings)
+    return openrouter_ids(settings)
+
+
+# The candidate list per backend, because a slug only means something to the
+# backend that serves it. Four lists now, and a dropdown that mixed them would
+# offer most users a menu that mostly cannot work.
+_CATALOGUES = {'ollama': OLLAMA_MODELS, 'claude': CLAUDE_MODELS,
+               'codex': CODEX_MODELS}
 
 
 def known_models(settings: LabSettings) -> tuple[ModelOption, ...]:
-    """The candidate list for the active backend. Two lists, because a slug only
-    means something to the provider that serves it."""
-    return OLLAMA_MODELS if settings.provider == 'ollama' else CHAT_MODELS
+    return _CATALOGUES.get(settings.provider, CHAT_MODELS)
 
 
 def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:
@@ -276,15 +344,31 @@ def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:
     was actually scored by gpt-5-mini is the single worst artefact this lab can
     produce, and no field on the row would contradict it.
 
-    Only refuses what it has *verified* is absent. With the daemon unreachable
-    `served_ids` is empty and nothing is claimed, because "cannot check" and
-    "not there" are different facts.
+    Two refusals, and one rule joining them: **this guard only ever refuses what
+    it has verified absent**, so what it checks is whatever the backend can be
+    asked. For `ollama` that is the model — `/api/tags` answers with the tags it
+    serves, and an unreachable daemon claims *nothing*, because "cannot check"
+    and "not there" are different facts. For a CLI there is no `/api/tags` and an
+    alias cannot be checked without paying for a call, so the verifiable fact is
+    the **binary**: a missing command is refused and an unknown alias is not, the
+    CLI naming an alias it cannot serve better at call time than anything guessed
+    here.
 
-    And only for the local backend. OpenRouter's list is authoritative in one
+    `openrouter` is therefore refused nothing. Its list is authoritative in one
     direction only: everything on it works, but a slug missing from it may still
     be perfectly valid — the routing suffixes (`:free`, `:floor`) do not appear as
     ids. Refusing on that basis would block runs that used to work, which is a
     worse failure than the one this guard prevents."""
+    if settings.provider in clichat.CLIS:
+        # One check, and it is the one that can be made. An alias is *not*
+        # refused here: nothing verified it absent, and this guard only ever
+        # refuses what it has verified — the CLI names an alias it cannot serve
+        # itself, at call time, better than anything guessed here could.
+        if clichat.cli_available(settings.provider):
+            return []
+        return [f'{settings.provider} is the chosen backend but its command is '
+                f'not installed on this machine — install it, or pick a backend '
+                f'that is here']
     if settings.provider != 'ollama':
         return []
     served = served_ids(settings)
@@ -307,13 +391,21 @@ def catalogue(settings: LabSettings) -> list[dict]:
         # An id set by RAGLAB_MODEL is by definition one the user wants, so it is
         # offered even though nothing is known about its weights.
         #
-        # `verified=not live` is the honest reading of the two cases: with a
-        # served list in hand, membership of that list decides — including for
-        # the user's own pick, which is exactly the case provider_problems will
-        # refuse a run over. With no list, nothing can be checked, so the user's
-        # choice is taken at face value rather than shown as NA.
+        # `verified` makes an option available *unconditionally*, which is the
+        # right escape hatch when availability cannot be checked and the wrong one
+        # when it can. Three cases, not two. With a served list in hand,
+        # membership of that list decides — including for the user's own pick,
+        # which is exactly the case provider_problems will refuse a run over. With
+        # no list on an HTTP backend, nothing could be *asked* — a daemon that did
+        # not answer — so the user's choice is taken at face value rather than
+        # shown as NA. With no list on a CLI backend the emptiness is a *checked*
+        # fact: `cli_available` read the filesystem and the command is not there,
+        # so every alias is NA and this one has to be too. Otherwise the panel
+        # offers the one model the lab refuses to run, which is the fault
+        # CLAUDE_MODELS' own comment argues against.
+        verified = not live and settings.provider not in clichat.CLIS
         known.insert(0, ModelOption(settings.llm_model, settings.llm_model,
-                                    'unknown', verified=not live,
+                                    'unknown', verified=verified,
                                     note='named by RAGLAB_MODEL'))
     entries = [option.as_dict(live) for option in known]
     # Usable models first; NA sinks to the bottom without leaving the list.
@@ -346,11 +438,30 @@ MODES = (
                       'reranker, relevance gate, answerer and both judges — '
                       'while the embedder stays the local Persian-tuned '
                       'encoder, the measured winner'),
+    ProviderMode('claude', 'Claude (CLI)', 'claude',
+                 note='the full LLM pipeline on the Claude Code CLI already '
+                      'logged in on this machine, so no API key is needed at '
+                      'all — HyDE, LLM reranker, relevance gate, answerer and '
+                      'both judges. At effort=low a call cost 3.9s on a short '
+                      'probe and 5.6–7.4s on the prompts the lab actually '
+                      'sends, and the calls bill your Claude account rather '
+                      'than nothing'),
+    ProviderMode('codex', 'Codex (CLI)', 'codex',
+                 note='the same full pipeline on the Codex CLI. ~8.2s per call '
+                      'at effort=low, and every call carries codex\'s own '
+                      '~18.5k-token agent preamble, which no flag removes'),
 )
 
 # What the openrouter mode runs every stage on: the model every grade in
 # .runs/ so far was measured on (see CHAT_MODELS).
 MODE_MODEL = 'openai/gpt-5-nano'
+
+# And what each of the other LLM-pipeline modes runs on. Keyed by mode, not by
+# provider, so the table that says "this mode presets that model" is one table.
+# `local` is absent on purpose: it presets the lab's own defaults, which is a
+# reset rather than a model choice.
+MODE_MODELS = {'openrouter': MODE_MODEL, 'claude': 'sonnet',
+               'codex': 'gpt-5.6-terra'}
 
 # Preferred relevance-gate models, in order. A purpose-built reranker (query +
 # text → relevance score) beats a prompted chat model at exactly this job — but
@@ -365,9 +476,11 @@ GATE_MODELS = ('cohere/rerank-4-fast', 'cohere/rerank-4-pro')
 
 # The fields a mode presets — and only these. Index is deliberately absent:
 # heydariAI/persian-embeddings is the measured winner regardless of where the
-# chat models run. Both modes patch the same fields, read off this one table,
-# so switching back is a full reset rather than a remote model leaking into a
-# local run's label.
+# chat models run. **Every** mode patches exactly these fields, read off this one
+# table — the three in MODE_MODELS by naming their own model at each stage, and
+# `local` by writing the lab's own defaults back into the same set — so switching
+# back is a full reset rather than a remote model leaking into a local run's
+# label. `mode_config`'s closing assertion is what holds the two paths to it.
 _MODE_FIELDS = {
     'retrieval': ('hyde', 'expansion_model', 'reranker', 'reranker_model',
                   'grader', 'grader_model', 'grade_threshold'),
@@ -393,19 +506,26 @@ def mode_config(key: str, settings: LabSettings) -> dict:
     if key not in {mode.key for mode in MODES}:
         raise ValueError(f'unknown mode {key!r}; expected one of '
                          + ', '.join(repr(mode.key) for mode in MODES))
-    if key == 'openrouter':
+    if key in MODE_MODELS:
+        model = MODE_MODELS[key]
         patch = {
             'retrieval': {
-                'hyde': True, 'expansion_model': MODE_MODEL,
-                'reranker': 'llm', 'reranker_model': MODE_MODEL,
-                'grader': 'llm', 'grader_model': gate_model(settings),
+                'hyde': True, 'expansion_model': model,
+                'reranker': 'llm', 'reranker_model': model,
+                'grader': 'llm',
+                # A purpose-built reranker beats a prompted chat model at the
+                # gate, but that chain resolves against OpenRouter's own
+                # catalogue — a slug from it means nothing to a CLI, so only
+                # that mode consults it.
+                'grader_model': (gate_model(settings) if key == 'openrouter'
+                                 else model),
                 # The measured setting: an LLM gate at 0.4 refused all five
                 # unanswerable questions with 3% false refusals.
                 'grade_threshold': 0.4},
             'generation': {
-                'answerer': 'llm', 'model': MODE_MODEL,
-                'key_facts_judge': True, 'judge_model': MODE_MODEL,
-                'ragas_model': MODE_MODEL},
+                'answerer': 'llm', 'model': model,
+                'key_facts_judge': True, 'judge_model': model,
+                'ragas_model': model},
         }
     else:
         defaults = LabConfig().to_dict()
@@ -435,11 +555,25 @@ def note_for(cfg: LabConfig, settings: LabSettings) -> str:
     The backend is named as well as the models, because the same slug is a
     different measurement depending on where it ran: 'fake' means every LLM
     number on the row is meaningless, and local versus remote is the difference
-    between a free row and a paid one."""
+    between a free row and a paid one.
+
+    On a CLI backend the reasoning effort is named too, for exactly that reason:
+    it moves the numbers (the grade probe scored 8 under `low` where the default
+    scored 9), and without it two rows on claude/sonnet at `effort=low` and
+    `effort=max` are labelled identically. `leaderboard.group` would then rank
+    them against each other as a comparable pair, which is this repository's one
+    unbreakable rule broken by a knob. **The row is now self-describing but the
+    grouping is not**: effort is deliberately not a `LabConfig` field and not in
+    the index fingerprint — that is a larger change, and doing it here would put
+    an LLM setting into the config that decides whether an index needs
+    rebuilding. So two efforts still group together; the note is what tells the
+    reader they were two."""
     roles = resolve(cfg, settings)
     used = {role.key: getattr(roles, role.key) for role in ROLES}
     distinct = sorted(set(used.values()))
     where = settings.provider
+    if settings.provider in clichat.CLIS:
+        where = f'{where} (effort={settings.cli_effort})'
     if len(distinct) == 1:
         return f'every LLM stage ran on {distinct[0]} via {where}'
     return (f'models per stage (via {where}): '

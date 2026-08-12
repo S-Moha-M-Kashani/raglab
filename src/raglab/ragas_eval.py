@@ -74,8 +74,16 @@ DECISION_METRICS = ('faithfulness', 'answer_relevancy',
 # metrics — the other three were `Exception raised in Job[20]: TimeoutError()`.
 # Concurrency and timeout cannot change *what* a judge scores, only whether the
 # score arrives, which is why these are tuned per backend and not per candidate.
+#
+# A CLI backend is throttled for a different reason than a local daemon: each
+# call is a whole process rather than a socket, so sixteen concurrent judge
+# calls is a machine that stops responding rather than a queue behind one model.
+# Same numbers, different bottleneck — and either way, concurrency and timeout
+# change only whether a score arrives, never what it is.
 JUDGE_LOAD = {'openrouter': {'max_workers': 16, 'timeout': 180},
               'ollama': {'max_workers': 3, 'timeout': 600},
+              'claude': {'max_workers': 3, 'timeout': 600},
+              'codex': {'max_workers': 3, 'timeout': 600},
               'fake': {'max_workers': 16, 'timeout': 60}}
 
 

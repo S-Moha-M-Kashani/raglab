@@ -6,6 +6,7 @@ the real one-year fixture rather than a toy corpus, because the properties worth
 asserting — that a Farsi question finds its evidence session, that the current
 production embedder finds nothing at all — only exist at that scale.
 """
+import ast
 import json
 import os
 import re
@@ -23,9 +24,9 @@ import pytest
 from raglab import textnorm
 
 import raglab
-from raglab import (baseline, chunking, config, corpus, embedding, evaluate,
-                    explain, leaderboard, metrics, models, pipeline, query,
-                    ragas_eval, retrieval, store, sweep)
+from raglab import (baseline, chunking, clichat, config, corpus, embedding,
+                    evaluate, explain, leaderboard, metrics, models, pipeline,
+                    query, ragas_eval, retrieval, store, sweep)
 from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
                             LabConfig, LabSettings, RetrievalConfig)
 from raglab.index import IndexRegistry, LabIndex
@@ -504,6 +505,34 @@ def test_aggregate_reports_per_type_and_a_headline():
     assert summary['n_questions'] == 2
     assert summary['by_type']['single-hop']['recall'] == 1.0
     assert 0 < summary['overall']['headline'] <= 1.0
+
+
+# This is a unit test.
+def test_an_answerer_that_could_not_be_reached_says_so_on_the_row(ground_truth):
+    """`pipeline._llm_answer` catches everything the model raises and returns the
+    canonical refusal, so a CliError, a 600s timeout and an unreachable daemon all
+    look exactly like "the diary is silent about that". RAGAS then judges that
+    refusal and reports low, confident faithfulness and answer relevancy — with no
+    field anywhere saying the model was never asked. `GradeUnavailable` refuses
+    loudly one stage earlier; this is the same distinction n_summaries and
+    n_expanded exist to make, and it belongs on the row because it is per
+    question: three of thirty timing out is a different fault from thirty."""
+    class Unreachable:
+        def invoke(self, messages, **kwargs):
+            raise clichat.CliError('claude did not answer within 600s')
+
+    question = next(q for q in ground_truth['questions'] if q['answerable'])
+    outcome = pipeline.Outcome(question=question['question_fa'], contexts=[])
+    outcome.answer = pipeline._llm_answer(outcome, Unreachable(), 'sonnet')
+    row = metrics.score_question(question, outcome, k=5)
+    assert row['answer'] == pipeline.REFUSAL
+    assert 'did not answer' in row['answer_error']
+
+    # And a run where the model did answer carries no such field, so its presence
+    # means one thing.
+    answered = pipeline.Outcome(question=question['question_fa'], contexts=[],
+                                answer='یک جواب')
+    assert 'answer_error' not in metrics.score_question(question, answered, k=5)
 
 
 # --- the ephemeral vector store --------------------------------------------
@@ -2756,12 +2785,50 @@ def test_the_judge_is_pushed_far_less_hard_when_it_runs_locally():
 
 
 # This is a unit test.
+def test_a_judged_run_is_throttled_by_process_count_not_by_a_rate_limit():
+    """RAGAS defaults to 16 concurrent calls, which against a laptop model cost
+    a run three of its four deciding metrics to TimeoutError. A CLI backend has
+    the same problem for a different reason: each call is a whole process, so
+    sixteen of them is a machine that stops responding. Concurrency and timeout
+    can only change whether a score arrives, never what it is."""
+    for provider in ('claude', 'codex'):
+        load = ragas_eval.judge_load(config.LabSettings(llm_provider=provider))
+        assert load['max_workers'] == 3
+        assert load['timeout'] >= 600
+    # Every backend a run can use has an answer here; the fallback exists for
+    # an unknown one, not as the row for a known one.
+    for provider in config.LLM_PROVIDERS:
+        if provider:
+            assert provider in ragas_eval.JUDGE_LOAD, provider
+
+
+# This is a unit test.
 def test_a_run_records_which_backend_judged_it():
     """A decision score is comparable only within one judge, and the model slug
     alone does not say whether it ran locally or was paid for."""
     note = models.note_for(LabConfig(), OLLAMA_SETTINGS)
     assert 'ollama' in note
     assert 'fake' in models.note_for(LabConfig(), LAB_SETTINGS)
+
+
+# This is a unit test.
+def test_a_cli_run_records_the_effort_because_the_effort_moves_the_numbers():
+    """`RAGLAB_CLI_EFFORT` is a setting precisely because it changes the scores —
+    the grade probe went 9 to 8 under `low` — so two rows on claude/sonnet at
+    `low` and at `max` would otherwise be labelled identically, and
+    `leaderboard.group` would rank them against each other as a comparable pair.
+    Only the CLI backends: for the other three, effort is a field nothing reads,
+    and a note stating a setting the backend ignores describes a run that never
+    happened."""
+    low = replace(LAB_SETTINGS, llm_provider='claude', llm_model='sonnet',
+                  cli_effort='low')
+    hard = replace(low, cli_effort='max')
+    assert 'effort=low' in models.note_for(LabConfig(), low)
+    assert 'effort=max' in models.note_for(LabConfig(), hard)
+    assert models.note_for(LabConfig(), low) != models.note_for(LabConfig(), hard)
+    for other in (LAB_SETTINGS, OLLAMA_SETTINGS,
+                  replace(LAB_SETTINGS, llm_provider='openrouter')):
+        assert 'effort' not in models.note_for(LabConfig(), other)
 
 
 # This is a unit test.
@@ -2869,8 +2936,7 @@ def test_each_provider_names_its_own_pairing_and_never_crosses_them():
     exists to stop, and a default must not be the thing that trips it."""
     for provider, pair in sweep.PAIRINGS.items():
         assert pair['answerer'] != pair['judge'], provider
-        served = (models.OLLAMA_MODELS if provider == 'ollama'
-                  else models.CHAT_MODELS)
+        served = models.known_models(config.LabSettings(llm_provider=provider))
         slugs = {m.id for m in served}
         assert pair['answerer'] in slugs, (provider, pair)
         assert pair['judge'] in slugs, (provider, pair)
@@ -2896,11 +2962,43 @@ def test_an_explicit_model_is_never_replaced_by_the_provider_default():
 
 
 # This is a unit test.
-def test_every_provider_has_a_default_model_it_can_actually_serve():
+def test_every_provider_has_a_default_model_its_own_catalogue_offers():
+    """A slug only means something to the backend that serves it, so each
+    backend's default has to appear in that backend's own list. Four lists now,
+    for the same reason there were two."""
     for provider, model in config.PROVIDER_MODELS.items():
-        served = (models.OLLAMA_MODELS if provider == 'ollama'
-                  else models.CHAT_MODELS)
+        served = models.known_models(
+            config.LabSettings(llm_provider=provider, llm_model=model))
         assert model in {m.id for m in served}, (provider, model)
+
+
+# This is a unit test.
+def test_a_cli_backend_counts_as_a_real_model_and_names_its_own_default():
+    """`llm_ready` asks whether the numbers a run produces mean anything, and a
+    CLI reaches a real model — so these may produce leaderboard rows, and both
+    entry points that refuse an unbacked run let them through. The default model
+    follows the backend for the reason it always has: a remote slug left
+    standing under a CLI is a default that cannot run."""
+    for provider, expected in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+        settings = config.LabSettings(llm_provider=provider)
+        assert settings.llm_ready is True
+        assert settings.llm_model == expected
+    # And switching backends does not carry the old backend's default across.
+    remote = config.LabSettings(llm_provider='openrouter')
+    assert (config.settings_for_provider(remote, 'claude').llm_model
+            == 'sonnet')
+
+
+# This is a unit test.
+def test_the_reasoning_effort_is_a_setting_rather_than_an_argv_constant():
+    """Effort moves the numbers — the probe's grade scores went 9 to 8 under
+    `low` — and a choice that moves numbers must be readable off the config
+    rather than buried in an argv. That it is *read* is half the claim; that the
+    value read is the one the process is spawned with is
+    `test_the_configured_effort_is_the_one_that_reaches_the_argv`."""
+    assert config.LabSettings().cli_effort == 'low'
+    assert config.load_lab_settings({'RAGLAB_CLI_EFFORT': 'high'}).cli_effort \
+        == 'high'
 
 
 # This is a unit test.
@@ -2913,6 +3011,43 @@ def test_the_local_pairing_is_the_one_that_was_screened():
 
 
 # This is a unit test.
+def test_the_sweep_refuses_a_backend_it_has_no_screened_pair_for(monkeypatch):
+    """The pins used to fall back to the OpenRouter slugs for any unknown
+    backend, which under a CLI backend hands `openai/gpt-5-nano` to a command
+    that has never heard of it — a run that dies, or worse, one labelled with a
+    model that could not have produced it. Codex has one verified alias here, so
+    there is no honest answerer/judge pair and the sweep says so.
+
+    Both pins empty is the state codex actually reaches, and it is also the only
+    one that pins the *order* of the two refusals: `'' == ''` is true, so a
+    self-grading check placed first would report the wrong fault — a model
+    grading itself, when what is missing is any pair at all."""
+    monkeypatch.setattr(sweep, '_PROVIDER', 'codex')
+    monkeypatch.setattr(sweep, 'ANSWER_MODEL', '')
+    monkeypatch.setattr(sweep, 'JUDGE_MODEL', '')
+    monkeypatch.setenv('RAGLAB_LLM', 'codex')
+    with pytest.raises(SystemExit) as refused:
+        sweep.judged_settings()
+    said = str(refused.value)
+    assert 'no answerer/judge pair' in said
+    assert 'RAGLAB_SWEEP_ANSWER_MODEL' in said and 'RAGLAB_SWEEP_JUDGE_MODEL' in said
+    # The equality branch's own wording must not be what came back: with both
+    # pins empty it would fire first under the wrong order and name the wrong
+    # fault.
+    assert 'are both' not in said
+
+
+# This is a unit test.
+def test_the_claude_pairing_never_lets_the_answerer_grade_itself():
+    """Every pairing here has to survive judged_settings' own check, because a
+    model grading its own output is not evidence and these four metrics are the
+    whole basis of the ranking."""
+    for provider, pair in sweep.PAIRINGS.items():
+        assert pair['answerer'] != pair['judge'], provider
+    assert sweep.PAIRINGS['claude'] == {'answerer': 'sonnet', 'judge': 'opus'}
+
+
+# This is a unit test.
 def test_the_sweep_refuses_a_judge_that_grades_its_own_answers(monkeypatch,
                                                               tmp_path):
     monkeypatch.setattr(sweep, 'ANSWER_MODEL', 'gemma4:e2b')
@@ -2921,6 +3056,27 @@ def test_the_sweep_refuses_a_judge_that_grades_its_own_answers(monkeypatch,
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     with pytest.raises(SystemExit, match='own output'):
         sweep.judged_settings()
+
+
+# This is a unit test.
+def test_the_answering_phase_is_capped_where_the_judging_phase_is():
+    """`--workers` defaults to 6 and every LLM call on a CLI backend is a whole
+    process — so the answering phase ran twice as many of them as the judge is
+    allowed, on the same laptop, unmeasured. JUDGE_LOAD's cap of three was argued
+    from what this machine does with more than three of these processes, which is
+    a fact about the machine rather than about which phase is running, so both
+    phases read it off that one table instead of a second number invented to
+    disagree with it."""
+    cli = replace(LAB_SETTINGS, llm_provider='claude')
+    cap = ragas_eval.JUDGE_LOAD['claude']['max_workers']
+    assert sweep.capped_workers(6, cli) == cap
+    # A lower figure is a deliberate choice about someone's machine; the cap
+    # exists to stop an unmeasured default, not to overrule a measured one.
+    assert sweep.capped_workers(1, cli) == 1
+    # And it changes nothing where a call is a socket rather than a process.
+    for provider in ('openrouter', 'ollama', 'fake'):
+        settings = replace(LAB_SETTINGS, llm_provider=provider)
+        assert sweep.capped_workers(6, settings) == 6, provider
 
 
 # This is a unit test.
@@ -4105,15 +4261,102 @@ def test_a_query_whose_gate_cannot_reach_its_model_says_so(client, monkeypatch):
 
 
 # This is a unit test.
-def test_the_lab_offers_a_local_and_an_openrouter_mode():
+def test_the_lab_offers_a_backend_for_every_place_a_model_can_run():
     # Local first: it is the lab default, and an option list leads with its
     # default here (see test_every_option_list_leads_with_the_default).
-    assert [mode.key for mode in models.MODES] == ['local', 'openrouter']
+    assert [mode.key for mode in models.MODES] == ['local', 'openrouter',
+                                                   'claude', 'codex']
     by_key = {mode.key: mode for mode in models.MODES}
     assert by_key['local'].provider == 'ollama'
     assert by_key['openrouter'].provider == 'openrouter'
+    # A CLI mode's key *is* its provider: there is one way to run each of them.
+    assert by_key['claude'].provider == 'claude'
+    assert by_key['codex'].provider == 'codex'
     # A mode explains itself like every other control on the page.
     assert all(mode.label and mode.note for mode in models.MODES)
+
+
+# This is a unit test.
+def test_a_cli_mode_presets_the_full_pipeline_on_its_own_alias():
+    """The same preset the openrouter mode applies, because the point of a
+    strong backend is the candidate that needs one: HyDE, LLM reranker, the gate
+    at the measured 0.4, answerer and both judges. The index is deliberately
+    untouched — heydariAI/persian-embeddings is the measured winner wherever the
+    chat models run."""
+    for key, alias in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+        patch = models.mode_config(key, LAB_SETTINGS)
+        ret, gen = patch['retrieval'], patch['generation']
+        assert ret['hyde'] is True and ret['expansion_model'] == alias
+        assert ret['reranker'] == 'llm' and ret['reranker_model'] == alias
+        assert ret['grader'] == 'llm' and ret['grade_threshold'] == 0.4
+        # No cohere rerank slug here: gate_model resolves against OpenRouter's
+        # catalogue, and a slug from it means nothing to a CLI.
+        assert ret['grader_model'] == alias
+        assert gen['answerer'] == 'llm' and gen['model'] == alias
+        assert gen['key_facts_judge'] is True
+        assert gen['judge_model'] == alias and gen['ragas_model'] == alias
+        assert 'index' not in patch
+
+
+# This is a unit test.
+def test_a_cli_catalogue_reports_availability_from_the_binary(monkeypatch):
+    """There is no /api/tags to ask a CLI, and an alias cannot be checked
+    without paying for a call — so the fact this lab verifies is the one it can.
+    With the command installed its aliases are offerable; with it absent the
+    catalogue says NA rather than claiming them."""
+    monkeypatch.setattr(clichat.shutil, 'which',
+                        lambda name: '/usr/bin/claude' if name == 'claude' else None)
+    settings = config.LabSettings(llm_provider='claude')
+    entries = {e['id']: e for e in models.catalogue(settings)}
+    assert entries['sonnet']['available'] is True
+    assert entries['opus']['available'] is True
+    gone = config.LabSettings(llm_provider='codex')
+    assert all(not e['available'] for e in models.catalogue(gone)
+               if e['source'] != 'default')
+
+
+# This is a unit test.
+def test_a_cli_with_no_command_offers_nothing_not_even_the_users_own_pick(monkeypatch):
+    """`verified` makes an option available unconditionally — the escape hatch for
+    a backend whose availability cannot be checked. A CLI's can be: the command is
+    on this machine or it is not, and `cli_available` reads the filesystem to find
+    out. So an empty served list means two different things by backend, and read as
+    "cannot check" it made a model named by RAGLAB_MODEL show as usable while every
+    catalogue alias showed NA and `provider_problems` refused the run — the panel
+    offering the one thing the lab refuses."""
+    settings = config.LabSettings(llm_provider='claude',
+                                  llm_model='some-unpublished-alias')
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: None)
+    offered = [e for e in models.catalogue(settings) if e['source'] != 'default']
+    assert offered and not any(e['available'] for e in offered)
+    # With the command there, the user's own pick is offered again — nothing here
+    # claims to know whether that alias exists, only that the backend does.
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: '/usr/bin/claude')
+    back = {e['id']: e for e in models.catalogue(settings)}
+    assert back['some-unpublished-alias']['available'] is True
+    # And the HTTP backends keep the old reading: an unanswered daemon checked
+    # nothing, so the user's choice stands rather than being shown as NA.
+    monkeypatch.setattr(models, 'ollama_ids', lambda settings: frozenset())
+    local = config.LabSettings(llm_provider='ollama', llm_model='some-tag')
+    assert {e['id']: e for e in models.catalogue(local)}['some-tag']['available']
+
+
+# This is a unit test.
+def test_a_backend_whose_command_is_absent_stops_the_run_naming_it(monkeypatch):
+    """The embedder rule applied to a backend: refuse rather than measure
+    something other than what the row will claim. And only the *binary* is
+    refused — nothing here verified an alias absent, and "cannot check" and "not
+    there" are different facts, which is why an unknown alias is left for the
+    CLI's own error at call time."""
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: None)
+    settings = config.LabSettings(llm_provider='claude')
+    problems = models.provider_problems(LabConfig(), settings)
+    assert len(problems) == 1 and 'claude' in problems[0]
+    assert 'not installed' in problems[0]
+
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: '/usr/bin/claude')
+    cfg = LabConfig(generation=GenerationConfig(model='some-unpublished-alias'))
+    assert models.provider_problems(cfg, settings) == []
 
 
 # This is a unit test.
@@ -4201,7 +4444,7 @@ def test_a_provider_override_rebuilds_the_settings_it_names():
 def test_options_serves_the_provider_modes(client):
     body = client.get('/api/options').json()
     modes = {mode['key']: mode for mode in body['modes']}
-    assert set(modes) == {'local', 'openrouter'}
+    assert set(modes) == {'local', 'openrouter', 'claude', 'codex'}
     assert modes['openrouter']['provider'] == 'openrouter'
     served = modes['openrouter']['config']
     assert served['generation']['model'] == 'openai/gpt-5-nano'
@@ -4829,3 +5072,43 @@ def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
             f'{fallback!r}, and the panel has no control for it — so a run '
             f'labelled "the shipped assistant" would use {fallback!r}. Give it '
             f'a control, or confirm the carry-through still reaches the payload.')
+
+
+# This is a unit test.
+def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it():
+    """The hint said "set OPENROUTER_API_KEY or RAGLAB_LLM=ollama" for as long
+    as those were the only two answers. A hint that lists some of the ways out
+    is worse than one that lists none, because a reader takes it for the whole
+    set — so this fails the day a backend is added and the sentence is not."""
+    page = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    hint = [line for line in page.splitlines() if 'no LLM backend' in line]
+    assert hint, 'the panel must say what to do when no backend is reachable'
+    for provider in config.LLM_PROVIDERS:
+        # 'fake' is not a way out: it answers without failing, which is the
+        # problem rather than the fix.
+        if provider and provider != 'fake':
+            assert provider in hint[0], provider
+
+
+# This is a unit test.
+def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():
+    """The panel's hint is one of three places this sentence is written, and the
+    other two are the entry points a sweep and a judge screen actually stop at.
+    They named OPENROUTER_API_KEY and ollama for as long as those were the only
+    answers; a reader takes a partial list for the whole set, and the two the
+    branch added are the ones nobody would guess, because they need no key.
+
+    Read out of the source rather than triggered: `judged_settings` and `screen`
+    answer with `sys.exit`, so calling them to read their message would end the
+    test that read it."""
+    for name in ('sweep.py', 'judgescreen.py'):
+        tree = ast.parse((RAGLAB_DIR / name).read_text(encoding='utf-8'))
+        refusals = [node.args[0].value for node in ast.walk(tree)
+                    if isinstance(node, ast.Call)
+                    and getattr(node.func, 'attr', '') == 'exit'
+                    and node.args and isinstance(node.args[0], ast.Constant)
+                    and 'no LLM backend' in str(node.args[0].value)]
+        assert len(refusals) == 1, (name, refusals)
+        for provider in config.LLM_PROVIDERS:
+            if provider and provider != 'fake':
+                assert provider in refusals[0], (name, provider)

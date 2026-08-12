@@ -356,6 +356,19 @@ def score_question(question: dict, outcome, k: int) -> dict:
         # (adversarial). Both show up as `abstained`, because the answerer sets
         # it when it emits the refusal phrase.
         row['abstained_correctly'] = float(outcome.abstained)
+    if outcome.diagnostics.get('answer_error'):
+        # Why the answerer refused, when it refused because it could not be
+        # reached at all. `pipeline._llm_answer` catches everything the model
+        # raises and returns the canonical refusal, so a CliError, a 600s timeout
+        # and an unreachable daemon all arrive here looking exactly like "the
+        # diary is silent about that" — and RAGAS then judges the refusal,
+        # producing low, confident faithfulness and answer relevancy with no
+        # field anywhere saying the model never answered. `GradeUnavailable`
+        # refuses loudly one stage earlier; this is the same distinction the
+        # n_summaries / n_expanded fields exist to make, and like them it belongs
+        # on the row rather than in an aggregate, because it is per question:
+        # three of thirty timing out is a different fault from all thirty.
+        row['answer_error'] = outcome.diagnostics['answer_error']
     if outcome.answer is not None:
         row['answer'] = outcome.answer
         reference = question.get('answer_fa', '')

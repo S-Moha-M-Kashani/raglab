@@ -116,5 +116,16 @@ to the browser. `OPENROUTER_API_KEY` in the environment is still how a lab
 
 The chat backend is `RAGLAB_LLM`: `ollama` (the default — a judged run can make
 hundreds of calls, so a default must never silently spend credit), `openrouter`,
-or `fake`. An unknown value raises; there is no auto mode anywhere in this
-project.
+`claude`, `codex`, or `fake`. An unknown value raises; there is no auto mode
+anywhere in this project.
+
+Two more backends run a CLI already installed on this machine, so they need no
+API key at all:
+
+```bash
+RAGLAB_LLM=claude uv run --extra local-embeddings raglab   # ~3.9s per call
+RAGLAB_LLM=codex  uv run --extra local-embeddings raglab   # ~8.2s per call
+```
+
+Or pick **Claude (CLI)** / **Codex (CLI)** from *Models · Backend* in the panel,
+which also applies the full-pipeline preset for that backend.

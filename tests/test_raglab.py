@@ -4974,3 +4974,19 @@ def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
             f'{fallback!r}, and the panel has no control for it — so a run '
             f'labelled "the shipped assistant" would use {fallback!r}. Give it '
             f'a control, or confirm the carry-through still reaches the payload.')
+
+
+# This is a unit test.
+def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it():
+    """The hint said "set OPENROUTER_API_KEY or RAGLAB_LLM=ollama" for as long
+    as those were the only two answers. A hint that lists some of the ways out
+    is worse than one that lists none, because a reader takes it for the whole
+    set — so this fails the day a backend is added and the sentence is not."""
+    page = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    hint = [line for line in page.splitlines() if 'no LLM backend' in line]
+    assert hint, 'the panel must say what to do when no backend is reachable'
+    for provider in config.LLM_PROVIDERS:
+        # 'fake' is not a way out: it answers without failing, which is the
+        # problem rather than the fix.
+        if provider and provider != 'fake':
+            assert provider in hint[0], provider

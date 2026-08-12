@@ -2965,13 +2965,25 @@ def test_the_sweep_refuses_a_backend_it_has_no_screened_pair_for(monkeypatch):
     backend, which under a CLI backend hands `openai/gpt-5-nano` to a command
     that has never heard of it — a run that dies, or worse, one labelled with a
     model that could not have produced it. Codex has one verified alias here, so
-    there is no honest answerer/judge pair and the sweep says so."""
-    monkeypatch.setattr(sweep, 'ANSWER_MODEL', 'gpt-5.6-terra')
-    monkeypatch.setattr(sweep, 'JUDGE_MODEL', '')
+    there is no honest answerer/judge pair and the sweep says so.
+
+    Both pins empty is the state codex actually reaches, and it is also the only
+    one that pins the *order* of the two refusals: `'' == ''` is true, so a
+    self-grading check placed first would report the wrong fault — a model
+    grading itself, when what is missing is any pair at all."""
     monkeypatch.setattr(sweep, '_PROVIDER', 'codex')
+    monkeypatch.setattr(sweep, 'ANSWER_MODEL', '')
+    monkeypatch.setattr(sweep, 'JUDGE_MODEL', '')
     monkeypatch.setenv('RAGLAB_LLM', 'codex')
-    with pytest.raises(SystemExit, match='RAGLAB_SWEEP_JUDGE_MODEL'):
+    with pytest.raises(SystemExit) as refused:
         sweep.judged_settings()
+    said = str(refused.value)
+    assert 'no answerer/judge pair' in said
+    assert 'RAGLAB_SWEEP_ANSWER_MODEL' in said and 'RAGLAB_SWEEP_JUDGE_MODEL' in said
+    # The equality branch's own wording must not be what came back: with both
+    # pins empty it would fire first under the wrong order and name the wrong
+    # fault.
+    assert 'are both' not in said
 
 
 # This is a unit test.

@@ -27,6 +27,7 @@ present, and never guessed when it is not.
 """
 from dataclasses import dataclass, fields
 
+from . import clichat
 from .config import LabConfig, LabSettings, settings_for_provider
 
 SOURCES = ('default', 'open', 'closed', 'unknown')
@@ -294,10 +295,31 @@ def ollama_ids(settings: LabSettings) -> frozenset:
     return ids
 
 
+def cli_ids(settings: LabSettings) -> frozenset:
+    """Aliases the configured CLI backend can be asked for, or an empty set.
+
+    For a CLI the checkable fact is the *binary*: there is no `/api/tags` to
+    ask, and an alias cannot be verified without paying for a call. So with the
+    command present its catalogue is offerable — plus whatever RAGLAB_MODEL
+    named, which is by definition a model the user wants — and with the command
+    absent nothing is, which is what makes the catalogue say NA instead of
+    claiming an alias on a machine that cannot run any of them.
+    """
+    if settings.provider not in clichat.CLIS:
+        return frozenset()
+    if not clichat.cli_available(settings.provider):
+        return frozenset()
+    return frozenset({option.id for option in known_models(settings)}
+                     | {settings.llm_model})
+
+
 def served_ids(settings: LabSettings) -> frozenset:
     """Whatever the active backend is serving right now."""
-    return (ollama_ids(settings) if settings.provider == 'ollama'
-            else openrouter_ids(settings))
+    if settings.provider == 'ollama':
+        return ollama_ids(settings)
+    if settings.provider in clichat.CLIS:
+        return cli_ids(settings)
+    return openrouter_ids(settings)
 
 
 # The candidate list per backend, because a slug only means something to the
@@ -328,6 +350,16 @@ def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:
     be perfectly valid — the routing suffixes (`:free`, `:floor`) do not appear as
     ids. Refusing on that basis would block runs that used to work, which is a
     worse failure than the one this guard prevents."""
+    if settings.provider in clichat.CLIS:
+        # One check, and it is the one that can be made. An alias is *not*
+        # refused here: nothing verified it absent, and this guard only ever
+        # refuses what it has verified — the CLI names an alias it cannot serve
+        # itself, at call time, better than anything guessed here could.
+        if clichat.cli_available(settings.provider):
+            return []
+        return [f'{settings.provider} is the chosen backend but its command is '
+                f'not installed on this machine — install it, or pick a backend '
+                f'that is here']
     if settings.provider != 'ollama':
         return []
     served = served_ids(settings)
@@ -389,11 +421,28 @@ MODES = (
                       'reranker, relevance gate, answerer and both judges — '
                       'while the embedder stays the local Persian-tuned '
                       'encoder, the measured winner'),
+    ProviderMode('claude', 'Claude (CLI)', 'claude',
+                 note='the full LLM pipeline on the Claude Code CLI already '
+                      'logged in on this machine, so no API key is needed at '
+                      'all — HyDE, LLM reranker, relevance gate, answerer and '
+                      'both judges. ~3.9s per call at effort=low, and the calls '
+                      'bill your Claude account rather than nothing'),
+    ProviderMode('codex', 'Codex (CLI)', 'codex',
+                 note='the same full pipeline on the Codex CLI. ~8.2s per call '
+                      'at effort=low, and every call carries codex\'s own '
+                      '~18.5k-token agent preamble, which no flag removes'),
 )
 
 # What the openrouter mode runs every stage on: the model every grade in
 # .runs/ so far was measured on (see CHAT_MODELS).
 MODE_MODEL = 'openai/gpt-5-nano'
+
+# And what each of the other LLM-pipeline modes runs on. Keyed by mode, not by
+# provider, so the table that says "this mode presets that model" is one table.
+# `local` is absent on purpose: it presets the lab's own defaults, which is a
+# reset rather than a model choice.
+MODE_MODELS = {'openrouter': MODE_MODEL, 'claude': 'sonnet',
+               'codex': 'gpt-5.6-terra'}
 
 # Preferred relevance-gate models, in order. A purpose-built reranker (query +
 # text → relevance score) beats a prompted chat model at exactly this job — but
@@ -436,19 +485,26 @@ def mode_config(key: str, settings: LabSettings) -> dict:
     if key not in {mode.key for mode in MODES}:
         raise ValueError(f'unknown mode {key!r}; expected one of '
                          + ', '.join(repr(mode.key) for mode in MODES))
-    if key == 'openrouter':
+    if key in MODE_MODELS:
+        model = MODE_MODELS[key]
         patch = {
             'retrieval': {
-                'hyde': True, 'expansion_model': MODE_MODEL,
-                'reranker': 'llm', 'reranker_model': MODE_MODEL,
-                'grader': 'llm', 'grader_model': gate_model(settings),
+                'hyde': True, 'expansion_model': model,
+                'reranker': 'llm', 'reranker_model': model,
+                'grader': 'llm',
+                # A purpose-built reranker beats a prompted chat model at the
+                # gate, but that chain resolves against OpenRouter's own
+                # catalogue — a slug from it means nothing to a CLI, so only
+                # that mode consults it.
+                'grader_model': (gate_model(settings) if key == 'openrouter'
+                                 else model),
                 # The measured setting: an LLM gate at 0.4 refused all five
                 # unanswerable questions with 3% false refusals.
                 'grade_threshold': 0.4},
             'generation': {
-                'answerer': 'llm', 'model': MODE_MODEL,
-                'key_facts_judge': True, 'judge_model': MODE_MODEL,
-                'ragas_model': MODE_MODEL},
+                'answerer': 'llm', 'model': model,
+                'key_facts_judge': True, 'judge_model': model,
+                'ragas_model': model},
         }
     else:
         defaults = LabConfig().to_dict()

@@ -23,9 +23,9 @@ import pytest
 from raglab import textnorm
 
 import raglab
-from raglab import (baseline, chunking, config, corpus, embedding, evaluate,
-                    explain, leaderboard, metrics, models, pipeline, query,
-                    ragas_eval, retrieval, store, sweep)
+from raglab import (baseline, chunking, clichat, config, corpus, embedding,
+                    evaluate, explain, leaderboard, metrics, models, pipeline,
+                    query, ragas_eval, retrieval, store, sweep)
 from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
                             LabConfig, LabSettings, RetrievalConfig)
 from raglab.index import IndexRegistry, LabIndex
@@ -4135,15 +4135,76 @@ def test_a_query_whose_gate_cannot_reach_its_model_says_so(client, monkeypatch):
 
 
 # This is a unit test.
-def test_the_lab_offers_a_local_and_an_openrouter_mode():
+def test_the_lab_offers_a_backend_for_every_place_a_model_can_run():
     # Local first: it is the lab default, and an option list leads with its
     # default here (see test_every_option_list_leads_with_the_default).
-    assert [mode.key for mode in models.MODES] == ['local', 'openrouter']
+    assert [mode.key for mode in models.MODES] == ['local', 'openrouter',
+                                                   'claude', 'codex']
     by_key = {mode.key: mode for mode in models.MODES}
     assert by_key['local'].provider == 'ollama'
     assert by_key['openrouter'].provider == 'openrouter'
+    # A CLI mode's key *is* its provider: there is one way to run each of them.
+    assert by_key['claude'].provider == 'claude'
+    assert by_key['codex'].provider == 'codex'
     # A mode explains itself like every other control on the page.
     assert all(mode.label and mode.note for mode in models.MODES)
+
+
+# This is a unit test.
+def test_a_cli_mode_presets_the_full_pipeline_on_its_own_alias():
+    """The same preset the openrouter mode applies, because the point of a
+    strong backend is the candidate that needs one: HyDE, LLM reranker, the gate
+    at the measured 0.4, answerer and both judges. The index is deliberately
+    untouched — heydariAI/persian-embeddings is the measured winner wherever the
+    chat models run."""
+    for key, alias in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+        patch = models.mode_config(key, LAB_SETTINGS)
+        ret, gen = patch['retrieval'], patch['generation']
+        assert ret['hyde'] is True and ret['expansion_model'] == alias
+        assert ret['reranker'] == 'llm' and ret['reranker_model'] == alias
+        assert ret['grader'] == 'llm' and ret['grade_threshold'] == 0.4
+        # No cohere rerank slug here: gate_model resolves against OpenRouter's
+        # catalogue, and a slug from it means nothing to a CLI.
+        assert ret['grader_model'] == alias
+        assert gen['answerer'] == 'llm' and gen['model'] == alias
+        assert gen['key_facts_judge'] is True
+        assert gen['judge_model'] == alias and gen['ragas_model'] == alias
+        assert 'index' not in patch
+
+
+# This is a unit test.
+def test_a_cli_catalogue_reports_availability_from_the_binary(monkeypatch):
+    """There is no /api/tags to ask a CLI, and an alias cannot be checked
+    without paying for a call — so the fact this lab verifies is the one it can.
+    With the command installed its aliases are offerable; with it absent the
+    catalogue says NA rather than claiming them."""
+    monkeypatch.setattr(clichat.shutil, 'which',
+                        lambda name: '/usr/bin/claude' if name == 'claude' else None)
+    settings = config.LabSettings(llm_provider='claude')
+    entries = {e['id']: e for e in models.catalogue(settings)}
+    assert entries['sonnet']['available'] is True
+    assert entries['opus']['available'] is True
+    gone = config.LabSettings(llm_provider='codex')
+    assert all(not e['available'] for e in models.catalogue(gone)
+               if e['source'] != 'default')
+
+
+# This is a unit test.
+def test_a_backend_whose_command_is_absent_stops_the_run_naming_it(monkeypatch):
+    """The embedder rule applied to a backend: refuse rather than measure
+    something other than what the row will claim. And only the *binary* is
+    refused — nothing here verified an alias absent, and "cannot check" and "not
+    there" are different facts, which is why an unknown alias is left for the
+    CLI's own error at call time."""
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: None)
+    settings = config.LabSettings(llm_provider='claude')
+    problems = models.provider_problems(LabConfig(), settings)
+    assert len(problems) == 1 and 'claude' in problems[0]
+    assert 'not installed' in problems[0]
+
+    monkeypatch.setattr(clichat.shutil, 'which', lambda name: '/usr/bin/claude')
+    cfg = LabConfig(generation=GenerationConfig(model='some-unpublished-alias'))
+    assert models.provider_problems(cfg, settings) == []
 
 
 # This is a unit test.
@@ -4231,7 +4292,7 @@ def test_a_provider_override_rebuilds_the_settings_it_names():
 def test_options_serves_the_provider_modes(client):
     body = client.get('/api/options').json()
     modes = {mode['key']: mode for mode in body['modes']}
-    assert set(modes) == {'local', 'openrouter'}
+    assert set(modes) == {'local', 'openrouter', 'claude', 'codex'}
     assert modes['openrouter']['provider'] == 'openrouter'
     served = modes['openrouter']['config']
     assert served['generation']['model'] == 'openai/gpt-5-nano'

@@ -128,10 +128,14 @@ CLAUDE_MODELS = (
                      'and each one here is a process spawn as well as a turn'),
 )
 
-# One entry, and honestly so: the codex CLI publishes no model list to verify
-# against, and this is the alias that has actually answered here. RAGLAB_MODEL
-# names another, and `catalogue` offers whatever it names.
+# The codex CLI publishes no model list to verify against. Luna is the
+# cost-sensitive default for high-volume judging; Terra remains the
+# previously-used quality alternative. RAGLAB_MODEL names another, and
+# `catalogue` offers whatever it names.
 CODEX_MODELS = (
+    ModelOption('gpt-5.6-luna', 'GPT-5.6 Luna (Codex CLI)', 'closed',
+                note='the cost-sensitive default for high-volume judging, run '
+                     'at low reasoning effort'),
     ModelOption('gpt-5.6-terra', 'GPT-5.6 Terra (Codex CLI)', 'closed',
                 note='8.2s per call at effort=low, and every call carries '
                      'codex\'s own ~18.5k-token agent preamble, which no flag '
@@ -461,7 +465,7 @@ MODE_MODEL = 'openai/gpt-5-nano'
 # `local` is absent on purpose: it presets the lab's own defaults, which is a
 # reset rather than a model choice.
 MODE_MODELS = {'openrouter': MODE_MODEL, 'claude': 'sonnet',
-               'codex': 'gpt-5.6-terra'}
+               'codex': 'gpt-5.6-luna'}
 
 # Preferred relevance-gate models, in order. A purpose-built reranker (query +
 # text → relevance score) beats a prompted chat model at exactly this job — but

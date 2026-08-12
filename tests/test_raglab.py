@@ -2979,7 +2979,7 @@ def test_a_cli_backend_counts_as_a_real_model_and_names_its_own_default():
     entry points that refuse an unbacked run let them through. The default model
     follows the backend for the reason it always has: a remote slug left
     standing under a CLI is a default that cannot run."""
-    for provider, expected in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+    for provider, expected in (('claude', 'sonnet'), ('codex', 'gpt-5.6-luna')):
         settings = config.LabSettings(llm_provider=provider)
         assert settings.llm_ready is True
         assert settings.llm_model == expected
@@ -4326,7 +4326,7 @@ def test_a_cli_mode_presets_the_full_pipeline_on_its_own_alias():
     at the measured 0.4, answerer and both judges. The index is deliberately
     untouched — heydariAI/persian-embeddings is the measured winner wherever the
     chat models run."""
-    for key, alias in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+    for key, alias in (('claude', 'sonnet'), ('codex', 'gpt-5.6-luna')):
         patch = models.mode_config(key, LAB_SETTINGS)
         ret, gen = patch['retrieval'], patch['generation']
         assert ret['hyde'] is True and ret['expansion_model'] == alias

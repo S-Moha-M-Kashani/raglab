@@ -281,10 +281,15 @@ button.why {
 }
 button.why:hover { color: var(--card); background: var(--step, var(--chassis));
                    border-color: var(--step, var(--chassis)); }
+/* pre-wrap because one explainer — the import control's — is a JSON shape, and
+   a shape flattened into a paragraph is prose about nesting rather than the
+   nesting. Every other text in the registry is a single line with no leading
+   space, so they render exactly as they did. */
 p.explain {
   margin: .3rem 0 .1rem; font-size: .73rem; line-height: 1.5; color: var(--ink-soft);
   border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
   background: var(--plate); padding: .35rem .55rem; border-radius: 0 3px 3px 0;
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 /* ── the model rail ──────────────────────────────────────────────────────── */

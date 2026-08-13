@@ -282,7 +282,11 @@ def _gold_trace_row(question: dict, trace: dict, index, norm_chunks: list) -> di
 class _RunSetup:
     """What `run_retrieval` and `run_eval` both need before they loop over
     questions — the same ~ten lines the two used to open with, built once by
-    `_prepare_run` instead of by hand in each."""
+    `_prepare_run` instead of by hand in each. `started` is the clock reading
+    taken immediately after validation succeeds, before anything else runs —
+    `run_eval` derives its run id and `started_at` from it; `run_retrieval`
+    never captured a start time and does not read this field."""
+    started: float
     report: Callable
     check_cancelled: Callable
     index: Any
@@ -307,10 +311,16 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     another: `run_retrieval` always normalises the chunks (every row needs a
     gold count) and checks cancellation once before the index build;
     `run_eval` normalises them only for a traced run and checks cancellation
-    again right after the index build lands."""
+    again right after the index build lands. `started` is read here, right
+    after validation and before the index build, because
+    `models.provider_problems` can be a network round trip against the
+    backend's `/api/tags` — `run_eval`'s run id and `started_at` must be
+    timestamped after that call resolves, not before it, or a slow or
+    unreachable backend would stretch the recorded start time backwards."""
     problems = cfg.validate() + models.provider_problems(cfg, settings)
     if problems:
         raise ValueError('; '.join(problems))
+    started = time.time()
     report = _reporter(progress)
     check_cancelled = cancelled or (lambda: None)
 
@@ -328,7 +338,8 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     # index, and per-question would re-tokenise the corpus needlessly. Needed
     # unconditionally by `run_retrieval`; only for a traced `run_eval`.
     norm_chunks = normalised_chunks(index) if need_norm_chunks else []
-    return _RunSetup(report=report, check_cancelled=check_cancelled, index=index,
+    return _RunSetup(started=started, report=report,
+                     check_cancelled=check_cancelled, index=index,
                      questions=questions, selection=selection,
                      query_date=query_date, llm=llm, roles=roles,
                      norm_chunks=norm_chunks)
@@ -400,11 +411,11 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     """`trace=True` records each question's retrieval trace via `retrieve_traced`,
     which fills a dict the plain path never reads and returns the identical
     `Outcome` — so no score can move because tracing was asked for."""
-    started = time.time()
     setup = _prepare_run(registry, ground_truth, cfg, settings, types=types,
                          limit=limit, difficulty=difficulty, balance=balance,
                          progress=progress, cancelled=cancelled,
                          need_norm_chunks=trace, recheck_after_index=True)
+    started = setup.started
     report, check_cancelled = setup.report, setup.check_cancelled
     index, questions, selection = setup.index, setup.questions, setup.selection
     query_date, llm, roles = setup.query_date, setup.llm, setup.roles

@@ -277,8 +277,9 @@ def create_inspector_app() -> FastAPI:
         else in this file."""
         jobs_index = _lab_get('/api/jobs')
         if jobs_index is None:
-            return {'lab': 'down', 'lab_url': lab_base_url(), 'index': None,
-                    'query': None, 'retrieval': None, 'generation': None}
+            return {'lab': 'down', 'lab_url': lab_base_url(), 'dataset': '',
+                    'index': None, 'query': None, 'retrieval': None,
+                    'generation': None}
 
         def newest_done(kind: str) -> dict | None:
             for entry in jobs_index.get('jobs', []):
@@ -371,8 +372,35 @@ def create_inspector_app() -> FastAPI:
             out = view('run', ('rows', 'summary', 'ragas'))
             return out if out and out.get('rows') else None
 
+        def followed_dataset() -> str:
+            """Which corpus the lab is working on, from its newest finished job.
+
+            A fact about the whole page rather than about one window, so it is
+            answered once here instead of dug out of each view's config in the
+            browser. The page's fixture — the ground-truth tab, the ideal answer
+            restated beside every row, the question picker — was loaded once at
+            page load from the built-in diary and never reloaded, so a build
+            over another corpus left German sessions in the chunks window and
+            Farsi diary questions everywhere else, with nothing on screen saying
+            the two were different corpora.
+
+            A config that names no index is passed over rather than read as the
+            diary: "does not say" and "says the built-in one" are different
+            facts, and only the second is an answer. `''` is the built-in diary
+            and is also what a lab with nothing to say returns — the same value
+            the field itself takes there."""
+            for entry in jobs_index.get('jobs', []):
+                if entry.get('state') != 'done':
+                    continue
+                index_cfg = (entry.get('config') or {}).get('index')
+                if index_cfg is None:
+                    continue
+                return index_cfg.get('dataset') or ''
+            return ''
+
         query_view = view('query', ('trace', 'question', 'question_id', 'answer'))
         return {'lab': 'up', 'lab_url': lab_base_url(),
+                'dataset': followed_dataset(),
                 'index': newest_chunks(), 'query': query_view,
                 'retrieval': question_set(), 'generation': generation()}
 

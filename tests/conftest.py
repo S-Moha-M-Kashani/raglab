@@ -15,6 +15,14 @@ RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
+# Each of these embedded a Farsi sentence here, through the backend it names —
+# read by the catalogue tests that define the claim and by the service tests
+# that check `/api/options` reports the same models.
+REQUESTED_MODELS = {
+    'heydariAI/persian-embeddings': ('sentence-transformers', 1024, 'open'),
+    'intfloat/multilingual-e5-small': ('sentence-transformers', 384, 'open'),
+}
+
 
 @pytest.fixture(scope='module')
 def client():

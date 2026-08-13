@@ -18,15 +18,12 @@ def load_ground_truth(path: Path = GROUND_TRUTH_PATH) -> dict:
 
 
 def date_int(date: str) -> int:
-    """'2026-03-10' -> 20260310. Metadata filters compare numbers, not
-    date strings, so every chunk carries this and time filters use $gte/$lte."""
+    """'2026-03-10' -> 20260310, so time filters can compare numbers instead of date strings."""
     return int(date.replace('-', ''))
 
 
 def session_text(session: dict) -> str:
-    """One session as plain dialogue text, role-tagged so a chunk read in
-    isolation still shows who said what — in the corpus's own language, since
-    this text is what gets embedded."""
+    """One session as plain, role-tagged dialogue text, in the corpus's own language, for embedding."""
     from .chunking import _language, _speaker
     language = _language(session)
     lines = []
@@ -40,14 +37,8 @@ def sessions_by_id(diary: dict) -> dict[str, dict]:
 
 
 def evidence_texts(sessions: dict[str, dict], question: dict) -> list[str]:
-    """The full text of every message the ground truth cites as evidence.
-
-    Used as `reference_contexts` for RAGAS's string-similarity context metrics.
-    The verbatim quote is the more precise reference, but those metrics compare
-    whole strings — a 60-character quote against a 900-character chunk scores as
-    no match however perfectly the quote is contained in it. The message is the
-    comparable unit; `metrics.quote_recall` is where quote-level precision is
-    measured instead."""
+    """Full text of every evidence message, as `reference_contexts` for RAGAS's whole-string context metrics
+    (quote-level precision is `metrics.quote_recall` instead)."""
     out: list[str] = []
     for ev in question.get('evidence', []):
         session = sessions.get(ev['session_id'])

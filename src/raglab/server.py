@@ -26,6 +26,8 @@ from .corpus import load_diary, load_ground_truth
 from . import hierarchy
 from .index import IndexRegistry, _lab_llm
 from .present import chunks_by_session, mark_gold, summary_rows
+from .serving import (_accepted, cancel_checker, ground_truth_for, screen,
+                      scaled_progress)
 
 STATIC = Path(__file__).resolve().parent / 'static'
 
@@ -170,9 +172,7 @@ def create_app() -> FastAPI:
 
     def questions_for(cfg: LabConfig) -> dict:
         """The ground truth of the corpus this config names — resolved by id, so index and questions match."""
-        if not cfg.index.dataset:
-            return ground_truth
-        return datasets.load(cfg.index.dataset)[1]
+        return ground_truth_for(cfg, ground_truth)
 
     registry = IndexRegistry(settings, diary)
     # This service owns the ledger, so this is the one place a recorder is passed.
@@ -272,11 +272,6 @@ def create_app() -> FastAPI:
         """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
         return cfg.to_dict() | {'provider': run_settings.provider}
 
-    def _accepted(job_id: str) -> JSONResponse:
-        """202: the work was accepted, not done. Location is the one place the polling url is spelled."""
-        return JSONResponse({'job_id': job_id}, status_code=202,
-                            headers={'Location': f'/api/jobs/{job_id}'})
-
     @app.post('/api/indexes')
     def build_index(payload: dict):
         cfg = LabConfig.from_dict(payload)
@@ -319,14 +314,10 @@ def create_app() -> FastAPI:
         # the settings that refuse a model are the settings that would run it.
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
 
         def work(report, cancelled):
-            def check_cancelled():
-                if cancelled():
-                    raise JobCancelled()
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
             result = evaluate.run_eval(
                 registry, questions_for(cfg), cfg, run_settings,
                 types=payload.get('types') or None,
@@ -358,14 +349,10 @@ def create_app() -> FastAPI:
         cfg = LabConfig.from_dict(payload)
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
 
         def work(report, cancelled):
-            def check_cancelled():
-                if cancelled():
-                    raise JobCancelled()
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
             return evaluate.run_retrieval(
                 registry, questions_for(cfg), cfg, run_settings,
                 types=payload.get('types') or None,
@@ -430,19 +417,14 @@ def create_app() -> FastAPI:
         # disagree about which configs are legal.
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
         asked = questions_for(cfg)
         query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
             # The implicit build is the long silent part — hand it the front of
             # the bar, or it all happens on 'starting 0%'.
-            index = registry.get(
-                cfg.index,
-                progress=lambda stage, fraction, detail='':
-                    report(stage, 0.7 * fraction, detail))
+            index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
             llm = _lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.75, question[:80])

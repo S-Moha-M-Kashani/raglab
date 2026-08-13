@@ -24,7 +24,8 @@ from .config import (ANSWERERS, BALANCES, CHUNKERS, CRITICS, DEPENDENCIES,
                      LabConfig, load_lab_settings, settings_for_provider)
 from .corpus import load_diary, load_ground_truth
 from . import hierarchy
-from .index import IndexRegistry, _lab_llm
+from .index import IndexRegistry
+from .llm import lab_llm
 from .present import chunks_by_session, mark_gold, summary_rows
 from .serving import (_accepted, cancel_checker, ground_truth_for, screen,
                       scaled_progress)
@@ -474,7 +475,7 @@ def create_app() -> FastAPI:
             # The implicit build is the long silent part — hand it the front of
             # the bar, or it all happens on 'starting 0%'.
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
-            llm = _lab_llm(run_settings)
+            llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.75, question[:80])
             # Traced rather than plain `retrieve`, for the per-step ranks the

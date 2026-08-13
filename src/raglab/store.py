@@ -147,7 +147,12 @@ class MemoryVectors:
 
     def drop(self) -> None:
         """Forgets everything; kept for the panel's rebuild path, though letting the object go would do the same."""
-        self.__init__(self.name)
+        self.ids = []
+        self.documents = []
+        self.metadatas = []
+        self._rows = []
+        self._at = {}
+        self._matrix = None
 
     def _unit_matrix(self) -> np.ndarray:
         if self._matrix is None:

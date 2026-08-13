@@ -11,7 +11,7 @@ from .config import AgentConfig, LabConfig
 from .llm import lab_chat
 from .models import Roles
 
-EXTRA = 'uv sync --extra agent'
+AGENT_EXTRA = 'uv sync --extra agent'
 
 # A constant, not a knob: the critic answers a yes/no question, and the "how hard should it try" knob already exists as `evidence_threshold`.
 CRITIC_BAR = 0.5
@@ -43,7 +43,7 @@ def available() -> dict:
     from .config import SCOPES
     ready = agent_available()
     return {scope: {'available': True if not scope else ready,
-                    'install': '' if not scope else EXTRA}
+                    'install': '' if not scope else AGENT_EXTRA}
             for scope in SCOPES}
 
 

@@ -18,7 +18,7 @@ SEED = 20260812
 
 # What to install when a grouping's library is missing. Only Leiden has one —
 # everything else runs on networkx and scikit-learn, which are core.
-EXTRAS = {
+HIERARCHY_EXTRAS = {
     'leiden': "uv sync --extra graph-index",
     'louvain': 'nothing — networkx is a core dependency',
     'label-prop': 'nothing — networkx is a core dependency',
@@ -58,8 +58,8 @@ def hierarchy_available(name: str) -> bool:
 def available() -> dict:
     """Every grouping → whether this installation can run it, and what to install if not."""
     return {name: {'available': hierarchy_available(name),
-                   'install': EXTRAS.get(name, '')}
-            for name in EXTRAS}
+                   'install': HIERARCHY_EXTRAS.get(name, '')}
+            for name in HIERARCHY_EXTRAS}
 
 
 # --- the graph -------------------------------------------------------------
@@ -180,9 +180,11 @@ def _partition_graph(graph, method: str, granularity: float) -> list[list[int]]:
         communities = [set(c) for c in
                        nx.algorithms.community.asyn_lpa_communities(
                            graph, weight='weight', seed=SEED)]
-    else:   # 'louvain'
+    elif method == 'louvain':
         communities = nx.algorithms.community.louvain_communities(
             graph, weight='weight', resolution=granularity, seed=SEED)
+    else:
+        raise ValueError(f'unknown grouping method: {method!r}')
     out = []
     for community in communities:
         members = sorted(node for node in community if isinstance(node, int))

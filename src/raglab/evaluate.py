@@ -14,8 +14,8 @@ from typing import Any, Callable
 from . import (agent, corpus, datasets, embedding, metrics, models, pipeline,
                ragas_eval)
 from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
-from .index import IndexRegistry, _lab_llm
-from .llm import lab_chat
+from .index import IndexRegistry
+from .llm import lab_chat, lab_llm
 # Aliased: `RunResult.chunks_by_session` is a field of the same name (kept for
 # the run files that serialise it), and the two must not shadow each other.
 from .present import (chunks_by_session as chunks_by_session_rows, evidence_spans,
@@ -332,7 +332,7 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     questions = select_questions(ground_truth, types, limit, difficulty, balance)
     selection = selection_note(questions, limit, balance)
     query_date = ground_truth['meta'].get('query_date', '2026-07-28')
-    llm = _lab_llm(settings)
+    llm = lab_llm(settings)
     roles = models.resolve(cfg, settings)
     # Normalised once: `gold_available` counts gold over every chunk in the
     # index, and per-question would re-tokenise the corpus needlessly. Needed

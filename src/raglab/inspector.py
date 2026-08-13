@@ -19,7 +19,8 @@ from . import config as lab_config
 from .config import LabConfig, load_lab_settings, settings_for_provider
 from . import datasets
 from .corpus import load_diary, load_ground_truth
-from .index import IndexRegistry, _lab_llm
+from .index import IndexRegistry
+from .llm import lab_llm
 from .present import (chunks_by_session, gold_available, mark_gold,
                       summary_rows)
 from .server import Jobs
@@ -240,7 +241,7 @@ def create_inspector_app() -> FastAPI:
 
         def work(report):
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
-            llm = _lab_llm(run_settings)
+            llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.8, question['question_fa'][:80])
             _outcome, tr = pipeline.retrieve_traced(
@@ -275,7 +276,7 @@ def create_inspector_app() -> FastAPI:
 
         def work(report):
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.6))
-            llm = _lab_llm(run_settings)
+            llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.65, question['question_fa'][:80])
             outcome, trace = pipeline.retrieve_traced(

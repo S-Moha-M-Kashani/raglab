@@ -234,6 +234,7 @@ class LabConfig:
                 'agent': asdict(self.agent), 'label': self.label}
 
     def validate(self) -> list[str]:
+        """Returns every problem found; raises nothing."""
         bad = []
         checks = ((self.index.chunker, CHUNKERS, 'chunker'),
                   (self.index.embedder, EMBEDDERS, 'embedder'),
@@ -256,12 +257,12 @@ class LabConfig:
         # A grouping whose library is not installed is refused, never silently
         # substituted for another one.
         if self.index.hierarchy:
-            from .hierarchy import EXTRAS, hierarchy_available
+            from .hierarchy import HIERARCHY_EXTRAS, hierarchy_available
             if not hierarchy_available(self.index.hierarchy):
                 bad.append(
                     f'{self.index.hierarchy} needs a package this installation '
                     f'does not have: install it with '
-                    f'{EXTRAS[self.index.hierarchy]}. It is refused rather '
+                    f'{HIERARCHY_EXTRAS[self.index.hierarchy]}. It is refused rather '
                     f'than replaced by another grouping.')
             if self.index.hierarchy_levels < 1:
                 bad.append('hierarchy_levels must be >= 1')
@@ -272,11 +273,11 @@ class LabConfig:
         # A scope this installation cannot run is refused, never silently
         # served by the fixed pipeline.
         if self.agent.scope in SCOPES and self.agent.scope:
-            from .agent import EXTRA, agent_available
+            from .agent import AGENT_EXTRA, agent_available
             if not agent_available():
                 bad.append(
                     f'agent scope {self.agent.scope!r} needs a package this '
-                    f'installation does not have: install it with {EXTRA}. It '
+                    f'installation does not have: install it with {AGENT_EXTRA}. It '
                     f'is refused rather than run without the agent.')
             # Under `extractive` there is no LLM draft to critique or revise —
             # refused rather than silently promoting the answerer.

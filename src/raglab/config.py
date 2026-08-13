@@ -1,9 +1,10 @@
-"""Lab settings and the three config objects the whole pipeline is driven by.
+"""Lab settings and the config objects the whole pipeline is driven by.
 
-Splitting the knobs into IndexConfig / RetrievalConfig / GenerationConfig is not
-cosmetic: only IndexConfig changes what is stored, so its fingerprint names the
-in-memory index. Retrieval and generation can then be swept for free against
-an index that is already built — which is what makes the settings panel usable.
+Splitting the knobs into IndexConfig / RetrievalConfig / GenerationConfig /
+AgentConfig is not cosmetic: only IndexConfig changes what is stored, so its
+fingerprint names the in-memory index. Retrieval, generation and the agent can
+then be swept for free against an index that is already built — which is what
+makes the settings panel usable.
 
 **There is no *vector* storage setting here, and that is the design.** An
 experiment's index lives in process memory (`store.MemoryVectors`); its results
@@ -173,9 +174,9 @@ def settings_for_provider(settings: LabSettings, provider: str) -> LabSettings:
 # That is not cosmetic ordering: these tuples are what both panels render, so a
 # default buried sixth reads as an exotic choice while three hash embedders that
 # exist only to be measured *against* sit at the top of the list. The measured
-# winner should be the first thing offered. `test_every_option_list_leads_with_
-# the_default` holds the two in step, so changing a default without moving it
-# fails rather than quietly demoting it.
+# winner should be the first thing offered.
+# `test_every_option_list_leads_with_the_default` holds the two in step, so
+# changing a default without moving it fails rather than quietly demoting it.
 CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap', 'message', 'turn-pair',
             'session')
 # Which chunkers actually read chunk_chars and overlap. Read off chunking.py's
@@ -424,7 +425,7 @@ def dependency_state(cfg_dict: dict) -> dict:
 
 @dataclass(frozen=True)
 class Step:
-    """One of the three stages a knob or a model can belong to.
+    """One of the stages a knob or a model can belong to.
 
     The panel groups and colour-codes everything by these, so the list is served
     rather than reinvented in each frontend. Only the *meaning* lives here — the
@@ -760,10 +761,11 @@ def __getattr__(name: str):
 
 # Every knob explains itself, in the panel, next to the control. This lives here
 # rather than in the frontend because it describes *these* definitions: a field
-# added above without a line below fails test_every_configuration_factor_has_an_
-# explainer, so a knob cannot ship unexplained. Keys are '<group>.<field>'; the
-# model fields are explained by models.ROLES instead, and 'run.*' describes the
-# controls that belong to one run rather than to a configuration.
+# added above without a line below fails
+# test_every_configuration_factor_has_an_explainer, so a knob cannot ship
+# unexplained. Keys are '<group>.<field>'; the model fields are explained by
+# models.ROLES instead, and 'run.*' describes the controls that belong to one
+# run rather than to a configuration.
 HELP = {
     'index.dataset': (
         'Which corpus this experiment measures against. The built-in one is a '

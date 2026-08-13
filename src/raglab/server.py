@@ -278,7 +278,7 @@ def create_app() -> FastAPI:
             # reason the mode dropdown is: a preset kept in a browser is a
             # preset that will drift from the brain it claims to mirror.
             'production': PRODUCTION_CONFIG,
-            # The three steps, in pipeline order. The panel groups and colours
+            # The steps, in pipeline order. The panel groups and colours
             # every control by these, so which step a thing belongs to is served
             # as a fact about the pipeline rather than guessed in the browser.
             'steps': [{'key': step.key, 'short': step.short, 'label': step.label,

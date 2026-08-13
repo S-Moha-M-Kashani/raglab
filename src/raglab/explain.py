@@ -1,9 +1,9 @@
 """Every factor in the lab, explained.
 
-Twenty-eight knobs and seven model roles is more than anybody holds in their
-head, and a knob you cannot explain is a knob you cannot make a real decision
-about. So each one carries a sentence or three, served over the API and shown
-next to the control behind a `!`.
+The knobs and model roles here are more than anybody holds in their head, and
+a knob you cannot explain is a knob you cannot make a real decision about. So
+each one carries a sentence or three, served over the API and shown next to
+the control behind a `!`.
 
 The text lives beside the definition it describes — knobs in `config.HELP`,
 model roles in `models.ROLES` — and this module only assembles the two and

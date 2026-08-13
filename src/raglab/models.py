@@ -1,6 +1,6 @@
 """Which language model runs which stage.
 
-Seven stages of the lab can call a model, and they want different things from
+The stages of the lab can call a model, and they want different things from
 one. The summariser runs once per session (157 calls per build) and wants cheap;
 the key-facts judge runs once per question and wants the strongest thing
 available; the reranker sits in the latency path of every query. Sharing one

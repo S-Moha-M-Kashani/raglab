@@ -60,7 +60,7 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
                           multi_query=False)
     _outcome, trace = pipeline.retrieve_traced(
         index, cfg, question['question_fa'], gt['meta']['query_date'])
-    row = evaluate.trace_row(question, trace, gold_available=total)
+    row = evaluate.trace_row(question, trace, gold_present=total)
     assert row['gold_available'] == total
     found = sum(1 for c in row['trace']['candidates'] if c['gold'])
     assert found <= row['gold_available'], (

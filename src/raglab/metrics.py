@@ -8,6 +8,7 @@ import math
 from dataclasses import dataclass
 
 from . import textnorm
+from .config import DIFFICULTIES
 from .corpus import evidence_sessions
 
 TYPES = ('single-hop', 'temporal', 'multi-hop', 'aggregation', 'knowledge-update',
@@ -392,7 +393,7 @@ def aggregate(rows: list[dict]) -> dict:
                          'abstained_correctly', 'false_abstention',
                          'answer_similarity')}
     by_difficulty: dict[str, dict] = {}
-    for level in ('easy', 'medium', 'hard'):
+    for level in DIFFICULTIES:
         subset = [r for r in rows if r['difficulty'] == level]
         if subset:
             by_difficulty[level] = {'n': len(subset),

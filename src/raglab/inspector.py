@@ -12,7 +12,7 @@ import urllib.request
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 
 from . import evaluate, explain, metrics, models, pipeline
 from . import config as lab_config
@@ -23,6 +23,7 @@ from .index import IndexRegistry, _lab_llm
 from .present import (chunks_by_session, gold_available, mark_gold,
                       summary_rows)
 from .server import Jobs
+from .serving import _accepted, ground_truth_for, scaled_progress, screen
 
 STATIC = Path(__file__).resolve().parent / 'static'
 
@@ -64,19 +65,13 @@ def create_inspector_app() -> FastAPI:
     ground_truth = load_ground_truth()
     def truth_for(cfg) -> dict:
         """The ground truth of the corpus a followed config names — same dataset as the index it built."""
-        if not cfg.index.dataset:
-            return ground_truth
-        return datasets.load(cfg.index.dataset)[1]
+        return ground_truth_for(cfg, ground_truth)
 
     registry = IndexRegistry(settings, diary)
     # No recorder: "the Inspector writes nothing" is what makes it safe to
     # point at a lab that is running.
     jobs = Jobs()
     app = FastAPI(title='Lodestar RAG Lab Inspector')
-
-    def _accepted(job_id: str) -> JSONResponse:
-        return JSONResponse({'job_id': job_id}, status_code=202,
-                            headers={'Location': f'/api/jobs/{job_id}'})
 
     @app.get('/')
     def page():
@@ -157,10 +152,7 @@ def create_inspector_app() -> FastAPI:
         query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
-            index = registry.get(
-                cfg.index,
-                progress=lambda stage, fraction, detail='':
-                    report(stage, 0.7 * fraction, detail))
+            index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
             llm = _lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.8, question['question_fa'][:80])
@@ -191,16 +183,11 @@ def create_inspector_app() -> FastAPI:
             raise HTTPException(404, f'unknown question id: {qid!r}')
         run_settings = settings_for_provider(settings,
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
         query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
-            index = registry.get(
-                cfg.index,
-                progress=lambda stage, fraction, detail='':
-                    report(stage, 0.6 * fraction, detail))
+            index = registry.get(cfg.index, progress=scaled_progress(report, 0.6))
             llm = _lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.65, question['question_fa'][:80])
@@ -210,7 +197,7 @@ def create_inspector_app() -> FastAPI:
             quotes = [ev['quote'] for ev in question.get('evidence', [])]
             retrieval = evaluate.trace_row(
                 question, trace,
-                gold_available=gold_available(index, quotes))
+                gold_present=gold_available(index, quotes))
             report('answering', 0.85)
             outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
                                       models=roles)

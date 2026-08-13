@@ -52,7 +52,7 @@ Nothing backs any of this up. The ledger is the only thing that would be missed.
 ## The corpora
 
 `fixtures/diary_year_fa.json` is the built-in one and the corpus every finding in
-`docs/` is about. Four more ship in `docs/groundtruth_datasets/` — English
+`docs/` is about. Four more ship in `fixtures/groundtruth_datasets/` — English
 support tickets, German meeting notes, English research notes weighted to
 multi-hop, and a five-session smoke set — so a result can be checked against a
 different language, domain and question shape before it is called a fact about

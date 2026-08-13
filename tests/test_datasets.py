@@ -133,7 +133,7 @@ def test_every_bundled_dataset_meets_its_own_contract(name):
     against to tell "true of retrieval" from "true of Farsi diaries". A
     reference point nobody validated is a second unknown."""
     path = datasets.BUNDLED_DIR / f'{name}.json'
-    assert path.exists(), f'{name} is missing from docs/groundtruth_datasets/'
+    assert path.exists(), f'{name} is missing from fixtures/groundtruth_datasets/'
     assert datasets.validate(json.loads(path.read_text(encoding='utf-8'))) == []
 
 

@@ -49,7 +49,7 @@ from .metrics import TYPES
 
 # Shipped with the repository and read-only: these are reference points, and a
 # reference point that can be edited in place is not one.
-BUNDLED_DIR = ROOT / 'docs' / 'groundtruth_datasets'
+BUNDLED_DIR = ROOT / 'fixtures' / 'groundtruth_datasets'
 # Imported through the panel. Git-ignored and machine-local, like `.runs/`: a
 # corpus somebody uploaded is their material, not this repository's.
 IMPORTED_DIR = ROOT / '.datasets'

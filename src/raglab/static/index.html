@@ -182,10 +182,22 @@ h1 .lab-mark {
 main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
 .bench {
   display: grid; gap: 1rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px);
+  /* Four step cards, then the models column. It was three until the agent
+     arrived, and adding a card to a four-slot grid put the *models* card on a
+     second row — which quietly broke the rule that every model lives in the one
+     right-hand column, because auto-placement fills a row before it wraps.
+     Hence the pin below rather than a wider grid alone: the column the models
+     live in is a stated property of this page, not a consequence of how many
+     step cards there happen to be. */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 300px);
   align-items: start;
 }
-@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* The models card holds the last column at every width; the step cards take the
+   rest and wrap among themselves. */
+.bench > .rag-models { grid-column: -2 / -1; }
+@media (max-width: 1400px) { .bench { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px); } }
+@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
+@media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
 .stack { display: grid; gap: 1rem; margin-top: 1rem; }
 
@@ -854,7 +866,7 @@ const SUMMARY_SCOPE_HELP = {
 // labels say so: a reader picking `both` has to know it changes two things at
 // once and is only readable beside the two middle rows.
 const SCOPE_HELP = {
-  '': 'off — the fixed pipeline (default)',
+  '': 'the fixed pipeline (default)',
   'retrieve': 'retrieval only · plan, retrieve, judge the evidence, rewrite, again',
   'generate': 'generation only · draft, critique it, revise — retrieval held fixed',
   'full': 'both · and the one edge neither has: a bad critique can re-retrieve',
@@ -1334,11 +1346,19 @@ function remember(key, value) {
 // The settings you picked, merged over the served defaults per group — so a
 // config saved before a knob existed still boots, with the new knob at its
 // default rather than undefined.
+// The groups come from the *served* defaults, never from a list written here.
+// A browser holding a config remembered before a group existed would otherwise
+// return a merged object with that group missing, and every control in it would
+// come up blank — a blank number input reads as 0, which validation then refuses
+// for a knob the reader never touched. Measured 2026-08-13 against the running
+// service, the day the agent group was added: same class as UNSHOWN, and the
+// same fix — the page must not hold its own idea of what a config contains.
 function startingConfig(defaults) {
   const kept = saved(SAVED_CONFIG);
   if (!kept) return defaults;
   const merged = { label: kept.label || defaults.label || '' };
-  for (const group of ['index', 'retrieval', 'generation']) {
+  for (const group of Object.keys(defaults)) {
+    if (group === 'label') continue;
     merged[group] = Object.assign({}, defaults[group], kept[group] || {});
   }
   return merged;

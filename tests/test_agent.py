@@ -752,3 +752,35 @@ def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
     assert len(handed) > 900, 'a shorter corpus than this cannot show the fault'
     for node in ('assess', 'draft', 'critique', 'completeness'):
         assert handed in seen[node], node
+
+
+# This is a unit test.
+def test_the_panel_merges_a_remembered_config_over_the_served_groups():
+    """A browser holding a config from before the agent group existed must not
+    come up with blank agent controls — a blank number input reads as 0, and
+    validation then refuses `max_hops` for a knob the reader never touched.
+
+    So the group list comes from the served defaults rather than being written
+    into the page. This is the UNSHOWN lesson: the panel must not keep its own
+    idea of what a `LabConfig` contains, or the next group added reproduces the
+    fault exactly.
+    """
+    panel = _static('index.html')
+    assert 'for (const group of Object.keys(defaults))' in panel
+    assert "for (const group of ['index', 'retrieval', 'generation']) {\n    merged" \
+        not in panel, 'the hard-coded group list is back in startingConfig'
+
+
+# This is a unit test.
+def test_the_models_column_stays_the_right_hand_one_whatever_the_step_count():
+    """Adding the agent card to a four-slot grid put the *models* card on a
+    second row, because auto-placement fills a row before it wraps — quietly
+    breaking the rule that every model in this lab lives in the one right-hand
+    column, embedder included. Measured in a browser at 1557px on 2026-08-13.
+
+    So the column is pinned rather than left to arithmetic: the next step card
+    added must not be able to move the models again.
+    """
+    panel = _static('index.html')
+    assert '.bench > .rag-models { grid-column: -2 / -1; }' in panel
+    assert 'repeat(4, minmax(0, 1fr)) minmax(0, 300px)' in panel

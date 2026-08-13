@@ -12,6 +12,8 @@ The corpus is Farsi, so these use `token-hash` for the reason test_hierarchy.py
 does: ascii-hash embeds Farsi to the zero vector, and an agent looping over an
 empty candidate pool would pass every test while measuring nothing.
 """
+import time
+
 import pytest
 
 from raglab import agent, config, explain, metrics, models, pipeline
@@ -562,3 +564,109 @@ def test_the_loop_is_a_compiled_langgraph_with_the_edge_full_alone_has():
     assert ('critique', 'retrieve') in edges
     assert ('critique', 'retrieve') not in agent.graph_edges(
         agent_cfg(scope='generate').agent)
+
+
+# --- the routes ------------------------------------------------------------
+
+@pytest.fixture(scope='module')
+def client():
+    from fastapi.testclient import TestClient
+
+    from raglab.server import create_app
+    return TestClient(create_app())
+
+
+def _finished(client, job_id: str, timeout: float = 60.0) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = client.get(f'/api/jobs/{job_id}').json()
+        if job['state'] not in ('running', 'cancelling'):
+            return job
+        time.sleep(0.01)
+    raise AssertionError(f'job {job_id} still running after {timeout}s')
+
+
+# This is an integration test.
+def test_the_panel_offers_every_scope_and_says_which_can_run(client):
+    """Served, never listed in the frontend: a panel with its own list is a
+    panel that will offer a scope the service refuses."""
+    body = client.get('/api/options').json()
+    assert body['scopes'] == list(SCOPES)
+    assert body['critics'] == list(CRITICS)
+    support = body['agent_support']
+    assert support['']['available'], 'no agent is always available'
+    assert set(support) == set(SCOPES)
+    assert all(support[s]['install'] for s in SCOPES if s)
+    # The fourth step and its two model roles arrive through the same lists the
+    # other three do, so the panel cannot colour them by guessing.
+    assert 'agent' in [step['key'] for step in body['steps']]
+    assert {'plan', 'critic'} <= {r['key'] for r in body['model_roles']}
+    assert all(r['step'] == 'agent'
+               for r in body['model_roles'] if r['key'] in ('plan', 'critic'))
+    # And the dependency rules for the agent's knobs are served with the rest.
+    assert any(key.startswith('agent.') for key in body['dependencies'])
+    assert 'agent.scope' in body['help']
+
+
+# This is an integration test.
+def test_an_evaluation_with_a_scope_scores_records_and_names_the_loop(client,
+                                                                     monkeypatch):
+    """The whole way through: an agent run has to produce a row the leaderboard
+    can read, with the loop's counters on every question and its shape in the
+    notes — a row that says `scope=full` and nothing else would be two
+    configurations wearing one label."""
+    monkeypatch.setattr(agent, '_ask',
+                        Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
+                             critique='SCORE: 0.9'))
+    payload = agent_cfg(scope='full').to_dict() | {'limit': 2,
+                                                  'ragas_mode': 'off'}
+    res = client.post('/api/evaluations', json=payload)
+    assert res.status_code == 202, res.text
+    job = _finished(client, res.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
+    result = job['result']
+    rows = result['rows']
+    assert len(rows) == 2
+    assert all(row['agent_scope'] == 'full' for row in rows)
+    assert all(row['n_hops'] >= 1 and row['n_agent_calls'] >= 2 for row in rows)
+    assert all(row['agent_stop'] for row in rows)
+    assert any('agent scope=full' in note for note in result['notes'])
+    # The means join the summary like every other per-question number.
+    assert result['summary']['overall']['n_hops'] >= 1
+    # And the Inspector's ladder came back with the run rather than being lost.
+    assert result['traces'][0]['trace']['agent'][0]['node'] == 'plan'
+
+
+# This is an integration test.
+def test_the_retrieval_route_shows_the_loop_and_never_answers(client,
+                                                             monkeypatch):
+    """`/api/retrievals` retrieves and stops. An agent that owns retrieval is
+    part of what there is to show; the drafting half of `full` is an answering
+    stage, so it must not run here however the scope is set."""
+    stub = Stub(plan='...', assess='SCORE: 0.1', rewrite='دوباره',
+                draft='این نباید اجرا شود')
+    monkeypatch.setattr(agent, '_ask', stub)
+    payload = agent_cfg(scope='full', max_hops=2).to_dict() | {'limit': 1}
+    res = client.post('/api/retrievals', json=payload)
+    assert res.status_code == 202, res.text
+    job = _finished(client, res.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
+    questions = job['result']['questions']
+    assert len(questions) == 1
+    nodes = [v['node'] for v in questions[0]['trace']['agent']]
+    assert nodes.count('retrieve') == 2, 'the loop ran'
+    assert 'draft' not in nodes and stub.count('draft') == 0
+
+
+# This is an integration test.
+def test_a_scope_the_backend_cannot_run_is_a_400_on_both_run_routes(
+        client, monkeypatch):
+    """Both run routes apply the same screen — the rule `/api/queries` and
+    `/api/evaluations` already share about models, applied to the agent."""
+    monkeypatch.setattr(agent, 'agent_available', lambda: False)
+    payload = agent_cfg(scope='retrieve').to_dict() | {'limit': 1}
+    for route in ('/api/evaluations', '/api/retrievals', '/api/queries'):
+        body = payload | ({'question': 'چطور بودم؟'} if 'queries' in route else {})
+        res = client.post(route, json=body)
+        assert res.status_code == 400, (route, res.status_code)
+        assert '--extra agent' in res.json()['detail'], route

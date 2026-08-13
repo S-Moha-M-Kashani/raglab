@@ -516,6 +516,27 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
     return outcome
 
 
+def note_for(cfg: AgentConfig) -> str:
+    """One line describing the loop, for a run's notes.
+
+    The caps are named, not only the scope, for the reason `models.note_for`
+    names the CLI effort: they move the numbers while leaving the label
+    identical, so two rows differing only in `max_hops` would be ranked as a
+    comparable pair. The config dict on the row carries the values; this is what
+    a reader sees without opening it.
+    """
+    parts = [f'agent scope={cfg.scope}']
+    if owns_retrieval(cfg.scope):
+        parts.append(f'max_hops={cfg.max_hops}')
+        parts.append('rewrite' if cfg.rewrite else 'no rewrite')
+        parts.append(f'evidence>={cfg.evidence_threshold}')
+    if owns_generation(cfg.scope):
+        parts.append(f'critic={cfg.critic}')
+        parts.append(f'max_revisions={cfg.max_revisions}')
+    parts.append(f'<={cfg.max_llm_calls} calls/question')
+    return ', '.join(parts)
+
+
 def _terminal(cfg: AgentConfig, state: dict) -> str:
     """Why the loop stopped, when no cap or failure claimed it first.
 

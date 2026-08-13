@@ -7,9 +7,9 @@ LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 def test_evidence_spans_locate_the_quote_and_never_invent_one():
     """The green highlight is drawn from these ranges, so a range that is not
-    really the quote is a lie on screen. Computed here rather than in the
-    browser because `mark_gold` also calls a chunk *contained by* a quote gold —
-    that candidate has no verbatim quote inside it and must highlight nothing."""
+    really the quote is a lie on screen. `mark_gold` also calls a chunk
+    *contained by* a quote gold, which has no verbatim quote inside it and
+    must highlight nothing."""
     quote = 'قسط‌بندی جریمه اوکی شد شیش قسط'
     text = f'خبر خوب: {quote}، از اول ماه دیگه'
     spans = present.evidence_spans(text, [quote])
@@ -38,13 +38,10 @@ def test_evidence_spans_locate_the_quote_and_never_invent_one():
 
 # Real fixture, real chunker.
 def test_a_question_reports_how_many_gold_chunks_existed_to_find():
-    """"1 gold" is not a result until you know it was 1 of how many.
-
-    The denominator is how many chunks in the whole index hold this question's
-    evidence — what was *available* to retrieve — not how many evidence quotes
-    the fixture lists, because one quote can be split across two chunks and one
-    chunk can carry two quotes. That makes the pair a recall statement: found
-    over findable."""
+    """"1 gold" is not a result until you know it was 1 of how many. The
+    denominator is how many chunks in the whole index hold this question's
+    evidence, not how many evidence quotes the fixture lists — one quote can
+    split across chunks and one chunk can carry two quotes."""
     gt = corpus.load_ground_truth()
     index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(
         IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
@@ -76,9 +73,9 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
 
 # Real fixture, real chunker.
 def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
-    """End to end over the real corpus: whatever the pipeline retrieved, every
-    span on every candidate must slice out of that candidate's own text, and a
-    candidate marked gold with a verbatim quote must carry at least one."""
+    """Every span on every candidate must slice out of that candidate's own
+    text, and a candidate marked gold with a verbatim quote must carry at
+    least one."""
     gt = corpus.load_ground_truth()
     index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(
         IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
@@ -203,9 +200,8 @@ def _client(monkeypatch):
 
 
 def _static(name: str) -> str:
-    """One of the browser files, as text. The Inspector's page script runs
-    against a live DOM at import, so there is no seam to import it through — the
-    agent ladder is pinned the same way."""
+    """One of the browser files, as text — the Inspector's page script runs
+    against a live DOM at import, so there is no seam to import it through."""
     return (inspector.STATIC / name).read_text(encoding='utf-8')
 
 
@@ -281,9 +277,7 @@ def test_inspector_page_exposes_the_three_views(monkeypatch):
 # The served shell exposes the new views' hooks.
 def test_page_exposes_the_generation_tab_and_the_evidence_reveal(monkeypatch):
     """Four things the two new features are rendered by, so a rename cannot
-    quietly remove one: a fourth tab and its view, the per-question header that
-    restates the question and its expected facts, the full-text reveal a hover
-    opens, and the green evidence mark inside it."""
+    quietly remove one."""
     client = _client(monkeypatch)
     html = client.get('/').text
     css = client.get('/inspector.css').text
@@ -437,11 +431,10 @@ def test_follow_reads_a_finished_index_and_query_job(monkeypatch, fake_lab):
 # FastAPI TestClient; the lab is a canned fake.
 def test_follow_shows_one_table_per_selected_question(monkeypatch, fake_lab,
                                                       request):
-    """The retrieval window is per-question, and it must show *only* the
-    questions the experiment picked. Both routes that retrieve over a set feed
-    it — the retrieval-only run and a judged evaluation — so `/api/follow`
-    normalises them to one shape and the page keeps one renderer. Whichever ran
-    last wins, because that is what "follow the lab" means."""
+    """The retrieval window must show *only* the questions the experiment
+    picked. Both the retrieval-only run and a judged evaluation feed it, so
+    `/api/follow` normalises them to one shape and the page keeps one
+    renderer."""
     module = request.module
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -472,15 +465,11 @@ def test_follow_shows_one_table_per_selected_question(monkeypatch, fake_lab,
 # FastAPI TestClient; the lab is a canned fake.
 def test_follow_shows_the_chunks_the_last_run_actually_used(monkeypatch,
                                                            fake_lab, request):
-    """The two windows must describe the same pipeline.
-
-    An evaluation builds its index *implicitly*, so it creates no index job —
-    which meant the chunks window kept showing whatever `Build` was last pressed
-    while the retrieval window showed the experiment. Running a 10-question
-    semantic-drift experiment after an unrelated turn-pair build showed
-    turn-pair chunks beside semantic-drift rankings, with nothing on screen
-    admitting it. So the chunks come from the newest job that produced any,
-    whatever its kind."""
+    """The two windows must describe the same pipeline. An evaluation builds
+    its index *implicitly*, so it creates no index job — the chunks window
+    must not keep showing whatever `Build` was last pressed while the
+    retrieval window shows the experiment. So the chunks come from the
+    newest job that produced any, whatever its kind."""
     module = request.module
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -504,15 +493,11 @@ def test_follow_shows_the_chunks_the_last_run_actually_used(monkeypatch,
 # FastAPI TestClient over the read-only app; a real in-memory index, the
 # offline embedder and the extractive answerer.
 def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch):
-    """A question you add by hand has to arrive scored exactly like the ones the
-    experiment selected — same retrieval row, same generation row, same metric
-    keys — or the two cannot be read side by side, which is the only reason to
-    add it.
-
-    So it runs the whole pipeline for that one question under the config the
-    page is following, and the row it returns is asserted against what
-    `metrics.score_question` produces for the same outcome. Anything the eval
-    path computes and this one does not would show up as a missing key."""
+    """A question you add by hand has to arrive scored exactly like the ones
+    the experiment selected — same retrieval row, same generation row, same
+    metric keys — or the two cannot be read side by side. The row it returns
+    is asserted against what `metrics.score_question` produces for the same
+    outcome."""
     from raglab import metrics
     client = _client(monkeypatch)
     gt_q = client.get('/api/groundtruth').json()['questions'][0]
@@ -568,8 +553,8 @@ def _wait(client, job_id: str, tries: int = 400) -> dict:
 
 
 def _outcome_for(config: dict, question: dict):
-    """The same retrieval and answer the endpoint runs, computed here so the
-    metric keys are compared against a real outcome rather than a guess."""
+    """Computed here so the metric keys are compared against a real outcome
+    rather than a guess."""
     from raglab.config import GenerationConfig, LabConfig
     cfg = LabConfig.from_dict(config)
     index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(cfg.index)
@@ -581,10 +566,9 @@ def _outcome_for(config: dict, question: dict):
 
 # The served page carries the picker's hooks.
 def test_page_offers_a_question_picker_coded_by_difficulty(monkeypatch):
-    """The old control was a bare `<select>` labelled "Question", which said
-    nothing about what picking one would do. It becomes a button that opens a
-    listbox where each row carries its difficulty as colour and reveals the
-    question, its evidence and its expected answer on hover."""
+    """A button that opens a listbox where each row carries its difficulty
+    as colour and reveals the question, its evidence and its expected answer
+    on hover."""
     client = _client(monkeypatch)
     html = client.get('/').text
     css = client.get('/inspector.css').text
@@ -602,10 +586,9 @@ def test_page_offers_a_question_picker_coded_by_difficulty(monkeypatch):
 
 # FastAPI TestClient over the read-only app.
 def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
-    """The Generation tab's '!' marks read this. Served from `explain` — the
-    lab's own source for /api/options — rather than copied into the Inspector's
-    page, so the two panels cannot end up explaining the same metric
-    differently."""
+    """Served from `explain` — the lab's own source for /api/options —
+    rather than copied into the Inspector's page, so the two panels cannot
+    end up explaining the same metric differently."""
     from raglab import explain
     client = _client(monkeypatch)
     body = client.get('/api/explain').json()
@@ -624,11 +607,9 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
 # FastAPI TestClient; the lab is a canned fake.
 def test_follow_exposes_what_the_evaluation_generated(monkeypatch, fake_lab,
                                                      request):
-    """The Generation tab needs three things per question that retrieval alone
-    cannot give: what the model wrote, how it scored, and — from the fixture,
-    not the run — the answer it should have written. The first two come from the
-    evaluation's own rows; only an evaluation has them, so a retrieval-only run
-    leaves this `None` rather than showing a stale answer beside fresh ranks."""
+    """What the model wrote and how it scored come from the evaluation's own
+    rows; only an evaluation has them, so a retrieval-only run leaves this
+    `None` rather than showing a stale answer beside fresh ranks."""
     module = request.module
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -664,23 +645,12 @@ HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
 
 # Real in-memory index with a real hierarchy.
 def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
-    """No row the build wrote may be absent from both views.
-
-    Measured 2026-08-12 on a Louvain build of the diary: the index held 174 rows
-    — 167 leaves and 7 summaries — and the chunks view returned 167. All seven
-    were invisible, because `hierarchy` gives a summary spanning more than one
-    session `session_id=''`, `LabIndex.by_session` files only chunks with a
-    truthy session id, and `chunks_by_session` iterates that map. So a build
-    reported `chunks=174` while the one screen that lists rows could account for
-    167 of them, and a reader had no way to tell a hierarchy that produced
-    nothing from one whose output was merely unshown.
-
-    The fix is a partition rather than a patch: leaves in one view, summaries in
-    the other, every row in exactly one. That also closes the quieter half of the
-    same fault — a *single*-session group keeps its session id, so it did appear,
-    mixed in among the leaves and indistinguishable from something the diarist
-    actually wrote.
-    """
+    """No row the build wrote may be absent from both views. A summary
+    spanning more than one session gets `session_id=''`, and
+    `chunks_by_session` iterates only chunks with a truthy session id — so
+    without a strict partition, a multi-session summary is invisible while a
+    single-session one leaks into the chunk view, indistinguishable from a
+    diary entry."""
     index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(HIERARCHY_INDEX)
     leaves = [c for c in index.chunks if c.layer != 'summary']
     summaries = present.summary_rows(index)
@@ -724,9 +694,9 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
 # FastAPI TestClient over the read-only app; a real in-memory hierarchical
 # build via the job runner.
 def test_chunks_job_returns_the_summaries_beside_the_chunk_groups(monkeypatch):
-    """The manual build path serves both halves in one job, so the toggle needs
-    no second request — and `total` keeps counting leaves, because it is what the
-    chunk-size knob is read against."""
+    """The manual build path serves both halves in one job, so the toggle
+    needs no second request — and `total` keeps counting leaves, since that
+    is what the chunk-size knob is read against."""
     client = _client(monkeypatch)
     acc = client.post('/api/chunks', json={
         'index': {'chunker': 'session', 'embedder': 'ascii-hash',
@@ -746,13 +716,10 @@ def test_chunks_job_returns_the_summaries_beside_the_chunk_groups(monkeypatch):
 # FastAPI TestClient; the lab is a canned fake.
 def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
                                                    request):
-    """The followed view cannot compute these itself.
-
-    It has no index — it reads what the lab's job reported — so a summary the
-    lab built is visible on :9003 only if the lab put it on the job. A job from
-    before this existed carries no such key, and that must arrive as an empty
-    list rather than an error: the Inspector's whole contract with the lab is
-    that a lab it cannot fully understand is still a lab it can display."""
+    """The followed view has no index of its own — it reads what the lab's
+    job reported — so a summary is visible on :9003 only if the lab put it
+    on the job. A job from before this existed carries no such key, and must
+    arrive as an empty list rather than an error."""
     module = request.module
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -784,9 +751,9 @@ def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
 
 # The served shell carries the toggle's hooks.
 def test_page_offers_a_chunks_and_summaries_toggle(monkeypatch):
-    """One view, two kinds of row, and a control that says the second kind
-    exists. The tab has to name summaries even when none were built — a reader
-    who cannot see the word has no reason to think the index might hold them."""
+    """The tab has to name summaries even when none were built — a reader
+    who cannot see the word has no reason to think the index might hold
+    them."""
     client = _client(monkeypatch)
     html = client.get('/').text
     css = client.get('/inspector.css').text
@@ -806,18 +773,12 @@ def test_page_offers_a_chunks_and_summaries_toggle(monkeypatch):
 # FastAPI TestClient over the read-only app; a real chunk build and a real
 # SQLite file on a temp path.
 def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
-    """The Inspector is read-only, and that has to survive the lab growing a
-    place to write.
-
-    It builds its own in-memory index for a manual look, and it does that through
-    the *lab's* job runner (`from .server import Jobs`) — so when recording every
-    finished job moved into `Jobs.run`, the Inspector silently became a second
-    writer of the lab's experiment ledger, from a second OS process. Observed on
-    2026-08-04: a `kind: chunks` row from :9003 sitting in :9002's raglab.db.
-
-    A scratch build for looking at chunks is not an experiment anybody ranks, and
-    "the Inspector writes nothing" is the property that makes it safe to point at
-    a running lab. Recording belongs to the service that owns the ledger."""
+    """It builds its own in-memory index through the *lab's* job runner
+    (`from .server import Jobs`), so when every finished job started
+    recording itself into `Jobs.run`, the Inspector risked silently becoming
+    a second writer of the lab's experiment ledger from a second OS process.
+    A scratch build for looking at chunks is not an experiment anybody
+    ranks."""
     from raglab import ledger
 
     db = tmp_path / 'raglab.db'
@@ -861,16 +822,9 @@ FAKE_OTHER_CORPUS_JOB = {
 # FastAPI TestClient; the lab is a canned fake.
 def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
                                                        request):
-    """Which corpus the lab is on is a fact about the whole page, not about one
-    window, so `/api/follow` answers it once.
-
-    Every finding this lab produces is a finding *about* a corpus, and the
-    Inspector's ground truth was loaded once at page load from the built-in
-    diary and never reloaded — so building an index over `meetings-de` left the
-    Chunks tab showing German sessions and the Ground Truth tab showing Farsi
-    diary questions, with nothing on screen admitting the two were different
-    corpora. Decided here rather than in the browser for the reason
-    `truth_for` exists at all: the field name belongs to one place."""
+    """Which corpus the lab is on is a fact about the whole page, not about
+    one window, so `/api/follow` answers it once rather than each window
+    guessing separately."""
     module = request.module
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -900,15 +854,11 @@ def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
 # It reads the browser file the way the agent-ladder test does; the
 # Inspector's page script has no module seam to import.
 def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
-    """The three things on this page that come from the fixture rather than from
-    a run — the Ground Truth tab, the ideal answer restated beside each row, and
-    the question picker — all read one map, filled by one fetch. That fetch has
-    to name the corpus, and has to happen again when the corpus changes.
-
-    The last assertion is the one that keeps the fix from breaking something
-    else: with the picker now offering another corpus's ids, a question added
-    here must be *run* against that corpus too, or every added row comes back
-    404 for an id the page itself just offered."""
+    """The Ground Truth tab, the ideal answer beside each row, and the
+    question picker all read one map filled by one fetch. That fetch has to
+    name the corpus and happen again when the corpus changes — and a
+    question added from the picker must be *run* against that same corpus,
+    or it comes back 404 for an id the page itself just offered."""
     js = _static('inspector.js')
     assert "'/api/groundtruth?dataset='" in js, \
         'the fixture is fetched without naming a corpus'
@@ -922,16 +872,10 @@ def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
         'an added question is run against a corpus the picker did not offer'
 # FastAPI TestClient over the read-only app.
 def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeypatch):
-    """The comment above `CHOSEN_CONFIG` claims it is "one source for the
-    endpoint tests and the frontend so the two cannot drift". Until this route
-    existed that was false: `inspector.js` opened with a byte-identical copy of
-    the same pipeline in a different language, and nothing connected the two.
-    The frontend reads its fallback config from here instead.
-
-    The option lists ride along, reused from `config.py` rather than retyped, for
-    the reason `/api/explain` serves the metric help rather than the page
-    carrying it: a list written twice is a list whose two readers eventually
-    offer different pipelines."""
+    """The frontend reads its fallback config from here rather than keeping
+    its own copy. The option lists ride along, reused from `config.py`
+    rather than retyped — a list written twice is a list whose two readers
+    eventually offer different pipelines."""
     from raglab import config as lab_config
 
     client = _client(monkeypatch)
@@ -955,17 +899,11 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
 
 # The served asset keeps no config of its own.
 def test_inspector_js_keeps_no_config_literal_of_its_own(monkeypatch):
-    """The duplication itself, pinned. `inspector.js` used to open with a
-    `CHOSEN` literal naming the whole pipeline — the same six values as
-    `CHOSEN_CONFIG`, maintained by hand in a second language. They agreed on
-    2026-08-05 by luck, and the day one moved, the Inspector would have labelled
-    its rows with a pipeline it had not run: the one artefact this lab must never
-    produce.
-
-    Asserted on the *values*, not on the name, so renaming the literal cannot
-    smuggle it back. `hybrid-rrf` is deliberately not among them — it also
-    appears in a comment showing what the active-config line reads like, and a
-    guard that forbids describing the code is a guard nobody keeps."""
+    """Asserted on the *values*, not on a literal's name, so renaming a
+    hand-maintained copy of the pipeline cannot smuggle it back in.
+    `hybrid-rrf` is deliberately not among them — it also appears in a
+    comment describing the active-config line, and a guard that forbids
+    describing the code is a guard nobody keeps."""
     client = _client(monkeypatch)
     js = client.get('/inspector.js').text
 

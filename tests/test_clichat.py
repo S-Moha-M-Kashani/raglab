@@ -20,9 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SYSTEM = 'You score how useful each numbered excerpt is. Reply "<n>: <0-10>".'
 BODY = 'Question: What did I eat?\n\n[1] I had rice for lunch today.'
 
-# Recorded from a real call on 2026-08-12 (see the design doc). Kept verbatim
-# rather than minimised: the fields this lab reads are the fields it must keep
-# reading when the CLI's envelope grows others.
+# Kept verbatim rather than minimised: the fields this lab reads are the
+# fields it must keep reading when the CLI's envelope grows others.
 CLAUDE_ENVELOPE = json.dumps({
     'is_error': False, 'subtype': 'success', 'num_turns': 1,
     'stop_reason': 'end_turn', 'total_cost_usd': 0.001672,
@@ -85,13 +84,9 @@ def reply(monkeypatch, cli, **kwargs):
 
 
 def test_a_claude_call_is_driven_as_a_completion_endpoint_not_an_agent(monkeypatch):
-    """The whole reason this backend is trustworthy. `--system-prompt` replaces
-    Claude Code's agent prompt, so the stage's own prompt is the only
-    instruction; `--tools ""` means a judge cannot go and read `.runs/` instead
-    of the context it was handed; and the empty cwd with no setting sources
-    keeps this repository's CLAUDE.md — two hundred lines about which candidate
-    won — out of a judge's prompt.
-    """
+    """`--system-prompt` replaces Claude Code's agent prompt so the stage's own
+    prompt is the only instruction; `--tools ""` means a judge cannot go read
+    `.runs/` instead of the context it was handed."""
     _, recorder = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
     argv = recorder.argv
     assert argv[0] == 'claude' and '-p' in argv
@@ -111,10 +106,9 @@ def test_a_claude_call_is_driven_as_a_completion_endpoint_not_an_agent(monkeypat
 
 
 def test_the_cli_runs_in_an_empty_directory_outside_this_repository(monkeypatch):
-    """Both CLIs discover instruction files from the working directory. Pointed
-    at the lab, a judge would read the repository's own account of which
-    candidate won; pointed at a directory holding the previous call's leftovers,
-    call N could read call N-1. So it is a fresh empty directory each time."""
+    """Both CLIs discover instruction files from the working directory —
+    pointed at a directory holding the previous call's leftovers, call N
+    could read call N-1."""
     for cli, stdout in (('claude', CLAUDE_ENVELOPE), ('codex', CODEX_EVENTS)):
         _, recorder = reply(monkeypatch, cli, stdout=stdout)
         call = recorder.calls[0]
@@ -123,13 +117,11 @@ def test_the_cli_runs_in_an_empty_directory_outside_this_repository(monkeypatch)
 
 
 def test_a_call_sees_an_allowlisted_environment_and_not_this_shell(monkeypatch):
-    """The flags scrub settings files, user config, rules, cwd and tools — and
-    none of them touches the environment, which is where both CLIs also read
-    their configuration. `ANTHROPIC_BASE_URL` sends the call to another gateway
-    and `ANTHROPIC_DEFAULT_SONNET_MODEL` remaps the alias the row is labelled
-    with, so a row saying `sonnet` would name a model that never answered. An
-    allowlist rather than a denylist, because a denylist goes out of date every
-    time either CLI ships a variable and does it silently."""
+    """The flags scrub settings, config, rules, cwd and tools, but none of
+    them touch the environment, which both CLIs also read configuration from
+    — `ANTHROPIC_DEFAULT_SONNET_MODEL` could remap the alias a row is
+    labelled with. An allowlist rather than a denylist, since a denylist goes
+    stale the moment either CLI ships a new variable."""
     monkeypatch.setenv('ANTHROPIC_BASE_URL', 'https://elsewhere.example')
     monkeypatch.setenv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'some-other-model')
     monkeypatch.setenv('CLAUDE_CODE_MAX_OUTPUT_TOKENS', '32')
@@ -150,10 +142,9 @@ def test_a_call_sees_an_allowlisted_environment_and_not_this_shell(monkeypatch):
 
 def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypatch):
     """`text=True` decodes with the preferred locale encoding, which under a
-    C/POSIX locale is ASCII — so a correct Farsi answer would raise, and under a
-    latin-1 locale it would not raise at all and RAGAS would score mojibake with
-    confidence. Every other backend has UTF-8 fixed for it by HTTP+JSON; this is
-    the one whose transport is bytes on a pipe."""
+    C/POSIX locale is ASCII — a correct Farsi answer would raise there.
+    Every other backend gets UTF-8 fixed by HTTP+JSON; this one's transport
+    is bytes on a pipe."""
     farsi = 'دیروز برنج خوردم'
     stdout = json.dumps({'is_error': False, 'usage': {}, 'result': farsi})
     message, recorder = reply(monkeypatch, 'claude', stdout=stdout)
@@ -166,21 +157,18 @@ def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypat
 
 
 def test_undecodable_bytes_are_a_named_failure_and_not_a_bare_one(monkeypatch):
-    """A UnicodeDecodeError raised inside `subprocess.run` used to escape `_run`
-    as neither a reply nor a CliError, so the one contract this module has —
-    every failure is a CliError saying how — had a hole in it exactly where a
-    Farsi corpus would find it."""
+    """The one contract this module has is that every failure is a CliError
+    saying how — a decode error escaping that as neither reply nor CliError
+    is exactly the hole a Farsi corpus would find."""
     boom = UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'invalid start byte')
     with pytest.raises(clichat.CliError, match='not UTF-8'):
         reply(monkeypatch, 'claude', boom=boom)
 
 
 def test_a_codex_call_carries_its_instructions_in_the_prompt(monkeypatch):
-    """Codex has no flag that replaces its system prompt, so the stage's text is
-    prepended to the prompt body instead — the one place the two rows of CLIS
-    differ in kind rather than in spelling. `--ignore-user-config` is what makes
-    the call reproducible: this machine's config.toml asked for high reasoning
-    effort, which was the whole of the 17.6s-to-8.2s difference."""
+    """Codex has no flag that replaces its system prompt, so the stage's text
+    is prepended to the prompt body instead. `--ignore-user-config` is what
+    makes the call reproducible against this machine's own config.toml."""
     _, recorder = reply(monkeypatch, 'codex', stdout=CODEX_EVENTS)
     argv = recorder.argv
     assert argv[:2] == ['codex', 'exec'] and '--json' in argv
@@ -195,10 +183,8 @@ def test_a_codex_call_carries_its_instructions_in_the_prompt(monkeypatch):
 
 
 def test_a_recorded_claude_envelope_parses_to_its_text_and_its_usage(monkeypatch):
-    """The reply the lab uses is the envelope's `result`, byte-exact, because
-    the stage that asked for it parses it with a regex written for the other
-    backends. Usage is carried too: a backend reporting none would leave the
-    token-and-cost path unexercised, which is half of why FakeChat exists."""
+    """The reply is the envelope's `result`, byte-exact, since the stage that
+    asked for it parses it with a regex written for the other backends."""
     message, _ = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
     assert message.content == '1: 8\n2: 0\n3: 8'
     assert message.usage_metadata['input_tokens'] == 369
@@ -207,10 +193,9 @@ def test_a_recorded_claude_envelope_parses_to_its_text_and_its_usage(monkeypatch
 
 
 def test_a_recorded_codex_stream_parses_to_its_last_message_and_its_usage(monkeypatch):
-    """Codex answers as a JSONL event stream, so the reply is the last
-    agent_message and the usage is the turn.completed event. Reading the *last*
-    one matters: a turn that says anything before its answer would otherwise be
-    scored instead of the answer."""
+    """Codex answers as a JSONL event stream; reading the *last*
+    agent_message matters because a turn can say something before its
+    answer."""
     message, _ = reply(monkeypatch, 'codex', stdout=CODEX_EVENTS)
     assert message.content == '1: 10\n2: 0\n3: 10'
     assert message.usage_metadata['input_tokens'] == 18513
@@ -219,10 +204,8 @@ def test_a_recorded_codex_stream_parses_to_its_last_message_and_its_usage(monkey
 
 def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(monkeypatch):
     """A chat-tuned CLI fences a block of scores out of habit; that is a
-    property of the transport, not a different measurement, so it is undone. A
-    reply that merely *contains* a fence is left byte-exact — cleaning that up
-    per backend is how a row measured on claude stops being comparable with a
-    row measured on ollama."""
+    property of the transport, not a different measurement, so it is undone.
+    A reply that merely *contains* a fence is left byte-exact."""
     fenced = json.dumps({'is_error': False, 'usage': {},
                          'result': '```\n1: 8\n2: 0\n```'})
     message, _ = reply(monkeypatch, 'claude', stdout=fenced)
@@ -238,10 +221,8 @@ def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(mon
     message, _ = reply(monkeypatch, 'claude', stdout=prose)
     assert message.content == 'scores:\n```\n1: 8\n```\nand that is all'
 
-    # A reply that opens and closes with a fence but holds one *inside* is not
-    # one fenced block, however much it looks like one to an anchored regex —
-    # unwrapping it would hand the stage a stray fence line in the middle of the
-    # scores and leave nothing on the row saying the text had been edited.
+    # Opens and closes with a fence but holds one *inside*: not one fenced
+    # block, however much it looks like one to an anchored regex.
     nested = json.dumps({'is_error': False, 'usage': {},
                          'result': '```\n1: 8\n```\nand\n```\n2: 0\n```'})
     message, _ = reply(monkeypatch, 'claude', stdout=nested)
@@ -249,29 +230,22 @@ def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(mon
 
 
 def test_a_reply_cut_off_at_the_output_limit_is_refused_not_scored(monkeypatch):
-    """A truncated reply parses exactly like a complete one, and a grade list of
-    eight that stops at four leaves `llm_scores` reading the four it never
-    reached as "no opinion" and scoring them 0.5 — which clears the gate's 0.4
-    threshold. Same argument as the empty reply, with the reply half-arrived.
-    Only `max_tokens` is refused: a stop reason a later version ships is not a
-    truncation, and this guard refuses what it has verified."""
+    """A truncated reply parses exactly like a complete one, silently scoring
+    the unreached part as "no opinion". Only `max_tokens` is refused: a stop
+    reason a later version ships is not a known truncation."""
     cut = json.dumps({'is_error': False, 'stop_reason': 'max_tokens',
                       'usage': {'input_tokens': 369, 'output_tokens': 4},
                       'result': '1: 8\n2: 0'})
     with pytest.raises(clichat.CliError, match='output limit'):
         reply(monkeypatch, 'claude', stdout=cut)
-    # And the ordinary end is still ordinary — CLAUDE_ENVELOPE carries
-    # stop_reason='end_turn', which every other test here relies on.
     message, _ = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
     assert message.content == '1: 8\n2: 0\n3: 8'
 
 
 def test_an_empty_reply_raises_instead_of_reaching_a_tolerant_parser(monkeypatch):
-    """Measured, not imagined: `model_reasoning_effort="minimal"` exits 0 and
-    says nothing. `retrieval.llm_scores` reads an unparsed line as "no opinion"
-    and scores it 0.5, which clears the gate's 0.4 threshold — so a silent empty
-    reply is a `grader='llm'` row that was measured ungated, and no field on it
-    would say so."""
+    """`model_reasoning_effort="minimal"` exits 0 and says nothing; a
+    tolerant parser would read that silence as "no opinion" rather than as
+    a call that never really answered."""
     empty = json.dumps({'is_error': False, 'usage': {}, 'result': ''})
     with pytest.raises(clichat.CliError, match='no text'):
         reply(monkeypatch, 'claude', stdout=empty)
@@ -281,9 +255,9 @@ def test_an_empty_reply_raises_instead_of_reaching_a_tolerant_parser(monkeypatch
 
 
 def test_a_failed_call_raises_and_says_which_command_failed(monkeypatch):
-    """Three failures, one rule: the lab would rather stop than score. A backend
-    that swallowed these would produce numbers indistinguishable from a
-    measurement — the fault `llm_scores` was fixed for on 2026-08-02."""
+    """Three failures, one rule: the lab would rather stop than score. A
+    backend that swallowed these would produce numbers indistinguishable
+    from a real measurement."""
     with pytest.raises(clichat.CliError, match='exited 1'):
         reply(monkeypatch, 'claude', stdout='', returncode=1, stderr='nope')
     errored = json.dumps({'is_error': True, 'result': 'Credit balance too low'})
@@ -305,9 +279,8 @@ def test_a_missing_command_and_a_timeout_are_named_rather_than_bare(monkeypatch)
 
 
 def test_a_per_role_model_is_forwarded_per_call(monkeypatch):
-    """The lab's convention: one client serves every stage and a named model
-    rides on the request (models.ROLES). For a subprocess that means the argv,
-    so a run whose reranker and judge differ must produce two different argv."""
+    """One client serves every stage and a named model rides on the request
+    (models.ROLES); for a subprocess that means the argv."""
     recorder = Recorder(stdout=CLAUDE_ENVELOPE)
     monkeypatch.setattr(clichat.subprocess, 'run', recorder)
     model = clichat.CliChat(cli='claude', model='sonnet')
@@ -316,10 +289,9 @@ def test_a_per_role_model_is_forwarded_per_call(monkeypatch):
 
 
 def test_an_effort_the_cli_does_not_accept_is_refused_before_any_call():
-    """The two CLIs accept different values — claude takes 'xhigh', codex takes
-    'none' — and codex answers an unaccepted one with exit 0 and no text. So the
-    check happens here, naming what the CLI does accept, rather than becoming a
-    stage that scored everything 0.5."""
+    """The two CLIs accept different values — claude takes 'xhigh', codex
+    takes 'none' — and codex answers an unaccepted one with exit 0 and no
+    text, so the check must happen before the call."""
     assert clichat.checked_effort('claude', 'low') == 'low'
     assert clichat.checked_effort('codex', 'none') == 'none'
     with pytest.raises(ValueError, match='xhigh'):
@@ -329,9 +301,8 @@ def test_an_effort_the_cli_does_not_accept_is_refused_before_any_call():
 
 
 def test_availability_is_the_binary_because_there_is_nothing_else_to_ask(monkeypatch):
-    """An Ollama tag can be checked against /api/tags. A CLI alias cannot be
-    checked at all without paying for a call, so the fact this lab verifies is
-    the one it can: whether the command is on this machine."""
+    """A CLI alias cannot be checked without paying for a call, so this
+    verifies the one thing it can: whether the command is on this machine."""
     monkeypatch.setattr(clichat.shutil, 'which',
                         lambda name: '/usr/bin/claude' if name == 'claude' else None)
     assert clichat.cli_available('claude') is True

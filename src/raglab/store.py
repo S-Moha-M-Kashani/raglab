@@ -1,39 +1,12 @@
-"""The lab's vector store: process memory, and nothing else.
-
-An experiment's *material* is not a record. Its chunks, vectors, retrieved
-contexts and generated answers exist to produce one number and then stop being
-interesting, so they live for the process and are discarded with it. What is
-written down is the account of the run — the JSON file `evaluate.save_run`
-writes, and the row `ledger.py` records in `raglab.db` — never the vectors it
-ran over.
-
-That is why this module exists rather than a Chroma client. A database would
-survive a restart, which sounds like a saving and is actually a liability: a
-sweep drops and rebuilds an index dozens of times, an interrupted build leaves
-rows the current config never produced, and the cheapest way for a stale
-collection to be found is to still be there. Brute-force cosine over a few
-thousand chunks is also simply faster than HNSW behind an HTTP round-trip at
-this corpus size.
-
-**The return shapes are Chroma's on purpose** — `{'ids': [[…]], 'distances':
-[[…]]}`, one row per query vector, cosine *distance* rather than similarity.
-`LabIndex.dense` turns a distance into a score with `1 - d`, so keeping the
-contract identical means swapping the store cannot move a measured number. The
-awkward nesting is the price of that, and it is worth paying once.
-
-Filters use Chroma's operator dicts, because `query.where_clause` builds them
-and its overlap semantics are load-bearing. Two rules are copied deliberately:
-an absent metadata key never satisfies a filter (which is why
-`Chunk.metadata()` carries every field on every chunk), and an operator this
-module does not implement *raises* instead of being ignored — a filter that
-silently does nothing turns a retrieval bug into a scoring one.
+"""The lab's vector store: process memory only, discarded when the process ends.
+Return shapes mimic Chroma's (nested rows, cosine *distance*) so `LabIndex.dense`'s `1 - d` keeps meaning what it meant.
+Filters use Chroma's operator dicts; an absent key never matches, and an unknown operator raises rather than being ignored.
 """
 import numpy as np
 
 
 def _compare(value, wanted, test) -> bool:
-    """Order comparisons on metadata that may hold anything. A string date
-    against an int scope is a filter that cannot hold, not a crash."""
+    """Order comparisons on metadata of unknown type: a type mismatch is a filter that cannot hold, not a crash."""
     try:
         return bool(test(value, wanted))
     except TypeError:
@@ -53,8 +26,7 @@ OPERATORS = {
 
 
 def matches(metadata: dict, where: dict | None) -> bool:
-    """Whether one record satisfies a Chroma-style filter. No clause means
-    every record, which is how an unscoped question searches everything."""
+    """Whether one record satisfies a Chroma-style filter; no clause means every record."""
     if not where:
         return True
     for key, condition in where.items():
@@ -87,17 +59,14 @@ def _holds(metadata: dict, key: str, condition) -> bool:
 
 
 def _unit(vectors: np.ndarray) -> np.ndarray:
-    """Row-normalised, because cosine is only cosine on unit vectors. A
-    zero row stays zero rather than becoming NaN: `ascii-hash` embeds Farsi to
-    the zero vector, and that has to score badly, not crash the run."""
+    """Row-normalised; a zero row stays zero rather than becoming NaN, since
+    `ascii-hash` embeds Farsi to the zero vector and that must score badly, not crash."""
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     return vectors / np.where(norms == 0, 1.0, norms)
 
 
 class MemoryVectors:
-    """One named, in-process index. `name` is only a label — it comes from
-    `IndexConfig.collection()` so a run and the panel can say which
-    configuration produced the numbers."""
+    """One named, in-process index; `name` comes from `IndexConfig.collection()`."""
 
     def __init__(self, name: str = ''):
         self.name = name
@@ -113,8 +82,7 @@ class MemoryVectors:
 
     def upsert(self, ids: list[str], documents: list[str], embeddings,
                metadatas: list[dict] | None = None) -> None:
-        """Add or replace by id. Chunk ids are deterministic, so a rebuild
-        writes the same ids again and must overwrite rather than duplicate."""
+        """Add or replace by id: deterministic chunk ids mean a rebuild must overwrite rather than duplicate."""
         metadatas = metadatas if metadatas is not None else [{}] * len(ids)
         for chunk_id, document, vector, metadata in zip(ids, documents,
                                                         embeddings, metadatas):
@@ -134,8 +102,7 @@ class MemoryVectors:
 
     def query(self, query_embeddings, n_results: int = 8,
               where: dict | None = None) -> dict:
-        """Nearest records per query vector. One row per vector, so multi-query
-        expansion gets a result per variant to merge."""
+        """Nearest records per query vector; one output row per vector, so multi-query expansion can merge results."""
         queries = _unit(np.atleast_2d(np.asarray(query_embeddings,
                                                  dtype=np.float32)))
         kept = [i for i, metadata in enumerate(self.metadatas)
@@ -150,8 +117,7 @@ class MemoryVectors:
                     out[key].append([])
                 continue
             similarities = matrix @ vector
-            # Stable, so an embedder that scores everything identically — the
-            # zero-vector baseline — still returns the same order every run.
+            # Stable, so the zero-vector baseline (everything scores identically) still returns the same order every run.
             order = np.argsort(-similarities, kind='stable')[:take]
             rows = [kept[int(i)] for i in order]
             out['ids'].append([self.ids[r] for r in rows])
@@ -163,9 +129,8 @@ class MemoryVectors:
         return out
 
     def get(self, ids: list[str], include=('embeddings',)) -> dict:
-        """The records named, in the order named, silently skipping ids this
-        store does not hold — Chroma's behaviour, and the caller pairs ids with
-        vectors by position, so a placeholder row would be a wrong vector."""
+        """The records named, in order, silently skipping ids not held
+        (Chroma's behaviour) — the caller pairs ids with vectors by position."""
         out: dict[str, list] = {'ids': [], 'documents': [], 'metadatas': []}
         if 'embeddings' in include:
             out['embeddings'] = []
@@ -181,8 +146,7 @@ class MemoryVectors:
         return out
 
     def drop(self) -> None:
-        """Forget everything. Kept because the panel's rebuild path had it; with
-        no database behind this, letting the object go achieves the same."""
+        """Forgets everything; kept for the panel's rebuild path, though letting the object go would do the same."""
         self.__init__(self.name)
 
     def _unit_matrix(self) -> np.ndarray:

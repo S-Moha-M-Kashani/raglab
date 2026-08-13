@@ -1,35 +1,6 @@
-"""The scoped RAG agent: a bounded LangGraph loop around the measured stages.
-
-The point of this module is not that the lab can run an agent — it is that a row
-can say *which stage* the loop paid off in. `AgentConfig.scope` hands exactly one
-stage to the graph (`retrieve`, `generate`, or `full` for both), so the four
-values are a 2x2 rather than four unrelated candidates. See
-docs/plans/2026-08-13-rag-agent-design.md for the table and why `full` is only
-interpretable beside the two middle rows.
-
-Three properties are load bearing, and each one is a test:
-
-**The loop goes around the pipeline, never past it.** Every hop calls
-`pipeline.retrieve` with the run's own `RetrievalConfig`, so all twenty-odd
-retrieval knobs still apply on every hop. An agent with its own retrieval would
-be a second pipeline nobody has swept, and its row would be incomparable with
-every row already in `.runs/`.
-
-**An unreadable verdict is read in the direction that costs work.** An
-unparsable sufficiency verdict means *insufficient* and an unparsable
-groundedness verdict means *not grounded* — never a value that clears a
-threshold. This is the 2026-08-02 gate fault stated as a rule: there, an
-unreachable model scored 0.5 against a 0.4 bar, so `grader='llm'` became a no-op
-that no field on the row contradicted. A loop that "succeeds" because its judge
-is broken is the same artefact.
-
-**The loop returns its best hop, not its last.** A rewrite can make things
-worse, and evidence already found must not be spent on finding out. `best`
-tracks the highest sufficiency verdict seen, earlier hops winning ties.
-
-Nothing here persists: no checkpointer, no thread id, no LangSmith. The lab's
-account of a run is `.runs/`, the ledger and the Inspector's trace, and an agent
-must not become the first thing that reports somewhere else.
+"""The scoped RAG agent: a bounded LangGraph loop around the pipeline's own
+stages. `AgentConfig.scope` picks retrieve/generate/full; the loop always calls
+`pipeline.retrieve` with the run's own `RetrievalConfig`, never its own retrieval.
 """
 import re
 import time
@@ -42,20 +13,12 @@ from .models import Roles
 
 EXTRA = 'uv sync --extra agent'
 
-# What a critic verdict has to clear. A constant rather than a seventh knob: the
-# critic answers a yes/no question ("is every claim supported?"), so a dial on it
-# would be a second control doing `critic`'s job — and the knob that decides how
-# hard the *retrieval* loop tries already exists as `evidence_threshold`.
+# A constant, not a knob: the critic answers a yes/no question, and the "how hard should it try" knob already exists as `evidence_threshold`.
 CRITIC_BAR = 0.5
 
 
 def agent_available() -> bool:
-    """Whether a scope can actually run *here*.
-
-    Verified by import rather than read off a list, for the reason
-    `hierarchy_available` is: NA has to keep meaning one thing — this
-    installation cannot load it.
-    """
+    """Verified by import, not read off a list, so NA means one thing: this installation cannot load it."""
     try:
         import langgraph                                    # noqa: F401
         from langgraph.graph import StateGraph              # noqa: F401
@@ -65,9 +28,7 @@ def agent_available() -> bool:
 
 
 def available() -> dict:
-    """Every scope → whether this installation can run it, and what to install
-    when it cannot. Served to the panel, so it never offers what the lab
-    refuses."""
+    """Every scope → whether this installation can run it, and what to install if not."""
     from .config import SCOPES
     ready = agent_available()
     return {scope: {'available': True if not scope else ready,
@@ -92,15 +53,9 @@ _NUMBER = re.compile(r'^\s*(?:score|verdict|rating)?\s*[:=]?\s*'
 
 
 def verdict(text: str) -> float | None:
-    """A model's verdict in [0,1], or None when it did not give one.
-
-    `None` is not a failure to be papered over — it is the honest reading of
-    prose, an echo, or an empty reply, and every caller here turns it into the
-    conservative outcome rather than a number. `retrieval.llm_scores` maps an
-    unparsed line to 0.5 because there it means "no opinion about this one
-    document among ten"; a single verdict that decides whether the loop stops
-    cannot be split that way.
-    """
+    """A model's verdict in [0,1], or None when it gave none. Unlike
+    `retrieval.llm_scores`'s 0.5, never defaulted to a number: a single verdict
+    deciding whether the loop stops cannot be split that way."""
     if not text:
         return None
     head = text.strip().lower()
@@ -123,17 +78,13 @@ def verdict(text: str) -> float | None:
 # --- the one model seam ----------------------------------------------------
 
 class _Exhausted(Exception):
-    """The per-question call ceiling was reached. Not an error: a bound doing
-    its job, reported as `agent_stop='call-cap'`."""
+    """The per-question call ceiling was reached; reported as `agent_stop='call-cap'`."""
 
 
 def _ask(llm, model: str, node: str, system: str, user: str) -> str:
-    """Every model call the agent makes goes through here.
-
-    One seam, so the call ceiling cannot be bypassed by a node added later, and
-    so a test can answer per node without knowing a prompt's wording. `node` is
-    unused in the call itself and present for exactly that reason.
-    """
+    """Every model call routes through here, so the ceiling cannot be bypassed
+    by a node added later. `node` is otherwise unused, kept so a test can
+    identify the call site without parsing prompt text."""
     turn = lab_chat(llm, [{'role': 'system', 'content': system},
                           {'role': 'user', 'content': user}], model)
     return (turn.content or '').strip()
@@ -164,16 +115,8 @@ COMPLETENESS_PROMPT = (
 
 
 def _contexts_block(outcome) -> str:
-    """Exactly what the answerer is handed — `pipeline.context_blocks`.
-
-    Every node that reads evidence reads the same text. A critic judging
-    groundedness against a truncated context returns a *wrong* verdict rather
-    than a cheap one, and a draft node holding less evidence than the fixed
-    answerer would make the `generate` scope partly a measurement of truncation.
-    This module cut contexts to 700 and 900 characters until 2026-08-13, which is
-    what one real hop on the `claude` backend caught — the reasoning is written
-    out at `pipeline.context_blocks`.
-    """
+    """Exactly what the answerer is handed (`pipeline.context_blocks`), so every
+    node judges the same text rather than a truncated view."""
     if outcome is None or not outcome.contexts:
         return '(nothing retrieved)'
     return pipeline.context_blocks(outcome)
@@ -185,8 +128,7 @@ class State(TypedDict, total=False):
     question: str
     query: str
     plan: str
-    # The last hop's Outcome. Declared, because LangGraph reads this class to
-    # know its channels and refuses an update naming a key it has never heard of.
+    # LangGraph reads this class to know its channels; an update naming an undeclared key is refused.
     last: Any
     hops: int
     rewrites: int
@@ -201,13 +143,9 @@ class State(TypedDict, total=False):
 
 def _shape(cfg: AgentConfig) -> tuple[tuple[str, ...],
                                       tuple[tuple[str, str], ...]]:
-    """This scope's nodes and edges — including the conditional targets.
-
-    Returned as data so `graph_nodes` / `graph_edges`, the panel's help text and
-    the compiled graph cannot disagree about what a scope does. The edge
-    `('critique', 'retrieve')` exists under exactly one scope, which is the
-    entire reason `full` is worth running.
-    """
+    """This scope's nodes and edges, returned as data so `graph_nodes` /
+    `graph_edges` and the compiled graph cannot disagree. Only `full` carries
+    the edge `('critique', 'retrieve')`."""
     nodes: list[str] = []
     edges: list[tuple[str, str]] = []
     if owns_retrieval(cfg.scope):
@@ -226,9 +164,7 @@ def _shape(cfg: AgentConfig) -> tuple[tuple[str, ...],
             nodes.append('critique')
             edges += [('draft', 'critique'), ('critique', 'draft')]
             if owns_retrieval(cfg.scope):
-                # The interaction term: only `full` can answer a bad critique by
-                # going back for different evidence rather than rewording the
-                # same claim.
+                # The interaction term: only `full` can answer a bad critique with different evidence rather than rewording.
                 edges.append(('critique', 'retrieve'))
     return tuple(nodes), tuple(edges)
 
@@ -242,14 +178,9 @@ def graph_edges(cfg: AgentConfig) -> tuple[tuple[str, str], ...]:
 
 
 def _guard(fn):
-    """Every node, wrapped: a stop already set is honoured, the call ceiling is a
-    stop rather than a crash, and an unreachable model ends the loop with its
-    reason on the row instead of taking the run down.
-
-    The alternative — letting the exception out of `graph.invoke` — loses the
-    counters, and "refused after two hops" and "refused because the model was
-    unreachable" are exactly the two readings this feature exists to separate.
-    """
+    """Wraps every node: an existing stop is honoured, the call ceiling ends
+    the loop rather than crashing it, and an unreachable model's reason lands
+    on `state['stop']` instead of taking the run down."""
     def wrapped(state: State) -> dict:
         if state.get('stop'):
             return {}
@@ -266,13 +197,9 @@ def _guard(fn):
 
 def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
         models: Roles | None = None, trace: dict | None = None):
-    """One question through the scoped loop, returning the same `Outcome` the
-    fixed pipeline returns.
-
-    The same shape deliberately: scoring, RAGAS, the ledger and the Inspector
-    then need no second idea of what a result is, and an agent row is comparable
-    with a pipeline row on every metric the lab already computes.
-    """
+    """One question through the scoped loop, returning the same `Outcome`
+    shape the fixed pipeline returns, so an agent row is comparable with a
+    pipeline row on every metric the lab already computes."""
     agent_cfg = cfg.agent
     if not agent_cfg.scope:
         raise ValueError(
@@ -283,9 +210,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
     started = time.perf_counter()
     visits: list[dict] = []
     hop_traces: dict[int, dict] = {}
-    # The best hop seen, and its verdict. A later hop only wins on a strictly
-    # higher verdict, so a rewrite that made things worse cannot spend the
-    # evidence an earlier hop already found.
+    # A later hop wins only on a strictly higher verdict, so a bad rewrite cannot spend evidence already found.
     best: dict[str, Any] = {'outcome': None, 'verdict': -1.0, 'hop': 0}
 
     def note(node: str, hop: int, detail: str = '') -> None:
@@ -328,8 +253,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
         score = verdict(text)
         note('assess', state.get('hops', 0),
              f'{"unparsed" if score is None else round(score, 2)}')
-        # Unparsed means insufficient: keep looking. Never a number that clears
-        # the threshold — see the module docstring.
+        # Unparsed means insufficient — never a value that clears the threshold.
         if score is not None and score > best['verdict']:
             best.update(outcome=outcome, verdict=score, hop=state.get('hops', 0))
         return spent | {
@@ -343,8 +267,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
                           f'Already tried: {state["query"]}\n'
                           f'Still missing: {state.get("plan", "")}')
         note('rewrite', state.get('hops', 0), text)
-        # A model that returns nothing usable leaves the query alone rather than
-        # searching for an empty string.
+        # An empty reply leaves the query alone rather than searching for nothing.
         return spent | {'query': text or state['query'],
                         'rewrites': state.get('rewrites', 0) + 1}
 
@@ -394,9 +317,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
         if state.get('sufficient'):
             return 'draft' if owns_generation(agent_cfg.scope) else END
         if state.get('hops', 0) >= agent_cfg.max_hops:
-            # Out of hops. Under a generation scope the drafting still happens —
-            # with the best evidence found — and the row says the cap ended the
-            # search rather than a verdict.
+            # Out of hops: still draft (with the best evidence found) under a generation scope.
             return 'draft' if owns_generation(agent_cfg.scope) else END
         return 'rewrite' if agent_cfg.rewrite else 'retrieve'
 
@@ -412,8 +333,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
             return END
         if state.get('revisions', 0) >= agent_cfg.max_revisions:
             return END
-        # `full` alone may answer a bad critique with different evidence; every
-        # other scope can only redraft from what it has.
+        # Only `full` may answer a bad critique with different evidence; every other scope can only redraft.
         if (owns_retrieval(agent_cfg.scope)
                 and state.get('hops', 0) < agent_cfg.max_hops):
             return 'retrieve'
@@ -450,9 +370,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
                 after.append('retrieve')
             graph.add_conditional_edges('critique', after_critique, after)
 
-    # A scope that does not own retrieval retrieves exactly once, before the
-    # graph runs: that is what "retrieval held fixed" means, and it keeps the
-    # generation row's evidence identical to candidate F's.
+    # A scope without retrieval retrieves exactly once, before the graph runs.
     initial: State = {'question': question, 'query': question, 'hops': 0,
                       'rewrites': 0, 'revisions': 0, 'calls': 0, 'unparsed': 0}
     if not owns_retrieval(agent_cfg.scope):
@@ -466,22 +384,17 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
         note('retrieve', 1, f'{len(outcome.contexts)} contexts (fixed retrieval)')
 
     if best['outcome'] is not None and not best['outcome'].contexts:
-        # Nothing to draft from and nothing to critique. Refusing here is the
-        # pipeline's own rule (`pipeline.answer` on an abstained outcome), and it
-        # keeps the row honest: `abstained`, not a critique of an empty context.
+        # Nothing to draft or critique from — the same rule pipeline.answer applies to an abstained outcome.
         final: State = dict(initial) | {'stop': 'abstained'}
     else:
-        # The recursion limit is derived from the caps rather than left at
-        # LangGraph's default 25: a lab knob that silently hit a framework
-        # ceiling would report `hop-cap` for a limit nobody configured.
+        # Derived from the caps, not LangGraph's default 25, so a hit ceiling reports a cap the config actually set.
         rounds = 4 * (agent_cfg.max_hops + agent_cfg.max_revisions) + 10
         final = dict(graph.compile().invoke(
             initial, config={'recursion_limit': rounds}))
 
     outcome = best['outcome']
     if outcome is None:
-        # The loop died before it retrieved anything (an unreachable model on the
-        # planning call). An empty Outcome, so the caller still gets one shape.
+        # The loop died before retrieving anything; an empty Outcome so the caller still gets one shape.
         outcome = pipeline.Outcome(question=question, contexts=[],
                                    abstained=True)
     stop = final.get('stop') or _terminal(agent_cfg, final)
@@ -494,8 +407,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
             if pipeline.reads_as_refusal(outcome.answer, 'llm'):
                 outcome.abstained = True
     else:
-        # The fixed answerer, exactly as an unagented run would call it: this
-        # scope owns retrieval only, so generation must stay comparable.
+        # The fixed answerer, exactly as an unagented run would call it — this scope owns retrieval only.
         if stop == 'error':
             outcome.answer = pipeline.REFUSAL
             outcome.abstained = True
@@ -511,10 +423,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
         'agent_unparsed': final.get('unparsed', 0),
         'agent_stop': stop}
     if final.get('error'):
-        # Why the agent gave up, when it gave up because it could not reach its
-        # model. Same argument as `answer_error` one stage down: without it, a
-        # CliError and "the diary is silent" are the same row, and RAGAS judges
-        # both with confident, low faithfulness.
+        # Names why the agent gave up when it could not reach its model, so that and a genuine refusal aren't the same row.
         outcome.diagnostics['agent_error'] = final['error']
     outcome.timings = dict(outcome.timings) | {
         'agent_ms': round((time.perf_counter() - started) * 1000, 1)}
@@ -527,14 +436,8 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
 
 
 def note_for(cfg: AgentConfig) -> str:
-    """One line describing the loop, for a run's notes.
-
-    The caps are named, not only the scope, for the reason `models.note_for`
-    names the CLI effort: they move the numbers while leaving the label
-    identical, so two rows differing only in `max_hops` would be ranked as a
-    comparable pair. The config dict on the row carries the values; this is what
-    a reader sees without opening it.
-    """
+    """One line describing the loop for a run's notes. Caps are named, not just
+    the scope, since they move the numbers while leaving the label identical."""
     parts = [f'agent scope={cfg.scope}']
     if owns_retrieval(cfg.scope):
         parts.append(f'max_hops={cfg.max_hops}')
@@ -548,13 +451,7 @@ def note_for(cfg: AgentConfig) -> str:
 
 
 def _terminal(cfg: AgentConfig, state: dict) -> str:
-    """Why the loop stopped, when no cap or failure claimed it first.
-
-    Named rather than inferred by a reader: "found what it needed", "ran out of
-    hops" and "ran out of revisions" are three different findings about a
-    configuration, and the July 2026 post-mortem is the cost of having to
-    reconstruct which one happened by hand.
-    """
+    """Why the loop stopped, when no cap or failure claimed it first."""
     if owns_generation(cfg.scope):
         if cfg.critic == 'none':
             return 'drafted'

@@ -4,29 +4,15 @@ comparable.
     uv run raglab-leaderboard              # print it
     uv run raglab-leaderboard --write docs/rag-leaderboard.md
 
-The point of this module is the refusal. A decision score is a mean over
-questions, judged by a model — so it is comparable only against rows that scored
-**the same questions with the same judge**. One flat ranking over everything on
-disk is precisely where that gets forgotten, and this lab has already produced
-both kinds of incomparable pair: the sample moved from 24 strided questions to 30
-balanced ones, and the judge moved from `openai/gpt-5-mini` to a model on this
-machine. Either change alone makes a row a different measurement; presented in one
-sorted list they read as a ranking.
+**Group first, rank second.** A decision score is a mean over questions judged by
+a model, so it is comparable only against rows that scored the same questions
+with the same judge — never across groups. Each group states its sample and its
+judge in its own heading, and `verdict()` calls a group a tie when the lead is
+inside the combined error rather than crediting a bare ranking. A group with no
+measured error returns 'unknown' rather than a winner.
 
-So: **group first, rank second.** A group is one (question set, judge) pair. Rows
-are ranked inside a group and never across groups, and each group states in its
-own heading which sample and which judge it is.
-
-The second refusal is about margins. `verdict()` calls a group a tie when the lead
-is inside the error, because 0.6487 against 0.6501 was a real pair here — opposite
-changes to one knob, precision and recall merely trading places — and a bare
-ranking read it as a win. A group whose rows carry no measured error returns
-'unknown' rather than a winner: the runs predating `decision_spread` cannot have
-one reconstructed, and `± 0` would present the oldest rows as the most precise.
-
-Nothing here recomputes a score. It reads what the runs stored, so a number on the
-leaderboard can always be checked against the run file that produced it — which is
-why the run id is on every row.
+Nothing here recomputes a score: it reads what the runs stored, so a number on
+the leaderboard can always be checked against the run id on its row.
 """
 import argparse
 import json
@@ -48,8 +34,7 @@ class Group:
 
     @property
     def n_questions(self) -> int:
-        # From the ids rather than the row's own count: they are what makes two
-        # rows comparable, and a stored count could disagree with them.
+        # From the ids, not the row's own count, which could disagree with them.
         if not _sample_recorded(self):
             return self.rows[0].get('n_questions', 0) if self.rows else 0
         return len(self.question_ids)
@@ -74,9 +59,8 @@ class Group:
         """Reads after "judged by", so every branch has to be a noun phrase."""
         if self.judge_model:
             return f'{self.judge_model} via {self.judge_provider or "?"}'
-        # A row carrying a decision score was judged by *something* — the runs
-        # predating `report['judge']` simply did not write down what. "No judge"
-        # would be a claim, and the wrong one; not knowing is the fact.
+        # A decision score was judged by something; runs predating
+        # `report['judge']` simply didn't record what.
         if any(r.get('ragas_decision') is not None for r in self.rows):
             return 'a judge that was not recorded'
         return 'no judge — nothing on these rows was judged'
@@ -85,22 +69,14 @@ class Group:
 def _key(row: dict) -> tuple:
     selection = row.get('selection') or {}
     judge = row.get('judge') or {}
-    # The coarsest comparability key there is, and the first one: a decision
-    # score is a mean over the questions of one corpus, so two corpora are not
-    # two configurations of one measurement. A row with no dataset predates the
-    # field and is the built-in diary — the only corpus that existed — which is
-    # why it is filled in rather than treated as unknown.
+    # Coarsest first: two corpora are never one measurement. No dataset predates
+    # the field and means the built-in diary, the only corpus that existed.
     dataset = row.get('dataset') or 'diary-fa'
-    # Sorted, because two runs that scored the same questions in a different
-    # order are the same measurement. A frozenset would lose the count on a
-    # duplicate id, which sorted() keeps.
     ids = tuple(sorted(selection.get('question_ids') or ()))
     if not ids:
-        # Every run predating `RunResult.selection` has no ids, and keying on the
-        # ids alone put 3-, 24- and 100-question runs in one ranked table — a
-        # missing sample read as a *shared* one. Falling back to the count at
-        # least stops that, and `verdict()` still refuses to call these groups,
-        # because two runs of 24 may be two different 24.
+        # No ids predates `RunResult.selection`; falls back to the count so a
+        # 3- and a 100-question run don't share a table. `verdict()` still
+        # refuses these groups, since equal counts may not be the same 24.
         ids = ('n', row.get('n_questions', 0))
     return (dataset, ids, judge.get('model', ''), judge.get('provider', ''))
 
@@ -127,37 +103,25 @@ def group(rows: list[dict]) -> list[Group]:
     for found in groups.values():
         found.rows.sort(key=lambda r: (r.get('ragas_decision') is None,
                                        -(r.get('ragas_decision') or 0.0)))
-    # Rankable groups first, then the merely listed ones. A reader opens this for
-    # the live decision, and sorting by question count put the 100-question group
-    # of unrecorded samples — which cannot be ranked at all — above the 30-question
-    # group that decides something. Within each class: most recent first, since the
-    # newest sample is the one still in use.
-    #
-    # Two stable passes rather than one key, because the date wants descending
-    # order and the flags ascending, and a string cannot be negated.
+    # Rankable groups first, most recent within each class. Two stable passes
+    # rather than one key: the date wants descending order, the flags ascending,
+    # and a string cannot be negated.
     by_date = sorted(groups.values(), key=lambda g: g.newest, reverse=True)
     return sorted(by_date, key=lambda g: (not _sample_recorded(g),
                                           verdict(g) in ('unknown', 'unranked')))
 
 
 def verdict(found: Group) -> str:
-    """The label of the winning row, 'tie' if the lead is inside the error, or
-    'unknown' if no error was measured.
-
-    The error is the *combined* one over the two rows being compared, because the
-    question being asked is whether their difference is distinguishable from
-    zero — not whether either mean is precise."""
+    """The label of the winning row, 'tie' if the lead is inside the *combined*
+    error of the two rows, or 'unknown' if no error was measured."""
     if not _sample_recorded(found):
-        # Two runs of 24 questions may be two *different* 24 — the striding rule
-        # changed during this lab's life and nothing on those rows says which
-        # questions they were. Equal counts are not a shared sample.
+        # Equal counts are not a shared sample: two runs of 24 may be different 24s.
         return 'unknown'
     ranked = [r for r in found.rows if r.get('ragas_decision') is not None]
     if not ranked:
         return 'unknown'
     if len(ranked) == 1:
-        # One measured row cannot beat anything; saying it won would make a
-        # single run read as a comparison.
+        # One measured row cannot beat anything.
         return 'unranked'
     best, second = ranked[0], ranked[1]
     errors = [best.get('ragas_decision_stderr'),
@@ -209,9 +173,7 @@ def markdown(groups: list[Group]) -> str:
         out.append('| # | candidate | decision | ± | questions | seconds | run |')
         out.append('| --- | --- | --- | --- | --- | --- | --- |')
         for i, row in enumerate(found.rows, start=1):
-            # A numbered row is a rank claim. A group whose sample was never
-            # recorded is ordered for readability only, so it gets no numbers —
-            # otherwise the table contradicts the sentence above it.
+            # A numbered row is a rank claim, so an unrecorded sample gets none.
             rank = (str(i) if row.get('ragas_decision') is not None
                     and _sample_recorded(found) else '—')
             out.append(

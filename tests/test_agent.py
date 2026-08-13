@@ -16,7 +16,8 @@ import time
 
 import pytest
 
-from raglab import agent, config, explain, metrics, models, pipeline
+from raglab import agent, config, explain, metrics, pipeline
+from raglab import models as models_mod
 from raglab.config import (AgentConfig, CRITICS, IndexConfig, LabConfig,
                            LabSettings, RetrievalConfig, SCOPES,
                            dependency_state)
@@ -195,7 +196,7 @@ def test_the_agent_is_the_fourth_step_and_its_models_wear_its_ink():
     cannot disagree with where the value is stored."""
     keys = [step.key for step in config.STEPS]
     assert keys == ['index', 'retrieval', 'generation', 'agent']
-    roles = {role.key: role for role in models.ROLES}
+    roles = {role.key: role for role in models_mod.ROLES}
     assert roles['plan'].step == 'agent'
     assert roles['critic'].step == 'agent'
     # The answer is still written by the answerer, so no third dropdown appears.
@@ -670,3 +671,55 @@ def test_a_scope_the_backend_cannot_run_is_a_400_on_both_run_routes(
         res = client.post(route, json=body)
         assert res.status_code == 400, (route, res.status_code)
         assert '--extra agent' in res.json()['detail'], route
+
+
+# --- the two pages ---------------------------------------------------------
+
+def _static(name: str) -> str:
+    from raglab.server import STATIC
+    return (STATIC / name).read_text(encoding='utf-8')
+
+
+# This is a unit test.
+def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
+    """One ink per step, defined once per page with the same value. The lab and
+    the Inspector are one instrument in two windows, so a step whose colour
+    exists on one page only is a legend that lies on the other."""
+    panel, sheet = _static('index.html'), _static('inspector.css')
+    for page in (panel, sheet):
+        assert '--step-agent:' in page
+        assert '--step-agent-lit:' in page
+    # The same value on both pages, not merely a token of the same name.
+    ink = 'oklch(0.48 0.16 318)'
+    assert ink in panel and ink in sheet
+    assert 'data-step="agent"' in panel
+
+
+# This is a unit test.
+def test_the_panel_has_a_control_for_every_agent_knob():
+    """`explain.missing()` stops a knob shipping unexplained; this stops one
+    shipping unreachable. A field with no control is a field the panel silently
+    posts at its default, which is how a preset comes to lie."""
+    panel = _static('index.html')
+    models = {role.field for role in models_mod.ROLES}
+    for name in AgentConfig.__dataclass_fields__:
+        if f'agent.{name}' in models:
+            # The model roles are *rendered* from the served list, not written
+            # into the page — that is what lets a role added to models.ROLES
+            # appear without editing this file. So what has to exist here is the
+            # column the agent's group renders into; a missing container is how
+            # a served role silently ends up in the spare bin at the bottom.
+            assert 'id="modelRoles-agent"' in panel
+            continue
+        assert f"$('{name}')" in panel, name
+        assert f'id="{name}"' in panel, name
+
+
+# This is a unit test.
+def test_the_inspector_renders_the_loop_beside_the_ranks():
+    """The ladder is what makes an agent row readable: the candidate table says
+    what came back, the ladder says after what."""
+    js = _static('inspector.js')
+    assert 'function agentLadder' in js
+    assert 'trace.agent' in js
+    assert 'agent-ladder' in _static('inspector.css')

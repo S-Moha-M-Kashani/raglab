@@ -5104,7 +5104,7 @@ def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
     panel = client.get('/').text
 
     unshown = {}
-    for group in ('index', 'retrieval', 'generation'):
+    for group in ('index', 'retrieval', 'generation', 'agent'):
         for key, value in preset[group].items():
             # A control is `$('key')` in the panel, or a model dropdown carrying
             # the dotted path — the two ways this page reads a field.

@@ -418,10 +418,32 @@ function renderRetrievalRows(candidates) {
 // One question's collapsible block. Shared by the followed list and by the
 // questions you add, because "identical to the other ones" has to mean the same
 // code produced them, not that two renderers were kept in step by hand.
+// The agent's per-node ladder, when a scope produced one. Read vertically: the
+// same node three times over is a loop that never settled, and "refused because
+// the diary is silent" and "refused after two hops found nothing" are the two
+// findings this table exists to keep apart — the distinction the July 2026
+// post-mortem had to be reconstructed by hand to make.
+function agentLadder(visits) {
+  const box = document.createElement('div');
+  box.className = 'agent-ladder';
+  const hops = visits.reduce((n, v) => Math.max(n, v.hop || 0), 0);
+  box.innerHTML = `<h4>the loop · ${visits.length} steps · ${hops} hop`
+    + `${hops === 1 ? '' : 's'}</h4><table><thead><tr><th>#</th><th>node</th>`
+    + '<th>hop</th><th>what it decided</th></tr></thead><tbody>'
+    + visits.map((v, i) =>
+        `<tr><td class="num">${i + 1}</td><td class="node">${escapeHtml(v.node)}</td>`
+        + `<td class="num">${v.hop || ''}</td>`
+        + `<td class="detail" dir="auto">${escapeHtml(v.detail || '')}</td></tr>`)
+      .join('')
+    + '</tbody></table>';
+  return box;
+}
+
 function questionBlock(q) {
   const candidates = (q.trace && q.trace.candidates) || [];
   const gold = candidates.filter(c => c.gold).length;
   const kept = candidates.filter(c => c.kept).length;
+  const visits = (q.trace && q.trace.agent) || [];
   // "1 of 3 gold found" rather than "1 gold": the count only means something
   // against how many there were to find. The denominator comes from the
   // service, and when it does not (an older run) the tally stays a bare count
@@ -433,6 +455,9 @@ function questionBlock(q) {
   det.innerHTML = questionSummary(q.question_id, q.type, q.difficulty,
       `${candidates.length} candidates · ${kept} kept · ${goldTally}`)
     + questionHead(q.question_id, q.question_fa);
+  // Above the candidate table, because the ladder is how the candidates came to
+  // be: the table answers "what came back", the ladder answers "after what".
+  if (visits.length) det.appendChild(agentLadder(visits));
   det.appendChild(scrollable(retrievalTable(candidates)));
   return det;
 }
@@ -633,6 +658,7 @@ function generationBlock(row, trace) {
     const inner = document.createElement('details');
     inner.className = 'gen-trace';
     inner.innerHTML = '<summary>the retrieval this answer was written from</summary>';
+    if ((trace.agent || []).length) inner.appendChild(agentLadder(trace.agent));
     inner.appendChild(scrollable(retrievalTable(trace.candidates || [])));
     det.appendChild(inner);
   }

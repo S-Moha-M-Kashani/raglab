@@ -1,19 +1,7 @@
 """Building and holding one indexed configuration.
 
-A LabIndex is the pair (vector store, chunk table), both in process memory. The
-store owns the vectors; the chunk table owns the text, which BM25, parent
-expansion and every lexical metric need. Both are keyed by deterministic chunk
-ids, so a rebuild upserts over the previous one instead of duplicating it.
-
-**Nothing here survives the process.** An index is experimental data: it is
-built to produce a number, and the number is what gets written down (one JSON
-file per run). A store that outlived a restart would mostly serve to hand a
-later run rows that some earlier, differently-configured build left behind.
-
-The store's name is IndexConfig.fingerprint(), so switching a chunker in the
-panel builds a *new* index and leaves the old one held by the registry — sweeping
-back and forth between two strategies costs one build each, not one per switch,
-for as long as the process lives.
+A LabIndex pairs a vector store with a chunk table, both keyed by deterministic
+chunk ids and held only in process memory — nothing here survives a restart.
 """
 import time
 from dataclasses import dataclass, field
@@ -32,21 +20,15 @@ BATCH = 200
 class IndexStats:
     collection: str = ''
     chunks: int = 0             # every row in the index, summaries included
-    leaves: int = 0             # the chunker's own output; equal to `chunks`
-                                # on a flat index
-    # Measured over the leaves on purpose: these two describe what the *chunker*
-    # produced, and mixing in rows a summariser wrote would make the chunk-size
-    # knob unreadable. What the summaries cost is `hierarchy.avg_summary_chars`.
+    leaves: int = 0             # the chunker's own output; equal to `chunks` on a flat index
+    # Measured over the leaves only, so a summariser's rows don't skew the chunk-size knob.
     avg_chars: float = 0.0
     p95_chars: int = 0
     embed_dim: int = 0
     build_seconds: float = 0.0
-    # What the grouping did, when there was one. None on a flat index rather
-    # than an empty block, so a reader can tell "no hierarchy" from "a
-    # hierarchy that found nothing" — which are different facts about a build.
+    # None on a flat index — distinguishes "no hierarchy" from "a hierarchy that found nothing".
     hierarchy: dict | None = None
-    # Set by IndexRegistry, not by build(): "this process already had it", the
-    # only reuse there is now that no store outlives the process.
+    # Set by IndexRegistry: this process already had it.
     reused: bool = False
     notes: list = field(default_factory=list)
 
@@ -71,9 +53,7 @@ class LabIndex:
     @classmethod
     def build(cls, cfg: IndexConfig, diary: dict, settings: LabSettings,
               progress=None) -> 'LabIndex':
-        """Always a full build. There is no `force`: nothing persists, so every
-        call embeds the corpus into a store of its own. Skipping the work is the
-        registry's decision, not this one's."""
+        """Always a full build; skipping the work is the registry's decision, not this one's."""
         started = time.time()
         cfg = cfg.normalized()
         stats = IndexStats(collection=cfg.collection())
@@ -94,21 +74,14 @@ class LabIndex:
         stats.avg_chars = round(float(lengths.mean()), 1)
         stats.p95_chars = int(np.percentile(lengths, 95))
 
-        # A fresh store every build, so there are no stale rows to detect: the
-        # only reuse left is the registry handing back an index this process
-        # already holds, which it records on the stats itself.
-        #
-        # The leaf vectors are kept rather than discarded per batch: the
-        # grouping below reads them, and re-embedding a corpus to cluster it
-        # would double the cost of the one stage a build actually spends time in.
+        # Leaf vectors are kept, not discarded, since the grouping below reads
+        # them and re-embedding to cluster would double the cost.
         leaf_vectors = cls._embed_into(store, chunks, embedder, note, progress,
                                        0.5, 0.4 if cfg.hierarchy else 0.5)
 
         if cfg.hierarchy:
-            # Additive, always. The leaves stay in the store and in the chunk
-            # table exactly as they were: replacing a session with its summary
-            # is what loses information permanently, while a summary kept beside
-            # the original costs only storage. RAPTOR's rule, and the lab's.
+            # Additive, always: leaves stay in the store, since replacing them
+            # with summaries is what would lose information permanently.
             from . import hierarchy as hierarchy_mod
             if progress:
                 progress('grouping', 0.9)
@@ -133,11 +106,7 @@ class LabIndex:
     def _embed_into(store, chunks, embedder, note, progress,
                     at: float, span: float) -> np.ndarray:
         """Embed and upsert one set of rows, returning their vectors.
-
-        Shared by the leaves and the summaries because the summaries are
-        ordinary rows: the same store, the same batching, the same all-zero
-        warning. A separate path for them would be a place for the two to drift.
-        """
+        Shared by leaves and summaries so the two paths cannot drift apart."""
         out: list[np.ndarray] = []
         for start in range(0, len(chunks), BATCH):
             batch = chunks[start:start + BATCH]
@@ -185,8 +154,7 @@ class LabIndex:
         return sorted(best.items(), key=lambda kv: -kv[1])
 
     def vectors_for(self, chunk_ids: list[str]) -> np.ndarray:
-        """Stored vectors, for MMR. Read back from the store rather than
-        re-embedded, so a slow embedder is not re-run per query."""
+        """Stored vectors, read back rather than re-embedded, so a slow embedder is not re-run per query."""
         if not chunk_ids:
             return np.zeros((0, 1), dtype=np.float32)
         got = self.store.get(ids=chunk_ids, include=['embeddings'])
@@ -212,27 +180,19 @@ from .llm import lab_llm as _lab_llm  # noqa: E402  (kept beside its callers)
 
 
 class IndexRegistry:
-    """Process-lifetime cache of built indexes, keyed by fingerprint. It holds
-    the vectors, the chunk table and the BM25 statistics — which together are
-    what make a sweep of retrieval settings instant — and it is now the *only*
-    thing that does: when the process ends, so does every index it built."""
+    """Process-lifetime cache of built indexes, keyed by fingerprint; every
+    index it built dies with the process."""
 
     def __init__(self, settings: LabSettings, diary: dict | None = None):
         self.settings = settings
-        # The corpus a config with no dataset gets. A caller that already holds
-        # one passes it — the suite does, and so does a service that read the
-        # fixture at boot; anything else is loaded per dataset below.
+        # A caller that already holds the corpus (the suite, a booted service)
+        # passes it; anything else is loaded per dataset below.
         self.diary = diary
         self._indexes: dict[str, LabIndex] = {}
 
     def corpus_for(self, dataset: str = '') -> dict:
-        """The sessions one config indexes.
-
-        Resolved here rather than at construction because a dataset is a field
-        of `IndexConfig`: the registry holds indexes over several corpora at
-        once, keyed by a fingerprint that includes which corpus — so switching
-        datasets in the panel builds a new index rather than answering questions
-        about one corpus out of another."""
+        """The sessions one config indexes. Resolved per call, since dataset is
+        a field of `IndexConfig` and the registry holds several corpora at once."""
         if not dataset:
             if self.diary is not None:
                 return self.diary
@@ -247,8 +207,7 @@ class IndexRegistry:
                                                 self.settings, progress=progress,
                                                 )
         else:
-            # The one form of reuse that still exists, reported where the panel
-            # already looked for it: this process built it and still has it.
+            # The one form of reuse that still exists: this process already built it.
             self._indexes[key].stats.reused = True
         return self._indexes[key]
 

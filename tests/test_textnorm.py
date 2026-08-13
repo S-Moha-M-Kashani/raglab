@@ -1,13 +1,11 @@
-"""Persian normalisation and tokenising, moved out of the lab because BM25, the
-lexical reranker and the time filter all build on it.
-
-One test per way this can break retrieval, each covering its own edge cases."""
+"""Persian normalisation and tokenising, which BM25, the lexical reranker and
+the time filter all build on."""
 from raglab import textnorm
 
 
 def test_two_spellings_of_the_same_word_normalise_alike():
-    # Arabic ي/ك, Persian digits and diacritics are rendering differences, not
-    # word differences. If they survive, BM25 under-counts silently.
+    # Arabic ي/ك, Persian digits and diacritics are rendering differences,
+    # not word differences.
     assert textnorm.normalize('يك') == textnorm.normalize('یک')
     assert '1405' in textnorm.normalize('سال ۱۴۰۵')
     assert textnorm.normalize('كِتاب') == 'کتاب'
@@ -16,8 +14,6 @@ def test_two_spellings_of_the_same_word_normalise_alike():
 
 
 def test_farsi_text_produces_tokens_and_noise_does_not():
-    # The retired hash embedder matched [a-z0-9]+, so Farsi embedded to the zero
-    # vector. A tokeniser that returns nothing here is the same failure.
     assert textnorm.tokens('امروز با پریا دعوام شد')
     assert textnorm.tokens('') == []
     assert textnorm.tokens('a ؟ _') == []       # single letters and punctuation
@@ -41,7 +37,6 @@ def test_a_half_spaced_compound_matches_the_spaced_spelling():
 
 
 def test_character_ngrams_share_a_stem_across_affixes():
-    # Only the lab's char-hash embedder uses these, but it is a caller.
     assert set(textnorm.char_ngrams('میخواستم')) & set(textnorm.char_ngrams('نمیخواستم'))
     assert textnorm.char_ngrams('اب', 4) == ['اب']   # shorter than the window
     assert textnorm.char_ngrams('') == []

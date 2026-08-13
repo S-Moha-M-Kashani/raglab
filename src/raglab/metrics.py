@@ -1,22 +1,7 @@
-"""Deterministic scoring against the ground truth.
+"""Deterministic scoring against the ground truth: no LLM, no run-to-run variance.
 
-These metrics run offline, need no LLM, and are the ones to trust when comparing
-configurations — an LLM judge introduces variance exactly where you are trying to
-measure a 3-point difference. RAGAS metrics (ragas_eval.py) sit on top for the
-answer-quality dimensions that genuinely need a model.
-
-Two of them are specific to this ground truth and worth more than the textbook
-set:
-
-* **quote recall** — the fraction of the ground truth's *verbatim* evidence
-  quotes that appear inside the retrieved text. Session-level recall says the
-  right session was found; quote recall says the sentence that actually answers
-  the question survived chunking. A chunker that splits mid-thought scores well
-  on the first and badly on the second, which is precisely the failure a
-  session-level metric hides.
-* **latest-state recall** — on knowledge-update questions, whether the *most
-  recent* evidence session was retrieved. Retrieving only the superseded state
-  is worse than retrieving nothing: it produces a confident, stale answer.
+RAGAS metrics (ragas_eval.py) sit on top for the dimensions that need a model.
+Quote recall and latest-state recall are specific to this ground truth's evidence.
 """
 import difflib
 import math
@@ -31,18 +16,8 @@ TYPES = ('single-hop', 'temporal', 'multi-hop', 'aggregation', 'knowledge-update
 
 @dataclass(frozen=True)
 class Measure:
-    """What one number on the dashboard means.
-
-    A score nobody can check is worse than no score: "faithfulness 0.74" says
-    nothing without whose definition it is, what arithmetic produced it, and what
-    code ran that arithmetic. So every metric — ours and RAGAS's — carries the
-    same four facts in the same shape, which is what lets the panel render them
-    identically instead of having two ideas of what a score is.
-
-    `step` is the pipeline stage the number grades, so it wears that stage's ink
-    (see config.STEPS). '' means the whole pipeline, which no single colour can
-    honestly claim.
-    """
+    """What one number on the dashboard means: label, step, formula, library, help —
+    the same shape for ours and RAGAS's metrics. `step` is '' for the whole pipeline."""
     key: str          # the key it arrives under in summary.overall / ragas.metrics
     label: str        # what the score card is titled
     short: str        # the one-line caption under the number
@@ -266,12 +241,8 @@ def hit_at_k(retrieved: list[str], gold: list[str], k: int) -> float:
 
 
 def quote_recall(context_text: str, question: dict) -> float:
-    """Verbatim-quote coverage, with a similarity fallback.
-
-    Exact substring first, because the ground truth guarantees each quote is
-    verbatim in its message. When a chunker normalises whitespace the substring
-    test fails on text a reader would call identical, so a quote is also counted
-    when its closest window in the context is >=90% similar."""
+    """Verbatim-quote coverage; falls back to a >=90% similarity match for a
+    quote a chunker's whitespace normalisation would otherwise miss."""
     quotes = [ev['quote'] for ev in question.get('evidence', [])]
     if not quotes:
         return float('nan')
@@ -303,9 +274,7 @@ def latest_state_session(question: dict) -> str | None:
 
 
 def answer_similarity(response: str, reference: str) -> float:
-    """Character-level similarity to the reference answer. A blunt instrument,
-    but a *stable* one: no model, no variance, and on Farsi it tracks whether the
-    same names, dates and numbers appear."""
+    """Character-level similarity to the reference answer — no model, no variance."""
     if not response or not reference:
         return 0.0
     return difflib.SequenceMatcher(None, textnorm.normalize(response),
@@ -313,8 +282,7 @@ def answer_similarity(response: str, reference: str) -> float:
 
 
 def token_f1(response: str, reference: str) -> float:
-    """Unigram F1 over content words — the SQuAD-style measure, which credits a
-    short correct answer that a similarity ratio penalises for being short."""
+    """SQuAD-style unigram F1 over content words."""
     predicted = textnorm.tokens(response)
     gold = textnorm.tokens(reference)
     if not predicted or not gold:
@@ -342,10 +310,8 @@ def score_question(question: dict, outcome, k: int) -> dict:
         'difficulty': question['difficulty'], 'answerable': answerable,
         'retrieved_sessions': retrieved[:k],
         'n_contexts': len(outcome.contexts),
-        # Which layers reached the answerer. Recorded per question rather than
-        # inferred from the config, because 'the hierarchy was configured' and
-        # 'the hierarchy was retrieved' are the two facts the 2026-07-31
-        # post-mortem had to be reconstructed by hand to tell apart.
+        # Per question, not inferred from config: 'configured' and 'retrieved'
+        # are different facts.
         'n_summaries': (outcome.diagnostics.get('contexts_by_layer') or {}
                         ).get('summary', 0),
         'n_expanded': (outcome.diagnostics.get('contexts_by_layer') or {}
@@ -367,41 +333,23 @@ def score_question(question: dict, outcome, k: int) -> dict:
         if question['type'] == 'knowledge-update':
             latest = latest_state_session(question)
             row['latest_state_hit'] = float(latest in retrieved[:k]) if latest else float('nan')
-        # An answerable question that got refused is a false abstention — the
-        # failure mode a badly tuned grader produces.
         row['false_abstention'] = float(outcome.abstained)
     else:
-        # Correct behaviour is a refusal (abstention) or a corrected premise
-        # (adversarial). Both show up as `abstained`, because the answerer sets
-        # it when it emits the refusal phrase.
+        # Unanswerable is correctly handled by either abstention or a corrected
+        # premise (adversarial); the answerer sets `abstained` for both.
         row['abstained_correctly'] = float(outcome.abstained)
     if outcome.diagnostics.get('agent_scope'):
-        # The loop's shape and its price, per question. Named on the row rather
-        # than inferred from the config for the reason n_summaries is: 'the agent
-        # was configured' and 'the agent looped' are different facts, and
-        # `agent_stop` is the only field that separates "found what it needed"
-        # from "ran out of hops" from "ran out of budget". A cheap-looking agent
-        # row is otherwise indistinguishable from a truncated one.
+        # Named on the row rather than inferred from config, same reason as
+        # n_summaries: `agent_stop` is the only field saying why the loop stopped.
         row |= {'n_hops': outcome.diagnostics.get('agent_hops', 0),
                 'n_agent_calls': outcome.diagnostics.get('agent_calls', 0),
                 'agent_stop': outcome.diagnostics.get('agent_stop', ''),
                 'agent_scope': outcome.diagnostics['agent_scope']}
         if outcome.diagnostics.get('agent_error'):
-            # Why it gave up, when it gave up because the model was unreachable.
-            # Exactly `answer_error`'s argument one stage up.
             row['agent_error'] = outcome.diagnostics['agent_error']
     if outcome.diagnostics.get('answer_error'):
-        # Why the answerer refused, when it refused because it could not be
-        # reached at all. `pipeline._llm_answer` catches everything the model
-        # raises and returns the canonical refusal, so a CliError, a 600s timeout
-        # and an unreachable daemon all arrive here looking exactly like "the
-        # diary is silent about that" — and RAGAS then judges the refusal,
-        # producing low, confident faithfulness and answer relevancy with no
-        # field anywhere saying the model never answered. `GradeUnavailable`
-        # refuses loudly one stage earlier; this is the same distinction the
-        # n_summaries / n_expanded fields exist to make, and like them it belongs
-        # on the row rather than in an aggregate, because it is per question:
-        # three of thirty timing out is a different fault from all thirty.
+        # `pipeline._llm_answer` swallows every failure into the canonical
+        # refusal; this is the only field saying the model was never reached.
         row['answer_error'] = outcome.diagnostics['answer_error']
     if outcome.answer is not None:
         row['answer'] = outcome.answer
@@ -429,11 +377,8 @@ AGGREGATED = ('recall', 'precision', 'mrr', 'ndcg', 'hit', 'quote_recall',
 
 
 def aggregate(rows: list[dict]) -> dict:
-    """Overall means, plus a per-type and per-difficulty breakdown.
-
-    The per-type table is the point of the whole exercise: a config that lifts
-    single-hop recall while destroying temporal recall has not improved, and one
-    average hides that completely."""
+    """Overall means, plus a per-type and per-difficulty breakdown — an average
+    alone would hide a gain in one type that comes at the cost of another."""
     overall = {name: _mean([r[name] for r in rows if name in r])
                for name in AGGREGATED}
     by_type: dict[str, dict] = {}
@@ -459,10 +404,7 @@ def aggregate(rows: list[dict]) -> dict:
 
 
 def _headline(overall: dict) -> float | None:
-    """One comparable number for the leaderboard: retrieval quality, the
-    survival of the answering sentence, and honest refusal, weighted in that
-    order. Deliberately excludes generation quality so configs measured with the
-    extractive answerer stay comparable to those measured with an LLM."""
+    """The weighted composite defined in MEASURES['headline']."""
     parts = [(overall.get('recall'), 0.4), (overall.get('quote_recall'), 0.3),
              (overall.get('ndcg'), 0.2), (overall.get('abstained_correctly'), 0.1)]
     usable = [(v, w) for v, w in parts if v is not None]

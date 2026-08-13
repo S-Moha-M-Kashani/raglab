@@ -1,10 +1,6 @@
 """One question, end to end: understand → retrieve → fuse → rerank → grade →
-assemble → answer, with every stage's output kept for the panel to show.
-
-The diagnostics are not decoration. When a configuration scores badly the only
-useful question is *which stage lost the evidence* — it was never retrieved, or
-it was retrieved and reranked away, or it was graded out. A pipeline that only
-returns its final answer cannot tell you, and tuning it becomes guesswork.
+assemble → answer, with every stage's output kept for the panel.
+Diagnostics say *which stage* lost the evidence, so tuning is not guesswork.
 """
 import time
 from dataclasses import dataclass, field
@@ -20,10 +16,8 @@ from .llm import lab_chat
 from .models import Roles
 
 REFUSAL = 'تو دفترچه چیزی دربارهٔ این پیدا نکردم.'
-# Phrases only a *refusing assistant* produces. «نمیدونم» is deliberately absent:
-# the diarist says it constantly, so counting it made every answer that quoted
-# him look like an abstention — 6.5% of answerable questions were scored as
-# refused by a pipeline with no gate switched on at all.
+# «نمیدونم» is deliberately absent: the diarist says it constantly in
+# non-refusals, so counting it would misread quoted answers as abstentions.
 REFUSAL_MARKERS = ('پیدا نکردم', 'چیزی ثبت نشده', 'اطلاعاتی ندارم',
                    'در دفترچه نیست', 'در یادداشت‌ها نیست', 'موجود نیست',
                    'اشاره‌ای نشده', 'اشاره ای نشده', 'ذکر نشده', 'ثبت نشده')
@@ -77,9 +71,8 @@ class Outcome:
 
 def _mask(index, scope, layers: tuple[str, ...] | None = None,
           levels: tuple[int, ...] | None = None) -> np.ndarray:
-    """The BM25 equivalent of the store's `where` clause. Kept in lockstep with
-    query.where_clause: if the two disagree, hybrid fusion silently compares two
-    different candidate pools."""
+    """The BM25 equivalent of the store's `where` clause; kept in lockstep with
+    `query.layer_clause` — if they disagree, hybrid fusion silently compares two different pools."""
     allowed = np.ones(len(index.chunks), dtype=bool)
     for i, chunk in enumerate(index.chunks):
         if scope and (chunk.span_from > scope.to_int
@@ -94,12 +87,9 @@ def _mask(index, scope, layers: tuple[str, ...] | None = None,
 
 def summary_filter(cfg: RetrievalConfig) -> tuple[tuple[str, ...] | None,
                                                   tuple[int, ...] | None]:
-    """Which layers and levels this scope may retrieve.
-
-    `None` for layers means "no restriction" — the flat behaviour, and what
-    `mixed` gets, so an index with no summaries in it is searched by exactly the
-    code path it was searched by before this setting existed.
-    """
+    """Which layers and levels this scope may retrieve. `None` means no
+    restriction (the flat behaviour, and what `mixed` gets), so an index with
+    no summaries is searched exactly as before this setting existed."""
     levels = tuple(int(part) for part in cfg.summary_levels.split()
                    if part.isdigit()) or None
     if cfg.summary_scope == 'leaves':
@@ -110,9 +100,8 @@ def summary_filter(cfg: RetrievalConfig) -> tuple[tuple[str, ...] | None,
 
 
 def lexical_grade(index, question: str, text: str) -> float:
-    """IDF-weighted coverage: what share of the question's informative words
-    this text actually contains. Bounded to [0,1], so it can be thresholded — a
-    raw BM25 score cannot, because its scale depends on the corpus."""
+    """IDF-weighted coverage of the question's informative words, bounded to
+    [0,1] so it can be thresholded (unlike a raw BM25 score)."""
     tokens = [t for t in textnorm.tokens(question)
               if t not in query_mod.QUESTION_WORDS]
     if not tokens:
@@ -126,9 +115,7 @@ def lexical_grade(index, question: str, text: str) -> float:
 def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
              llm=None, models: Roles | None = None,
              trace: dict | None = None) -> Outcome:
-    # Each stage asks for its own model. An empty Roles means "whatever the
-    # provider defaults to", which is how a caller with nothing to say about
-    # models still works.
+    # An empty Roles means "whatever the provider defaults to".
     roles = models or Roles()
     timings: dict = {}
     diagnostics: dict = {}
@@ -151,8 +138,7 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
     dense_ranked: list[str] = []
     dense_scores: dict[str, float] = {}
     if cfg.retriever in ('dense', 'hybrid-rrf'):
-        # A question is embedded as a question: the E5 family was trained with
-        # "query: " / "passage: " and quietly loses accuracy without them.
+        # A question embeds as a question: E5 models expect "query: "/"passage: " and quietly lose accuracy without them.
         vectors = embedding.query_vectors(index.embedder, queries)
         for chunk_id, score in index.dense(vectors, cfg.candidates, where):
             dense_scores[chunk_id] = score
@@ -178,10 +164,8 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
         base = {cid: lexical_scores[cid] for cid in lexical_ranked}
     else:
         base = retrieval.rrf([dense_ranked, lexical_ranked], cfg.rrf_k)
-    # Before the candidate cut below, never after: there are far more leaves
-    # than summaries, so a summary that had not already survived the cut could
-    # not be promoted into it, and the boost would be a no-op that looks like a
-    # knob. Measured that way in the 2026-07-30 sweep's candidate G.
+    # Applied before the candidate cut, never after: far more leaves than
+    # summaries, so an unpromoted summary can't be boosted into the cut.
     if cfg.summary_boost != 1.0:
         boosted = 0
         for chunk_id in base:
@@ -233,11 +217,7 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
     if cfg.summary_scope == 'drill-down':
         kept = _drill_down(index, cfg, question, kept)
     kept = _fit_budget(kept, cfg.max_context_chars)
-    # Which layers actually reached the answerer. A run whose summaries were
-    # never retrieved is precisely the failure measured on 2026-07-31 — the
-    # habit ledger was correct, reachable, and retrieved for 1 question in 24 —
-    # so it is a field on the row rather than something to infer from a flat
-    # score.
+    # Which layers actually reached the answerer — a field on the row, not something to infer from a flat score.
     diagnostics['contexts_by_layer'] = _by_layer(index, kept)
     if trace is not None:
         fused_order = sorted(base, key=lambda cid: -base[cid])
@@ -253,10 +233,8 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
             candidates.append({
                 'chunk_id': cid, 'text': chunk.text,
                 'session_id': chunk.session_id, 'date': chunk.date,
-                # Which layer a candidate belongs to is a different axis from
-                # its rank at each step, and the Inspector renders it as one:
-                # a summary that ranked first and expanded into three
-                # irrelevant leaves has to be visible as that, not as a score.
+                # Layer is a different axis from rank: a summary that ranked
+                # first but expanded to irrelevant leaves must be visible as that, not as a score.
                 'layer': chunk.layer, 'level': chunk.level,
                 'group_id': chunk.group_id,
                 'members': len(chunk.member_ids),
@@ -290,9 +268,7 @@ def _rerank(index, cfg, question, chunks, relevance, query_date, stage_scores,
         final = relevance * weights
         scores, key = weights, 'recency'
     elif cfg.reranker == 'agentic':
-        # Generative Agents' retrieval function: relevance + recency +
-        # importance. The diary equivalent of "what would this person actually
-        # recall when asked".
+        # Generative Agents' retrieval function: relevance + recency + importance.
         wr, wt, wi = cfg.agentic_weights
         recency = np.array([retrieval.recency_weight(c.span_to, query_int,
                                                      cfg.recency_half_life_days)
@@ -332,9 +308,8 @@ def _cross_encoder():
 
 
 def _grade(index, cfg, question, contexts, llm, model):
-    """Drop contexts that do not clear the bar, and report whether *nothing*
-    did. That second return value is the whole abstention story: a pipeline with
-    no gate answers every question, including the ones with no answer."""
+    """Drops contexts below the bar; the second return value (whether nothing
+    cleared it) is the whole abstention story — a pipeline with no gate answers every question."""
     if cfg.grader == 'none':
         return contexts, False
     if cfg.grader == 'lexical':
@@ -366,21 +341,10 @@ def _by_layer(index, contexts) -> dict:
 
 
 def _drill_down(index, cfg, question: str, contexts):
-    """Expand each retrieved summary to the members it stands for.
-
-    This is the mechanism the 2026-07-31 post-mortem asked for and
-    `rollup_boost` was not: there, summaries competed against twenty times more
-    leaves and lost, and a uniform boost only promoted whichever kind of summary
-    was most numerous. Under `drill-down` the search already ran over summaries
-    alone, so being outnumbered cannot happen — and the members arrive as
-    evidence the answerer can quote, which a summary is not.
-
-    The summary itself is kept, first: for a counting question it is the row
-    that states the number, which is the whole reason it was written. Members
-    are ordered by IDF coverage of the question rather than by a stored score,
-    because no per-member score exists at this point and re-embedding here would
-    put a second encoder pass inside every query.
-    """
+    """Expands each retrieved summary to the members it stands for. The
+    summary itself is kept first (it states the count, for a counting
+    question); members are ordered by IDF coverage rather than a stored score,
+    since none exists here and re-embedding would add an encoder pass per query."""
     out = []
     for context in contexts:
         out.append(context)
@@ -401,9 +365,7 @@ def _drill_down(index, cfg, question: str, contexts):
 
 
 def _fit_budget(contexts, max_chars: int):
-    """Truncate the *list*, never a chunk: half a diary entry reads as a
-    complete one and invites the model to answer from a sentence whose second
-    half changed the meaning."""
+    """Truncates the *list*, never a chunk: half an entry reads as complete and can flip the meaning of what's quoted."""
     out, used = [], 0
     for context in contexts:
         if out and used + len(context.text) > max_chars:
@@ -441,13 +403,8 @@ def answer(outcome: Outcome, cfg: GenerationConfig, llm=None,
 
 
 def reads_as_refusal(answer: str, answerer: str) -> bool:
-    """Did the model decline?
-
-    Only the LLM answerer can decline in its own words, and only in its opening
-    sentence — a refusal phrase deep inside a long answer is the model quoting
-    the diary, not refusing. The extractive answerer never declines except by
-    emitting the canonical string, because everything else it says is copied out
-    of the corpus."""
+    """Did the model decline? Only the LLM answerer can decline in its own
+    words, and only in the opening sentence — a refusal phrase deep in a long answer is the model quoting the diary."""
     if answer.strip() == REFUSAL:
         return True
     if answerer != 'llm':
@@ -457,10 +414,7 @@ def reads_as_refusal(answer: str, answerer: str) -> bool:
 
 
 def _extractive_answer(outcome: Outcome, limit: int = 3) -> str:
-    """A deterministic stand-in for generation, so answer-side metrics have
-    something to score with no key and no cost. It is quoting, not answering —
-    reported as such, never compared against LLM runs as if it were the same
-    system."""
+    """A deterministic stand-in for generation, with no key and no cost — quoting, not answering, never compared against LLM runs as the same system."""
     lines = []
     for context in outcome.contexts[:limit]:
         sentences = textnorm.sentences(context.text)
@@ -471,23 +425,9 @@ def _extractive_answer(outcome: Outcome, limit: int = 3) -> str:
 
 
 def context_blocks(outcome: Outcome) -> str:
-    """The retrieved evidence as the answerer sees it: labelled, dated, and
-    **never truncated**.
-
-    Shared with `agent.py` rather than rebuilt there, and that is a measurement
-    property rather than tidiness. The agent's `generate` scope exists to answer
-    "does a critique loop write better answers from the *same* evidence?", so a
-    draft node with a shorter block of its own would make the scope partly a
-    measurement of truncation. Found the expensive way on 2026-08-13: the agent
-    cut each context to 900 characters, and under the `session` chunker the
-    sentence answering q-sh-004 sat past the cut — so `full` answered from a
-    different fight while `retrieve`, which routes through the answerer below,
-    got it right from the identical contexts.
-
-    The length limit is applied one stage earlier and differently:
-    `_fit_budget` drops whole contexts to `max_context_chars`, because cutting a
-    chunk mid-sentence is the exact failure that function exists to prevent.
-    """
+    """The retrieved evidence as the answerer sees it: labelled, dated, never
+    truncated here — `_fit_budget` already dropped whole contexts to the
+    character budget. Shared with `agent.py` so every node judges identical evidence."""
     return '\n\n'.join(
         f'[{context.session_id or context.chunk_id} | {context.date}]\n'
         f'{context.text}' for context in outcome.contexts)
@@ -509,10 +449,8 @@ def _llm_answer(outcome: Outcome, llm, model: str) -> str:
 
 def retrieve_traced(index, cfg: RetrievalConfig, question: str, query_date: str,
                     llm=None, models: Roles | None = None) -> tuple[Outcome, dict]:
-    """`retrieve`, plus the full per-candidate step ladder for the Inspector.
-
-    A thin wrapper so the eval path never carries the trace's cost: it passes a
-    fresh dict, which `retrieve` fills only because it was asked."""
+    """`retrieve`, plus the full per-candidate step ladder for the Inspector;
+    a thin wrapper so the eval path never pays the trace's cost."""
     trace: dict = {}
     outcome = retrieve(index, cfg, question, query_date,
                        llm=llm, models=models, trace=trace)

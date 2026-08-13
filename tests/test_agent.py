@@ -1,17 +1,13 @@
 """The scoped RAG agent: what each scope owns, what it refuses, and what every
 row it produces has to say.
 
-Offline throughout. The model seam under test is `agent._ask`, which every node
-calls and no node bypasses — so a stub here can answer per node, count calls, and
-raise, without any test having to know a prompt's wording. Two tests deliberately
-skip the stub and run against the real `FakeChat`, because the conservative
-reading of an *unparsable* reply is the whole safety property of this feature and
-a stub that returns clean verdicts cannot exercise it.
+Offline throughout, via a stub for `agent._ask` — the seam every node calls
+and none bypasses. Two tests skip the stub and run against the real
+`FakeChat`, because the conservative reading of an *unparsable* reply is the
+safety property under test there.
 
-The corpus is Farsi, so these use `token-hash` for the reason test_hierarchy.py
-does: ascii-hash embeds Farsi to the zero vector, and an agent looping over an
-empty candidate pool would pass every test while measuring nothing.
-"""
+Uses `token-hash`, not `ascii-hash`: the corpus is Farsi and ascii-hash embeds
+it to the zero vector."""
 import time
 
 import pytest
@@ -390,11 +386,10 @@ def test_only_the_full_scope_retrieves_again_after_a_bad_critique(
 
 def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
         index, question, query_date):
-    """No stub: `FakeChat` echoes its prompt, so every verdict is unparsable —
-    which is exactly the 2026-08-02 gate fault in a new place. An unreadable
-    sufficiency verdict must mean *insufficient*, never a number that clears the
-    threshold, or an unreachable model turns the loop into a no-op that no field
-    on the row contradicts."""
+    """No stub: `FakeChat` echoes its prompt, so every verdict is unparsable.
+    An unreadable sufficiency verdict must mean *insufficient*, never a
+    number that clears the threshold, or an unreachable model turns the loop
+    into a silent no-op."""
     outcome = agent.run(index, agent_cfg(scope='full', max_hops=2,
                                          max_revisions=1),
                         question, query_date, llm=FakeChat())
@@ -663,17 +658,14 @@ def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
 
 def test_the_panel_has_a_control_for_every_agent_knob():
     """`explain.missing()` stops a knob shipping unexplained; this stops one
-    shipping unreachable. A field with no control is a field the panel silently
-    posts at its default, which is how a preset comes to lie."""
+    shipping unreachable. A field with no control is a field the panel
+    silently posts at its default, which is how a preset comes to lie."""
     panel = _static('index.html')
     models = {role.field for role in models_mod.ROLES}
     for name in AgentConfig.__dataclass_fields__:
         if f'agent.{name}' in models:
-            # The model roles are *rendered* from the served list, not written
-            # into the page — that is what lets a role added to models.ROLES
-            # appear without editing this file. So what has to exist here is the
-            # column the agent's group renders into; a missing container is how
-            # a served role silently ends up in the spare bin at the bottom.
+            # Model roles render from the served list; what must exist here
+            # is the column the agent's group renders into.
             assert 'id="modelRoles-agent"' in panel
             continue
         assert f"$('{name}')" in panel, name
@@ -692,16 +684,10 @@ def test_the_inspector_renders_the_loop_beside_the_ranks():
 def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
                                                                query_date,
                                                                monkeypatch):
-    """The `generate` scope asks whether a critique loop writes better answers
-    from the *same* evidence, so a draft node holding less of it makes the scope
-    partly a measurement of truncation.
-
-    Found on 2026-08-13 by one real hop on the `claude` backend: the agent cut
-    each context to 900 characters, and under the `session` chunker the sentence
-    answering q-sh-004 sat past the cut — `full` answered from a different fight
-    while `retrieve` got it right from the identical contexts. The bound belongs
-    to `max_context_chars`, which drops whole contexts rather than cutting one.
-    """
+    """The `generate` scope asks whether a critique loop writes better
+    answers from the *same* evidence, so a draft node holding less of it
+    makes the scope partly a measurement of truncation rather than of
+    critique."""
     seen: dict[str, str] = {}
 
     def spy(llm, model, node, system, user):
@@ -718,15 +704,10 @@ def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
 
 
 def test_the_panel_merges_a_remembered_config_over_the_served_groups():
-    """A browser holding a config from before the agent group existed must not
-    come up with blank agent controls — a blank number input reads as 0, and
-    validation then refuses `max_hops` for a knob the reader never touched.
-
-    So the group list comes from the served defaults rather than being written
-    into the page. This is the UNSHOWN lesson: the panel must not keep its own
-    idea of what a `LabConfig` contains, or the next group added reproduces the
-    fault exactly.
-    """
+    """A browser holding a config from before the agent group existed must
+    not come up with blank agent controls — a blank number input reads as 0,
+    and validation then refuses `max_hops` for a knob nobody touched. So the
+    group list comes from the served defaults, never hard-coded in the page."""
     panel = _static('index.html')
     assert 'for (const group of Object.keys(defaults))' in panel
     assert "for (const group of ['index', 'retrieval', 'generation']) {\n    merged" \
@@ -734,14 +715,10 @@ def test_the_panel_merges_a_remembered_config_over_the_served_groups():
 
 
 def test_the_models_column_stays_the_right_hand_one_whatever_the_step_count():
-    """Adding the agent card to a four-slot grid put the *models* card on a
-    second row, because auto-placement fills a row before it wraps — quietly
-    breaking the rule that every model in this lab lives in the one right-hand
-    column, embedder included. Measured in a browser at 1557px on 2026-08-13.
-
-    So the column is pinned rather than left to arithmetic: the next step card
-    added must not be able to move the models again.
-    """
+    """A four-slot grid's auto-placement fills a row before wrapping, which
+    would put the *models* card on a second row — breaking the rule that
+    every model lives in the one right-hand column. Pinned rather than left
+    to arithmetic."""
     panel = _static('index.html')
     assert '.bench > .rag-models { grid-column: -2 / -1; }' in panel
     assert 'repeat(4, minmax(0, 1fr)) minmax(0, 300px)' in panel

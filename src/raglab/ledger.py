@@ -1,45 +1,10 @@
-"""Every experiment the lab finishes, in one SQLite file.
+"""Every finished experiment — index build, retrieval, or run — as one row.
 
-    databases/raglab.db               (RAGLAB_DB overrides)
+    databases/raglab.db               (RAGLAB_DB overrides, `*.db` git-ignored)
 
-Three kinds of work run in this lab — build an index, retrieve for a selected
-sample, score a sample end to end — and until this module existed only the third
-one left anything behind. So "what have I already tried?" was a question the lab
-could not answer about two thirds of its own work, and answered about the third
-only in the shape the leaderboard needed.
-
-**One row per finished job, written before the job goes terminal.** The ordering
-is load-bearing: both frontends and the Inspector poll a job until it stops
-running, so a row written *after* `state = 'done'` is a row a follower can look
-for and miss.
-
-**The row says where it ran.** `provider` is the resolved backend, not the
-payload's request, because `fake` answers and judges without ever failing: a run
-on the stub produces a full set of confident numbers that measured nothing, and
-the only thing separating it from a real measurement is this column. `sweep.py`
-refuses to start on that backend for the same reason; a ledger cannot refuse
-anything, so it records instead.
-
-**The detail is the experiment's, not the corpus's.** `detail` holds the whole
-result — config, per-question rows, traced candidate ranks, notes, the sample —
-which is what makes a row explicable a month later. `chunks_by_session` is
-stripped: chunk text is a property of the index fingerprint, byte-identical
-across every experiment sharing one, and reproduced exactly by re-running the
-build. Keeping it would store the corpus once per experiment.
-
-**Nothing backs this up.** In Lodestar the ledger lived in `databases/test/`,
-the disposable half, so the backup script that walked `databases/real/` needed no
-exception for it — a rule that could not be forgotten rather than one that had to
-be remembered. This repository has no backup script at all, so the rule is now
-simply the fact: experiments are reproducible from the fixtures and specific to
-one machine, and this file is the only thing that would be missed. `*.db` keeps
-it out of git.
-
-**This is not the lab's vector store and must never become one.** The index
-still lives in process memory and is discarded with the process, for the reasons
-in `store.py`: a sweep rebuilds it dozens of times and the cheapest way for a
-stale collection to be found is to still be there. What is durable here is the
-record of what ran — never the vectors it ran over.
+Written in `Jobs.run` before the job goes terminal, so a poller looking for
+`state = 'done'` never finds it missing. Never the vector store: the index stays
+in process memory (store.py) and this records only what ran, not what it ran over.
 """
 import json
 import os
@@ -49,9 +14,7 @@ from pathlib import Path
 
 from .config import ROOT
 
-# Order matters: it is the column order of the table and of every row this
-# module returns, so the panel's table can be rendered from it without a
-# hand-kept second list to drift.
+# Order matters: it is the column order of the table and of every row returned.
 COLUMNS = (
     'experiment_id',        # a run's own id, else the job id — never both
     'kind',                 # index | retrieve | run | query
@@ -92,9 +55,8 @@ CREATE TABLE IF NOT EXISTS experiments (
 );
 """
 
-# What never goes into `detail`. One tuple rather than a check per caller: the
-# next result shape to carry chunk text should be stripped by having been added
-# here, not by whoever writes the route remembering to.
+# What never goes into `detail`: a new result shape carrying chunk text should
+# be stripped by being added here, not by every caller remembering to.
 HEAVY = ('chunks_by_session',)
 
 
@@ -107,11 +69,8 @@ def db_path(env: dict | None = None) -> Path:
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
-    """An open connection with the schema in place.
-
-    Resolved per call rather than held open for the process: a lab runs for
-    hours between experiments, and one row a minute does not pay for a
-    connection that can go stale."""
+    """An open connection with the schema in place. Resolved per call rather
+    than held open for the process, so it cannot go stale between experiments."""
     target = path or db_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(target)
@@ -122,15 +81,8 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
 
 
 def _migrate(db: sqlite3.Connection) -> None:
-    """Add columns this schema has gained since a ledger was created.
-
-    `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so
-    without this a lab that has been recording experiments since before the
-    column existed fails on its next write — and the failure lands on a judged
-    run that has been going for two hours. A missing column is added with a
-    default, which is exactly what the old rows mean: every experiment recorded
-    before a second corpus existed was measured against the built-in one, and
-    the blank is read that way everywhere else too."""
+    """Add columns this schema has gained since a ledger was created —
+    `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists."""
     have = {row['name'] for row in db.execute('PRAGMA table_info(experiments)')}
     for name, kind in (('dataset', "TEXT NOT NULL DEFAULT ''"),):
         if name not in have:
@@ -138,29 +90,20 @@ def _migrate(db: sqlite3.Connection) -> None:
 
 
 def stamp() -> str:
-    """Local time, zero-padded, in the format `RunResult.started_at` already
-    uses — so one column can hold both without a parse to compare them."""
+    """Local time, zero-padded, matching `RunResult.started_at`'s format."""
     return time.strftime('%Y-%m-%d %H:%M:%S')
 
 
 def row_for(job: dict, state: str) -> dict:
-    """One ledger row from one finished job.
-
-    Derived from the job's own config and result rather than passed in by each
-    route, so a route added later is recorded by having been run — the same
-    reasoning as the untrusted-output middleware. Every field degrades to a
-    blank or a zero: an index build has no sample and no score, and a job that
-    failed may have no result at all, both of which are facts to record rather
-    than reasons not to."""
+    """One ledger row from one finished job. Derived from the job's own config
+    and result rather than passed in by each route, so a route added later is
+    recorded by having been run. Every field degrades to a blank or a zero."""
     result = job.get('result') if isinstance(job.get('result'), dict) else {}
     config = job.get('config') or {}
     index = config.get('index') or {}
-    # A build's job config carries a full `LabConfig`, so the retrieval and
-    # generation groups are populated with defaults — knobs the panel happened to
-    # be showing, which no part of a build reads. Recorded, they would put
-    # `hybrid-rrf` and `lexical` on a row that never retrieved anything, and a
-    # reader comparing rows would attribute a chunk count to a reranker. A build
-    # is defined by its index config alone; the rest of the row is honestly blank.
+    # A build's job config carries a full LabConfig, so retrieval/generation are
+    # populated with defaults no part of a build reads; a build is defined by
+    # its index config alone, so the rest of the row stays honestly blank.
     ran_pipeline = job.get('kind') != 'index'
     retrieval = (config.get('retrieval') or {}) if ran_pipeline else {}
     generation = (config.get('generation') or {}) if ran_pipeline else {}
@@ -182,12 +125,8 @@ def row_for(job: dict, state: str) -> dict:
         'seconds': round(float(result.get('seconds')
                                or job.get('seconds') or 0.0), 2),
         'provider': config.get('provider') or '',
-        # The resolved corpus: a build records the dataset its index config
-        # names, and a run records what it actually measured.
         'dataset': result.get('dataset') or index.get('dataset') or '',
         'chunker': index.get('chunker') or '',
-        # The model, not just the backend: two `fastembed` rows can be two
-        # entirely different representations of the same corpus.
         'embedder': index.get('embedder') or '',
         'retriever': retrieval.get('retriever') or '',
         'reranker': retrieval.get('reranker') or '',
@@ -212,11 +151,9 @@ def detail_for(job: dict) -> dict:
 
 
 def record(job: dict, state: str, path: Path | None = None) -> str:
-    """Write one finished job down and return its experiment id.
-
-    Raises on failure, deliberately: the caller decides what a ledger it cannot
-    write means, and for a two-hour judged run the answer must never be "lose
-    the result". `Jobs.run` catches it and reports it on the job."""
+    """Write one finished job down and return its experiment id. Raises on
+    failure, deliberately: a ledger write must never be able to fail a run.
+    `Jobs.run` catches it and reports it on the job."""
     row = row_for(job, state)
     values = dict(row, detail=json.dumps(detail_for(job), ensure_ascii=False,
                                          default=str))
@@ -225,9 +162,8 @@ def record(job: dict, state: str, path: Path | None = None) -> str:
         db.execute(
             f'INSERT INTO experiments ({", ".join(fields)}) '
             f'VALUES ({", ".join(":" + name for name in fields)}) '
-            # A job id is unique per process and a run id carries a timestamp, so
-            # this fires only when the same experiment is recorded twice — a
-            # retry, never two different experiments. Last write wins.
+            # Fires only on a retry of the same experiment, never two different
+            # ones: a job id is unique per process, a run id carries a timestamp.
             f'ON CONFLICT(experiment_id) DO UPDATE SET '
             + ', '.join(f'{name} = excluded.{name}' for name in fields
                         if name != 'experiment_id'),
@@ -236,20 +172,16 @@ def record(job: dict, state: str, path: Path | None = None) -> str:
 
 
 def experiments(limit: int = 200, path: Path | None = None) -> list[dict]:
-    """Every experiment, newest first, without its detail.
-
-    Ordered by insertion rather than by `started_at`: insertion order is
-    completion order, and an evaluation carries the time it *began*, so sorting
-    on that column would file a long run behind the short ones that finished
-    while it was still going."""
+    """Every experiment, newest first, without its detail. Ordered by insertion
+    (completion order), not `started_at`: a long run began earlier than short
+    ones that finished first, and would otherwise sort as older."""
     try:
         with connect(path) as db:
             rows = db.execute(
                 f'SELECT {", ".join(COLUMNS)} FROM experiments '
                 'ORDER BY rowid DESC LIMIT ?', (limit,)).fetchall()
     except sqlite3.Error:
-        # A ledger that cannot be read is an empty listing, never a 500: the
-        # panel's other tables and every run button have nothing to do with it.
+        # A ledger that cannot be read is an empty listing, never a 500.
         return []
     return [dict(row) for row in rows]
 
@@ -267,7 +199,7 @@ def experiment(experiment_id: str, path: Path | None = None) -> dict | None:
     try:
         row['detail'] = json.loads(row['detail'] or '{}')
     except json.JSONDecodeError:
-        # Unreadable detail is reported as such rather than as an empty
-        # experiment: the scalar columns beside it are still true.
+        # Reported as unreadable, not as an empty experiment: the scalar
+        # columns beside it are still true.
         row['detail'] = {'unreadable': True}
     return row

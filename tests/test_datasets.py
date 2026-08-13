@@ -71,11 +71,9 @@ def test_a_dataset_that_meets_the_contract_has_nothing_to_report():
 
 
 def test_a_quote_that_is_not_in_the_message_it_cites_is_refused():
-    """The rule that earns the validator's cost. Every lexical measurement in
-    this lab — quote recall, the Inspector's evidence spans, the offline RAGAS
-    context metrics — is computed against these quotes, so a dataset that
-    misquotes its own corpus does not score worse. It scores *confidently*,
-    about text the corpus never contained."""
+    """Every lexical measurement in this lab is computed against these
+    quotes, so a dataset that misquotes its own corpus scores *confidently*
+    about text the corpus never contained, not worse."""
     payload = _valid()
     payload['questions'][0]['evidence'][0]['quote'] = 'the roof was fixed in April'
     problems = datasets.validate(payload)
@@ -194,13 +192,12 @@ def test_the_dataset_is_part_of_the_fingerprint():
 
 
 def test_the_built_in_corpus_keeps_the_fingerprints_already_recorded():
-    """`''` is fingerprinted exactly as it was before the field existed. Every
-    run in `.runs/` records a collection name; a new field in IndexConfig
-    otherwise renames them all, and a directory of rows would describe indexes
-    no rebuild can reproduce by name."""
-    # The literal is the value the field-less IndexConfig produced, read off the
-    # code as it stood before this commit (`git show <parent>:src/raglab/config.py`)
-    # rather than off the code it is checking.
+    """`''` is fingerprinted exactly as it was before the field existed —
+    every run in `.runs/` records a collection name, and a new field in
+    IndexConfig would otherwise rename them all."""
+    # The literal is the value the field-less IndexConfig produced, read off
+    # the code as it stood before this commit rather than off the code it
+    # is checking.
     assert IndexConfig().fingerprint() == '804444ae65db'
     assert IndexConfig(dataset='').collection() == 'raglab-804444ae65db'
 
@@ -363,9 +360,9 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
 # so.
 
 def test_the_import_control_describes_the_file_it_takes():
-    """Under the same `!` as every knob, and keyed to the control's own id, so
-    the panel's one explainer mechanism hangs it on the Import label without a
-    second mechanism for file inputs."""
+    """Keyed to the control's own id, so the panel's one explainer mechanism
+    hangs it on the Import label without a second mechanism for file
+    inputs."""
     from raglab import explain
     text = explain.topics()['run.dataset-file']
     for named in ('dataset', 'sessions', 'questions',      # the three keys

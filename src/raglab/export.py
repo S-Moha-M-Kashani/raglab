@@ -16,8 +16,7 @@ and reached a gold session; an unanswerable one counts when it refused.
 from pathlib import Path
 
 from . import metrics
-
-DIFFICULTIES = ('easy', 'medium', 'hard')
+from .config import DIFFICULTIES
 
 # In the order a reader wants them. `metrics.MEASURES` supplies each one's
 # definition, so this list holds no wording of its own.
@@ -36,7 +35,7 @@ def _num(value, places: int = 4) -> str:
     return str(value)
 
 
-def _mean(values: list) -> float | None:
+def _numeric_mean(values: list) -> float | None:
     kept = [float(v) for v in values if isinstance(v, (int, float))]
     return round(sum(kept) / len(kept), 4) if kept else None
 
@@ -67,14 +66,14 @@ def difficulty_rates(rows: list[dict]) -> list[dict]:
             'n_answerable': len(answerable),
             'answered': round(
                 sum(1 for row in group if answered_correctly(row)) / len(group), 4),
-            'evidence_found': _mean([row.get('hit') for row in answerable]),
+            'evidence_found': _numeric_mean([row.get('hit') for row in answerable]),
             'quotes_in_context': (
                 round(sum(1 for row in answerable
                           if row.get('quote_recall') == 1.0) / len(answerable), 4)
                 if answerable else None),
-            'recall': _mean([row.get('recall') for row in answerable]),
-            'answer_overlap': _mean([row.get('answer_token_f1')
-                                     for row in group]),
+            'recall': _numeric_mean([row.get('recall') for row in answerable]),
+            'answer_overlap': _numeric_mean([row.get('answer_token_f1')
+                                             for row in group]),
         })
     return out
 
@@ -89,7 +88,7 @@ def type_rates(rows: list[dict]) -> list[dict]:
             'type': name, 'n': len(group),
             'answered': round(
                 sum(1 for row in group if answered_correctly(row)) / len(group), 4),
-            'recall': _mean([row.get('recall') for row in group]),
+            'recall': _numeric_mean([row.get('recall') for row in group]),
         })
     return out
 

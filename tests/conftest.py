@@ -1,12 +1,19 @@
-"""Suite-wide guards, autouse so no test has to remember them."""
+"""Suite-wide guards, autouse so no test has to remember them, plus the
+fixtures and settings shared across more than one test file."""
 import os
+import time
 from pathlib import Path
 
 import pytest
 
 import raglab
+from raglab import corpus
+from raglab.config import IndexConfig, LabSettings
+from raglab.index import IndexRegistry
 
 RAGLAB_DIR = Path(raglab.__file__).resolve().parent
+
+LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 
 @pytest.fixture(scope='module')
@@ -17,6 +24,43 @@ def client():
 
     from raglab.server import create_app
     return TestClient(create_app())
+
+
+@pytest.fixture(scope='module')
+def diary():
+    return corpus.load_diary()
+
+
+@pytest.fixture(scope='module')
+def ground_truth():
+    return corpus.load_ground_truth()
+
+
+@pytest.fixture(scope='module')
+def registry(diary):
+    return IndexRegistry(LAB_SETTINGS, diary)
+
+
+@pytest.fixture(scope='module')
+def index(registry):
+    return registry.get(IndexConfig(chunker='semantic-drift', embedder='char-hash',
+                                    contextual=True))
+
+
+@pytest.fixture(scope='module')
+def session(diary):
+    return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
+
+
+def _finished(client, job_id: str, timeout: float = 30.0) -> dict:
+    """Poll a job to its terminal state, the way both frontends do."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = client.get(f'/api/jobs/{job_id}').json()
+        if job['state'] not in ('running', 'cancelling'):
+            return job
+        time.sleep(0.01)
+    raise AssertionError(f'job {job_id} still running after {timeout}s')
 
 
 @pytest.fixture(autouse=True, scope='session')

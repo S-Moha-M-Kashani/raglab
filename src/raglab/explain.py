@@ -10,14 +10,15 @@ model roles in `models.ROLES` — and this module only assembles the two and
 reports what is missing. `missing()` returning anything is a test failure, which
 is what stops a new field from shipping unexplained.
 """
-from .config import HELP, GenerationConfig, IndexConfig, RetrievalConfig
+from .config import (HELP, AgentConfig, GenerationConfig, IndexConfig,
+                     RetrievalConfig)
 from .metrics import AGGREGATED, MEASURE_HELP, MEASURES
 from .models import ROLE_HELP, ROLES
 from .ragas_eval import (LLM_METRICS, OFFLINE_METRICS, RAGAS_MEASURE_HELP,
                          RAGAS_MEASURES)
 
 GROUPS = (('index', IndexConfig), ('retrieval', RetrievalConfig),
-          ('generation', GenerationConfig))
+          ('generation', GenerationConfig), ('agent', AgentConfig))
 
 
 def topics() -> dict[str, str]:

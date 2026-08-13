@@ -1282,8 +1282,13 @@ class Recorder:
 
 # This is a unit test.
 def test_every_llm_stage_has_a_role_in_the_registry():
+    # Eight since 2026-08-13: the agent's planner and critic are LLM stages like
+    # any other, so they carry their own model rather than borrowing the
+    # answerer's — a loop that thinks with the model it writes with cannot be
+    # measured against one that does not.
     assert {role.key for role in models.ROLES} == {
-        'expand', 'rerank', 'grade', 'answer', 'judge', 'ragas'}
+        'expand', 'rerank', 'grade', 'answer', 'judge', 'ragas', 'plan',
+        'critic'}
 
 
 # This is a unit test.
@@ -2084,12 +2089,12 @@ def test_metric_definitions_join_the_one_help_registry():
 # This is a unit test.
 def test_the_pipeline_steps_are_named_once_in_pipeline_order():
     assert [step.key for step in config.STEPS] == ['index', 'retrieval',
-                                                   'generation']
+                                                   'generation', 'agent']
     # Two names on purpose: the long one titles a panel, the short one tags a
     # group of models inside another panel, where a whole sentence would not fit.
     assert all(step.label and step.short and step.note for step in config.STEPS)
     assert [step.short for step in config.STEPS] == ['Index', 'Retrieval',
-                                                     'Generation']
+                                                     'Generation', 'Agent']
 
 
 # This is a unit test.
@@ -2410,7 +2415,7 @@ def test_options_offers_a_model_choice_for_every_llm_task(client):
     body = client.get('/api/options').json()
     roles = {role['key']: role for role in body['model_roles']}
     assert set(roles) == {'expand', 'rerank', 'grade', 'answer',
-                          'judge', 'ragas'}
+                          'judge', 'ragas', 'plan', 'critic'}
     assert all(role['help'] and role['label'] and role['field']
                for role in roles.values())
     ids = [m['id'] for m in body['models']]
@@ -2581,7 +2586,7 @@ def test_options_colour_code_the_pipeline_steps(client):
     a fact about the pipeline, served with everything else."""
     body = client.get('/api/options').json()
     assert [step['key'] for step in body['steps']] == ['index', 'retrieval',
-                                                       'generation']
+                                                       'generation', 'agent']
     assert all(step['label'] and step['short'] and step['note']
                for step in body['steps'])
     steps = {step['key'] for step in body['steps']}

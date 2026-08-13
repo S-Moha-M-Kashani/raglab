@@ -480,8 +480,8 @@ def test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores(
                         query_date, llm=FakeChat())
     assert isinstance(outcome, pipeline.Outcome)
     row = metrics.score_question(asked, outcome, k=3)
-    assert row['agent_hops'] == 1
-    assert row['agent_calls'] >= 2
+    assert row['n_hops'] == 1
+    assert row['n_agent_calls'] >= 2
     assert row['agent_stop'] == 'grounded'
     assert 'n_contexts' in row and 'latency_ms' in row
 

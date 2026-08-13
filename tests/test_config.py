@@ -18,7 +18,6 @@ _ENV_READS = re.compile(r"""
 _ENV_DOCUMENTED = re.compile(r'^#?\s*([A-Z][A-Z0-9_]{2,})=')
 
 
-# This is a configuration invariant.
 def test_env_example_documents_every_variable_the_code_reads():
     """`.env.example` is the only list of what this lab can be configured with,
     so a variable missing from it is undiscoverable and one lingering in it after

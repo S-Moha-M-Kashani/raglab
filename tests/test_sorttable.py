@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# This is a unit test: it runs the JS suite for the browser file the panels share.
+# Runs the JS suite for the browser file the panels share.
 @pytest.mark.skipif(shutil.which('node') is None,
                     reason='node is absent; the sorter is a browser file and '
                            'its ordering suite is written in JavaScript')

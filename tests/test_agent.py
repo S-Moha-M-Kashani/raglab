@@ -97,7 +97,6 @@ class Stub:
 
 # --- the settings: off by default, outside the fingerprint ------------------
 
-# This is a unit test.
 def test_the_agent_is_off_by_default_and_changes_nothing_until_asked():
     """The `summary_scope` rule applied to a loop: shipping the agent must move
     no number in a lab nobody has reconfigured, or the four scopes stop being a
@@ -107,7 +106,6 @@ def test_the_agent_is_off_by_default_and_changes_nothing_until_asked():
     assert LabConfig().validate() == []
 
 
-# This is a unit test.
 def test_no_agent_knob_can_cost_an_index_rebuild():
     """The agent is not an index field, so all four scopes sweep free against a
     single build — the property that makes this affordable to measure. A scope in
@@ -118,7 +116,6 @@ def test_no_agent_knob_can_cost_an_index_rebuild():
         assert cfg.index.fingerprint() == flat
 
 
-# This is a unit test.
 def test_the_four_scopes_are_the_two_by_two_and_nothing_else():
     """`retrieve` and `generate` own one stage each; `full` owns both. A fifth
     value would be a mechanism with no cell in the table."""
@@ -131,7 +128,6 @@ def test_the_four_scopes_are_the_two_by_two_and_nothing_else():
 
 # --- what is refused -------------------------------------------------------
 
-# This is a unit test.
 def test_a_scope_this_installation_cannot_run_is_refused_never_substituted(
         monkeypatch):
     """The `leiden` rule. A row labelled `scope=full` that was actually served
@@ -146,7 +142,6 @@ def test_a_scope_this_installation_cannot_run_is_refused_never_substituted(
     assert LabConfig().validate() == []
 
 
-# This is a unit test.
 def test_the_writing_scopes_require_the_llm_answerer():
     """Under `extractive` the answer is quoted from the corpus, so there is
     nothing for a critic to critique and nothing for a revision to change. A
@@ -162,7 +157,6 @@ def test_the_writing_scopes_require_the_llm_answerer():
                      generation={'answerer': 'extractive'}).validate() == []
 
 
-# This is a unit test.
 @pytest.mark.parametrize('knob,value', [('max_hops', 0), ('max_revisions', -1),
                                         ('max_llm_calls', 0)])
 def test_a_loop_bound_below_its_floor_is_refused(knob, value):
@@ -170,7 +164,6 @@ def test_a_loop_bound_below_its_floor_is_refused(knob, value):
     assert any(knob in p for p in problems), problems
 
 
-# This is a unit test.
 def test_an_unknown_scope_or_critic_is_refused_with_the_list():
     assert any('scope' in p for p in agent_cfg(scope='wander').validate())
     assert any('critic' in p
@@ -180,7 +173,6 @@ def test_an_unknown_scope_or_critic_is_refused_with_the_list():
 
 # --- what the panel shows --------------------------------------------------
 
-# This is a unit test.
 def test_every_agent_knob_explains_itself():
     """`explain.missing() == []` is what stops a knob shipping unexplained, and
     the agent's group has to be inside that gate rather than beside it."""
@@ -190,7 +182,6 @@ def test_every_agent_knob_explains_itself():
         assert f'agent.{name}' in covered, name
 
 
-# This is a unit test.
 def test_the_agent_is_the_fourth_step_and_its_models_wear_its_ink():
     """`ModelRole.step` is derived from the field a role writes to, so an ink
     cannot disagree with where the value is stored."""
@@ -203,7 +194,6 @@ def test_the_agent_is_the_fourth_step_and_its_models_wear_its_ink():
     assert roles['answer'].field == 'generation.model'
 
 
-# This is a unit test.
 def test_each_agent_knob_is_greyed_out_by_the_scope_that_never_reads_it():
     """Per scope, and transitively: a critic model is dead when the critic is
     off, which is itself dead when the scope owns no generation."""
@@ -239,7 +229,6 @@ def test_each_agent_knob_is_greyed_out_by_the_scope_that_never_reads_it():
 
 # --- the loop: retrieval scope ---------------------------------------------
 
-# This is a behavioural test.
 def test_a_sufficient_first_hop_stops_and_names_why(index, question, query_date,
                                                     monkeypatch):
     stub = Stub(plan='the diary entries about this', assess='SCORE: 0.9')
@@ -253,7 +242,6 @@ def test_a_sufficient_first_hop_stops_and_names_why(index, question, query_date,
     assert stub.count('rewrite') == 0
 
 
-# This is a behavioural test.
 def test_an_insufficient_verdict_rewrites_and_hops_again_up_to_the_cap(
         index, question, query_date, monkeypatch):
     stub = Stub(plan='...', assess='SCORE: 0.1', rewrite='خواب و بیخوابی')
@@ -265,7 +253,6 @@ def test_an_insufficient_verdict_rewrites_and_hops_again_up_to_the_cap(
     assert outcome.diagnostics['agent_stop'] == 'hop-cap'
 
 
-# This is a behavioural test.
 def test_rewriting_off_still_hops_and_is_the_control_for_the_rewrite(
         index, question, query_date, monkeypatch):
     """`rewrite=False` is what says whether rewriting was the useful part or
@@ -280,7 +267,6 @@ def test_rewriting_off_still_hops_and_is_the_control_for_the_rewrite(
     assert stub.count('rewrite') == 0
 
 
-# This is a behavioural test.
 def test_the_threshold_is_what_decides_sufficiency(index, question, query_date,
                                                    monkeypatch):
     monkeypatch.setattr(agent, '_ask', Stub(plan='...', assess='SCORE: 0.6'))
@@ -294,7 +280,6 @@ def test_the_threshold_is_what_decides_sufficiency(index, question, query_date,
     assert strict.diagnostics['agent_hops'] == 2
 
 
-# This is a behavioural test.
 def test_every_hop_retrieves_through_the_measured_pipeline(
         index, question, query_date, monkeypatch):
     """The agent loops *around* `pipeline.retrieve`, never past it: every
@@ -320,7 +305,6 @@ def test_every_hop_retrieves_through_the_measured_pipeline(
 
 # --- the loop: generation scope --------------------------------------------
 
-# This is a behavioural test.
 def test_a_grounded_draft_ships_without_revision(index, question, query_date,
                                                  monkeypatch):
     stub = Stub(draft='جواب فارسی [s001]', critique='SCORE: 0.9')
@@ -333,7 +317,6 @@ def test_a_grounded_draft_ships_without_revision(index, question, query_date,
     assert outcome.diagnostics['agent_hops'] == 1, 'retrieval stays fixed'
 
 
-# This is a behavioural test.
 def test_a_refused_draft_is_revised_up_to_the_cap(index, question, query_date,
                                                   monkeypatch):
     stub = Stub(draft=['first', 'second'], critique='SCORE: 0.1')
@@ -345,7 +328,6 @@ def test_a_refused_draft_is_revised_up_to_the_cap(index, question, query_date,
     assert stub.count('draft') == 2
 
 
-# This is a behavioural test.
 def test_the_critic_off_ships_the_draft_and_calls_no_critic(
         index, question, query_date, monkeypatch):
     """The control for the critic: without it the scope is one drafting call, so
@@ -360,7 +342,6 @@ def test_the_critic_off_ships_the_draft_and_calls_no_critic(
     assert outcome.diagnostics['agent_stop'] == 'drafted'
 
 
-# This is a behavioural test.
 def test_the_both_critic_also_asks_whether_the_answer_answers_the_question(
         index, question, query_date, monkeypatch):
     stub = Stub(draft='جواب', critique='SCORE: 0.9', completeness='SCORE: 0.9')
@@ -379,7 +360,6 @@ def test_the_both_critic_also_asks_whether_the_answer_answers_the_question(
 
 # --- the loop: full, and the edge only it has ------------------------------
 
-# This is a behavioural test.
 def test_only_the_full_scope_retrieves_again_after_a_bad_critique(
         index, question, query_date, monkeypatch):
     """The interaction term of the factorial. `generate` can only rewrite the
@@ -408,7 +388,6 @@ def test_only_the_full_scope_retrieves_again_after_a_bad_critique(
 
 # --- the conservative reading of an unreadable reply -----------------------
 
-# This is a behavioural test.
 def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
         index, question, query_date):
     """No stub: `FakeChat` echoes its prompt, so every verdict is unparsable —
@@ -424,7 +403,6 @@ def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
     assert outcome.diagnostics['agent_unparsed'] > 0, 'and it is counted'
 
 
-# This is a unit test.
 def test_the_verdict_parser_reads_a_score_and_refuses_to_invent_one():
     assert agent.verdict('SCORE: 0.8') == pytest.approx(0.8)
     assert agent.verdict('score 8/10') == pytest.approx(0.8)
@@ -438,7 +416,6 @@ def test_the_verdict_parser_reads_a_score_and_refuses_to_invent_one():
 
 # --- cost, failure, and what the row says ----------------------------------
 
-# This is a behavioural test.
 def test_the_cost_cap_ends_the_loop_and_names_itself(index, question,
                                                      query_date, monkeypatch):
     """A shape-bounded loop can still be expensive, and an unsweepable knob is
@@ -453,7 +430,6 @@ def test_the_cost_cap_ends_the_loop_and_names_itself(index, question,
     assert len(stub.calls) == 3
 
 
-# This is a behavioural test.
 def test_a_model_the_agent_cannot_reach_abstains_and_says_why(
         index, question, query_date, monkeypatch):
     """`_llm_answer`'s call one level up: one unreachable question must not end
@@ -470,7 +446,6 @@ def test_a_model_the_agent_cannot_reach_abstains_and_says_why(
     assert outcome.diagnostics['agent_stop'] == 'error'
 
 
-# This is a behavioural test.
 def test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores(
         index, ground_truth, query_date, monkeypatch):
     """The agent fills the same `Outcome`, so scoring, RAGAS, the ledger and the
@@ -489,7 +464,6 @@ def test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores(
     assert 'n_contexts' in row and 'latency_ms' in row
 
 
-# This is a unit test.
 def test_the_loop_counters_are_explained_measures_not_bare_numbers():
     """`explain.missing_metrics() == []` is the gate; these two join it rather
     than arriving on the dashboard as unlabelled integers."""
@@ -503,7 +477,6 @@ def test_the_loop_counters_are_explained_measures_not_bare_numbers():
     assert 'n_agent_calls' in metrics.AGGREGATED
 
 
-# This is a behavioural test.
 def test_a_traced_agent_records_every_node_it_visited(index, question,
                                                       query_date, monkeypatch):
     """The Inspector's ladder. "Refused because the diary is silent" and
@@ -525,7 +498,6 @@ def test_a_traced_agent_records_every_node_it_visited(index, question,
     assert trace['candidates']
 
 
-# This is a behavioural test.
 def test_tracing_an_agent_moves_no_number(index, question, query_date,
                                           monkeypatch):
     """`retrieve_traced`'s guarantee, one level up: the trace is a recording of
@@ -552,7 +524,6 @@ def test_tracing_an_agent_moves_no_number(index, question, query_date,
 
 # --- the graph itself ------------------------------------------------------
 
-# This is a unit test.
 def test_the_loop_is_a_compiled_langgraph_with_the_edge_full_alone_has():
     """Not an incidental while-loop: the scopes differ by which nodes and edges
     the graph has, which is the thing a reader can check against the design."""
@@ -587,7 +558,6 @@ def _finished(client, job_id: str, timeout: float = 60.0) -> dict:
     raise AssertionError(f'job {job_id} still running after {timeout}s')
 
 
-# This is an integration test.
 def test_the_panel_offers_every_scope_and_says_which_can_run(client):
     """Served, never listed in the frontend: a panel with its own list is a
     panel that will offer a scope the service refuses."""
@@ -609,7 +579,6 @@ def test_the_panel_offers_every_scope_and_says_which_can_run(client):
     assert 'agent.scope' in body['help']
 
 
-# This is an integration test.
 def test_an_evaluation_with_a_scope_scores_records_and_names_the_loop(client,
                                                                      monkeypatch):
     """The whole way through: an agent run has to produce a row the leaderboard
@@ -638,7 +607,6 @@ def test_an_evaluation_with_a_scope_scores_records_and_names_the_loop(client,
     assert result['traces'][0]['trace']['agent'][0]['node'] == 'plan'
 
 
-# This is an integration test.
 def test_the_retrieval_route_shows_the_loop_and_never_answers(client,
                                                              monkeypatch):
     """`/api/retrievals` retrieves and stops. An agent that owns retrieval is
@@ -659,7 +627,6 @@ def test_the_retrieval_route_shows_the_loop_and_never_answers(client,
     assert 'draft' not in nodes and stub.count('draft') == 0
 
 
-# This is an integration test.
 def test_a_scope_the_backend_cannot_run_is_a_400_on_both_run_routes(
         client, monkeypatch):
     """Both run routes apply the same screen — the rule `/api/queries` and
@@ -680,7 +647,6 @@ def _static(name: str) -> str:
     return (STATIC / name).read_text(encoding='utf-8')
 
 
-# This is a unit test.
 def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
     """One ink per step, defined once per page with the same value. The lab and
     the Inspector are one instrument in two windows, so a step whose colour
@@ -695,7 +661,6 @@ def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
     assert 'data-step="agent"' in panel
 
 
-# This is a unit test.
 def test_the_panel_has_a_control_for_every_agent_knob():
     """`explain.missing()` stops a knob shipping unexplained; this stops one
     shipping unreachable. A field with no control is a field the panel silently
@@ -715,7 +680,6 @@ def test_the_panel_has_a_control_for_every_agent_knob():
         assert f'id="{name}"' in panel, name
 
 
-# This is a unit test.
 def test_the_inspector_renders_the_loop_beside_the_ranks():
     """The ladder is what makes an agent row readable: the candidate table says
     what came back, the ladder says after what."""
@@ -725,7 +689,6 @@ def test_the_inspector_renders_the_loop_beside_the_ranks():
     assert 'agent-ladder' in _static('inspector.css')
 
 
-# This is a behavioural test.
 def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
                                                                query_date,
                                                                monkeypatch):
@@ -754,7 +717,6 @@ def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
         assert handed in seen[node], node
 
 
-# This is a unit test.
 def test_the_panel_merges_a_remembered_config_over_the_served_groups():
     """A browser holding a config from before the agent group existed must not
     come up with blank agent controls — a blank number input reads as 0, and
@@ -771,7 +733,6 @@ def test_the_panel_merges_a_remembered_config_over_the_served_groups():
         not in panel, 'the hard-coded group list is back in startingConfig'
 
 
-# This is a unit test.
 def test_the_models_column_stays_the_right_hand_one_whatever_the_step_count():
     """Adding the agent card to a four-slot grid put the *models* card on a
     second row, because auto-placement fills a row before it wraps — quietly

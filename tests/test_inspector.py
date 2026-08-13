@@ -5,7 +5,6 @@ from raglab.index import IndexRegistry
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 
-# This is a unit test.
 def test_evidence_spans_locate_the_quote_and_never_invent_one():
     """The green highlight is drawn from these ranges, so a range that is not
     really the quote is a lie on screen. Computed here rather than in the
@@ -37,7 +36,7 @@ def test_evidence_spans_locate_the_quote_and_never_invent_one():
     assert 'قبل از اول ماه دیگه بود'[s:e] == 'اول ماه دیگه'
 
 
-# This is an integration test (real fixture, real chunker).
+# Real fixture, real chunker.
 def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     """"1 gold" is not a result until you know it was 1 of how many.
 
@@ -75,7 +74,7 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     assert evaluate.trace_row(question, trace)['gold_available'] is None
 
 
-# This is an integration test (real fixture, real chunker).
+# Real fixture, real chunker.
 def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
     """End to end over the real corpus: whatever the pipeline retrieved, every
     span on every candidate must slice out of that candidate's own text, and a
@@ -107,7 +106,7 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
     assert verbatim_seen, 'expected at least one candidate to highlight'
 
 
-# This is an integration test (real in-memory index, offline ascii-hash embedder).
+# Real in-memory index, offline ascii-hash embedder.
 def test_retrieve_traced_records_ranks_and_dropped_candidates():
     diary = corpus.load_diary()
     gt = corpus.load_ground_truth()
@@ -152,7 +151,6 @@ def test_retrieve_traced_records_ranks_and_dropped_candidates():
         'expected at least one candidate with float grade_score'
 
 
-# This is a unit test.
 def test_mark_gold_matches_evidence_quote_either_direction():
     quotes = ['قسط‌بندی جریمه اوکی شد شیش قسط']
     texts = [
@@ -177,7 +175,7 @@ def test_mark_gold_matches_evidence_quote_either_direction():
     assert inspector.mark_gold(['یک متن کاملا بی ربط'], ['۶']) == [False]
 
 
-# This is an integration test (real in-memory index, offline).
+# Real in-memory index, offline.
 def test_chunks_by_session_groups_and_counts():
     diary = corpus.load_diary()
     index = IndexRegistry(LAB_SETTINGS, diary).get(
@@ -211,7 +209,7 @@ def _static(name: str) -> str:
     return (inspector.STATIC / name).read_text(encoding='utf-8')
 
 
-# This is an integration test (FastAPI TestClient over the read-only app).
+# FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     client = _client(monkeypatch)
     body = client.get('/api/groundtruth').json()
@@ -223,8 +221,8 @@ def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     assert 'quote' in q['evidence'][0]
 
 
-# This is an integration test (FastAPI TestClient over the read-only app; real
-# in-memory index build via the job runner).
+# FastAPI TestClient over the read-only app; real in-memory index build via
+# the job runner.
 def test_chunks_job_returns_sessions(monkeypatch):
     client = _client(monkeypatch)
     cfg = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'}}
@@ -243,8 +241,8 @@ def test_chunks_job_returns_sessions(monkeypatch):
                                   for g in result['chunks_by_session'])
 
 
-# This is an integration test (FastAPI TestClient over the read-only app; real
-# in-memory index build and retrieval trace via the job runner).
+# FastAPI TestClient over the read-only app; real in-memory index build and
+# retrieval trace via the job runner.
 def test_trace_job_marks_gold(monkeypatch):
     client = _client(monkeypatch)
     gt_q = client.get('/api/groundtruth').json()['questions'][0]
@@ -266,7 +264,7 @@ def test_trace_job_marks_gold(monkeypatch):
     assert cands and all('gold' in c for c in cands)
 
 
-# This is an integration test (the served shell exposes its test-stable hooks).
+# The served shell exposes its test-stable hooks.
 def test_inspector_page_exposes_the_three_views(monkeypatch):
     client = _client(monkeypatch)
     html = client.get('/').text
@@ -280,7 +278,7 @@ def test_inspector_page_exposes_the_three_views(monkeypatch):
         assert hook in html, f'missing {hook}'
 
 
-# This is an integration test (the served shell exposes the new views' hooks).
+# The served shell exposes the new views' hooks.
 def test_page_exposes_the_generation_tab_and_the_evidence_reveal(monkeypatch):
     """Four things the two new features are rendered by, so a rename cannot
     quietly remove one: a fourth tab and its view, the per-question header that
@@ -408,8 +406,8 @@ def fake_lab():
         thread.join(timeout=2)
 
 
-# This is an integration test (FastAPI TestClient; the lab it points at is an
-# unreachable port, pinning "a lab that is not running is a normal state").
+# FastAPI TestClient; the lab it points at is an unreachable port, pinning "a
+# lab that is not running is a normal state".
 def test_follow_reports_lab_down_without_raising(monkeypatch):
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', 'http://127.0.0.1:9')
     client = _client(monkeypatch)
@@ -420,8 +418,8 @@ def test_follow_reports_lab_down_without_raising(monkeypatch):
     assert body['index'] is None and body['query'] is None
 
 
-# This is an integration test (FastAPI TestClient over the read-only app; the
-# lab is a canned fake HTTP server, not the real :9002).
+# FastAPI TestClient over the read-only app; the lab is a canned fake HTTP
+# server, not the real :9002.
 def test_follow_reads_a_finished_index_and_query_job(monkeypatch, fake_lab):
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -436,7 +434,7 @@ def test_follow_reads_a_finished_index_and_query_job(monkeypatch, fake_lab):
     assert body['query']['trace']['candidates'][0]['gold'] is True
 
 
-# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+# FastAPI TestClient; the lab is a canned fake.
 def test_follow_shows_one_table_per_selected_question(monkeypatch, fake_lab,
                                                       request):
     """The retrieval window is per-question, and it must show *only* the
@@ -471,7 +469,7 @@ def test_follow_shows_one_table_per_selected_question(monkeypatch, fake_lab,
     assert body['lab'] == 'up' and body['retrieval'] is None
 
 
-# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+# FastAPI TestClient; the lab is a canned fake.
 def test_follow_shows_the_chunks_the_last_run_actually_used(monkeypatch,
                                                            fake_lab, request):
     """The two windows must describe the same pipeline.
@@ -503,8 +501,8 @@ def test_follow_shows_the_chunks_the_last_run_actually_used(monkeypatch,
     assert body['index']['config']['index']['chunker'] == 'session'
 
 
-# This is an integration test (FastAPI TestClient over the read-only app; a real
-# in-memory index, the offline embedder and the extractive answerer).
+# FastAPI TestClient over the read-only app; a real in-memory index, the
+# offline embedder and the extractive answerer.
 def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch):
     """A question you add by hand has to arrive scored exactly like the ones the
     experiment selected — same retrieval row, same generation row, same metric
@@ -581,7 +579,7 @@ def _outcome_for(config: dict, question: dict):
     return pipeline.answer(outcome, GenerationConfig(answerer='extractive'))
 
 
-# This is an integration test (the served page carries the picker's hooks).
+# The served page carries the picker's hooks.
 def test_page_offers_a_question_picker_coded_by_difficulty(monkeypatch):
     """The old control was a bare `<select>` labelled "Question", which said
     nothing about what picking one would do. It becomes a button that opens a
@@ -602,7 +600,7 @@ def test_page_offers_a_question_picker_coded_by_difficulty(monkeypatch):
     assert 'role="listbox"' in html and 'aria-expanded' in html
 
 
-# This is an integration test (FastAPI TestClient over the read-only app).
+# FastAPI TestClient over the read-only app.
 def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
     """The Generation tab's '!' marks read this. Served from `explain` — the
     lab's own source for /api/options — rather than copied into the Inspector's
@@ -623,7 +621,7 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
                for m in body['metrics'])
 
 
-# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+# FastAPI TestClient; the lab is a canned fake.
 def test_follow_exposes_what_the_evaluation_generated(monkeypatch, fake_lab,
                                                      request):
     """The Generation tab needs three things per question that retrieval alone
@@ -664,7 +662,7 @@ HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
 # summary row can be *seen*, which is independent of how the groups were found.
 
 
-# This is an integration test (real in-memory index with a real hierarchy).
+# Real in-memory index with a real hierarchy.
 def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     """No row the build wrote may be absent from both views.
 
@@ -723,8 +721,8 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     assert present.summary_rows(flat) == []
 
 
-# This is an integration test (FastAPI TestClient over the read-only app; a real
-# in-memory hierarchical build via the job runner).
+# FastAPI TestClient over the read-only app; a real in-memory hierarchical
+# build via the job runner.
 def test_chunks_job_returns_the_summaries_beside_the_chunk_groups(monkeypatch):
     """The manual build path serves both halves in one job, so the toggle needs
     no second request — and `total` keeps counting leaves, because it is what the
@@ -745,7 +743,7 @@ def test_chunks_job_returns_the_summaries_beside_the_chunk_groups(monkeypatch):
     assert summary['members'] >= 1 and summary['level'] >= 1 and summary['text']
 
 
-# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+# FastAPI TestClient; the lab is a canned fake.
 def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
                                                    request):
     """The followed view cannot compute these itself.
@@ -784,7 +782,7 @@ def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
     assert view['summaries'] == []
 
 
-# This is an integration test (the served shell carries the toggle's hooks).
+# The served shell carries the toggle's hooks.
 def test_page_offers_a_chunks_and_summaries_toggle(monkeypatch):
     """One view, two kinds of row, and a control that says the second kind
     exists. The tab has to name summaries even when none were built — a reader
@@ -805,8 +803,8 @@ def test_page_offers_a_chunks_and_summaries_toggle(monkeypatch):
     assert 'aria-pressed' in html
 
 
-# This is an integration test (FastAPI TestClient over the read-only app; a real
-# chunk build and a real SQLite file on a temp path).
+# FastAPI TestClient over the read-only app; a real chunk build and a real
+# SQLite file on a temp path.
 def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
     """The Inspector is read-only, and that has to survive the lab growing a
     place to write.
@@ -860,7 +858,7 @@ FAKE_OTHER_CORPUS_JOB = {
          'chunks': [{'id': 'mtg-0113:c0', 'text': 'Protokoll'}]}]}}
 
 
-# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+# FastAPI TestClient; the lab is a canned fake.
 def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
                                                        request):
     """Which corpus the lab is on is a fact about the whole page, not about one
@@ -899,8 +897,8 @@ def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
     assert _client(monkeypatch).get('/api/follow').json()['dataset'] == ''
 
 
-# This is a unit test (it reads the browser file the way the agent-ladder test
-# does; the Inspector's page script has no module seam to import).
+# It reads the browser file the way the agent-ladder test does; the
+# Inspector's page script has no module seam to import.
 def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
     """The three things on this page that come from the fixture rather than from
     a run — the Ground Truth tab, the ideal answer restated beside each row, and
@@ -922,7 +920,7 @@ def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
         'the reload does not name the corpus it was given'
     assert 'dataset: FOLLOWED_DATASET' in js, \
         'an added question is run against a corpus the picker did not offer'
-# This is an integration test (FastAPI TestClient over the read-only app).
+# FastAPI TestClient over the read-only app.
 def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeypatch):
     """The comment above `CHOSEN_CONFIG` claims it is "one source for the
     endpoint tests and the frontend so the two cannot drift". Until this route
@@ -955,7 +953,7 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     assert body['chosen']['retrieval']['grader'] in body['graders']
 
 
-# This is an integration test (the served asset keeps no config of its own).
+# The served asset keeps no config of its own.
 def test_inspector_js_keeps_no_config_literal_of_its_own(monkeypatch):
     """The duplication itself, pinned. `inspector.js` used to open with a
     `CHOSEN` literal naming the whole pipeline — the same six values as

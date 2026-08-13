@@ -402,18 +402,19 @@ def test_the_panel_renders_the_json_shape_as_a_shape():
     arrives as one run-on paragraph is not one. Every other explainer is a
     single line, so preserving the newlines costs them nothing."""
     from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    rule = html.split('p.explain {')[1].split('}')[0]
+    css = (STATIC / 'panel.css').read_text(encoding='utf-8')
+    rule = css.split('p.explain {')[1].split('}')[0]
     assert 'pre-wrap' in rule
 
 
 def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'id="dataset"' in html and 'id="dataset-file"' in html
-    assert '/api/datasets' in html
+    assert '/api/datasets' in js
     assert 'One table per dataset' in html
-    assert 'byDataset' in html, 'the leaderboard renders one table per corpus'
+    assert 'byDataset' in js, 'the leaderboard renders one table per corpus'
 
 
 def _finished(client, job_id: str) -> dict:

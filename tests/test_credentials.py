@@ -156,13 +156,14 @@ def test_the_panel_offers_the_key_field_and_never_stores_it_in_the_browser():
     stay out of that and out of localStorage."""
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'id="openrouter_key"' in html
-    assert '/api/credentials' in html
+    assert '/api/credentials' in js
     assert 'type="password"' in html
-    for line in html.splitlines():
+    for line in html.splitlines() + js.splitlines():
         if 'openrouter_key' in line:
             assert 'localStorage' not in line and 'remember(' not in line, line
-    assert 'openrouter_key:' not in html
+    assert 'openrouter_key:' not in html and 'openrouter_key:' not in js
 
 
 def test_the_key_is_a_documented_environment_variable_still():

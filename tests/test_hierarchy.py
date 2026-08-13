@@ -406,7 +406,7 @@ def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
     edge *source* builds kNN edges rather than resolving transitively."""
     from pathlib import Path
     panel = (Path(__file__).resolve().parents[1] / 'src' / 'raglab' / 'static'
-             / 'index.html').read_text(encoding='utf-8')
+             / 'panel.js').read_text(encoding='utf-8')
     assert 'function dependencyState(' in panel, (
         'the panel must resolve chains, not just single rules')
     assert 'resolve(rule.field' in panel, 'the resolution has to be transitive'

@@ -1,7 +1,80 @@
-"""Suite-wide guards, autouse so no test has to remember them."""
+"""Suite-wide guards, autouse so no test has to remember them, plus the
+fixtures and settings shared across more than one test file."""
 import os
+import time
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
+
+import raglab
+from raglab import corpus
+from raglab.config import IndexConfig, LabSettings
+from raglab.index import IndexRegistry
+
+RAGLAB_DIR = Path(raglab.__file__).resolve().parent
+
+LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
+
+# The local backend's own settings, read by the service tests (which check
+# /api/options against it) and by the provider tests (which build it).
+OLLAMA_SETTINGS = replace(LAB_SETTINGS, llm_provider='ollama',
+                          llm_model='gemma4:e2b')
+
+# Each of these embedded a Farsi sentence here, through the backend it names —
+# read by the catalogue tests that define the claim and by the service tests
+# that check `/api/options` reports the same models.
+REQUESTED_MODELS = {
+    'heydariAI/persian-embeddings': ('sentence-transformers', 1024, 'open'),
+    'intfloat/multilingual-e5-small': ('sentence-transformers', 384, 'open'),
+}
+
+
+@pytest.fixture(scope='module')
+def client():
+    """A TestClient over the lab's own FastAPI app — shared by the service
+    tests and the panel tests that read the same served pages."""
+    from fastapi.testclient import TestClient
+
+    from raglab.server import create_app
+    return TestClient(create_app())
+
+
+@pytest.fixture(scope='module')
+def diary():
+    return corpus.load_diary()
+
+
+@pytest.fixture(scope='module')
+def ground_truth():
+    return corpus.load_ground_truth()
+
+
+@pytest.fixture(scope='module')
+def registry(diary):
+    return IndexRegistry(LAB_SETTINGS, diary)
+
+
+@pytest.fixture(scope='module')
+def index(registry):
+    return registry.get(IndexConfig(chunker='semantic-drift', embedder='char-hash',
+                                    contextual=True))
+
+
+@pytest.fixture(scope='module')
+def session(diary):
+    return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
+
+
+def _finished(client, job_id: str, timeout: float = 30.0) -> dict:
+    """Poll a job to its terminal state, the way both frontends do."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        job = client.get(f'/api/jobs/{job_id}').json()
+        if job['state'] not in ('running', 'cancelling'):
+            return job
+        time.sleep(0.01)
+    raise AssertionError(f'job {job_id} still running after {timeout}s')
 
 
 @pytest.fixture(autouse=True, scope='session')

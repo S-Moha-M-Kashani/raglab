@@ -26,6 +26,17 @@ the only source under which a community has a nameable subject.
 Everything is deterministic. Louvain and k-means both take a seed, fixed here
 rather than exposed, because a grouping that changes between two builds of the
 same fingerprint would make an index name a lie.
+
+**A seed was not enough, and this file claimed otherwise until 2026-08-13.** A
+seed fixes a method's own RNG; it says nothing about the order of the input the
+method is handed. `_term_postings` cut its per-chunk top terms with a stable sort
+over a `set`, so terms tying on IDF — which on a real corpus is most of them —
+were kept in hash order, and Python randomises string hashing per process. Three
+fresh processes built the diary under one config and one fingerprint into 8, 8
+and 6 groups. The tie-break is now the token itself, and
+`test_the_same_corpus_builds_the_same_graph_in_a_different_process` holds the
+line from a second process, because a single-process test cannot see this class
+of bug at all.
 """
 import math
 from collections import defaultdict
@@ -139,7 +150,23 @@ def _term_postings(texts: list[str], top_terms: int = 12
            for token, count in document_count.items()}
     postings: dict[str, list[int]] = defaultdict(list)
     for i, tokens in enumerate(tokenised):
-        ranked = sorted(set(tokens), key=lambda t: -idf.get(t, 0.0))[:top_terms]
+        # The token itself is the tie-break, and it is load bearing. IDF is a
+        # function of document frequency, so on any real corpus a great many
+        # terms tie exactly — and `sorted` is stable, which means ties used to
+        # keep the order `set` iteration happened to offer. Python randomises
+        # string hashing per process, so *which* of the tied terms survived this
+        # cut was different every run, and the lexical edges, the graph, the
+        # partition and the summaries all followed it.
+        #
+        # Measured 2026-08-13 before the fix: three fresh processes built the
+        # diary under one identical config and one identical fingerprint
+        # (`raglab-6561f330c7c8`) into 8, 8 and 6 groups, at modularity 0.2657,
+        # 0.2689 and 0.2732. `SEED` never covered this — it fixes Louvain's own
+        # RNG, not the order of the input it is handed — so an index name was a
+        # claim no rebuild could honour, which is the one thing a fingerprint
+        # exists to prevent.
+        ranked = sorted(set(tokens),
+                        key=lambda t: (-idf.get(t, 0.0), t))[:top_terms]
         for token in ranked:
             postings[token].append(i)
     return postings, idf

@@ -204,6 +204,13 @@ def _client(monkeypatch):
     return TestClient(inspector.create_inspector_app())
 
 
+def _static(name: str) -> str:
+    """One of the browser files, as text. The Inspector's page script runs
+    against a live DOM at import, so there is no seam to import it through — the
+    agent ladder is pinned the same way."""
+    return (inspector.STATIC / name).read_text(encoding='utf-8')
+
+
 # This is an integration test (FastAPI TestClient over the read-only app).
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     client = _client(monkeypatch)
@@ -647,6 +654,157 @@ def test_follow_exposes_what_the_evaluation_generated(monkeypatch, fake_lab,
     assert body['retrieval']['kind'] == 'retrieve'   # retrieval still follows
 
 
+# --- summaries: the rows a hierarchy adds beside the leaves -----------------
+
+HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
+                              hierarchy='metadata', summarizer='centroid')
+# `metadata` rather than `louvain`: it groups by the storylines the corpus
+# already declares, so it needs no graph, no vectors and no optional wheel, and
+# it produces the same groups on every machine. What is under test is whether a
+# summary row can be *seen*, which is independent of how the groups were found.
+
+
+# This is an integration test (real in-memory index with a real hierarchy).
+def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
+    """No row the build wrote may be absent from both views.
+
+    Measured 2026-08-12 on a Louvain build of the diary: the index held 174 rows
+    — 167 leaves and 7 summaries — and the chunks view returned 167. All seven
+    were invisible, because `hierarchy` gives a summary spanning more than one
+    session `session_id=''`, `LabIndex.by_session` files only chunks with a
+    truthy session id, and `chunks_by_session` iterates that map. So a build
+    reported `chunks=174` while the one screen that lists rows could account for
+    167 of them, and a reader had no way to tell a hierarchy that produced
+    nothing from one whose output was merely unshown.
+
+    The fix is a partition rather than a patch: leaves in one view, summaries in
+    the other, every row in exactly one. That also closes the quieter half of the
+    same fault — a *single*-session group keeps its session id, so it did appear,
+    mixed in among the leaves and indistinguishable from something the diarist
+    actually wrote.
+    """
+    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(HIERARCHY_INDEX)
+    leaves = [c for c in index.chunks if c.layer != 'summary']
+    summaries = present.summary_rows(index)
+    groups = present.chunks_by_session(index)
+
+    assert summaries, 'this grouping produced no summary — nothing under test'
+    assert len(index.chunks) > len(leaves), 'the build added no rows to see'
+
+    # the partition: the two views together account for every row, once each
+    assert sum(len(g['chunks']) for g in groups) == len(leaves)
+    assert len(summaries) == len(index.chunks) - len(leaves)
+    shown = {c['id'] for g in groups for c in g['chunks']}
+    assert not (shown & {s['id'] for s in summaries}), \
+        'a summary leaked into the chunk view, where it reads as a diary entry'
+
+    # a summary says what it is, because its text alone does not: which group it
+    # speaks for, at which level, and over how many chunks
+    first = summaries[0]
+    for key in ('id', 'text', 'group_id', 'level', 'members', 'member_ids',
+                'sessions', 'chars'):
+        assert key in first, f'missing {key}'
+    assert first['text'] and first['group_id']
+    assert first['level'] >= 1, 'a leaf is level 0; a summary is written above it'
+    assert first['members'] == len(first['member_ids']) >= 1
+    assert all(mid in index.by_id for mid in first['member_ids']), \
+        'a summary must name members this index actually holds'
+
+    # the case that was wholly invisible: a group spanning several sessions, which
+    # is the normal shape of one and carries no session id at all
+    spanning = [s for s in summaries if s['sessions'] > 1]
+    assert spanning, 'expected at least one group to span several sessions'
+
+    # a flat index has no summaries and says so with an empty list, not by
+    # omitting the key — "no hierarchy" and "a hierarchy that found nothing" are
+    # different facts, and only one of them is worth investigating
+    flat = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(
+        IndexConfig(chunker='session', embedder='ascii-hash'))
+    assert present.summary_rows(flat) == []
+
+
+# This is an integration test (FastAPI TestClient over the read-only app; a real
+# in-memory hierarchical build via the job runner).
+def test_chunks_job_returns_the_summaries_beside_the_chunk_groups(monkeypatch):
+    """The manual build path serves both halves in one job, so the toggle needs
+    no second request — and `total` keeps counting leaves, because it is what the
+    chunk-size knob is read against."""
+    client = _client(monkeypatch)
+    acc = client.post('/api/chunks', json={
+        'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+                  'hierarchy': 'metadata', 'summarizer': 'centroid'}})
+    assert acc.status_code == 202
+    job = _wait(client, acc.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
+    result = job['result']
+
+    assert result['total'] == sum(len(g['chunks'])
+                                  for g in result['chunks_by_session'])
+    assert result['total_summaries'] == len(result['summaries']) >= 1
+    summary = result['summaries'][0]
+    assert summary['members'] >= 1 and summary['level'] >= 1 and summary['text']
+
+
+# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
+                                                   request):
+    """The followed view cannot compute these itself.
+
+    It has no index — it reads what the lab's job reported — so a summary the
+    lab built is visible on :9003 only if the lab put it on the job. A job from
+    before this existed carries no such key, and that must arrive as an empty
+    list rather than an error: the Inspector's whole contract with the lab is
+    that a lab it cannot fully understand is still a lab it can display."""
+    module = request.module
+    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
+    client = _client(monkeypatch)
+
+    with_summaries = {
+        'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
+        'config': {'index': {'chunker': 'session', 'hierarchy': 'metadata'}},
+        'result': {'chunks': 2, 'chunks_by_session': [
+            {'session_id': 's1', 'date': '2026-01-01',
+             'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}],
+            'summaries': [{'id': 'summary:h1-000', 'text': 'a group card',
+                           'group_id': 'h1-000', 'level': 1, 'members': 2,
+                           'member_ids': ['s1-0', 's2-0'], 'sessions': 2,
+                           'chars': 12}]}}
+
+    monkeypatch.setattr(module, 'FAKE_ORDER', [with_summaries])
+    view = client.get('/api/follow').json()['index']
+    assert view['chunks_by_session'][0]['session_id'] == 's1'
+    assert len(view['summaries']) == 1
+    assert view['summaries'][0]['group_id'] == 'h1-000'
+    assert view['summaries'][0]['sessions'] == 2
+
+    # a flat build, and every job recorded before summaries were reported at all
+    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_INDEX_JOB])
+    view = client.get('/api/follow').json()['index']
+    assert view['chunks_by_session'][0]['session_id'] == 's1'
+    assert view['summaries'] == []
+
+
+# This is an integration test (the served shell carries the toggle's hooks).
+def test_page_offers_a_chunks_and_summaries_toggle(monkeypatch):
+    """One view, two kinds of row, and a control that says the second kind
+    exists. The tab has to name summaries even when none were built — a reader
+    who cannot see the word has no reason to think the index might hold them."""
+    client = _client(monkeypatch)
+    html = client.get('/').text
+    css = client.get('/inspector.css').text
+
+    for hook in ('chunks-mode', 'chunks-mode-chunks', 'chunks-mode-summaries',
+                 'summaries-body'):
+        assert hook in html, f'missing {hook}'
+    # the tab names both kinds, so the toggle is discoverable from the nav
+    assert 'Summaries' in html
+    # the badge that marks a summary row already exists for the retrieval table;
+    # the summaries view reuses it rather than inventing a second vocabulary
+    assert '.layer-badge' in css
+    # pressed state is what says which half is on screen
+    assert 'aria-pressed' in html
+
+
 # This is an integration test (FastAPI TestClient over the read-only app; a real
 # chunk build and a real SQLite file on a temp path).
 def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
@@ -688,3 +846,79 @@ def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
     # And it did not quietly fail to record either — that would be the same bug
     # wearing an error message.
     assert 'ledger_error' not in job
+
+
+# A build on a corpus that is not the built-in diary — the shape of the fault
+# this pins: the lab names its dataset on every job it starts, and the Inspector
+# reads the fixture from somewhere else entirely.
+FAKE_OTHER_CORPUS_JOB = {
+    'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
+    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+                         'dataset': 'meetings-de'}},
+    'result': {'chunks': 1, 'chunks_by_session': [
+        {'session_id': 'mtg-0113', 'date': '2026-01-13',
+         'chunks': [{'id': 'mtg-0113:c0', 'text': 'Protokoll'}]}]}}
+
+
+# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
+                                                       request):
+    """Which corpus the lab is on is a fact about the whole page, not about one
+    window, so `/api/follow` answers it once.
+
+    Every finding this lab produces is a finding *about* a corpus, and the
+    Inspector's ground truth was loaded once at page load from the built-in
+    diary and never reloaded — so building an index over `meetings-de` left the
+    Chunks tab showing German sessions and the Ground Truth tab showing Farsi
+    diary questions, with nothing on screen admitting the two were different
+    corpora. Decided here rather than in the browser for the reason
+    `truth_for` exists at all: the field name belongs to one place."""
+    module = request.module
+    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
+    client = _client(monkeypatch)
+
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [FAKE_OTHER_CORPUS_JOB, FAKE_INDEX_JOB])
+    assert client.get('/api/follow').json()['dataset'] == 'meetings-de'
+
+    # The newest job wins, exactly as every other window on this page follows
+    # the newest job — switching back to the diary must switch the fixture back.
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [FAKE_INDEX_JOB, FAKE_OTHER_CORPUS_JOB])
+    assert client.get('/api/follow').json()['dataset'] == ''
+
+    # A job whose config names no index at all cannot say which corpus it ran
+    # on, so it is passed over rather than read as the built-in one: "does not
+    # say" and "says the diary" are different facts.
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [FAKE_QUERY_JOB, FAKE_OTHER_CORPUS_JOB])
+    assert client.get('/api/follow').json()['dataset'] == 'meetings-de'
+
+    # And a lab that is not running names no corpus rather than the diary.
+    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', 'http://127.0.0.1:9')
+    assert _client(monkeypatch).get('/api/follow').json()['dataset'] == ''
+
+
+# This is a unit test (it reads the browser file the way the agent-ladder test
+# does; the Inspector's page script has no module seam to import).
+def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
+    """The three things on this page that come from the fixture rather than from
+    a run — the Ground Truth tab, the ideal answer restated beside each row, and
+    the question picker — all read one map, filled by one fetch. That fetch has
+    to name the corpus, and has to happen again when the corpus changes.
+
+    The last assertion is the one that keeps the fix from breaking something
+    else: with the picker now offering another corpus's ids, a question added
+    here must be *run* against that corpus too, or every added row comes back
+    404 for an id the page itself just offered."""
+    js = _static('inspector.js')
+    assert "'/api/groundtruth?dataset='" in js, \
+        'the fixture is fetched without naming a corpus'
+    assert "(body.dataset || '') !== followed.dataset" in js, \
+        'the follow loop never notices the corpus changing'
+    assert 'followDataset(followed.dataset)' in js, \
+        'the corpus changed and the fixture was not reloaded'
+    assert 'await loadGroundTruth(dataset)' in js, \
+        'the reload does not name the corpus it was given'
+    assert 'dataset: FOLLOWED_DATASET' in js, \
+        'an added question is run against a corpus the picker did not offer'

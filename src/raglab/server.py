@@ -24,17 +24,17 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import (credentials, datasets, embedding, evaluate, explain, ledger,
-               metrics, models, pipeline, ragas_eval, retrieval)
-from .config import (ANSWERERS, BALANCES, CHUNKERS, DEPENDENCIES,
+from . import (agent, credentials, datasets, embedding, evaluate, explain,
+               ledger, metrics, models, pipeline, ragas_eval, retrieval)
+from .config import (ANSWERERS, BALANCES, CHUNKERS, CRITICS, DEPENDENCIES,
                      DIFFICULTIES, EMBEDDERS, GRADERS, GRAPH_SOURCES,
                      HIERARCHIES, PRODUCTION_CONFIG, RERANKERS, RETRIEVERS,
-                     ROOT, RUNS_DIR, STEPS, SUMMARIZERS, SUMMARY_SCOPES,
+                     ROOT, RUNS_DIR, SCOPES, STEPS, SUMMARIZERS, SUMMARY_SCOPES,
                      LabConfig, load_lab_settings, settings_for_provider)
 from .corpus import load_diary, load_ground_truth
 from . import hierarchy
 from .index import IndexRegistry, _lab_llm
-from .present import chunks_by_session, mark_gold
+from .present import chunks_by_session, mark_gold, summary_rows
 
 STATIC = Path(__file__).resolve().parent / 'static'
 
@@ -254,6 +254,13 @@ def create_app() -> FastAPI:
             # for the reason the embedder catalogue is: NA has to keep meaning
             # one thing — this installation cannot load it.
             'hierarchy_support': hierarchy.available(),
+            # Which stage a bounded loop may own, what it checks before it ships
+            # a draft, and whether this installation can run one at all —
+            # verified by import for the reason the groupings are, so the panel
+            # never offers a scope validation would refuse.
+            'scopes': list(SCOPES),
+            'critics': list(CRITICS),
+            'agent_support': agent.available(),
             'question_types': list(metrics.TYPES),
             'difficulties': list(DIFFICULTIES),
             # How a limited run picks its questions. Served because the sample is
@@ -404,7 +411,12 @@ def create_app() -> FastAPI:
                     'reused': index.stats.reused, 'notes': index.stats.notes,
                     # So a follower (the Inspector, :9003) can render what an
                     # index job actually built without holding its own index.
-                    'chunks_by_session': chunks_by_session(index)}
+                    # Both halves, because `chunks_by_session` is the chunker's
+                    # output alone: reporting it by itself left every summary a
+                    # grouping wrote unreachable from the only view that lists
+                    # rows, while `chunks` above counted them.
+                    'chunks_by_session': chunks_by_session(index),
+                    'summaries': summary_rows(index)}
 
         return _accepted(jobs.start('index', work, config=cfg.to_dict()))
 
@@ -442,7 +454,8 @@ def create_app() -> FastAPI:
             # chunk text in it.
             return result.as_dict() | {
                 'traces': result.traces,
-                'chunks_by_session': result.chunks_by_session}
+                'chunks_by_session': result.chunks_by_session,
+                'summaries': result.summaries}
 
         return _accepted(jobs.start('run', work, config=_with_backend(cfg, run_settings)))
 
@@ -566,12 +579,23 @@ def create_app() -> FastAPI:
             # the Inspector's followed retrieval table needs, and this is the
             # one place a followed run and a manual /api/trace one share ranks
             # at all.
-            outcome, trace = pipeline.retrieve_traced(
-                index, cfg.retrieval, question, query_date,
-                llm=llm, models=roles)
-            report('answering', 0.9)
-            outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
-                                      models=roles)
+            #
+            # The agent branch is the same one `run_eval` takes, deliberately:
+            # the fast feedback loop and the slow one disagreeing about what a
+            # config *does* is the bug `/api/queries` already had once over which
+            # models it would refuse.
+            if cfg.agent.scope:
+                trace = {}
+                outcome = agent.run(index, cfg, question, query_date, llm=llm,
+                                    models=roles, trace=trace)
+                report('answering', 0.9)
+            else:
+                outcome, trace = pipeline.retrieve_traced(
+                    index, cfg.retrieval, question, query_date,
+                    llm=llm, models=roles)
+                report('answering', 0.9)
+                outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
+                                          models=roles)
             # Exact match only, never fuzzy: a question that happens to equal
             # a ground-truth one gets its gold marks, everything else is
             # plainly ungraded rather than guessed at.

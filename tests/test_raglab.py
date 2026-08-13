@@ -1282,8 +1282,13 @@ class Recorder:
 
 # This is a unit test.
 def test_every_llm_stage_has_a_role_in_the_registry():
+    # Eight since 2026-08-13: the agent's planner and critic are LLM stages like
+    # any other, so they carry their own model rather than borrowing the
+    # answerer's — a loop that thinks with the model it writes with cannot be
+    # measured against one that does not.
     assert {role.key for role in models.ROLES} == {
-        'expand', 'rerank', 'grade', 'answer', 'judge', 'ragas'}
+        'expand', 'rerank', 'grade', 'answer', 'judge', 'ragas', 'plan',
+        'critic'}
 
 
 # This is a unit test.
@@ -2084,12 +2089,12 @@ def test_metric_definitions_join_the_one_help_registry():
 # This is a unit test.
 def test_the_pipeline_steps_are_named_once_in_pipeline_order():
     assert [step.key for step in config.STEPS] == ['index', 'retrieval',
-                                                   'generation']
+                                                   'generation', 'agent']
     # Two names on purpose: the long one titles a panel, the short one tags a
     # group of models inside another panel, where a whole sentence would not fit.
     assert all(step.label and step.short and step.note for step in config.STEPS)
     assert [step.short for step in config.STEPS] == ['Index', 'Retrieval',
-                                                     'Generation']
+                                                     'Generation', 'Agent']
 
 
 # This is a unit test.
@@ -2410,7 +2415,7 @@ def test_options_offers_a_model_choice_for_every_llm_task(client):
     body = client.get('/api/options').json()
     roles = {role['key']: role for role in body['model_roles']}
     assert set(roles) == {'expand', 'rerank', 'grade', 'answer',
-                          'judge', 'ragas'}
+                          'judge', 'ragas', 'plan', 'critic'}
     assert all(role['help'] and role['label'] and role['field']
                for role in roles.values())
     ids = [m['id'] for m in body['models']]
@@ -2581,7 +2586,7 @@ def test_options_colour_code_the_pipeline_steps(client):
     a fact about the pipeline, served with everything else."""
     body = client.get('/api/options').json()
     assert [step['key'] for step in body['steps']] == ['index', 'retrieval',
-                                                       'generation']
+                                                       'generation', 'agent']
     assert all(step['label'] and step['short'] and step['note']
                for step in body['steps'])
     steps = {step['key'] for step in body['steps']}
@@ -2979,7 +2984,7 @@ def test_a_cli_backend_counts_as_a_real_model_and_names_its_own_default():
     entry points that refuse an unbacked run let them through. The default model
     follows the backend for the reason it always has: a remote slug left
     standing under a CLI is a default that cannot run."""
-    for provider, expected in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+    for provider, expected in (('claude', 'sonnet'), ('codex', 'gpt-5.6-luna')):
         settings = config.LabSettings(llm_provider=provider)
         assert settings.llm_ready is True
         assert settings.llm_model == expected
@@ -4018,6 +4023,49 @@ def test_jobs_index_lists_runs_with_their_config(client):
     assert chunks_total == job['result']['chunks']
 
 
+# This is an integration test.
+def test_a_hierarchical_build_reports_the_summaries_it_wrote(client):
+    """The Inspector cannot see a summary the lab does not report.
+
+    :9003 holds no index of its own on the followed path — it renders what a job
+    on :9002 returned — so a build that adds seven summary rows and reports only
+    its leaves makes them unreachable from the one screen that lists rows. The
+    two numbers together are what say which happened: `chunks` counts every row
+    in the index, and the leaves plus the summaries have to come back to it. A
+    build whose grouping found nothing reports an empty list, which is a
+    different fact from a build that found something and did not say."""
+    posted = client.post('/api/indexes', json={
+        'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+                  'hierarchy': 'metadata', 'summarizer': 'centroid'}})
+    assert posted.status_code == 202
+    job = _finished(client, posted.json()['job_id'], timeout=120.0)
+    assert job['state'] == 'done', job.get('error')
+    result = job['result']
+
+    leaves = sum(len(g['chunks']) for g in result['chunks_by_session'])
+    summaries = result['summaries']
+    assert summaries, 'a metadata hierarchy over this corpus has groups to summarise'
+    assert leaves + len(summaries) == result['chunks'], (
+        'every row in the index must be reachable from one of the two views')
+    assert leaves == result['leaves'], \
+        'the chunk view holds the chunker output and nothing the summariser wrote'
+
+    # each row carries what the summaries view labels it with
+    for summary in summaries:
+        for key in ('id', 'text', 'group_id', 'level', 'members', 'member_ids',
+                    'sessions', 'chars'):
+            assert key in summary, f'missing {key}'
+        assert summary['members'] == len(summary['member_ids'])
+
+    # a flat build says "none", rather than leaving the key out and making the
+    # Inspector guess whether this lab is simply older than the feature
+    flat = client.post('/api/indexes', json={
+        'index': {'chunker': 'session', 'embedder': 'ascii-hash'}})
+    flat_job = _finished(client, flat.json()['job_id'], timeout=120.0)
+    assert flat_job['state'] == 'done', flat_job.get('error')
+    assert flat_job['result']['summaries'] == []
+
+
 # ---------------------------------------------------------------------------
 # The panel's two usability guarantees, held by the served data rather than by
 # either frontend — a rule copied into two panels is a rule that will disagree.
@@ -4283,7 +4331,7 @@ def test_a_cli_mode_presets_the_full_pipeline_on_its_own_alias():
     at the measured 0.4, answerer and both judges. The index is deliberately
     untouched — heydariAI/persian-embeddings is the measured winner wherever the
     chat models run."""
-    for key, alias in (('claude', 'sonnet'), ('codex', 'gpt-5.6-terra')):
+    for key, alias in (('claude', 'sonnet'), ('codex', 'gpt-5.6-luna')):
         patch = models.mode_config(key, LAB_SETTINGS)
         ret, gen = patch['retrieval'], patch['generation']
         assert ret['hyde'] is True and ret['expansion_model'] == alias
@@ -5056,7 +5104,7 @@ def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
     panel = client.get('/').text
 
     unshown = {}
-    for group in ('index', 'retrieval', 'generation'):
+    for group in ('index', 'retrieval', 'generation', 'agent'):
         for key, value in preset[group].items():
             # A control is `$('key')` in the panel, or a model dropdown carrying
             # the dotted path — the two ways this page reads a field.

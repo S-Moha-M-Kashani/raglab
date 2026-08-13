@@ -117,12 +117,14 @@ def candidates() -> list[LabConfig]:
     """One hypothesis per row, each a single change against the baseline."""
     out = [BASE]
 
-    def variant(label, *, index=None, retrieval=None):
+    def variant(label, *, index=None, retrieval=None, agent=None):
         cfg = BASE
         if index:
             cfg = replace(cfg, index=replace(cfg.index, **index))
         if retrieval:
             cfg = replace(cfg, retrieval=replace(cfg.retrieval, **retrieval))
+        if agent:
+            cfg = replace(cfg, agent=replace(cfg.agent, **agent))
         out.append(replace(cfg, label=label))
 
     # k moves precision and recall in opposite directions; both are deciding
@@ -136,6 +138,29 @@ def candidates() -> list[LabConfig]:
                                                'grader_model': ANSWER_MODEL})
     # One chunker alternative: whole sessions, maximum fidelity per hit.
     variant('H session chunks', index={'chunker': 'session'})
+    # The agent's 2x2, and the reason it is three rows rather than one: I and J
+    # each hand exactly one stage to a bounded loop, which is this function's
+    # rule, and K is the interaction term — it changes two things at once and is
+    # readable *only* beside them. Run K without I and J and there is nothing to
+    # attribute its number to. See docs/plans/2026-08-13-rag-agent-design.md.
+    #
+    # The planner and the critic run on ANSWER_MODEL, held fixed like every other
+    # model in this sweep. That the critic checks a draft written by the same
+    # model is the mechanism, not a lapse in the rule that a model must not grade
+    # its own output: that rule is about what *ranks the row*, and the row is
+    # still ranked by JUDGE_MODEL through RAGAS. What it does mean is that a
+    # self-critic is a weak check by construction — the judge screen has already
+    # measured two local models approving everything put to them — so a critic on
+    # an independent model is the obvious next candidate rather than a variant
+    # this row can stand in for.
+    variant('I agentic retrieval', agent={'scope': 'retrieve', 'max_hops': 3,
+                                         'plan_model': ANSWER_MODEL})
+    variant('J self-critiquing generation',
+            agent={'scope': 'generate', 'critic': 'grounded',
+                   'max_revisions': 1, 'critic_model': ANSWER_MODEL})
+    variant('K agentic retrieval + generation',
+            agent={'scope': 'full', 'max_hops': 3, 'max_revisions': 1,
+                   'plan_model': ANSWER_MODEL, 'critic_model': ANSWER_MODEL})
     return out
 
 

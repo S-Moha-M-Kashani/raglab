@@ -18,7 +18,7 @@
     <span class="follow-state" id="follow-state">looking for the lab&hellip;</span>
     <nav class="inspector-tabs">
       <button class="inspector-tab" id="tab-groundtruth" data-view="groundtruth">Ground truth</button>
-      <button class="inspector-tab" id="tab-chunks" data-view="chunks" data-step="index">Chunks</button>
+      <button class="inspector-tab" id="tab-chunks" data-view="chunks" data-step="index">Chunks / Summaries</button>
       <button class="inspector-tab" id="tab-retrieval" data-view="retrieval" data-step="retrieval">Retrieval</button>
       <button class="inspector-tab" id="tab-generation" data-view="generation" data-step="generation">Generation</button>
     </nav>
@@ -33,7 +33,19 @@
         <button id="build-chunks">Build index &amp; list chunks</button>
         <span id="chunks-status"></span>
       </div>
+      <!-- Two kinds of row, one index. The leaves are what the chunker cut; the
+           summaries are what a grouping wrote *beside* them, and both are in the
+           collection retrieval searches. The toggle exists because they were
+           previously one list that silently held only the first kind. -->
+      <div class="mode-toggle" id="chunks-mode" role="group"
+           aria-label="which rows to list">
+        <button id="chunks-mode-chunks" data-mode="chunks"
+                aria-pressed="true">Chunks</button>
+        <button id="chunks-mode-summaries" data-mode="summaries"
+                aria-pressed="false">Summaries</button>
+      </div>
       <div id="chunks-body"></div>
+      <div id="summaries-body" hidden></div>
     </section>
 
     <section id="view-retrieval" class="inspector-view" hidden>

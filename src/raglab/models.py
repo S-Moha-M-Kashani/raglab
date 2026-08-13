@@ -128,10 +128,14 @@ CLAUDE_MODELS = (
                      'and each one here is a process spawn as well as a turn'),
 )
 
-# One entry, and honestly so: the codex CLI publishes no model list to verify
-# against, and this is the alias that has actually answered here. RAGLAB_MODEL
-# names another, and `catalogue` offers whatever it names.
+# The codex CLI publishes no model list to verify against. Luna is the
+# cost-sensitive default for high-volume judging; Terra remains the
+# previously-used quality alternative. RAGLAB_MODEL names another, and
+# `catalogue` offers whatever it names.
 CODEX_MODELS = (
+    ModelOption('gpt-5.6-luna', 'GPT-5.6 Luna (Codex CLI)', 'closed',
+                note='the cost-sensitive default for high-volume judging, run '
+                     'at low reasoning effort'),
     ModelOption('gpt-5.6-terra', 'GPT-5.6 Terra (Codex CLI)', 'closed',
                 note='8.2s per call at effort=low, and every call carries '
                      'codex\'s own ~18.5k-token agent preamble, which no flag '
@@ -197,6 +201,21 @@ ROLES = (
               'factual correctness. Separate from the answerer on purpose: a '
               'model grading its own output is not evidence.',
               'RAGAS = judged'),
+    ModelRole('plan', 'Agent planner', 'agent.plan_model',
+              'Runs the retrieval loop\'s three thinking steps: what evidence '
+              'would answer this, is what we found sufficient, and what should '
+              'the next query be. It is asked once per hop, so a slow model here '
+              'multiplies by max_hops on every question — the same arithmetic '
+              'that makes the reranker\'s choice matter.',
+              'the agent scope owns retrieval'),
+    ModelRole('critic', 'Agent critic', 'agent.critic_model',
+              'Reads a draft answer against the contexts it was written from and '
+              'says whether every claim is supported — and, under "both", '
+              'whether the draft answers the question at all. This is the stage '
+              'that can catch what faithfulness would later punish, so a weak '
+              'model here approves exactly the answers a strong judge will mark '
+              'down.',
+              'the agent scope owns generation and the critic is on'),
 )
 
 ROLE_HELP = {f'model.{role.key}': role.help for role in ROLES}
@@ -212,6 +231,8 @@ class Roles:
     answer: str = ''
     judge: str = ''
     ragas: str = ''
+    plan: str = ''
+    critic: str = ''
 
     def as_dict(self) -> dict:
         return {f.name: getattr(self, f.name) for f in fields(self)}
@@ -461,7 +482,7 @@ MODE_MODEL = 'openai/gpt-5-nano'
 # `local` is absent on purpose: it presets the lab's own defaults, which is a
 # reset rather than a model choice.
 MODE_MODELS = {'openrouter': MODE_MODEL, 'claude': 'sonnet',
-               'codex': 'gpt-5.6-terra'}
+               'codex': 'gpt-5.6-luna'}
 
 # Preferred relevance-gate models, in order. A purpose-built reranker (query +
 # text → relevance score) beats a prompted chat model at exactly this job — but

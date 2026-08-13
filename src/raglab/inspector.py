@@ -30,7 +30,8 @@ from .config import LabConfig, load_lab_settings, settings_for_provider
 from . import datasets
 from .corpus import load_diary, load_ground_truth
 from .index import IndexRegistry, _lab_llm
-from .present import chunks_by_session, gold_available, mark_gold
+from .present import (chunks_by_session, gold_available, mark_gold,
+                      summary_rows)
 from .server import Jobs
 
 STATIC = Path(__file__).resolve().parent / 'static'
@@ -150,8 +151,15 @@ def create_inspector_app() -> FastAPI:
         def work(report):
             index = registry.get(cfg.index, progress=report)
             groups = chunks_by_session(index)
+            summaries = summary_rows(index)
+            # Both halves in one job, so the toggle needs no second request and
+            # cannot show two different builds. `total` stays the leaf count: it
+            # is what the chunk-size knob is read against, and mixing in rows a
+            # summariser wrote would make that number unreadable.
             return {'chunks_by_session': groups,
-                    'total': sum(len(g['chunks']) for g in groups)}
+                    'total': sum(len(g['chunks']) for g in groups),
+                    'summaries': summaries,
+                    'total_summaries': len(summaries)}
 
         return _accepted(jobs.start('chunks', work))
 
@@ -269,8 +277,9 @@ def create_inspector_app() -> FastAPI:
         else in this file."""
         jobs_index = _lab_get('/api/jobs')
         if jobs_index is None:
-            return {'lab': 'down', 'lab_url': lab_base_url(), 'index': None,
-                    'query': None, 'retrieval': None, 'generation': None}
+            return {'lab': 'down', 'lab_url': lab_base_url(), 'dataset': '',
+                    'index': None, 'query': None, 'retrieval': None,
+                    'generation': None}
 
         def newest_done(kind: str) -> dict | None:
             for entry in jobs_index.get('jobs', []):
@@ -336,12 +345,19 @@ def create_inspector_app() -> FastAPI:
                 if entry.get('state') != 'done':
                     continue
                 full = _lab_get(f"/api/jobs/{entry['id']}")
-                groups = ((full or {}).get('result') or {}).get('chunks_by_session')
+                result = (full or {}).get('result') or {}
+                groups = result.get('chunks_by_session')
                 if not groups:
                     continue        # a query job, or a run from before this
                 return {'kind': entry.get('kind'), 'job_id': entry['id'],
                         'config': full.get('config'),
-                        'chunks_by_session': groups}
+                        'chunks_by_session': groups,
+                        # `or []` rather than the raw value: a job recorded before
+                        # the lab reported summaries has no such key, and a lab
+                        # this Inspector cannot fully understand must still be a
+                        # lab it can display. Absent and none are the same thing
+                        # to render — neither is an error.
+                        'summaries': result.get('summaries') or []}
             return None
 
         def generation() -> dict | None:
@@ -356,8 +372,35 @@ def create_inspector_app() -> FastAPI:
             out = view('run', ('rows', 'summary', 'ragas'))
             return out if out and out.get('rows') else None
 
+        def followed_dataset() -> str:
+            """Which corpus the lab is working on, from its newest finished job.
+
+            A fact about the whole page rather than about one window, so it is
+            answered once here instead of dug out of each view's config in the
+            browser. The page's fixture — the ground-truth tab, the ideal answer
+            restated beside every row, the question picker — was loaded once at
+            page load from the built-in diary and never reloaded, so a build
+            over another corpus left German sessions in the chunks window and
+            Farsi diary questions everywhere else, with nothing on screen saying
+            the two were different corpora.
+
+            A config that names no index is passed over rather than read as the
+            diary: "does not say" and "says the built-in one" are different
+            facts, and only the second is an answer. `''` is the built-in diary
+            and is also what a lab with nothing to say returns — the same value
+            the field itself takes there."""
+            for entry in jobs_index.get('jobs', []):
+                if entry.get('state') != 'done':
+                    continue
+                index_cfg = (entry.get('config') or {}).get('index')
+                if index_cfg is None:
+                    continue
+                return index_cfg.get('dataset') or ''
+            return ''
+
         query_view = view('query', ('trace', 'question', 'question_id', 'answer'))
         return {'lab': 'up', 'lab_url': lab_base_url(),
+                'dataset': followed_dataset(),
                 'index': newest_chunks(), 'query': query_view,
                 'retrieval': question_set(), 'generation': generation()}
 

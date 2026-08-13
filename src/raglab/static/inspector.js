@@ -43,6 +43,11 @@ async function startedJob(response) {
 function formatConfig(cfg) {
   if (!cfg) return '';
   const parts = [];
+  // The corpus first when it is not the built-in diary. Two rows measured on
+  // two corpora are not two configurations of one measurement — the leaderboard
+  // groups on it before anything else, and a window that does not name it lets
+  // a reader take German sessions for a different chunking of the diary.
+  if (cfg.index && cfg.index.dataset) parts.push(cfg.index.dataset);
   if (cfg.index) parts.push(`${cfg.index.chunker} · ${cfg.index.embedder}`);
   if (cfg.retrieval) {
     parts.push(`${cfg.retrieval.retriever} k=${cfg.retrieval.k}`,
@@ -65,7 +70,7 @@ let EXPLAIN = { metrics: [], help: {} };
 // `loadGroundTruth` clears two of these when the fixture lands, and it runs
 // before the follow loop is set up further down.
 const followed = { indexJobId: null, queryJobId: null, retrievalJobId: null,
-                   generationJobId: null };
+                   generationJobId: null, dataset: '' };
 
 function measureOf(key) {
   return EXPLAIN.metrics.find(m => m.key === key) || { key, label: key };
@@ -110,9 +115,20 @@ loadExplain();
 // belong to the fixture rather than to any run.
 const GT = new Map();
 
-async function loadGroundTruth() {
-  const body = await (await fetch('/api/groundtruth')).json();
+// Which corpus this map holds. `''` is the built-in diary, and is what the page
+// starts on so the tab has something in it before the first poll answers.
+let FOLLOWED_DATASET = '';
+
+async function loadGroundTruth(dataset) {
+  FOLLOWED_DATASET = dataset || '';
+  // Named on every request, never assumed: every finding this lab produces is a
+  // finding about one corpus, and a fixture loaded once from the diary made a
+  // build over another corpus show German sessions in the chunks window beside
+  // Farsi questions everywhere else.
+  const body = await (await fetch('/api/groundtruth?dataset='
+                                  + encodeURIComponent(FOLLOWED_DATASET))).json();
   const root = document.getElementById('view-groundtruth');
+  GT.clear();
   root.innerHTML = '';
   for (const q of body.questions) {
     GT.set(q.id, q);
@@ -147,7 +163,18 @@ async function loadGroundTruth() {
   followed.generationJobId = null;
   if (!picker.hidden) renderPicker(pickerFilter.value);
 }
-loadGroundTruth();
+loadGroundTruth('');
+
+// The corpus changed under us, so everything on this page that came from the
+// old one has to go: the questions you added are rows about ids the new fixture
+// does not contain, and the followed windows redraw from the lab on their own.
+// Called only from the poll — the initial load has no previous corpus to drop,
+// and `ADDED` is not declared yet when this file first runs.
+async function followDataset(dataset) {
+  ADDED.clear();
+  renderAdded();
+  await loadGroundTruth(dataset);
+}
 
 // --- Chunks: shared render, used by both the followed view and the manual one ---
 function renderChunkGroups(container, groups) {
@@ -172,6 +199,68 @@ function renderChunkGroups(container, groups) {
   }
 }
 
+// A summary is not a diary entry, and the whole point of listing it apart is that
+// a reader can tell. Each card leads with what its text cannot say — the group it
+// speaks for, its level, how many chunks it was written over and how many sessions
+// those span. The session count is the one that was wholly unreadable before: a
+// group spanning several sessions carries no session id at all, which is exactly
+// why these rows used to be absent from the chunk view rather than merely unlabelled.
+function renderSummaries(container, summaries) {
+  container.innerHTML = '';
+  if (!summaries.length) {
+    // "No hierarchy" and "a hierarchy that found nothing" are different facts, and
+    // this view must not read as the second when it is the first.
+    container.innerHTML = '<p class="empty-note">This index is flat — no grouping was '
+      + 'asked for, so there are no summaries to list. Pick a grouping under '
+      + '"Summary hierarchy" on the lab to build some.</p>';
+    return;
+  }
+  for (const s of summaries) {
+    const det = document.createElement('details');
+    det.className = 'chunk-session';
+    det.innerHTML = `<summary>`
+      + `<span class="layer-badge" data-step="index">L${s.level} `
+      + `${escapeHtml(s.group_id || '')} · ${s.members}</span> `
+      + `<span class="q-tally">${s.members} chunk${s.members === 1 ? '' : 's'} `
+      + `· ${s.sessions} session${s.sessions === 1 ? '' : 's'}`
+      + `${s.chars ? ' · ' + s.chars + ' chars' : ''}</span></summary>`;
+    const line = document.createElement('div');
+    line.className = 'chunk-line';
+    line.innerHTML = `<div class="chunk-no">summary</div>`
+      + `<div dir="rtl">${escapeHtml(s.text)}</div>`;
+    det.appendChild(line);
+    // The members by id, so a summary can be traced back to the rows it stands
+    // for — without them the card is an assertion the reader cannot check.
+    const members = document.createElement('div');
+    members.className = 'chunk-line';
+    members.innerHTML = '<div class="chunk-no">members</div>'
+      + `<div class="summary-members">${(s.member_ids || [])
+          .map((id) => escapeHtml(id)).join(', ')}</div>`;
+    det.appendChild(members);
+    container.appendChild(det);
+  }
+}
+
+// The two halves are held here rather than re-fetched, so switching costs nothing
+// and can never show one build's leaves beside another's summaries.
+const chunkView = { summaries: [] };
+
+function showChunkMode(mode) {
+  document.getElementById('chunks-body').hidden = mode !== 'chunks';
+  document.getElementById('summaries-body').hidden = mode !== 'summaries';
+  for (const button of document.querySelectorAll('#chunks-mode button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+  }
+  if (mode === 'summaries') {
+    renderSummaries(document.getElementById('summaries-body'),
+                    chunkView.summaries);
+  }
+}
+
+for (const button of document.querySelectorAll('#chunks-mode button')) {
+  button.addEventListener('click', () => showChunkMode(button.dataset.mode));
+}
+
 document.getElementById('build-chunks').addEventListener('click', async () => {
   const status = document.getElementById('chunks-status');
   try {
@@ -180,9 +269,15 @@ document.getElementById('build-chunks').addEventListener('click', async () => {
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(CHOSEN) });
     const result = await pollJob(await startedJob(response));
-    status.textContent = `${result.total} chunks`;
+    // Both counts, because "167 chunks" over an index of 174 rows is the exact
+    // statement that made seven summaries invisible.
+    status.textContent = `${result.total} chunks · `
+      + `${result.total_summaries || 0} summaries`;
     document.getElementById('chunks-active-config').textContent = formatConfig(CHOSEN);
     renderChunkGroups(document.getElementById('chunks-body'), result.chunks_by_session);
+    chunkView.summaries = result.summaries || [];
+    showChunkMode(document.getElementById('summaries-body').hidden
+      ? 'chunks' : 'summaries');
   } catch (error) {
     status.textContent = error.message;
   }
@@ -350,10 +445,32 @@ function renderRetrievalRows(candidates) {
 // One question's collapsible block. Shared by the followed list and by the
 // questions you add, because "identical to the other ones" has to mean the same
 // code produced them, not that two renderers were kept in step by hand.
+// The agent's per-node ladder, when a scope produced one. Read vertically: the
+// same node three times over is a loop that never settled, and "refused because
+// the diary is silent" and "refused after two hops found nothing" are the two
+// findings this table exists to keep apart — the distinction the July 2026
+// post-mortem had to be reconstructed by hand to make.
+function agentLadder(visits) {
+  const box = document.createElement('div');
+  box.className = 'agent-ladder';
+  const hops = visits.reduce((n, v) => Math.max(n, v.hop || 0), 0);
+  box.innerHTML = `<h4>the loop · ${visits.length} steps · ${hops} hop`
+    + `${hops === 1 ? '' : 's'}</h4><table><thead><tr><th>#</th><th>node</th>`
+    + '<th>hop</th><th>what it decided</th></tr></thead><tbody>'
+    + visits.map((v, i) =>
+        `<tr><td class="num">${i + 1}</td><td class="node">${escapeHtml(v.node)}</td>`
+        + `<td class="num">${v.hop || ''}</td>`
+        + `<td class="detail" dir="auto">${escapeHtml(v.detail || '')}</td></tr>`)
+      .join('')
+    + '</tbody></table>';
+  return box;
+}
+
 function questionBlock(q) {
   const candidates = (q.trace && q.trace.candidates) || [];
   const gold = candidates.filter(c => c.gold).length;
   const kept = candidates.filter(c => c.kept).length;
+  const visits = (q.trace && q.trace.agent) || [];
   // "1 of 3 gold found" rather than "1 gold": the count only means something
   // against how many there were to find. The denominator comes from the
   // service, and when it does not (an older run) the tally stays a bare count
@@ -365,6 +482,9 @@ function questionBlock(q) {
   det.innerHTML = questionSummary(q.question_id, q.type, q.difficulty,
       `${candidates.length} candidates · ${kept} kept · ${goldTally}`)
     + questionHead(q.question_id, q.question_fa);
+  // Above the candidate table, because the ladder is how the candidates came to
+  // be: the table answers "what came back", the ladder answers "after what".
+  if (visits.length) det.appendChild(agentLadder(visits));
   det.appendChild(scrollable(retrievalTable(candidates)));
   return det;
 }
@@ -379,8 +499,14 @@ function renderQuestionTables(questions) {
 // The config a question is run under is the one the page is following, so an
 // added row is measured the same way as the rows beside it. With the lab down
 // there is nothing to follow, and the chosen architecture stands in.
+// The corpus is overlaid rather than taken from the followed config, because
+// the two can name different ones: `FOLLOWED_CONFIG` comes from the last run
+// that *retrieved*, while the picker offers the ids of whatever corpus the page
+// is currently showing. A question run against the other one comes back 404 for
+// an id this page itself just offered.
 function activeConfig() {
-  return FOLLOWED_CONFIG || CHOSEN;
+  const cfg = FOLLOWED_CONFIG || CHOSEN;
+  return { ...cfg, index: { ...cfg.index, dataset: FOLLOWED_DATASET } };
 }
 let FOLLOWED_CONFIG = null;
 
@@ -565,6 +691,7 @@ function generationBlock(row, trace) {
     const inner = document.createElement('details');
     inner.className = 'gen-trace';
     inner.innerHTML = '<summary>the retrieval this answer was written from</summary>';
+    if ((trace.agent || []).length) inner.appendChild(agentLadder(trace.agent));
     inner.appendChild(scrollable(retrievalTable(trace.candidates || [])));
     det.appendChild(inner);
   }
@@ -596,6 +723,16 @@ function renderFollow(body) {
   const setCfg = document.getElementById('retrieval-set-config');
   const genCfg = document.getElementById('generation-active-config');
   setFollowState(body);
+
+  // Before the windows, because all three of them restate the fixture: the
+  // ideal answer beside a row and the picker's ids come from the corpus, not
+  // from the run. Guarded on a change rather than reloaded every tick — this
+  // polls every ~2s, and re-rendering the tab would collapse the reader's
+  // scroll and drop the questions they had added.
+  if (body.lab === 'up' && (body.dataset || '') !== followed.dataset) {
+    followed.dataset = body.dataset || '';
+    followDataset(followed.dataset);
+  }
 
   if (body.lab === 'down') {
     showLabDown(chunksCfg);
@@ -656,9 +793,20 @@ function renderFollow(body) {
       // are different claims and the reader has to be able to tell them apart.
       const source = { run: 'the last evaluation', retrieve: 'the last retrieval run' }[body.index.kind]
         || 'the last index build';
-      chunksCfg.textContent = `${total} chunks in ${groups.length} sessions, `
-        + `from ${source} — ${formatConfig(body.index.config)}`;
+      const summaries = body.index.summaries || [];
+      // The summary count belongs in the same sentence as the chunk count: the
+      // two together are what say whether a grouping ran, and the config line is
+      // the only place on this view that describes the build as a whole.
+      chunksCfg.textContent = `${total} chunks in ${groups.length} sessions`
+        + (summaries.length ? ` · ${summaries.length} summar`
+            + `${summaries.length === 1 ? 'y' : 'ies'}` : '')
+        + `, from ${source} — ${formatConfig(body.index.config)}`;
       renderChunkGroups(document.getElementById('chunks-body'), groups);
+      chunkView.summaries = summaries;
+      // Redraw whichever half is on screen, so a new run does not leave the
+      // previous build's summaries showing under this build's config line.
+      showChunkMode(document.getElementById('summaries-body').hidden
+        ? 'chunks' : 'summaries');
     }
   } else {
     chunksCfg.textContent = 'Build an index on the lab to read its chunks here.';

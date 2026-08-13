@@ -11,14 +11,15 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-from . import corpus, datasets, embedding, metrics, models, pipeline, ragas_eval
+from . import (agent, corpus, datasets, embedding, metrics, models, pipeline,
+               ragas_eval)
 from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
 from .index import IndexRegistry, _lab_llm
 from .llm import lab_chat
 from .present import (chunks_by_session, evidence_spans, gold_available,
-                      mark_gold, normalised_chunks)
+                      mark_gold, normalised_chunks, summary_rows)
 
 KEY_FACTS_PROMPT = (
     'You check whether an answer contains specific facts. The answer is in '
@@ -103,6 +104,11 @@ class RunResult:
     # Inspector's chunks window can only show whatever index job was last
     # started — a different chunker beside these rankings, silently.
     chunks_by_session: list = field(default_factory=list)
+    # The rows the grouping wrote, beside the leaves above and under the same
+    # rule. They are not in `chunks_by_session` — a summary is not something the
+    # diarist said — so a run that reported only that half left every summary it
+    # built unreachable from the one view that lists rows.
+    summaries: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {'run_id': self.run_id, 'label': self.label, 'config': self.config,
@@ -350,9 +356,27 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     rows = []
     for i, question in enumerate(questions):
         check_cancelled()
-        _outcome, trace = pipeline.retrieve_traced(
-            index, cfg.retrieval, question['question_fa'],
-            question.get('query_date', query_date), llm=llm, models=roles)
+        if agent.owns_retrieval(cfg.agent.scope):
+            # This route shows a configuration's *search*, so an agent that owns
+            # retrieval is part of what there is to show — a loop whose hops were
+            # invisible here would leave the cheap feedback step describing a
+            # pipeline the expensive one does not run. The drafting half of
+            # `full` is an answering stage and this route does not answer, so the
+            # answerer is forced off and the scope narrowed to its retrieval
+            # half: `pipeline.answer` under 'none' returns the outcome
+            # untouched, which is exactly "retrieve and stop".
+            trace = {}
+            _outcome = agent.run(
+                index,
+                replace(cfg, agent=replace(cfg.agent, scope='retrieve'),
+                        generation=replace(cfg.generation, answerer='none')),
+                question['question_fa'],
+                question.get('query_date', query_date), llm=llm, models=roles,
+                trace=trace)
+        else:
+            _outcome, trace = pipeline.retrieve_traced(
+                index, cfg.retrieval, question['question_fa'],
+                question.get('query_date', query_date), llm=llm, models=roles)
         quotes = [ev['quote'] for ev in question.get('evidence', [])]
         rows.append(trace_row(
             question, trace,
@@ -371,6 +395,7 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
             # it built the index implicitly, so there is no index job the
             # Inspector could read them from.
             'chunks_by_session': chunks_by_session(index),
+            'summaries': summary_rows(index),
             'questions': rows}
 
 
@@ -419,6 +444,13 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     # Which model ran which stage belongs in the run's own notes: comparing two
     # rows of the leaderboard without it compares two unknowns.
     notes.append(models.note_for(cfg, settings))
+    if cfg.agent.scope:
+        # The loop's shape belongs in the notes for the same reason the backend
+        # and the CLI effort do: two rows that differ only in `max_hops` are
+        # otherwise identically labelled, and `leaderboard.group` would rank
+        # them as a comparable pair. The config carries the numbers; this is the
+        # sentence a human reads.
+        notes.append(agent.note_for(cfg.agent))
     # Same reason, one layer down: a row whose embedder could not represent the
     # corpus is not a result, and nothing else on the row would say so.
     notes.append(embedding.language_note(
@@ -435,21 +467,34 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     def handle(question: dict):
         check_cancelled()
         recorded = None
-        if trace:
+        asked = question['question_fa']
+        when = question.get('query_date', query_date)
+        if cfg.agent.scope:
+            # One branch, at the one place a question becomes an outcome. The
+            # agent owns at least one stage and answers as well as retrieves —
+            # under `retrieve` it calls `pipeline.answer` itself with this same
+            # `cfg.generation`, so generation stays comparable with an unagented
+            # row. Which is also why `pipeline.answer` must not run again below:
+            # a second call would re-answer the question the loop already
+            # answered and the row would describe neither.
+            tr = {} if trace else None
+            outcome = agent.run(index, cfg, asked, when, llm=llm, models=roles,
+                                trace=tr)
+        elif trace:
             outcome, tr = pipeline.retrieve_traced(
-                index, cfg.retrieval, question['question_fa'],
-                question.get('query_date', query_date), llm=llm, models=roles)
+                index, cfg.retrieval, asked, when, llm=llm, models=roles)
+        else:
+            outcome = pipeline.retrieve(index, cfg.retrieval, asked, when,
+                                        llm=llm, models=roles)
+        if trace:
             quotes = [ev['quote'] for ev in question.get('evidence', [])]
             recorded = trace_row(
                 question, tr,
                 gold_available=gold_available(index, quotes, norm_chunks))
-        else:
-            outcome = pipeline.retrieve(index, cfg.retrieval,
-                                        question['question_fa'],
-                                        question.get('query_date', query_date),
-                                        llm=llm, models=roles)
         check_cancelled()
-        outcome = pipeline.answer(outcome, cfg.generation, llm=llm, models=roles)
+        if not cfg.agent.scope:
+            outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
+                                      models=roles)
         check_cancelled()
         row = metrics.score_question(question, outcome, cfg.retrieval.k)
         if (cfg.generation.key_facts_judge and outcome.answer
@@ -516,7 +561,8 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                        started_at=started_at, notes=notes,
                        selection=selection, traces=traces,
                        chunks_by_session=(chunks_by_session(index)
-                                          if trace else []))
+                                          if trace else []),
+                       summaries=summary_rows(index) if trace else [])
     save_run(result)
     return result
 

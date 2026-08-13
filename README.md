@@ -14,6 +14,12 @@ sentence-transformers checkpoint, and without it the service starts happily and
 then fails on the first index build. The embedding model (~2.2 GB) downloads on
 first retrieval, not at boot, so `/api/health` keeps answering while it does.
 
+Add `--extra agent` for the agent scopes (`AgentConfig.scope` — a bounded
+LangGraph loop around retrieval, generation, or both). It is separate because
+the lab must start without it: a scope this installation cannot run is reported
+NA in the panel and **refused** by validation, never quietly served by the fixed
+pipeline.
+
 | Command | What it does |
 | --- | --- |
 | `uv run raglab-lab` | the suite, then the panel — refuses to serve on a red suite |

@@ -39,7 +39,6 @@ def client(monkeypatch, tmp_path):
     return TestClient(create_app())
 
 
-# This is a unit test.
 def test_a_key_is_held_in_the_process_and_read_back_by_the_settings():
     """The point of the store: the settings a run is built from carry the key
     without the environment or any file having changed."""
@@ -50,7 +49,6 @@ def test_a_key_is_held_in_the_process_and_read_back_by_the_settings():
     assert credentials.apply(settings).llm_ready is True
 
 
-# This is a unit test.
 def test_clearing_falls_back_to_whatever_the_environment_had():
     """Clear means "forget what I typed", not "unset the key" — a lab started
     with OPENROUTER_API_KEY in its environment must be exactly as it was."""
@@ -61,7 +59,6 @@ def test_clearing_falls_back_to_whatever_the_environment_had():
     assert credentials.apply(from_env).openrouter_api_key == 'sk-or-from-the-shell-0123456789'
 
 
-# This is a unit test.
 def test_a_key_that_cannot_be_one_is_refused_with_a_readable_reason():
     """A key silently accepted is a run that fails much later, at the first
     model call, with an error about the model rather than about the key."""
@@ -72,7 +69,6 @@ def test_a_key_that_cannot_be_one_is_refused_with_a_readable_reason():
     assert credentials.state(load_lab_settings({}))['set'] is False
 
 
-# This is a unit test.
 def test_the_state_says_set_and_shows_a_hint_but_never_the_key():
     """A masked tail is enough to answer "is this the key I meant?", which is
     the only question the panel has to be able to answer about it."""
@@ -84,7 +80,6 @@ def test_the_state_says_set_and_shows_a_hint_but_never_the_key():
     assert state['hint'].count('…') == 1
 
 
-# This is a unit test.
 def test_the_environments_own_key_is_reported_as_the_environments():
     """Where a credential came from decides who can change it: a key from the
     shell is not one this panel put there, and 'Clear' will not remove it."""
@@ -93,7 +88,6 @@ def test_the_environments_own_key_is_reported_as_the_environments():
     assert state['set'] is True and state['source'] == 'environment'
 
 
-# This is a unit test.
 def test_setting_a_key_forgets_the_verified_model_lists():
     """`models.openrouter_ids` caches per base url, and with no key the cached
     answer is the empty set — i.e. "nothing is available". Without dropping that
@@ -105,7 +99,6 @@ def test_setting_a_key_forgets_the_verified_model_lists():
     assert settings.openrouter_base_url not in models._LIVE
 
 
-# This is an integration test.
 def test_the_panel_can_set_a_key_and_the_options_never_carry_it(client):
     """The round trip, and the rule that makes it safe: /api/options is what the
     browser reads on every visit, so the key must not be in it — set-ness and a
@@ -125,14 +118,12 @@ def test_the_panel_can_set_a_key_and_the_options_never_carry_it(client):
     assert state['hint'].endswith(KEY[-4:])
 
 
-# This is an integration test.
 def test_a_refused_key_answers_400_with_the_reason(client):
     refused = client.post('/api/credentials', json={'api_key': 'nope'})
     assert refused.status_code == 400
     assert 'key' in refused.json()['detail'].lower()
 
 
-# This is an integration test.
 def test_the_panel_can_take_the_key_back(client):
     client.post('/api/credentials', json={'api_key': KEY})
     cleared = client.request('DELETE', '/api/credentials')
@@ -142,7 +133,7 @@ def test_the_panel_can_take_the_key_back(client):
         'capabilities']['openrouter_key']['set'] is False
 
 
-# This is an integration test: a real run, a real run file, a real ledger row.
+# A real run, a real run file, a real ledger row.
 def test_no_artefact_a_run_leaves_behind_contains_the_key(client, tmp_path,
                                                           monkeypatch):
     """The four places this lab writes to, checked against the key itself.
@@ -179,7 +170,6 @@ def test_no_artefact_a_run_leaves_behind_contains_the_key(client, tmp_path,
     assert KEY not in client.get('/api/jobs/' + job_id).text
 
 
-# This is a configuration invariant.
 def test_the_key_is_never_written_to_a_file_by_this_module():
     """Session-only is a promise about code, not about a test run: nothing in
     the credential store may open a file for writing, and no other module may
@@ -192,7 +182,6 @@ def test_the_key_is_never_written_to_a_file_by_this_module():
             'memory and writes it nowhere')
 
 
-# This is a configuration invariant.
 def test_the_panel_offers_the_key_field_and_never_stores_it_in_the_browser():
     """localStorage survives the tab, is readable by anything served from this
     origin, and is not where a credential goes. The panel remembers the *config*
@@ -209,7 +198,6 @@ def test_the_panel_offers_the_key_field_and_never_stores_it_in_the_browser():
     assert 'openrouter_key:' not in html
 
 
-# This is a configuration invariant.
 def test_the_key_is_a_documented_environment_variable_still():
     """The panel is a second way in, not a replacement: a lab started from a
     shell or a script has no browser to type into."""

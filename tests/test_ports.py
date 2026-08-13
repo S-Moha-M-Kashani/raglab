@@ -7,7 +7,6 @@ from raglab.cli import serve
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# This is a configuration invariant.
 def test_the_lab_and_the_inspector_take_no_port_lodestar_owns():
     """These two services run on the same machine as Lodestar's stack, and a
     collision is a service that will not start on whichever one loses the race.
@@ -25,7 +24,6 @@ def test_the_lab_and_the_inspector_take_no_port_lodestar_owns():
             f':{port} belongs to {serve.RESERVED.get(port)}')
 
 
-# This is a configuration invariant.
 def test_the_documented_launch_installs_the_backend_the_default_embedder_needs():
     """The lab defaults to a Persian-tuned sentence-transformers model. Without
     the extra the service starts happily and then fails on the first index build
@@ -43,7 +41,6 @@ def test_the_documented_launch_installs_the_backend_the_default_embedder_needs()
         f'the README must launch with --extra {needed}')
 
 
-# This is a configuration invariant.
 def test_no_lab_command_names_a_vector_database():
     """The lab's index is process memory, deliberately: there is nothing to start
     first and nothing a later run can inherit from an earlier one by accident. A
@@ -54,7 +51,6 @@ def test_no_lab_command_names_a_vector_database():
     assert not re.search(r'chroma|CHROMA|DATABASE', scripts)
 
 
-# This is a configuration invariant.
 def test_the_one_command_runner_delegates_the_launch():
     """`raglab-lab` runs the suite and then serves. It must reach the serving
     code rather than respell it: a second place that knows the port is the one
@@ -71,7 +67,6 @@ def test_the_one_command_runner_delegates_the_launch():
         'the runner respells the launch — it must delegate to serve')
 
 
-# This is a configuration invariant.
 def test_every_entry_point_resolves_to_something_callable():
     """Six commands are the lab's whole surface now that there is no
     package.json. A name pointing at a function that does not exist is a command

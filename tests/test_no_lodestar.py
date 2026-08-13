@@ -5,7 +5,6 @@ SRC = Path(__file__).resolve().parents[1] / 'src'
 TESTS = Path(__file__).resolve().parent
 
 
-# This is a configuration invariant.
 def test_nothing_imports_lodestar_brain():
     """The lab vendored the tokeniser and froze the preset precisely so this
     repository stands alone. An import is easy to add back by habit — from a
@@ -25,7 +24,6 @@ def test_nothing_imports_lodestar_brain():
     assert not offenders, f'lodestar_brain imported at {offenders}'
 
 
-# This is a configuration invariant.
 def test_no_path_is_hardcoded_to_one_machine():
     """The suite used to read Lodestar's `app.js`, and the ledger wrote into that
     repository's `databases/test/`. Both were correct then; either one rewritten

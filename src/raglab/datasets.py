@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .config import DIFFICULTIES, ROOT
-from .corpus import DIARY_PATH, GROUND_TRUTH_PATH, load_diary, load_ground_truth
+from .corpus import DIARY_PATH, load_diary, load_ground_truth
 from .metrics import TYPES
 
 # Shipped with the repository and read-only: these are reference points, and a

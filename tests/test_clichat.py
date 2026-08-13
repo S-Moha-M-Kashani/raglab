@@ -84,7 +84,6 @@ def reply(monkeypatch, cli, **kwargs):
     return message, recorder
 
 
-# This is a unit test.
 def test_a_claude_call_is_driven_as_a_completion_endpoint_not_an_agent(monkeypatch):
     """The whole reason this backend is trustworthy. `--system-prompt` replaces
     Claude Code's agent prompt, so the stage's own prompt is the only
@@ -111,7 +110,6 @@ def test_a_claude_call_is_driven_as_a_completion_endpoint_not_an_agent(monkeypat
     assert recorder.calls[0]['input'].strip() == BODY
 
 
-# This is a unit test.
 def test_the_cli_runs_in_an_empty_directory_outside_this_repository(monkeypatch):
     """Both CLIs discover instruction files from the working directory. Pointed
     at the lab, a judge would read the repository's own account of which
@@ -124,7 +122,6 @@ def test_the_cli_runs_in_an_empty_directory_outside_this_repository(monkeypatch)
         assert ROOT not in Path(call['cwd']).parents
 
 
-# This is a unit test.
 def test_a_call_sees_an_allowlisted_environment_and_not_this_shell(monkeypatch):
     """The flags scrub settings files, user config, rules, cwd and tools — and
     none of them touches the environment, which is where both CLIs also read
@@ -151,7 +148,6 @@ def test_a_call_sees_an_allowlisted_environment_and_not_this_shell(monkeypatch):
         assert env['HOME'] == os.environ['HOME']
 
 
-# This is a unit test.
 def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypatch):
     """`text=True` decodes with the preferred locale encoding, which under a
     C/POSIX locale is ASCII — so a correct Farsi answer would raise, and under a
@@ -169,7 +165,6 @@ def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypat
     assert call['errors'] == 'strict'
 
 
-# This is a unit test.
 def test_undecodable_bytes_are_a_named_failure_and_not_a_bare_one(monkeypatch):
     """A UnicodeDecodeError raised inside `subprocess.run` used to escape `_run`
     as neither a reply nor a CliError, so the one contract this module has —
@@ -180,7 +175,6 @@ def test_undecodable_bytes_are_a_named_failure_and_not_a_bare_one(monkeypatch):
         reply(monkeypatch, 'claude', boom=boom)
 
 
-# This is a unit test.
 def test_a_codex_call_carries_its_instructions_in_the_prompt(monkeypatch):
     """Codex has no flag that replaces its system prompt, so the stage's text is
     prepended to the prompt body instead — the one place the two rows of CLIS
@@ -200,7 +194,6 @@ def test_a_codex_call_carries_its_instructions_in_the_prompt(monkeypatch):
     assert BODY in prompt
 
 
-# This is a unit test.
 def test_a_recorded_claude_envelope_parses_to_its_text_and_its_usage(monkeypatch):
     """The reply the lab uses is the envelope's `result`, byte-exact, because
     the stage that asked for it parses it with a regex written for the other
@@ -213,7 +206,6 @@ def test_a_recorded_claude_envelope_parses_to_its_text_and_its_usage(monkeypatch
     assert message.usage_metadata['total_tokens'] == 385
 
 
-# This is a unit test.
 def test_a_recorded_codex_stream_parses_to_its_last_message_and_its_usage(monkeypatch):
     """Codex answers as a JSONL event stream, so the reply is the last
     agent_message and the usage is the turn.completed event. Reading the *last*
@@ -225,7 +217,6 @@ def test_a_recorded_codex_stream_parses_to_its_last_message_and_its_usage(monkey
     assert message.usage_metadata['output_tokens'] == 18
 
 
-# This is a unit test.
 def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(monkeypatch):
     """A chat-tuned CLI fences a block of scores out of habit; that is a
     property of the transport, not a different measurement, so it is undone. A
@@ -257,7 +248,6 @@ def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(mon
     assert message.content == '```\n1: 8\n```\nand\n```\n2: 0\n```'
 
 
-# This is a unit test.
 def test_a_reply_cut_off_at_the_output_limit_is_refused_not_scored(monkeypatch):
     """A truncated reply parses exactly like a complete one, and a grade list of
     eight that stops at four leaves `llm_scores` reading the four it never
@@ -276,7 +266,6 @@ def test_a_reply_cut_off_at_the_output_limit_is_refused_not_scored(monkeypatch):
     assert message.content == '1: 8\n2: 0\n3: 8'
 
 
-# This is a unit test.
 def test_an_empty_reply_raises_instead_of_reaching_a_tolerant_parser(monkeypatch):
     """Measured, not imagined: `model_reasoning_effort="minimal"` exits 0 and
     says nothing. `retrieval.llm_scores` reads an unparsed line as "no opinion"
@@ -291,7 +280,6 @@ def test_an_empty_reply_raises_instead_of_reaching_a_tolerant_parser(monkeypatch
                                                        'usage': {}}))
 
 
-# This is a unit test.
 def test_a_failed_call_raises_and_says_which_command_failed(monkeypatch):
     """Three failures, one rule: the lab would rather stop than score. A backend
     that swallowed these would produce numbers indistinguishable from a
@@ -305,7 +293,6 @@ def test_a_failed_call_raises_and_says_which_command_failed(monkeypatch):
         reply(monkeypatch, 'claude', stdout='not json at all')
 
 
-# This is a unit test.
 def test_a_missing_command_and_a_timeout_are_named_rather_than_bare(monkeypatch):
     """The two failures a user can act on. "claude is not installed" and "claude
     did not answer in 600s" are different problems with different fixes, and a
@@ -317,7 +304,6 @@ def test_a_missing_command_and_a_timeout_are_named_rather_than_bare(monkeypatch)
               boom=subprocess.TimeoutExpired(cmd='claude', timeout=600))
 
 
-# This is a unit test.
 def test_a_per_role_model_is_forwarded_per_call(monkeypatch):
     """The lab's convention: one client serves every stage and a named model
     rides on the request (models.ROLES). For a subprocess that means the argv,
@@ -329,7 +315,6 @@ def test_a_per_role_model_is_forwarded_per_call(monkeypatch):
     assert recorder.argv[recorder.argv.index('--model') + 1] == 'opus'
 
 
-# This is a unit test.
 def test_an_effort_the_cli_does_not_accept_is_refused_before_any_call():
     """The two CLIs accept different values — claude takes 'xhigh', codex takes
     'none' — and codex answers an unaccepted one with exit 0 and no text. So the
@@ -343,7 +328,6 @@ def test_an_effort_the_cli_does_not_accept_is_refused_before_any_call():
         clichat.checked_effort('claude', 'minimal')
 
 
-# This is a unit test.
 def test_availability_is_the_binary_because_there_is_nothing_else_to_ask(monkeypatch):
     """An Ollama tag can be checked against /api/tags. A CLI alias cannot be
     checked at all without paying for a call, so the fact this lab verifies is

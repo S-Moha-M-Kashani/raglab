@@ -278,7 +278,7 @@ def create_app() -> FastAPI:
             # reason the mode dropdown is: a preset kept in a browser is a
             # preset that will drift from the brain it claims to mirror.
             'production': PRODUCTION_CONFIG,
-            # The three steps, in pipeline order. The panel groups and colours
+            # The steps, in pipeline order. The panel groups and colours
             # every control by these, so which step a thing belongs to is served
             # as a fact about the pipeline rather than guessed in the browser.
             'steps': [{'key': step.key, 'short': step.short, 'label': step.label,
@@ -681,10 +681,6 @@ def create_app() -> FastAPI:
     @app.exception_handler(ValueError)
     def value_error(_request, error: ValueError):
         return JSONResponse({'detail': str(error)}, status_code=400)
-
-    # GradeUnavailable needs no handler any more: both routes that run the
-    # pipeline are jobs, so the gate's refusal surfaces as the job's error —
-    # named stage and all — rather than as an HTTP status.
 
     return app
 

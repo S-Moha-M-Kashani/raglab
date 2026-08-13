@@ -75,8 +75,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/raglab"]
-
-[tool.pytest.ini_options]
-markers = [
-    "calibration: measures a number the code currently guesses; needs a real model, so it skips by default",
-]

@@ -20,7 +20,6 @@ class Stub:
     cli_effort: str = 'low'
 
 
-# This is a unit test.
 def test_the_fake_backend_answers_without_a_network():
     """`fake` is what the whole suite runs on, so it must never reach a wire and
     must always answer."""
@@ -32,7 +31,6 @@ def test_the_fake_backend_answers_without_a_network():
     assert reply.usage_metadata['total_tokens'] > 0
 
 
-# This is a unit test.
 def test_each_real_backend_is_built_for_its_own_endpoint_and_patience():
     """The two real backends differ in nothing but where the model runs, so one
     construction site holds both — and a local model gets the longer timeout,
@@ -50,7 +48,6 @@ def test_each_real_backend_is_built_for_its_own_endpoint_and_patience():
     assert local.openai_api_key.get_secret_value() == 'ollama'
 
 
-# This is a unit test.
 def test_an_unknown_backend_raises_instead_of_falling_back():
     """No auto modes: the old behaviour was a silent downgrade to openrouter,
     which is one config quietly billing an API on whichever machine had the
@@ -59,7 +56,6 @@ def test_an_unknown_backend_raises_instead_of_falling_back():
         llm.make_chat_model(Stub(provider='wat'))
 
 
-# This is a unit test.
 def test_a_per_role_model_is_forwarded_per_request_not_bound():
     """An empty model means "whatever the client was built with"; a named one is
     forwarded per request, so one client still serves every role. Passing '' to
@@ -77,7 +73,6 @@ def test_a_per_role_model_is_forwarded_per_request_not_bound():
     assert captured['model'] == 'qwen3.5:2b'
 
 
-# This is a unit test.
 def test_a_cli_backend_is_built_through_the_same_one_construction_site():
     """The seam's whole claim: adding a backend is a branch here and never an
     edit to a call site. A CLI is not an endpoint, so it takes no base url — and
@@ -92,7 +87,6 @@ def test_a_cli_backend_is_built_through_the_same_one_construction_site():
     assert codex.cli == 'codex'
 
 
-# This is a unit test.
 def test_the_configured_effort_is_the_one_that_reaches_the_argv(monkeypatch):
     """The entire justification for making effort a setting is that it moves the
     numbers — the grade probe scored 8 under `low` where the default scored 9 — and
@@ -118,7 +112,6 @@ def test_the_configured_effort_is_the_one_that_reaches_the_argv(monkeypatch):
     assert calls[0][calls[0].index('--effort') + 1] == 'xhigh'
 
 
-# This is a unit test.
 def test_a_reasoning_effort_the_backend_rejects_stops_the_run_at_build_time():
     """Earlier than the call, because codex answers an effort it does not accept
     with exit 0 and no text — and the lab would rather refuse to build a client

@@ -2,7 +2,6 @@
 from raglab import baseline
 
 
-# This is a unit test.
 def test_the_preset_is_a_dated_snapshot_and_says_so():
     """The button claims to be the real system. It used to import
     lodestar_brain's own constants, so it could not drift; frozen, it can — so
@@ -14,7 +13,6 @@ def test_the_preset_is_a_dated_snapshot_and_says_so():
     assert 'shipped assistant' in baseline.LABEL
 
 
-# This is a unit test.
 def test_the_preset_mirrors_what_lodestar_shipped():
     """Two honest differences are asserted rather than smoothed over, because
     the label says "the real system" and not "the best one we found". Lodestar
@@ -46,7 +44,6 @@ def test_the_preset_mirrors_what_lodestar_shipped():
     assert preset['label'] == baseline.LABEL
 
 
-# This is a unit test.
 def test_every_field_of_the_default_config_survives():
     """Built over the defaults so every field is present: the panel fills its
     whole form from this, and a knob Lodestar has no opinion on (the recency
@@ -59,7 +56,6 @@ def test_every_field_of_the_default_config_survives():
     assert preset['run'] == {'limit': 5, 'half_life_days': 90}
 
 
-# This is a unit test.
 def test_agentic_weights_are_served_as_a_list():
     """A list, not the dataclass's tuple: this dict is served as JSON, where a
     tuple arrives as a list anyway, and "what the panel receives" should equal
@@ -71,7 +67,6 @@ def test_agentic_weights_are_served_as_a_list():
     assert isinstance(preset['retrieval']['agentic_weights'], list)
 
 
-# This is a unit test.
 def test_the_snapshot_does_not_mutate_the_defaults_it_was_given():
     """`LabConfig().to_dict()` is a fresh dict per call today, but the preset is
     built once per process and served on every /api/options — writing through to

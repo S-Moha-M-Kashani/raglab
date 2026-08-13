@@ -220,35 +220,45 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
     # Which layers actually reached the answerer — a field on the row, not something to infer from a flat score.
     diagnostics['contexts_by_layer'] = _by_layer(index, kept)
     if trace is not None:
-        fused_order = sorted(base, key=lambda cid: -base[cid])
-        dense_pos = {cid: r + 1 for r, cid in enumerate(dense_ranked)}
-        bm25_pos = {cid: r + 1 for r, cid in enumerate(lexical_ranked)}
-        fused_pos = {cid: r + 1 for r, cid in enumerate(fused_order)}
-        kept_ids = {c.chunk_id for c in kept}
-        grade_by_id = {c.chunk_id: c.stages.get('grade') for c in contexts}
-        candidates = []
-        for i, chunk in enumerate(chunks):
-            cid = chunk.id
-            grade = grade_by_id.get(cid)
-            candidates.append({
-                'chunk_id': cid, 'text': chunk.text,
-                'session_id': chunk.session_id, 'date': chunk.date,
-                # Layer is a different axis from rank: a summary that ranked
-                # first but expanded to irrelevant leaves must be visible as that, not as a score.
-                'layer': chunk.layer, 'level': chunk.level,
-                'group_id': chunk.group_id,
-                'members': len(chunk.member_ids),
-                'dense_rank': dense_pos.get(cid), 'bm25_rank': bm25_pos.get(cid),
-                'fused_rank': fused_pos.get(cid),
-                'retrieval_score': round(float(relevance[i]), 4),
-                'rerank_score': round(float(final[i]), 4),
-                'grade_score': (round(float(grade), 4) if grade is not None else None),
-                'kept': cid in kept_ids})
-        trace.update({'dense': list(dense_ranked), 'bm25': list(lexical_ranked),
-                      'fused': fused_order, 'candidates': candidates})
+        trace.update(_trace_candidates(chunks, dense_ranked, lexical_ranked,
+                                       base, relevance, final, contexts, kept))
     return Outcome(question=question, contexts=kept, abstained=abstained,
                    time_scope=scope.as_dict() if scope else None,
                    diagnostics=diagnostics, timings=timings)
+
+
+def _trace_candidates(chunks, dense_ranked, lexical_ranked, base, relevance,
+                      final, contexts, kept) -> dict:
+    """The Inspector's per-candidate ladder: each candidate's rank at every
+    stage plus whether it survived grading. `contexts` is pre-grade (its
+    `grade` stage score, if any) and `kept` is post-grade — the two rank maps
+    this needs but `retrieve` otherwise has no reason to keep side by side."""
+    fused_order = sorted(base, key=lambda cid: -base[cid])
+    dense_pos = {cid: r + 1 for r, cid in enumerate(dense_ranked)}
+    bm25_pos = {cid: r + 1 for r, cid in enumerate(lexical_ranked)}
+    fused_pos = {cid: r + 1 for r, cid in enumerate(fused_order)}
+    kept_ids = {c.chunk_id for c in kept}
+    grade_by_id = {c.chunk_id: c.stages.get('grade') for c in contexts}
+    candidates = []
+    for i, chunk in enumerate(chunks):
+        cid = chunk.id
+        grade = grade_by_id.get(cid)
+        candidates.append({
+            'chunk_id': cid, 'text': chunk.text,
+            'session_id': chunk.session_id, 'date': chunk.date,
+            # Layer is a different axis from rank: a summary that ranked
+            # first but expanded to irrelevant leaves must be visible as that, not as a score.
+            'layer': chunk.layer, 'level': chunk.level,
+            'group_id': chunk.group_id,
+            'members': len(chunk.member_ids),
+            'dense_rank': dense_pos.get(cid), 'bm25_rank': bm25_pos.get(cid),
+            'fused_rank': fused_pos.get(cid),
+            'retrieval_score': round(float(relevance[i]), 4),
+            'rerank_score': round(float(final[i]), 4),
+            'grade_score': (round(float(grade), 4) if grade is not None else None),
+            'kept': cid in kept_ids})
+    return {'dense': list(dense_ranked), 'bm25': list(lexical_ranked),
+            'fused': fused_order, 'candidates': candidates}
 
 
 def _rerank(index, cfg, question, chunks, relevance, query_date, stage_scores,

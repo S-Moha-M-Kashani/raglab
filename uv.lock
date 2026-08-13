@@ -2127,7 +2127,6 @@ dependencies = [
     { name = "langchain-community" },
     { name = "langchain-core" },
     { name = "langchain-openai" },
-    { name = "langgraph" },
     { name = "networkx" },
     { name = "numpy" },
     { name = "ragas" },
@@ -2137,6 +2136,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+agent = [
+    { name = "langgraph" },
+]
 graph-index = [
     { name = "leidenalg" },
     { name = "python-igraph" },
@@ -2162,7 +2164,7 @@ requires-dist = [
     { name = "langchain-community", specifier = "<0.4" },
     { name = "langchain-core" },
     { name = "langchain-openai", specifier = "<1" },
-    { name = "langgraph", specifier = ">=1.0.1" },
+    { name = "langgraph", marker = "extra == 'agent'", specifier = ">=1.0,<2" },
     { name = "leidenalg", marker = "extra == 'graph-index'", specifier = ">=0.10" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=2.0" },
@@ -2173,7 +2175,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'local-embeddings'", specifier = ">=3.0" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["semantic", "local-embeddings", "graph-index"]
+provides-extras = ["semantic", "local-embeddings", "graph-index", "agent"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]

@@ -1,29 +1,20 @@
-// Click a column header to sort by it. One file, loaded by both lab pages.
+// Click a column header to sort by it. Loaded by both lab pages, so sorting
+// behaves identically on each; evaluated directly in a `vm` context by
+// `tests/sorttable.test.js`, hence no module wrapper and no DOM access outside
+// a function.
 //
-// The panel (:9002) and the Inspector (:9003) are served out of this same
-// directory, so "what does clicking a header do" gets one answer instead of two
-// that drift. Its ordering rules are unit tested from Node in
-// `tests/sorttable.test.js`, which evaluates this file in a `vm` context — hence
-// no module wrapper here and no DOM access outside a function.
-//
-// Three states per column, not two: sort, reverse, then **back to the order the
-// table was served in**. That order is itself information — the leaderboard's is
-// a ranking and the ledger's is newest-first — and a two-state toggle would make
-// it unreachable after the first click.
+// Three states per column: sort, reverse, then back to the order the table
+// was served in — that order is itself information (a ranking, or newest-first).
 const SortTable = (() => {
-  // What the two panels render when a number was never measured. Not '-': a lone
-  // minus sign is not a placeholder anybody here writes, and treating it as one
-  // would swallow a column of them.
+  // Not '-': a lone minus sign is not a placeholder anybody here writes.
   const MISSING = new Set(['', '—', '–', '·', 'n/a']);
   const LEADING_NUMBER = /^([+-]?\d+(?:\.\d+)?)([\s\S]*)$/;
-  // A number followed by one of these is not a number: '2026-08-04' is a date and
-  // '16:00:08' a time, both of which sort correctly as their own zero-padded text
-  // and would collapse to 2026 and 16 if read as figures.
+  // Excludes dates/times like '2026-08-04' or '16:00:08', which sort correctly
+  // as their own zero-padded text and would collapse to 2026/16 as figures.
   const NOT_A_UNIT = /^[-/:.]\d/;
 
-  // What one cell sorts as. `data-sort` on the cell wins where a renderer knows
-  // better than its own text; everything else reads what the row *shows*, which
-  // is also what makes a cell holding a button or a bar sort by its label.
+  // `data-sort` on the cell wins where a renderer knows better than its own
+  // text; everything else reads what the row *shows*.
   function cellKey(text) {
     const shown = String(text === null || text === undefined ? '' : text).trim();
     if (MISSING.has(shown.toLowerCase())) {
@@ -35,12 +26,10 @@ const SortTable = (() => {
     let number = null;
     const found = probe.match(LEADING_NUMBER);
     if (found && !NOT_A_UNIT.test(found[2])) {
-      // A trailing unit or qualifier is fine — '83%', '12s', and the
-      // leaderboard's '0.747 ± 0.042', which has to sort on 0.747 or 0.9 files
-      // below 0.75 ± 0.1.
+      // A trailing unit or qualifier is fine — '83%', '12s', '0.747 ± 0.042'.
       number = parseFloat(found[1]);
     } else if (!found) {
-      // '± 0.042' on its own: the mark qualifies the figure, it is not part of it.
+      // '± 0.042' on its own: the mark qualifies the figure, not part of it.
       const error = probe.match(/^±\s*([+-]?\d+(?:\.\d+)?)$/);
       if (error) number = parseFloat(error[1]);
     }
@@ -50,31 +39,19 @@ const SortTable = (() => {
   // `dir` is 1 for ascending, -1 for descending.
   function compare(a, b, dir) {
     if (a.missing || b.missing) {
-      // Last whichever way the column points. A dash means "never measured", so
-      // it is neither a small value nor a large one — and a leaderboard led by
-      // the rows that measured least is the single mistake it exists to prevent.
-      // Two of them are equal, which leaves them in served order.
+      // Last regardless of `dir`: a dash means "never measured", not a low value.
       if (a.missing && b.missing) return 0;
       return a.missing ? 1 : -1;
     }
     if (a.number !== null && b.number !== null) return (a.number - b.number) * dir;
-    // A column mixing figures and words sorts as words. Rare enough to accept and
-    // better than an arbitrary rule about which kind wins.
+    // A column mixing figures and words sorts as words.
     return a.text.localeCompare(b.text, undefined,
-      // Case-insensitive because the lab's labels are typed by hand and mix case;
-      // numeric so 'C-2' files before 'C-10'.
+      // Case-insensitive (labels are typed by hand); numeric so 'C-2' < 'C-10'.
       { sensitivity: 'base', numeric: true }) * dir;
   }
 
-  // Which way a column opens on its first click. Numbers lead with the best and
-  // text reads A to Z: someone clicking a score column wants the top of it,
-  // someone clicking a name column wants the alphabet.
-  //
-  // But "best" is not always "highest". A *rank* is best at 1, so the generic rule
-  // opened the Inspector's dense column at rank 46 — the candidate dense liked
-  // least, the opposite of the question being asked. A column whose best value is
-  // its lowest says so with `data-order="ascending"`, which keeps that knowledge
-  // where the column is declared rather than in a list of header names here.
+  // Numbers open best-first (descending), text opens A-Z (ascending). Not every
+  // "best" is highest — a rank column marks itself with `data-order="ascending"`.
   function opening(th, hasNumbers) {
     const told = (th.getAttribute('data-order') || '').toLowerCase();
     if (told === 'ascending') return 1;

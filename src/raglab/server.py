@@ -1,18 +1,9 @@
-"""The RAG Lab service: settings panel, ad-hoc query inspector, eval runner.
+"""The RAG Lab service: settings panel, ad-hoc query inspector, eval runner. Binds :9002.
 
-Binds :9002, in the 9000 block with the brains — never a board port, because the
-lab's primary surface is a page *inside* the board (Assistant → "RAG test lab"),
-which proxies /api/raglab/* here. It reads two JSON fixtures, holds its indexes
-in memory, and writes exactly one thing: a JSON file per run in .runs/. The
-standalone panel at / remains for running the lab on its own.
-
-**It depends on no service.** There is nothing to start first and nothing that
-can be down, which is why no route probes anything before creating a job.
-
-Runs are jobs, not requests: building a fastembed index over 157 sessions and
-scoring 100 questions takes longer than any sensible HTTP timeout, so creating
-one answers 202 with a job id and a Location, and the panel polls that. One job at a time — concurrent runs
-would fight over the same index and produce numbers neither of them describes.
+Depends on no other service, so no route probes anything before creating a
+job. Runs are jobs, not requests — creating one answers 202 with a job id and a
+Location, and the panel polls that — one at a time, since concurrent runs
+would fight over the same index.
 """
 import threading
 import time
@@ -35,6 +26,8 @@ from .corpus import load_diary, load_ground_truth
 from . import hierarchy
 from .index import IndexRegistry, _lab_llm
 from .present import chunks_by_session, mark_gold, summary_rows
+from .serving import (_accepted, cancel_checker, ground_truth_for, screen,
+                      scaled_progress)
 
 STATIC = Path(__file__).resolve().parent / 'static'
 
@@ -44,9 +37,7 @@ class JobCancelled(Exception):
 
 
 def _relative(path: Path) -> str:
-    """A path to show in the panel: repo-relative when it is inside the repo,
-    absolute when it is not. `RAGLAB_DB` can point anywhere — the suite points it
-    at a temp file — and `relative_to` raises rather than shrugging."""
+    """Repo-relative path for the panel, or absolute when it's outside the repo (`relative_to` raises)."""
     try:
         return str(path.relative_to(ROOT))
     except ValueError:
@@ -61,15 +52,10 @@ class Jobs:
         """`record(job, state)` is called once per finished job, or nothing is.
 
         A hook rather than a direct call to `ledger.record`, because the
-        **Inspector runs this same class** (`inspector.py` does `from .server
-        import Jobs`) and the Inspector is read-only. With the recording wired in
-        here unconditionally, its manual chunk build silently became a second
-        writer of the lab's experiment ledger from a second OS process — observed
-        2026-08-04, a `kind: chunks` row from :9003 in :9002's raglab.db. A
-        scratch build for looking at chunks is not an experiment anybody ranks,
-        and "writes nothing" is the property that makes it safe to point at a
-        running lab. So the service that owns the ledger passes the recorder, and
-        the one that does not owns nothing to pass."""
+        Inspector runs this same class read-only (`inspector.py` imports `Jobs`
+        from here) and must not become a second writer of the ledger — so the
+        service that owns the ledger passes the recorder, and the one that
+        does not owns nothing to pass."""
         self.lock = threading.Lock()
         self.record = record
         self.jobs: dict[str, dict] = {}
@@ -78,11 +64,7 @@ class Jobs:
     def start(self, kind: str, target, config: dict | None = None) -> str:
         with self.lock:
             if self.current and self.jobs[self.current]['state'] in ('running', 'cancelling'):
-                # One message per state, because they ask different things of the
-                # reader: wait, versus wait then retry. The old text said 'a index
-                # job is still stopping' for both — wrong article, and 'stopping'
-                # for a job that had not been asked to stop, which sends the
-                # reader hunting a cancellation nobody requested.
+                # One message per state: wait, versus wait then retry.
                 running = self.jobs[self.current]
                 article = 'an' if running['kind'][0] in 'aeiou' else 'a'
                 state = ('is still cancelling'
@@ -108,9 +90,8 @@ class Jobs:
             job = self.jobs[job_id]
             job['stage'] = stage
             job['progress'] = round(min(1.0, max(0.0, fraction)), 3)
-            # "question 16/30 · hard" beside the fraction, because a judged run on
-            # a local model spends hours inside one stage and a bar that only
-            # moves at stage boundaries looks like a hang.
+            # e.g. "question 16/30 · hard" — a stage-only bar looks like a hang
+            # on a judged local run that spends hours inside one stage.
             job['detail'] = detail
 
         def run() -> None:
@@ -118,8 +99,8 @@ class Jobs:
             began = time.time()
             outcome = 'done'
             try:
-                # Targets that make external calls receive a cancellation probe.
-                # Keep one-argument targets working for small callers and tests.
+                # Targets that make external calls receive a cancellation probe;
+                # one-argument targets (small callers, tests) still work.
                 wants_cancel = len(inspect.signature(target).parameters) >= 2
                 job['result'] = target(report, cancel.is_set) if wants_cancel else target(report)
                 if cancel.is_set():
@@ -131,23 +112,16 @@ class Jobs:
                 outcome = 'error'
                 job['error'] = f'{type(error).__name__}: {error}'
                 job['traceback'] = traceback.format_exc()[-2000:]
-            # The only duration a build or a retrieval has: neither produces a
-            # `RunResult` to carry one.
+            # The only duration a build or retrieval has: neither has a `RunResult`.
             job['seconds'] = round(time.time() - began, 2)
-            # Recorded here rather than in each route, so a route added later is
-            # in the ledger by having been run — and recorded *before* the state
-            # goes terminal, because both frontends and the Inspector poll a job
-            # until it stops running: a row written after `state = 'done'` is a
-            # row a follower can look for and miss.
+            # Recorded here, before the state goes terminal — a row written
+            # after `state = 'done'` is one a polling follower can miss.
             try:
                 if self.record is not None:
                     self.record(job, outcome)
             except Exception as error:
-                # A ledger records the work; it is never a condition of it. A
-                # judged run costs hours, and a database that cannot be opened
-                # must not turn one into an error over a result nobody can read.
-                # Reported on the job rather than swallowed — a bookkeeper that
-                # fails silently is worse than one that fails.
+                # A ledger records the work; it is never a condition of it —
+                # reported on the job rather than swallowed.
                 job['ledger_error'] = f'{type(error).__name__}: {error}'
             job['state'] = outcome
             if outcome == 'done':
@@ -167,9 +141,7 @@ class Jobs:
         return {key: value for key, value in job.items() if key != '_cancel'}
 
     def list(self) -> list[dict]:
-        """Newest first, and deliberately thin: an index of what has run
-        (id/kind/state/config) for a follower like the Inspector to scan, not
-        a dump of every job's result or its traceback."""
+        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
         return [{'id': job['id'], 'kind': job['kind'], 'state': job['state'],
                  'config': job.get('config')}
                 for job in reversed(list(self.jobs.values()))]
@@ -191,13 +163,7 @@ def create_app() -> FastAPI:
     boot_settings = load_lab_settings()
 
     def settings_now():
-        """The boot settings, carrying whatever key the panel has since typed.
-
-        Every route that builds a run reads through here rather than closing
-        over the boot settings, so a credential entered a second ago is in force
-        without a restart — and so exactly one place decides which key wins.
-        `LabSettings` is frozen on purpose, so this returns a new one rather
-        than mutating the old."""
+        """The boot settings, carrying whatever key the panel has since typed — the one place that decides."""
         return credentials.apply(boot_settings)
 
     settings = boot_settings
@@ -205,15 +171,8 @@ def create_app() -> FastAPI:
     ground_truth = load_ground_truth()
 
     def questions_for(cfg: LabConfig) -> dict:
-        """The ground truth of the corpus this config names.
-
-        Read through `datasets` rather than closed over at boot, because the
-        dataset is a field of the config: the questions a run is scored on and
-        the sessions its index was built from have to come from the same file,
-        and the one way to guarantee that is to resolve both from the same id."""
-        if not cfg.index.dataset:
-            return ground_truth
-        return datasets.load(cfg.index.dataset)[1]
+        """The ground truth of the corpus this config names — resolved by id, so index and questions match."""
+        return ground_truth_for(cfg, ground_truth)
 
     registry = IndexRegistry(settings, diary)
     # This service owns the ledger, so this is the one place a recorder is passed.
@@ -226,81 +185,51 @@ def create_app() -> FastAPI:
 
     @app.get('/sorttable.js')
     def sorttable():
-        """The column sorter, the one file this panel and the Inspector share —
-        see `static/sorttable.js`. The only static file this service serves
-        separately: everything else about the panel is in the one page."""
+        """The column sorter, shared with the Inspector — the only static file served outside the one page."""
         return FileResponse(STATIC / 'sorttable.js',
                             media_type='application/javascript')
 
     @app.get('/api/options')
     def options():
-        """Everything the panel needs to render itself, including what is
-        actually installed — a dropdown offering a reranker whose wheel is
-        missing is a bug report waiting to happen."""
+        """Everything the panel needs to render itself, including what is actually installed."""
         live = settings_now()
         return {
             'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
             'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
             'graders': list(GRADERS), 'answerers': list(ANSWERERS),
-            # The summary hierarchy: how chunks are grouped, what the graph's
-            # edges are, how a group becomes text, and what retrieval may then
-            # do with the rows that were written.
+            # The summary hierarchy: grouping, graph edges, summariser, and what
+            # retrieval may do with the rows written.
             'hierarchies': list(HIERARCHIES),
             'graph_sources': list(GRAPH_SOURCES),
             'summarizers': list(SUMMARIZERS),
             'summary_scopes': list(SUMMARY_SCOPES),
-            # Whether each grouping can actually run *here*, and what to
-            # install when it cannot. Verified by import rather than guessed,
-            # for the reason the embedder catalogue is: NA has to keep meaning
-            # one thing — this installation cannot load it.
+            # Verified by import, never guessed, so NA keeps meaning one thing:
+            # this installation cannot load it.
             'hierarchy_support': hierarchy.available(),
-            # Which stage a bounded loop may own, what it checks before it ships
-            # a draft, and whether this installation can run one at all —
-            # verified by import for the reason the groupings are, so the panel
-            # never offers a scope validation would refuse.
             'scopes': list(SCOPES),
             'critics': list(CRITICS),
             'agent_support': agent.available(),
             'question_types': list(metrics.TYPES),
             'difficulties': list(DIFFICULTIES),
-            # How a limited run picks its questions. Served because the sample is
-            # part of the measurement: two rows scored on different samples are
-            # not two results, and the panel has to be able to say which.
+            # The sample is part of the measurement: two rows on different
+            # samples are not two results of the same one.
             'balances': list(BALANCES),
-            # Which dependent controls are live under the defaults, and the
-            # rule behind each. Served so both panels grey out the same
-            # knobs for the same stated reason — a rule copied into two
-            # frontends is a rule that will disagree with itself.
+            # Served rather than duplicated per panel, so both grey out the same
+            # knobs for the same stated reason.
             'dependencies': DEPENDENCIES,
             'defaults': LabConfig().to_dict(),
-            # The shipped Assistant's own settings, for the panel's one-click
-            # preset. Served rather than written into the frontend for the
-            # reason the mode dropdown is: a preset kept in a browser is a
-            # preset that will drift from the brain it claims to mirror.
+            # The shipped Assistant's own settings, for the panel's preset —
+            # served rather than copied into the frontend, which would drift.
             'production': PRODUCTION_CONFIG,
-            # The three steps, in pipeline order. The panel groups and colours
-            # every control by these, so which step a thing belongs to is served
-            # as a fact about the pipeline rather than guessed in the browser.
             'steps': [{'key': step.key, 'short': step.short, 'label': step.label,
                        'note': step.note} for step in STEPS],
-            # What each embedder can actually read, and which real models are
-            # offerable — the choice that decides whether a run on a Farsi corpus
-            # measures anything at all.
             'embedder_hints': embedding.embedder_hints(live),
             'embed_models': embedding.embed_model_catalogue(live),
-            # One dropdown per LLM stage, and a sentence per knob. Both come from
-            # here rather than the frontend so a new strategy or a new model
-            # appears in the panel without touching app.js.
             'models': models.catalogue(live),
             'model_roles': [role.as_dict() for role in models.ROLES],
-            # The mode dropdown: local vs OpenRouter, each with the backend it
-            # runs on and the exact per-stage preset picking it applies. Served
-            # so neither panel keeps a preset of its own to drift.
             'modes': models.mode_catalogue(live),
-            # What every number on the results screen means: its label, the step
-            # it grades, the exact arithmetic, and what computed it. Served rather
-            # than kept in the frontend so a metric's name cannot drift from its
-            # definition.
+            # Label, step, formula and library per metric, so a name cannot
+            # drift from its definition.
             'metrics': explain.measures(),
             'help': explain.topics(),
             'corpus': {
@@ -309,84 +238,46 @@ def create_app() -> FastAPI:
                 'from': diary['meta']['period']['from'],
                 'to': diary['meta']['period']['to'],
                 'threads': len(diary['threads']),
-                # The habit ledger is only as good as the habits behind it, so
-                # how many the corpus tracks is part of describing it.
                 'habits': len(diary.get('habits', {})),
                 'questions': len(ground_truth['questions']),
                 'query_date': ground_truth['meta'].get('query_date'),
             },
             'capabilities': {
                 'fastembed': embedding.fastembed_available(),
-                # One per model backend, so the panel can say which of the two
-                # can run right now instead of finding out during a build.
                 'sentence_transformers': embedding.sentence_transformers_available(),
                 'cross_encoder': retrieval.cross_encoder_available(
                     live.cross_encoder_model),
                 'cross_encoder_model': live.cross_encoder_model,
                 'fastembed_model': live.fastembed_model,
-                # `llm` is "a real model is reachable", not "a key exists": with
-                # RAGLAB_LLM=ollama every stage runs on this machine and there is
-                # no key at all. The provider is served beside it because the
-                # badge has to name where the numbers came from — a run on the
-                # fake provider is not a cheaper run, it is not a run.
+                # 'a real model is reachable', not 'a key exists' — under
+                # RAGLAB_LLM=ollama every stage runs locally with no key.
                 'llm': live.llm_ready,
                 'llm_provider': live.provider,
                 'llm_model': live.llm_model,
                 'ollama_base_url': live.ollama_base_url,
                 'ragas': ragas_eval.availability(live).as_dict(),
-                # Whether a key is in force, a masked tail of it, and which of
-                # the two ways in put it there — never the key. This is what the
-                # browser reads on every visit.
                 'openrouter_key': credentials.state(live),
-                # Where an experiment lives, and the two places its account
-                # lands. Stated positively because the panel used to badge a
-                # Chroma database here: a reader needs to know the index is
-                # thrown away with the process, not merely that no service is
-                # named.
+                # Stated positively, since the index is thrown away with the
+                # process rather than merely "no service named".
                 'storage': {'index': 'memory',
                             'runs': str(RUNS_DIR.relative_to(ROOT)),
-                            # A third location, and the newest: one row per
-                            # finished experiment. Named for the same reason the
-                            # other two are — a place data is kept that the page
-                            # does not name is a place nobody knows to look in,
-                            # or to clear out.
                             'experiments': _relative(ledger.db_path())},
             },
-            # Every corpus this lab can be pointed at, the built-in one first.
-            # Served rather than listed in the frontend for the reason the modes
-            # and the steps are: a panel with its own list is a panel that will
-            # offer a dataset the service cannot load.
             'datasets': [found.as_dict() for found in datasets.catalogue()],
             'dataset_contract': 'docs/groundtruth-dataset-contract.md',
             'indexes': registry.known(),
         }
 
     def _with_backend(cfg: LabConfig, run_settings) -> dict:
-        """A job's config, plus the chat backend it will actually run on.
-
-        The *resolved* provider, not the payload's request: '' means "follow the
-        lab's boot backend", and a ledger row saying '' would leave the one fact
-        that separates a measurement from a rehearsal unrecorded. `fake` answers
-        and judges without ever failing, so a run on it produces a complete set
-        of confident numbers that measured nothing — `sweep.py` refuses to start
-        there; a record cannot refuse, so it names the backend."""
+        """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
         return cfg.to_dict() | {'provider': run_settings.provider}
-
-    def _accepted(job_id: str) -> JSONResponse:
-        """202, not 200: the work was accepted, not done, so the body is a
-        receipt rather than a result. Location points at the job, so no caller
-        has to build the polling url by string concatenation — the one place
-        that url is spelled is here."""
-        return JSONResponse({'job_id': job_id}, status_code=202,
-                            headers={'Location': f'/api/jobs/{job_id}'})
 
     @app.post('/api/indexes')
     def build_index(payload: dict):
         cfg = LabConfig.from_dict(payload)
         force = bool(payload.get('force'))
-        # The same screen the run routes apply, for the same reason they apply
-        # one another's: a grouping whose library is missing must fail as a 400
-        # naming what to install, not as a 500 from an import three frames
+        # The same screen the run routes apply: a missing library fails as a
+        # 400 naming what to install, not a 500 from an import three frames
         # down. Only the index half is checked — a build reads no model.
         problems = [p for p in cfg.validate()
                     if not p.startswith(('unknown retriever', 'unknown reranker',
@@ -404,17 +295,13 @@ def create_app() -> FastAPI:
                     'p95_chars': index.stats.p95_chars,
                     'embed_dim': index.stats.embed_dim,
                     'build_seconds': index.stats.build_seconds,
-                    # What the grouping did. None on a flat build, so the panel
-                    # can tell "no hierarchy" from "a hierarchy that found
-                    # nothing" — different facts about a build.
+                    # None on a flat build, distinguishing "no hierarchy" from
+                    # "a hierarchy that found nothing".
                     'hierarchy': index.stats.hierarchy,
                     'reused': index.stats.reused, 'notes': index.stats.notes,
-                    # So a follower (the Inspector, :9003) can render what an
-                    # index job actually built without holding its own index.
-                    # Both halves, because `chunks_by_session` is the chunker's
-                    # output alone: reporting it by itself left every summary a
-                    # grouping wrote unreachable from the only view that lists
-                    # rows, while `chunks` above counted them.
+                    # So a follower (the Inspector) can render what was built
+                    # without holding its own index; both halves, since
+                    # `chunks_by_session` alone omits every summary a grouping wrote.
                     'chunks_by_session': chunks_by_session(index),
                     'summaries': summary_rows(index)}
 
@@ -427,14 +314,10 @@ def create_app() -> FastAPI:
         # the settings that refuse a model are the settings that would run it.
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
 
         def work(report, cancelled):
-            def check_cancelled():
-                if cancelled():
-                    raise JobCancelled()
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
             result = evaluate.run_eval(
                 registry, questions_for(cfg), cfg, run_settings,
                 types=payload.get('types') or None,
@@ -444,14 +327,11 @@ def create_app() -> FastAPI:
                 ragas_mode=payload.get('ragas_mode', 'offline'),
                 ragas_limit=payload.get('ragas_limit') or None,
                 workers=int(payload.get('workers', 1)), progress=report,
-                # Always traced: the Inspector must never be blank after a run,
-                # and the trace is a recording of the same retrieval — the same
-                # Outcome reaches scoring either way, so no number can move.
+                # Always traced, so the Inspector is never blank after a run —
+                # a recording of the same retrieval, so no score can move.
                 trace=True, cancelled=check_cancelled)
-            # Both are added here rather than inside `as_dict`, which is what
-            # `save_run` writes: the Inspector gets them over HTTP and the run
-            # file stays the summary the leaderboard reads, with no trace and no
-            # chunk text in it.
+            # Added here, not inside `as_dict`: the run file `save_run` writes
+            # stays the summary, with no trace or chunk text in it.
             return result.as_dict() | {
                 'traces': result.traces,
                 'chunks_by_session': result.chunks_by_session,
@@ -461,25 +341,18 @@ def create_app() -> FastAPI:
 
     @app.post('/api/retrievals')
     def start_retrieval(payload: dict):
-        """Retrieval only, over the questions the eval card has selected.
+        """Retrieval only, over the questions the eval card has selected — no answering, no judging, no run file.
 
-        Its own route rather than a flag on `/api/evaluations`, because it
-        answers a different question and costs a different amount: no model
-        answers anything, nothing is judged, and no run file is written — so it
-        is the step you can afford to repeat while moving one knob. It takes the
-        same selection arguments as an evaluation on purpose; retrieval shown
-        for questions the numbers were never about would mislead."""
+        Its own route rather than a flag on `/api/evaluations`, so it stays the
+        step affordable to repeat while moving one knob. Takes the same
+        selection arguments as an evaluation on purpose."""
         cfg = LabConfig.from_dict(payload)
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
 
         def work(report, cancelled):
-            def check_cancelled():
-                if cancelled():
-                    raise JobCancelled()
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
             return evaluate.run_retrieval(
                 registry, questions_for(cfg), cfg, run_settings,
                 types=payload.get('types') or None,
@@ -493,9 +366,7 @@ def create_app() -> FastAPI:
 
     @app.get('/api/jobs')
     def list_jobs():
-        """An index of every job this process has run — newest first, id/kind/
-        state/config only — so a follower (the Inspector) can find the newest
-        finished one of a kind without fetching every job's full result."""
+        """Every job this process has run, newest first — id/kind/state/config only, not the full result."""
         return {'jobs': jobs.list()}
 
     @app.get('/api/jobs/{job_id}')
@@ -508,21 +379,16 @@ def create_app() -> FastAPI:
 
     @app.get('/api/evaluations')
     def evaluations(limit: int = 50):
-        # `total` beside the rows, because this listing is bounded and the browser
-        # cannot know how many runs it was not sent.
+        # `total` beside the rows, since this listing is bounded.
         return {'runs': evaluate.list_runs(limit),
                 'total': evaluate.count_runs()}
 
     @app.get('/api/experiments')
     def experiments(limit: int = 200):
-        """Everything this lab has ever finished, newest first.
+        """Everything this lab has ever finished, newest first — beside the leaderboard, never in it.
 
-        Beside the leaderboard rather than inside it, deliberately. The
-        leaderboard ranks judged runs on a mean over questions, and an index
-        build has no questions and no score — a numbered table it appeared in
-        would be making a rank claim about work that measured nothing. Same rule
-        `leaderboard.group` already keeps: group first, rank second, and never
-        rank across kinds."""
+        An index build has no questions and no score, so a numbered table it
+        appeared in would make a rank claim about work that measured nothing."""
         return {'experiments': ledger.experiments(limit)}
 
     @app.get('/api/experiments/{experiment_id}')
@@ -541,49 +407,30 @@ def create_app() -> FastAPI:
 
     @app.post('/api/queries')
     def ad_hoc_query(payload: dict):
-        """Run one question through the current settings and return every stage.
-        The fastest way to understand *why* a config scores the way it does —
-        but a job all the same: the index a query builds implicitly can outwait
-        any HTTP timeout, and the panel needs a stage to watch, not a spinner.
-        The preconditions still refuse synchronously, so a bad payload is a 400
-        the panel shows at once, never a job that dies later."""
+        """Run one question through the current settings and return every stage — still a job, since the
+        index it builds implicitly can outwait any HTTP timeout; preconditions still refuse synchronously."""
         cfg = LabConfig.from_dict(payload)
         question = (payload.get('question') or '').strip()
         if not question:
             raise HTTPException(400, 'question is required')
-        # The same screen /api/evaluations applies. It used to be missing here,
-        # so one route refused a model the backend does not serve while the
-        # other ran it — and now that a dead grade stage raises instead of
-        # scoring everything 0.5, the difference between the two routes would
-        # be a 400 naming the model against a bare 500. The provider override
-        # is applied the same way too, for the same reason.
+        # The same screen /api/evaluations applies, so the two routes cannot
+        # disagree about which configs are legal.
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
-        problems = cfg.validate() + models.provider_problems(cfg, run_settings)
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
+        screen(cfg, run_settings)
         asked = questions_for(cfg)
         query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):
             # The implicit build is the long silent part — hand it the front of
             # the bar, or it all happens on 'starting 0%'.
-            index = registry.get(
-                cfg.index,
-                progress=lambda stage, fraction, detail='':
-                    report(stage, 0.7 * fraction, detail))
+            index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
             llm = _lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.75, question[:80])
-            # Traced rather than plain `retrieve`: the per-step ranks are what
-            # the Inspector's followed retrieval table needs, and this is the
-            # one place a followed run and a manual /api/trace one share ranks
-            # at all.
-            #
-            # The agent branch is the same one `run_eval` takes, deliberately:
-            # the fast feedback loop and the slow one disagreeing about what a
-            # config *does* is the bug `/api/queries` already had once over which
-            # models it would refuse.
+            # Traced rather than plain `retrieve`, for the per-step ranks the
+            # Inspector's table needs. Same agent branch `run_eval` takes, so
+            # the fast and slow paths cannot disagree about what a config does.
             if cfg.agent.scope:
                 trace = {}
                 outcome = agent.run(index, cfg, question, query_date, llm=llm,
@@ -596,9 +443,8 @@ def create_app() -> FastAPI:
                 report('answering', 0.9)
                 outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
                                           models=roles)
-            # Exact match only, never fuzzy: a question that happens to equal
-            # a ground-truth one gets its gold marks, everything else is
-            # plainly ungraded rather than guessed at.
+            # Exact match only, never fuzzy: everything else stays plainly
+            # ungraded rather than guessed at.
             gt_question = next((q for q in asked['questions']
                                 if q['question_fa'] == question), None)
             if gt_question is not None:
@@ -621,8 +467,7 @@ def create_app() -> FastAPI:
 
     @app.get('/api/questions')
     def questions(limit: int = 200, dataset: str = ''):
-        """The ground truth without its answers — for picking a question to
-        inspect in the query panel."""
+        """The ground truth without its answers, for picking a question in the query panel."""
         asked = (datasets.load(dataset)[1] if dataset else ground_truth)
         return {'questions': [
             {'id': q['id'], 'type': q['type'], 'difficulty': q['difficulty'],
@@ -637,12 +482,7 @@ def create_app() -> FastAPI:
 
     @app.post('/api/datasets')
     def import_dataset(payload: dict):
-        """Take one dataset file, check it against the contract, keep it.
-
-        400 with every problem at once rather than the first: fixing a corpus is
-        a slow loop if each attempt reports one broken quote out of nine. The
-        lab refuses rather than repairs — a silently mended dataset measures
-        something nobody described."""
+        """Take one dataset file, check it against the contract, keep it — 400 with every problem at once."""
         try:
             found = datasets.import_dataset(payload)
         except ValueError as error:
@@ -651,13 +491,7 @@ def create_app() -> FastAPI:
 
     @app.post('/api/credentials')
     def set_credentials(payload: dict):
-        """Take the OpenRouter key from the panel, for this process only.
-
-        A route rather than a config field: a credential is not part of an
-        experiment's configuration, must not be recorded on a run, and would be
-        posted with every job if it lived in `LabConfig`. It answers with the
-        same state `/api/options` reports — set-ness, source and a masked tail —
-        so the panel renders one shape however the key arrived."""
+        """Take the OpenRouter key from the panel, held for this process only, never recorded on a run."""
         try:
             credentials.set_key(payload.get('api_key') or '')
         except ValueError as error:
@@ -666,10 +500,7 @@ def create_app() -> FastAPI:
 
     @app.delete('/api/credentials')
     def clear_credentials():
-        """Forget the key this panel supplied. Never unsets the environment's
-        own: a lab started with OPENROUTER_API_KEY in its shell ends up exactly
-        as it started, and the reported source is what says which of those two
-        this button can reach."""
+        """Forget the key this panel supplied; never unsets the environment's own."""
         credentials.clear()
         return credentials.state(settings_now())
 
@@ -681,10 +512,6 @@ def create_app() -> FastAPI:
     @app.exception_handler(ValueError)
     def value_error(_request, error: ValueError):
         return JSONResponse({'detail': str(error)}, status_code=400)
-
-    # GradeUnavailable needs no handler any more: both routes that run the
-    # pipeline are jobs, so the gate's refusal surfaces as the job's error —
-    # named stage and all — rather than as an HTTP status.
 
     return app
 

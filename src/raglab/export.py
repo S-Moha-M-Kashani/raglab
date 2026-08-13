@@ -1,39 +1,25 @@
-"""Write a finished run out as one readable page per question.
+"""Write a finished run out as one readable page per question — what the
+pipeline retrieved, said, and was graded on, argued in a way the leaderboard's
+single number cannot.
 
-The leaderboard says which architecture won. It cannot show what the pipeline
-did to any single question, and that is what you need in order to argue about
-whether the win is real — which questions it got right, what it retrieved, what
-it said, and which number graded that.
+**This module only reports what the run stored.** Retrieved sessions are the
+ids the run recorded, never re-run to reconstruct chunk text, which would
+document a different retrieval against a possibly rebuilt index. The four
+deciding RAGAS metrics are stored as run means, not per sample, and are labelled
+as such on every page — an unlabelled 0.77 beside one question would read as
+that question's faithfulness.
 
-**This module only reports what the run stored.** Two things follow from that,
-and both are load-bearing:
-
-- Runs record the retrieved *session ids*, not the chunk text. The page says so
-  instead of re-running retrieval to reconstruct them: that would document a
-  different retrieval than the one that was graded, against a possibly rebuilt
-  index, and present it as the graded one.
-- The four deciding RAGAS metrics are stored as run means, not per sample. They
-  appear on each page labelled as run means, because an unlabelled 0.77 beside
-  one question reads as that question's faithfulness — the most misleading thing
-  this export could do.
-
-"Answered correctly" also needs a definition, and the only one this data
-supports is evidence-based rather than judged: an answerable question counts
-when the pipeline did not refuse *and* reached a gold session; an unanswerable
-one counts when it refused. Those are the two failures that matter — inventing
-an answer that was not there, and refusing one that was.
+"Answered correctly" is evidence-based, not judged, since no judged per-question
+grade is stored: an answerable question counts when the pipeline did not refuse
+and reached a gold session; an unanswerable one counts when it refused.
 """
 from pathlib import Path
 
 from . import metrics
+from .config import DIFFICULTIES
 
-DIFFICULTIES = ('easy', 'medium', 'hard')
-
-# The per-question fields that are grades, in the order a reader wants them:
-# did retrieval reach the evidence, how well was it ranked, did the answer
-# resemble the reference. `metrics.MEASURES` supplies each one's definition, so
-# this list holds no wording of its own — a label that drifts from its
-# definition explains the wrong number.
+# In the order a reader wants them. `metrics.MEASURES` supplies each one's
+# definition, so this list holds no wording of its own.
 GRADE_KEYS = ('recall', 'quote_recall', 'ndcg', 'mrr', 'precision', 'hit',
               'false_abstention', 'answer_similarity', 'answer_token_f1',
               'key_fact_coverage', 'latency_ms')
@@ -49,36 +35,25 @@ def _num(value, places: int = 4) -> str:
     return str(value)
 
 
-def _mean(values: list) -> float | None:
+def _numeric_mean(values: list) -> float | None:
     kept = [float(v) for v in values if isinstance(v, (int, float))]
     return round(sum(kept) / len(kept), 4) if kept else None
 
 
 def answered_correctly(row: dict) -> bool:
-    """Evidence-based correctness for one question.
-
-    Answerable: it must not have refused, and retrieval must have reached at
-    least one session the ground truth marks as evidence. Unanswerable: it must
-    have refused. There is no judged per-question grade in a run file, so this
-    deliberately claims less than "correct" — it is "answered from the right
-    place, or rightly declined".
-    """
+    """Evidence-based correctness: answerable means not refused and retrieval
+    reached a gold session; unanswerable means refused. Claims less than
+    "correct" since no judged per-question grade exists in a run file."""
     if not row.get('answerable', True):
         return bool(row.get('abstained'))
     return not row.get('abstained') and bool(row.get('hit'))
 
 
 def difficulty_rates(rows: list[dict]) -> list[dict]:
-    """One row per difficulty, in ascending order, with the count beside every
-    share — one hard question at 100% is not a finding.
-
-    `evidence_found` and `quotes_in_context` stay separate from `answered`
-    because retrieval reaching the evidence and the answer using it are
-    different failures, and collapsing them hides which half to fix. They are
-    `None` where the difficulty holds only unanswerable questions: those have no
-    evidence to find, and averaging them in as misses would understate
-    retrieval.
-    """
+    """One row per difficulty, with the count beside every share. `evidence_found`
+    and `quotes_in_context` stay separate from `answered`, since retrieval
+    reaching the evidence and the answer using it are different failures; both
+    are `None` where the difficulty holds only unanswerable questions."""
     out = []
     for name in DIFFICULTIES:
         group = [row for row in rows if row.get('difficulty') == name]
@@ -91,14 +66,14 @@ def difficulty_rates(rows: list[dict]) -> list[dict]:
             'n_answerable': len(answerable),
             'answered': round(
                 sum(1 for row in group if answered_correctly(row)) / len(group), 4),
-            'evidence_found': _mean([row.get('hit') for row in answerable]),
+            'evidence_found': _numeric_mean([row.get('hit') for row in answerable]),
             'quotes_in_context': (
                 round(sum(1 for row in answerable
                           if row.get('quote_recall') == 1.0) / len(answerable), 4)
                 if answerable else None),
-            'recall': _mean([row.get('recall') for row in answerable]),
-            'answer_overlap': _mean([row.get('answer_token_f1')
-                                     for row in group]),
+            'recall': _numeric_mean([row.get('recall') for row in answerable]),
+            'answer_overlap': _numeric_mean([row.get('answer_token_f1')
+                                             for row in group]),
         })
     return out
 
@@ -113,7 +88,7 @@ def type_rates(rows: list[dict]) -> list[dict]:
             'type': name, 'n': len(group),
             'answered': round(
                 sum(1 for row in group if answered_correctly(row)) / len(group), 4),
-            'recall': _mean([row.get('recall') for row in group]),
+            'recall': _numeric_mean([row.get('recall') for row in group]),
         })
     return out
 

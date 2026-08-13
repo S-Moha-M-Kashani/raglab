@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.5.0"
+version = "0.6.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -75,8 +75,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/raglab"]
-
-[tool.pytest.ini_options]
-markers = [
-    "calibration: measures a number the code currently guesses; needs a real model, so it skips by default",
-]

@@ -1,14 +1,8 @@
-"""Every factor in the lab, explained.
+"""Assembles the explainer text for every knob and model role, served over the API.
 
-Twenty-eight knobs and seven model roles is more than anybody holds in their
-head, and a knob you cannot explain is a knob you cannot make a real decision
-about. So each one carries a sentence or three, served over the API and shown
-next to the control behind a `!`.
-
-The text lives beside the definition it describes — knobs in `config.HELP`,
-model roles in `models.ROLES` — and this module only assembles the two and
-reports what is missing. `missing()` returning anything is a test failure, which
-is what stops a new field from shipping unexplained.
+Text lives beside the definition it describes (`config.HELP`, `models.ROLES`);
+this module only assembles it and reports what is missing — `missing()`
+returning anything is a test failure, so a new field cannot ship unexplained.
 """
 from .config import (HELP, AgentConfig, GenerationConfig, IndexConfig,
                      RetrievalConfig)
@@ -22,10 +16,7 @@ GROUPS = (('index', IndexConfig), ('retrieval', RetrievalConfig),
 
 
 def topics() -> dict[str, str]:
-    """Every explainable key → its text. '<group>.<field>' for configuration,
-    'model.<role>' for the model roles, 'run.<field>' for one-run controls, and
-    'metric.<key>' for every number a run reports — one registry, so the panel
-    has one explainer mechanism rather than one per kind of thing."""
+    """Every explainable key → its text: '<group>.<field>', 'model.<role>', 'run.<field>', 'metric.<key>'."""
     return (dict(HELP) | dict(ROLE_HELP) | dict(MEASURE_HELP)
             | dict(RAGAS_MEASURE_HELP))
 
@@ -36,11 +27,7 @@ def measures() -> list[dict]:
 
 
 def missing_metrics() -> list[str]:
-    """Metrics a run can report with nothing explaining them.
-
-    The counterpart of missing() for the knobs: a key added to
-    metrics.AGGREGATED or to the RAGAS metric lists without a Measure beside it
-    fails a test rather than reaching the dashboard as a bare number."""
+    """Metrics a run can report with nothing explaining them."""
     defined = {measure.key for measure in MEASURES + RAGAS_MEASURES}
     reported = (set(AGGREGATED) | {'headline'} | set(OFFLINE_METRICS)
                 | set(LLM_METRICS))

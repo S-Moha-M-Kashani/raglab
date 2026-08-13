@@ -1,11 +1,11 @@
 // The Inspector's whole frontend: four views over the read-only :9003 API —
 // ground truth, chunks, retrieval, generation — three of which auto-follow
 // whatever the lab (:9002) actually ran.
-const CHOSEN = {
-  index: { chunker: 'semantic-drift', embedder: 'sentence-transformers' },
-  retrieval: { retriever: 'hybrid-rrf', k: 8, reranker: 'lexical',
-               time_filter: true, grader: 'llm', grade_threshold: 0.4 },
-};
+let CHOSEN = null;   // fallback config, served by /api/config so it cannot drift
+async function loadChosen() {
+  CHOSEN = (await (await fetch('/api/config')).json()).chosen;
+}
+const chosenReady = loadChosen();
 
 const views = ['groundtruth', 'chunks', 'retrieval', 'generation'];
 function show(view) {
@@ -43,10 +43,8 @@ async function startedJob(response) {
 function formatConfig(cfg) {
   if (!cfg) return '';
   const parts = [];
-  // The corpus first when it is not the built-in diary. Two rows measured on
-  // two corpora are not two configurations of one measurement — the leaderboard
-  // groups on it before anything else, and a window that does not name it lets
-  // a reader take German sessions for a different chunking of the diary.
+  // Corpus first when it is not the built-in diary — two corpora are not two
+  // configurations of one measurement, and this must not go unstated.
   if (cfg.index && cfg.index.dataset) parts.push(cfg.index.dataset);
   if (cfg.index) parts.push(`${cfg.index.chunker} · ${cfg.index.embedder}`);
   if (cfg.retrieval) {
@@ -121,10 +119,8 @@ let FOLLOWED_DATASET = '';
 
 async function loadGroundTruth(dataset) {
   FOLLOWED_DATASET = dataset || '';
-  // Named on every request, never assumed: every finding this lab produces is a
-  // finding about one corpus, and a fixture loaded once from the diary made a
-  // build over another corpus show German sessions in the chunks window beside
-  // Farsi questions everywhere else.
+  // Named on every request, never assumed, so this view can't show one corpus
+  // while another view on the page shows a different one.
   const body = await (await fetch('/api/groundtruth?dataset='
                                   + encodeURIComponent(FOLLOWED_DATASET))).json();
   const root = document.getElementById('view-groundtruth');
@@ -154,22 +150,18 @@ async function loadGroundTruth(dataset) {
            + `</div>` : '');
     root.appendChild(row);
   }
-  // The retrieval and generation views restate each question's facts and ideal
-  // answer from this map, and the first poll can easily beat this fetch. Forget
-  // which jobs were rendered so the next tick redraws them with the fixture
-  // available — otherwise a race leaves every ideal answer showing '—' until
-  // the next run.
+  // The first poll can beat this fetch; forgetting the rendered job ids forces
+  // a redraw once the fixture is available, rather than leaving every ideal
+  // answer showing '—' until the next run.
   followed.retrievalJobId = null;
   followed.generationJobId = null;
   if (!picker.hidden) renderPicker(pickerFilter.value);
 }
 loadGroundTruth('');
 
-// The corpus changed under us, so everything on this page that came from the
-// old one has to go: the questions you added are rows about ids the new fixture
-// does not contain, and the followed windows redraw from the lab on their own.
-// Called only from the poll — the initial load has no previous corpus to drop,
-// and `ADDED` is not declared yet when this file first runs.
+// Added questions are rows about ids the old corpus had; called only from the
+// poll, since the initial load has no previous corpus and `ADDED` doesn't
+// exist yet when this file first runs.
 async function followDataset(dataset) {
   ADDED.clear();
   renderAdded();
@@ -199,12 +191,9 @@ function renderChunkGroups(container, groups) {
   }
 }
 
-// A summary is not a diary entry, and the whole point of listing it apart is that
-// a reader can tell. Each card leads with what its text cannot say — the group it
-// speaks for, its level, how many chunks it was written over and how many sessions
-// those span. The session count is the one that was wholly unreadable before: a
-// group spanning several sessions carries no session id at all, which is exactly
-// why these rows used to be absent from the chunk view rather than merely unlabelled.
+// Each card leads with what its text cannot say — group, level, chunk count,
+// and session count. A group spanning several sessions carries no session id
+// at all, which is why the session count must be stated rather than shown.
 function renderSummaries(container, summaries) {
   container.innerHTML = '';
   if (!summaries.length) {
@@ -265,6 +254,7 @@ document.getElementById('build-chunks').addEventListener('click', async () => {
   const status = document.getElementById('chunks-status');
   try {
     status.textContent = 'building…';
+    await chosenReady;
     const response = await fetch('/api/chunks',
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(CHOSEN) });
@@ -284,16 +274,13 @@ document.getElementById('build-chunks').addEventListener('click', async () => {
 });
 
 // --- Retrieval: shared render ---
-// One candidate per row, cloned from the page's own template so the columns are
-// written once and every table — the single-question one and the per-question
-// ones — carries the same header. Row background is the *ground truth's*
-// verdict (white = gold, gray = not); `kept` is the pipeline's, in its own
-// column, because a gold chunk the pipeline dropped is the thing worth seeing.
-// The full chunk text with its gold evidence painted green. The ranges come
-// from the service (`gold_spans`), never from a search in the browser: a
-// candidate can be gold because the quote *contains* it, and that one has
-// nothing verbatim to mark — a range invented here would draw a green stripe
-// over text the ground truth never quoted.
+// One candidate per row, cloned from the page's own template so every table
+// carries the same header. Row background is ground-truth relevance
+// (white/gray) — a different axis from `kept`, the pipeline's own column.
+// `gold_spans` always comes from the service, never a browser search: a
+// candidate can be gold by the quote *containing* it, with nothing verbatim to
+// mark, and a range invented here would paint text the ground truth never
+// quoted.
 function highlighted(text, spans) {
   const source = text || '';
   if (!spans || !spans.length) return escapeHtml(source);
@@ -306,12 +293,9 @@ function highlighted(text, spans) {
   return out + escapeHtml(source.slice(at));
 }
 
-// With contextual headers on, the first 60 characters of every chunk are the
-// same shape of metadata — date, mood, topics, storyline — so a preview taken
-// from character 0 shows the header and nothing that tells one chunk from the
-// next. The preview starts after a leading [ … ] header; the reveal still shows
-// the whole text, header included, because that header is part of what was
-// embedded and therefore part of why the chunk ranked where it did.
+// Skips a leading [ … ] contextual header, so a 60-char preview isn't the same
+// shape of metadata for every chunk; the reveal still shows the header, since
+// it was part of what got embedded.
 function previewOf(text) {
   const close = text.startsWith('[') ? text.indexOf(']') : -1;
   return (close === -1 ? text : text.slice(close + 1)).trim() || text;
@@ -326,15 +310,10 @@ function chunkCell(candidate) {
   const footnote = (candidate.gold && !spans.length)
     ? '<span class="no-evidence">gold: this chunk sits inside the evidence quote, '
       + 'so there is no verbatim span to highlight</span>' : '';
-  // `data-sort` on the cell, because its text is the preview *and* the full
-  // reveal: sorting on what this cell contains would sort every row by its own
-  // chunk twice over. The preview is what the reader sees, so it is what the
-  // column sorts by.
-  // A summary row says so, in the index ink, before its text: it is a different
-  // kind of thing from a leaf — written by the build rather than said by the
-  // diarist — and reading a group card as a diary entry is the one
-  // misinterpretation this table can cause. The badge names the group so two
-  // rows from one community are recognisable as that.
+  // `data-sort` set explicitly: the cell's own text is preview *and* reveal,
+  // and the column must sort by what the reader sees, not by both at once.
+  // A summary row wears the index ink and names its group, so it reads as
+  // build-written rather than mistaken for the diarist's own words.
   const badge = candidate.layer === 'summary'
     ? `<span class="layer-badge" data-step="index" title="a summary this build `
       + `wrote over ${candidate.members} chunks — not the diarist's own words">`
@@ -347,15 +326,10 @@ function chunkCell(candidate) {
     + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}${footnote}</div></td>`;
 }
 
-// A candidate's path through the ranking, as a shape. One cell per step that
-// produces a rank — dense, BM25, then the RRF fusion of the two — with bar
-// height standing for how high the chunk was at that step. Reading three
-// numbers and subtracting them is what this replaces: a chunk that BM25 loved
-// and dense missed has a silhouette you recognise across twenty rows.
-//
-// `cap` is the number of candidates in this table, so the scale is the run's own
-// depth rather than an arbitrary constant. aria-hidden, because the same three
-// ranks follow in their own columns.
+// One bar per rank-producing step (dense, BM25, RRF fusion), height standing
+// for how high the chunk placed there. `cap` is this table's own candidate
+// count, so the scale is the run's depth, not an arbitrary constant.
+// aria-hidden: the same three ranks follow in their own columns.
 function ladder(candidate, cap) {
   const steps = [['dense', candidate.dense_rank], ['bm25', candidate.bm25_rank],
                  ['RRF', candidate.fused_rank]];
@@ -439,17 +413,11 @@ function renderRetrievalRows(candidates) {
   host.appendChild(scrollable(retrievalTable(candidates)));
 }
 
-// The followed experiment: one collapsible table per selected question, with
-// that question's own counts on the summary line. Collapsed by default — a set
-// of thirty questions is a page you scan, then open the one that looks wrong.
-// One question's collapsible block. Shared by the followed list and by the
-// questions you add, because "identical to the other ones" has to mean the same
-// code produced them, not that two renderers were kept in step by hand.
+// One collapsible table per question, collapsed by default, shared by both the
+// followed list and questions you add — so both come from the same code.
 // The agent's per-node ladder, when a scope produced one. Read vertically: the
-// same node three times over is a loop that never settled, and "refused because
-// the diary is silent" and "refused after two hops found nothing" are the two
-// findings this table exists to keep apart — the distinction the July 2026
-// post-mortem had to be reconstructed by hand to make.
+// same node three times over is a loop that never settled, distinct from
+// having simply run out of hops.
 function agentLadder(visits) {
   const box = document.createElement('div');
   box.className = 'agent-ladder';
@@ -471,10 +439,8 @@ function questionBlock(q) {
   const gold = candidates.filter(c => c.gold).length;
   const kept = candidates.filter(c => c.kept).length;
   const visits = (q.trace && q.trace.agent) || [];
-  // "1 of 3 gold found" rather than "1 gold": the count only means something
-  // against how many there were to find. The denominator comes from the
-  // service, and when it does not (an older run) the tally stays a bare count
-  // instead of implying a total nobody measured.
+  // Falls back to a bare count when `gold_available` is absent (an older run),
+  // rather than implying a total nobody measured.
   const goldTally = q.gold_available === null || q.gold_available === undefined
     ? `${gold} gold` : `${gold} of ${q.gold_available} gold found`;
   const det = document.createElement('details');
@@ -496,14 +462,11 @@ function renderQuestionTables(questions) {
 }
 
 // --- Adding a question ------------------------------------------------------
-// The config a question is run under is the one the page is following, so an
-// added row is measured the same way as the rows beside it. With the lab down
-// there is nothing to follow, and the chosen architecture stands in.
-// The corpus is overlaid rather than taken from the followed config, because
-// the two can name different ones: `FOLLOWED_CONFIG` comes from the last run
-// that *retrieved*, while the picker offers the ids of whatever corpus the page
-// is currently showing. A question run against the other one comes back 404 for
-// an id this page itself just offered.
+// Follows the page's active config so an added row is measured the same way as
+// the rows beside it (falling back to the chosen config if the lab is down).
+// The corpus is overlaid rather than read from `FOLLOWED_CONFIG` itself, since
+// that config can name a different corpus than the one the picker is showing —
+// otherwise a question run against the wrong one 404s for an id just offered.
 function activeConfig() {
   const cfg = FOLLOWED_CONFIG || CHOSEN;
   return { ...cfg, index: { ...cfg.index, dataset: FOLLOWED_DATASET } };
@@ -593,6 +556,7 @@ async function addQuestion(questionId) {
   openPicker(false);
   try {
     status.textContent = `running ${questionId}…`;
+    await chosenReady;
     const response = await fetch('/api/questions',
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...activeConfig(), question_id: questionId }) });
@@ -724,11 +688,8 @@ function renderFollow(body) {
   const genCfg = document.getElementById('generation-active-config');
   setFollowState(body);
 
-  // Before the windows, because all three of them restate the fixture: the
-  // ideal answer beside a row and the picker's ids come from the corpus, not
-  // from the run. Guarded on a change rather than reloaded every tick — this
-  // polls every ~2s, and re-rendering the tab would collapse the reader's
-  // scroll and drop the questions they had added.
+  // Guarded on a change, not reloaded every tick: this polls every ~2s, and
+  // re-rendering would collapse the reader's scroll and drop added questions.
   if (body.lab === 'up' && (body.dataset || '') !== followed.dataset) {
     followed.dataset = body.dataset || '';
     followDataset(followed.dataset);

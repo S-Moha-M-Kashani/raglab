@@ -5,17 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAG Lab</title>
 <style>
-/* ───────────────────────────────────────────────────────────────────────────
-   The panel is an instrument, so it is built like one: a dark chassis carrying
-   the identity and the state of the machine, a spine that says which stage is
-   running, and porcelain plates below it holding the readings.
-
-   Colour is spent in exactly one place. The three step inks — index saffron,
-   retrieval verdigris, generation lapis — are the only saturated hues on the
-   page, because they carry meaning the service serves (`/api/options` → steps)
-   and twenty-eight knobs are only navigable if each one says which stage it
-   belongs to. Everything around them is graphite and porcelain so they read.
-   ────────────────────────────────────────────────────────────────────────── */
+/* Colour is spent in exactly one place: the three step inks (index saffron,
+   retrieval verdigris, generation lapis) are the only saturated hues on the
+   page, carrying meaning the service serves (`/api/options` → steps).
+   Everything else is graphite and porcelain so they read. */
 :root {
   /* the machine */
   --chassis: #101620;
@@ -29,21 +22,15 @@
   --rule-soft: #e8ecf1;
   --ink: #17202b;
   --ink-soft: #5b6875;
-  /* One ink per pipeline step, so a control says which stage it belongs to
-     before you read its label. The Inspector on :9003 defines the same three
-     tokens with the same values — the two pages must not disagree about what
-     orange means. */
+  /* One ink per pipeline step. The Inspector on :9003 defines the same three
+     tokens with the same values — the two pages must not disagree. */
   --step-index: oklch(0.56 0.14 58);        /* saffron  — what gets stored */
   --step-retrieval: oklch(0.49 0.11 168);   /* verdigris — what gets found */
   --step-generation: oklch(0.50 0.15 262);  /* lapis    — what gets written */
-  /* The fourth step is a loop around the other three, so its ink is the one
-     that is not a stage colour: plum, adjacent to lapis because generation is
-     the stage it most often owns, distinct enough that a hop count is never
-     mistaken for a generation score. */
+  /* Plum: the fourth step, a loop around the other three rather than a
+     stage colour, distinct enough that a hop count reads as its own thing. */
   --step-agent: oklch(0.48 0.16 318);       /* plum     — what loops */
-  /* The same three hues lifted for the chassis. An ink chosen to sit on
-     porcelain is close to unreadable on graphite, and the spine is where a
-     reader looks to find out what is running. */
+  /* Lifted for the chassis: an ink tuned for porcelain reads too dark there. */
   --step-index-lit: oklch(0.78 0.13 62);
   --step-retrieval-lit: oklch(0.75 0.11 168);
   --step-generation-lit: oklch(0.76 0.11 258);
@@ -143,12 +130,9 @@ h1 .lab-mark {
 @media (max-width: 900px) { .findings ul { columns: 1; } }
 
 /* ── the spine ───────────────────────────────────────────────────────────────
-   The signature of this page, and the one element doing three jobs at once: it
-   is the legend for the three inks, the progress bar for whatever job is
-   running, and the way you get to a stage's controls. It sits on the chassis
-   because it belongs to the machine rather than to any one plate — a build is
-   an index-stage job, and its progress used to be reported inside the
-   generation card because that is where the button happened to live. */
+   One element doing three jobs: legend for the three inks, progress bar for
+   whatever job is running, and the way to a stage's controls. On the chassis
+   because it belongs to the machine, not to any one plate. */
 .spine { background: var(--chassis); padding: 0 1.4rem .7rem; }
 .spine-inner { max-width: 1560px; margin: 0 auto; }
 .spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
@@ -182,13 +166,9 @@ h1 .lab-mark {
 main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
 .bench {
   display: grid; gap: 1rem;
-  /* Four step cards, then the models column. It was three until the agent
-     arrived, and adding a card to a four-slot grid put the *models* card on a
-     second row — which quietly broke the rule that every model lives in the one
-     right-hand column, because auto-placement fills a row before it wraps.
-     Hence the pin below rather than a wider grid alone: the column the models
-     live in is a stated property of this page, not a consequence of how many
-     step cards there happen to be. */
+  /* Four step cards, then the models column — pinned explicitly below rather
+     than left to auto-placement, which would wrap the models card onto a
+     second row instead of keeping it in the one right-hand column. */
   grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 300px);
   align-items: start;
 }
@@ -204,11 +184,9 @@ main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
 .card {
   background: var(--card); border: 1px solid var(--rule); border-radius: 5px;
   box-shadow: var(--shadow); padding: .1rem .9rem 1rem;
-  /* min-width:0 is what makes the scroll containers below actually contain: a
-     grid item defaults to min-width:auto, so a card grows to its widest child —
-     the eighteen-column leaderboard — and the overflow rule inside it never
-     engages, because there is nothing left to overflow. The whole page scrolls
-     sideways instead of the one table that is genuinely too wide. */
+  /* min-width:0, else a grid item defaults to min-width:auto and grows to its
+     widest child (the leaderboard), so the page scrolls sideways instead of
+     just that one table. */
   min-width: 0;
 }
 .card[data-step] { border-top: 3px solid var(--step); }
@@ -281,10 +259,15 @@ button.why {
 }
 button.why:hover { color: var(--card); background: var(--step, var(--chassis));
                    border-color: var(--step, var(--chassis)); }
+/* pre-wrap because one explainer — the import control's — is a JSON shape, and
+   a shape flattened into a paragraph is prose about nesting rather than the
+   nesting. Every other text in the registry is a single line with no leading
+   space, so they render exactly as they did. */
 p.explain {
   margin: .3rem 0 .1rem; font-size: .73rem; line-height: 1.5; color: var(--ink-soft);
   border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
   background: var(--plate); padding: .35rem .55rem; border-radius: 0 3px 3px 0;
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 /* ── the model rail ──────────────────────────────────────────────────────── */
@@ -381,10 +364,8 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
   overflow: auto; background: var(--plate); padding: .5rem; border-radius: 3px;
 }
 
-/* Read at night as often as by day, and the Inspector has had a dark theme since
-   it was written — two windows on one instrument cannot disagree about that.
-   Only the tokens move: every rule above is written in them, so there is no
-   second stylesheet to keep in step. */
+/* Only the tokens move: every rule above is written in them, so there is no
+   second stylesheet to keep in step with the Inspector's own dark theme. */
 @media (prefers-color-scheme: dark) {
   :root {
     --plate: #151b24;
@@ -420,12 +401,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
   <div class="masthead">
     <h1><span class="lab-mark">RL</span>RAG Lab</h1>
     <span class="pill" id="corpus"></span>
-    <!-- One click to the architecture that actually ships. It fills every
-         control from /api/options → production, so it belongs to the whole
-         page rather than to any one card — "what does the real thing do" is a
-         question you ask before you start changing knobs. Settings only: the
-         run buttons are on the cards below, and this one used to start a build
-         that downloads a 2.2 GB encoder. -->
+    <!-- Fills every control from /api/options → production; belongs to the
+         whole page, not any one card. Settings only — the run buttons are on
+         the cards below. -->
     <div class="chassis-right">
       <button class="ghost" id="use-production"
         title="Fill every setting with the architecture the Assistant ships: chunking, embedder, retrieval, reranking, the relevance gate and the answerer. Nothing runs until you press a run button.">Load the shipped settings</button>
@@ -485,10 +463,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
   <section class="card" id="card-index" data-step="index">
     <div class="card-head"><span class="num">1</span><h2 id="head-index">Index</h2></div>
     <p class="card-note" id="note-index"></p>
-    <!-- Which corpus, first: it decides what every knob below it operates on,
-         and a run against the wrong one is not a worse measurement but a
-         different question. The list is served (/api/options -> datasets), so
-         the panel cannot offer a corpus the service cannot load. -->
+    <!-- Which corpus decides what every knob below it operates on. Served
+         (/api/options -> datasets), so the panel can't offer one the service
+         can't load. -->
     <div class="field">
       <label>Dataset</label>
       <select id="dataset"></select>
@@ -510,11 +487,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <div class="switches">
       <label><input type="checkbox" id="contextual"> contextual chunk headers</label>
     </div>
-    <!-- The summary hierarchy. Below the chunker because it operates on what
-         the chunker produced, and additive to it: the leaves stay indexed
-         whatever this says. Every control here is greyed out until a grouping
-         is chosen, by the served dependency rules rather than by a rule
-         written twice. -->
+    <!-- Additive to the chunker, not a replacement: leaves stay indexed
+         whatever this says. Greyed out until a grouping is chosen, by the
+         served dependency rules rather than a rule written twice. -->
     <div class="step-tag group-tag" data-step="index">Summary hierarchy</div>
     <div class="field">
       <label>Grouping</label>
@@ -628,12 +603,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
       <label>Run label</label>
       <input type="text" id="label" placeholder="e.g. semantic + hybrid + gate">
     </div>
-    <!-- The lab measures; the Inspector shows why. It is a separate service on
-         its own port, so without a door named here :9003 is something you have
-         to already know about. It sits at the far right of the row you press to
-         run something, because it is where you go *after* an experiment — and it
-         opens in a tab of its own, since the two are meant to be read side by
-         side. -->
+    <!-- The lab measures; the Inspector shows why, on its own port — this is
+         the only door named to it. Opens in its own tab, meant to be read
+         beside this page. -->
     <div class="actions">
       <button class="step-action" id="run">Run evaluation</button>
       <button class="ghost" id="cancel" disabled>Stop experiment</button>
@@ -645,10 +617,8 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
   </section>
 
   <!-- The fourth step: a loop around the three above, off by default. Its own
-       card rather than four more knobs in the generation one, because it is not
-       a generation setting — under `retrieval` it never touches generation at
-       all. The scope dropdown is the whole feature: it says which stage the
-       loop owns, and therefore what a row measured. -->
+       card, not more knobs in generation, since under `retrieval` it never
+       touches generation at all — scope says which stage the loop owns. -->
   <section class="card" id="card-agent" data-step="agent">
     <div class="card-head"><span class="num">4</span><h2 id="head-agent">Agent</h2></div>
     <p class="card-note" id="note-agent"></p>
@@ -679,15 +649,10 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     </div>
   </section>
 
-  <!-- One model per task, never one model for everything: a gate runs k times a
-       question and wants cheap, a judge runs once and wants strong. Licences are
-       on the label because on Farsi the open-weight candidates are the
-       interesting ones, and a model nobody has run here stays listed as NA.
-
-       Every model lives in this one column, the embedder included — it is a
-       language model too. Each group wears the ink of the step it drives, so
-       leaving the step card costs nothing in knowing which stage a choice
-       changes. -->
+  <!-- One model per task, never one for everything: a gate runs k times a
+       question and wants cheap, a judge runs once and wants strong. Every
+       model lives in this one column, embedder included, each group wearing
+       the ink of the step it drives. -->
   <section class="card rag-models" id="modelCard">
     <div class="card-head"><span class="num">M</span><h2>Models</h2></div>
     <p class="card-note">One per task. The dropdowns list what has actually run
@@ -699,12 +664,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
       <label>Backend</label>
       <select id="mode"></select>
     </div>
-    <!-- The OpenRouter key, for this process only. A credential is not part of
-         an experiment's configuration, so it goes to its own route rather than
-         riding on every job: nothing about it is recorded on a run, and the
-         panel never keeps it — not in localStorage, which survives the tab and
-         is readable by anything served from this origin. What comes back is
-         set-ness, where the key came from, and a masked tail. -->
+    <!-- Held for this process only: a credential is not part of an
+         experiment's configuration, so it goes to its own route, is never
+         recorded on a run, and never touches localStorage. -->
     <div class="field" id="keyField">
       <label>OpenRouter key <span class="muted">· held until the lab restarts</span></label>
       <input type="password" id="openrouter_key" placeholder="sk-or-…"
@@ -765,12 +727,6 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     </div>
   </section>
 
-  <!-- The "Query inspector" card that stood here retired on 2026-08-04. Asking
-       one question now happens on the Inspector (:9003), where the answer lands
-       beside that question's ranks at every step, its gold evidence and its
-       scores. Two boxes that both retrieve one question, one of them showing far
-       less, is a choice nobody should have to make. -->
-
   <section class="card">
     <div class="card-head"><h2>Leaderboard</h2><span class="section-meta right" id="boardMeta"></span></div>
     <p class="prose">
@@ -784,11 +740,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <div id="board"></div>
   </section>
 
-  <!-- Everything that ran, beside the ranking rather than inside it. An index
-       build has no questions and no decision score, so a numbered table it
-       appeared in would be making a rank claim about work that measured
-       nothing — the same rule leaderboard.py keeps: group first, rank second.
-       Rows come from raglab.db, so this survives a restart of the lab. -->
+  <!-- Beside the ranking, not inside it: an index build has no decision score,
+       so a numbered table it appeared in would claim a rank for work that
+       measured nothing. Rows come from raglab.db, so this survives a restart. -->
   <section class="card">
     <div class="card-head"><h2>Every experiment</h2><span class="section-meta right" id="experimentsMeta"></span></div>
     <p class="prose">
@@ -824,11 +778,8 @@ function fill(select, values, help) {
     `<option value="${v}">${v}${help && help[v] ? ' — ' + help[v] : ''}</option>`).join('');
 }
 
-// One line per grouping, saying which family it belongs to — a reader picking
-// between eight of them needs to know that leiden and kmeans are not two
-// versions of one idea. Kept beside the dropdown rather than in config.HELP
-// because HELP explains the *knob*; these label its options, as CHUNKER_HELP
-// already does for the chunkers.
+// One line per grouping, naming which family it belongs to. Kept beside the
+// dropdown, like CHUNKER_HELP, since config.HELP explains the knob, not its options.
 const HIERARCHY_HELP = {
   '': 'flat, no summaries (default)',
   'louvain': 'graph · modularity communities',
@@ -859,12 +810,8 @@ const SUMMARY_SCOPE_HELP = {
 };
 
 // A grouping whose library is missing is offered as NA and refused by the
-// service if picked — never quietly served by a different partition. The same
-// rule the embedder catalogue follows, and the reason availability is served
-// rather than guessed in the browser.
-// One line per scope, naming the stage it owns. The four are a 2x2, and the
-// labels say so: a reader picking `both` has to know it changes two things at
-// once and is only readable beside the two middle rows.
+// service if picked — never quietly served by a different partition.
+// One line per scope, naming the stage it owns; the four read as a 2x2.
 const SCOPE_HELP = {
   '': 'the fixed pipeline (default)',
   'retrieve': 'retrieval only · plan, retrieve, judge the evidence, rewrite, again',
@@ -879,9 +826,7 @@ const CRITIC_HELP = {
 };
 
 // An agent scope this installation cannot run is offered as NA and refused by
-// the service if picked, never quietly served by the fixed pipeline. Exactly
-// `fillHierarchies`, for exactly the reason: availability is served, verified by
-// import, and a panel that guesses offers what the lab refuses.
+// the service if picked, never quietly served by the fixed pipeline.
 function fillScopes() {
   const support = OPTIONS.agent_support || {};
   $('scope').innerHTML = (OPTIONS.scopes || []).map((v) => {
@@ -940,14 +885,11 @@ function fillEmbedders() {
   }).join('');
 }
 
-// Grouped by the step each model serves, into the host that carries that step's
-// ink. A role whose step this page has no group for still renders, in the
-// catch-all under them: a stage added in the service must never silently vanish
-// from the panel.
-// The chat-model list for the backend the runs will actually use: the picked
-// mode's own catalogue, or the boot catalogue when no mode is picked. A slug
-// only means something to the backend that serves it — filled from the wrong
-// list, a dropdown cannot display a preset and quietly resets it.
+// Grouped by the step each model serves, into the host carrying that step's
+// ink; a role with no matching group still renders, in the catch-all under them.
+// The chat-model list for the backend that will actually run: the picked mode's
+// own catalogue, or the boot catalogue when no mode is picked — a slug only
+// means something to the backend that serves it.
 function modelList() {
   const mode = (OPTIONS.modes || []).find((m) => m.key === $('mode').value);
   return (mode && mode.models) || OPTIONS.models || [];
@@ -1133,14 +1075,9 @@ async function api(path, body) {
   return data;
 }
 
-// Config fields this panel has no control for. Three of them exist today —
-// `rrf_k`, `agentic_weights`, `max_context_chars` — and they matter because the
-// production preset sets all three: without carrying them, applying "this
-// project's RAG settings" dropped them on the floor and the run fell back to the
-// lab's own defaults under a label claiming to be the shipped Assistant. They
-// happen to be equal right now, so the bug was invisible; the day the brain's
-// RRF_K moves it would not be. Whatever set them last keeps them, and a real
-// control always wins.
+// Config fields this panel has no control for (`rrf_k`, `agentic_weights`,
+// `max_context_chars`) — carried through so applying a preset that sets them
+// can't silently drop them to the lab's own defaults. A real control always wins.
 let UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
 
 // Remember the parts of a config the controls cannot express, having applied it.
@@ -1204,19 +1141,12 @@ function readConfig() {
   return cfg;
 }
 
-// Which controls the current pipeline would actually consult. The rules are
-// served (/api/options -> dependencies) rather than written here, so the panel
-// and the Inspector grey out the same knobs for the same stated reason.
-// Editing a knob the pipeline ignores is how you spend an afternoon tuning a
-// number that was never read.
-// A control whose owner is itself dead is dead, and it shows its owner's reason.
-// This mirrors `config.dependency_state` deliberately: the *rules* are served,
-// but resolving them has to happen per keystroke without a round trip, so the
-// resolution exists twice and the two copies must agree — `test_the_panel_
-// resolves_a_dependency_chain_the_way_the_service_does` is what holds them
-// together. Without the chain, `graph_knn` asked only whether the edge source
-// builds kNN edges, and the default source does, so it stayed live under a
-// grouping that builds no graph at all.
+// Rules are served (/api/options -> dependencies) rather than written here, so
+// the panel and the Inspector grey out the same knobs for the same reason.
+// Mirrors `config.dependency_state`, resolved here too since disabling has to
+// happen per keystroke without a round trip; the two copies must agree — pinned
+// by `test_the_panel_resolves_a_dependency_chain_the_way_the_service_does` —
+// including transitively, so a control whose owner is itself dead is dead.
 function dependencyState(rules, cfg) {
   const state = {};
   const resolve = (path, seen) => {
@@ -1317,12 +1247,9 @@ function applyDefaults(d) {
 }
 
 // --- what survives a reload -------------------------------------------------
-// Refreshing used to empty the page: the readings card is only ever filled by a
-// finishing job or a leaderboard click, so a reload left it standing there blank
-// with the run you had just watched reachable only by picking its id out of a
-// long table — and every control went back to the served defaults, losing a
-// strategy you may have spent ten minutes arriving at. Both are remembered under
-// the board's own `lodestar:` prefix.
+// The readings card is only ever filled by a finishing job or a leaderboard
+// click, so without this a reload leaves it blank and every control back at
+// its served default. Remembered under the board's own `lodestar:` prefix.
 const SAVED_CONFIG = 'lodestar:raglab-config';
 const SAVED_RUN = 'lodestar:raglab-last-run';
 
@@ -1343,16 +1270,13 @@ function remember(key, value) {
   } catch (e) { /* private browsing, a full quota: not worth a broken panel */ }
 }
 
-// The settings you picked, merged over the served defaults per group — so a
-// config saved before a knob existed still boots, with the new knob at its
-// default rather than undefined.
-// The groups come from the *served* defaults, never from a list written here.
-// A browser holding a config remembered before a group existed would otherwise
-// return a merged object with that group missing, and every control in it would
-// come up blank — a blank number input reads as 0, which validation then refuses
-// for a knob the reader never touched. Measured 2026-08-13 against the running
-// service, the day the agent group was added: same class as UNSHOWN, and the
-// same fix — the page must not hold its own idea of what a config contains.
+// Merged over the served defaults per group, so a config saved before a knob
+// existed still boots with that knob at its default rather than undefined.
+// Groups come from the *served* defaults, never a list written here — a saved
+// config from before a whole group existed would otherwise merge to a group
+// missing entirely, and every blank control in it would read as 0, which
+// validation then refuses. Same class of bug as `UNSHOWN`, same fix: the page
+// must not hold its own idea of what a config contains.
 function startingConfig(defaults) {
   const kept = saved(SAVED_CONFIG);
   if (!kept) return defaults;
@@ -1403,14 +1327,10 @@ async function boot() {
   applyDependencies();
   describeDataset();
   decorateExplainers();
-  // One listener for the whole panel rather than one per control: a knob added to
-  // the markup is remembered by being a control, not by being registered here.
-  //
-  // Both events, because `change` alone loses work. A typed number fires `change`
-  // only on blur, so typing k=11 and pressing Run evaluation without clicking away
-  // remembered k=8 — the run itself was right, since it reads the controls, but the
-  // reload afterwards restored a number you had already replaced. `input` is per
-  // keystroke, which is free at this size and is when the value actually changed.
+  // One listener for the whole panel: a knob added to the markup is remembered
+  // by being a control, not by being registered here. Both events, because
+  // `change` alone fires only on blur — typing k=11 and running without
+  // clicking away would remember the stale k=8.
   for (const event of ['change', 'input']) {
     document.addEventListener(event, () => remember(SAVED_CONFIG, readConfig()));
   }
@@ -1424,9 +1344,8 @@ async function boot() {
 }
 
 // Re-read the options and re-render everything they decide, keeping the config
-// that is on screen. Entering a key changes which models are offerable and
-// whether the judged metrics can run at all, and a panel that only learns that
-// on reload is a panel you reload.
+// on screen — entering a key changes which models are offerable, and a panel
+// that only learns that on reload is a panel you reload.
 async function refreshOptions() {
   const cfg = readConfig();
   const mode = $('mode').value;
@@ -1449,18 +1368,14 @@ function renderCapabilities() {
   $('caps').innerHTML = [
     chip(caps.fastembed, `fastembed ${caps.fastembed ? 'ready' : 'missing'}`),
     chip(caps.cross_encoder, `cross-encoder ${caps.cross_encoder ? 'ready' : 'missing'}`),
-    // The backend is on the chip, not just the model: a run costs money on
-    // openrouter and nothing on ollama, and the same slug means neither on the
-    // fake provider — where every LLM number is meaningless, which is worth
-    // seeing before the run rather than after.
+    // The backend is on the chip, not just the model: the same slug costs
+    // money on openrouter, nothing on ollama, and measures nothing on fake.
     chip(caps.llm, caps.llm ? `LLM ${caps.llm_provider} · ${caps.llm_model}`
                             : 'no LLM backend — pick one under Models · Backend, or set RAGLAB_LLM to ollama, claude or codex (the two CLIs need no key), or an OPENROUTER_API_KEY for openrouter'),
     chip(caps.ragas.installed, `ragas ${caps.ragas.installed ? caps.ragas.version : 'missing'}`),
     chip(caps.ragas.llm_ready, `ragas LLM metrics ${caps.ragas.llm_ready ? 'ready' : 'off'}`),
-    // Not a service chip: the index is process memory and is discarded with the
-    // lab, so what a reader needs is where the run JSON lands — and where the
-    // record of every experiment lands, which is the one place here that
-    // survives a restart of the lab.
+    // Not a service chip: the index is process memory and dies with the lab,
+    // so what matters is where the run JSON and experiment record land instead.
     `<span class="chip">index in memory · runs → ${escapeHtml(caps.storage.runs || '')}`
       + ` · experiments → ${escapeHtml(caps.storage.experiments || '')}</span>`,
   ].join('');
@@ -1515,10 +1430,9 @@ for (const seg of document.querySelectorAll('.spine-seg')) {
     .scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Which step a stage belongs to. Read off the stage names the service reports
-// rather than guessed from the job kind: an evaluation walks all three, and the
-// spine is only worth having if it says which one it is in. A stage this map
-// does not know lights nothing, because a wrong segment is worse than none.
+// Which step a stage belongs to, read off the stage the service reports rather
+// than guessed from the job kind. An unknown stage lights nothing, since a
+// wrong segment is worse than none.
 const STAGE_STEP = {
   chunking: 'index', embedding: 'index',
   retrieving: 'retrieval',
@@ -1554,10 +1468,9 @@ function renderIndexes(indexes) {
   ).join('<br>');
 }
 
-// What the grouping did — reported because "the index built" is not a result.
-// The quality number leads: a partition with modularity 0.05 found no community
-// structure, and every retrieval score under it is uninformative. That is worth
-// knowing before reading them, not after.
+// What the grouping did — "the index built" is not a result. The quality
+// number leads, since a low-modularity partition makes every score under it
+// uninformative, and that's worth knowing before reading them.
 function hierarchyReport(h) {
   if (!h) return '';
   const rows = [];
@@ -1706,11 +1619,9 @@ $('use-production').onclick = async () => {
     `${idx.chunker} ${idx.chunk_chars}/${idx.overlap} · ${idx.embedder} · ` +
     `${ret.retriever} k=${ret.k} · ${ret.reranker} rerank · ` +
     `${ret.grader} gate @ ${ret.grade_threshold}`;
-  // Settings only. It used to build and retrieve as well, which meant a button
-  // reading "what does the real system use" started a job that downloads a
-  // 2.2 GB encoder on first use. The three run buttons are on the cards above,
-  // where a run belongs — pressing this one now changes what the panel says and
-  // nothing else.
+  // Settings only — building/retrieving here would download a 2.2 GB encoder
+  // on first use. The three run buttons live on the cards above, where a run
+  // belongs; pressing this one changes what the panel says and nothing else.
   remember(SAVED_CONFIG, readConfig());
 };
 
@@ -1815,18 +1726,14 @@ function escapeHtml(s) {
 }
 
 // How many runs the leaderboard asks for. Stated rather than left to the
-// service's default, and reported beside the table: the page used to request no
-// limit and render the newest 50 of 164 files as though that were every run, so
-// the same experiment sat 2nd here and 4th over the directory with nothing on
-// screen to explain it.
+// service's default, and reported beside the table, so a truncated board says so.
 const BOARD_LIMIT = 200;
 
 async function loadBoard() {
   const { runs, total } = await api('/api/evaluations?limit=' + BOARD_LIMIT);
-  // Two different reasons the table can be shorter than the directory, and they
-  // mean opposite things to a reader: a limit hides runs that exist, while a file
-  // that will not parse as a run is not a run. Saying "newest 164 of 165" for the
-  // second sends you looking for a run that was never there.
+  // Two different reasons the table can be shorter than the directory: a limit
+  // hides runs that exist, while a file that will not parse as a run is not a
+  // run — and must not be reported as one truncated away.
   $('boardMeta').textContent = total > runs.length
     ? (runs.length >= BOARD_LIMIT
       ? `newest ${runs.length} of ${total} run files`
@@ -1844,11 +1751,9 @@ async function loadBoard() {
     if (y == null) return -1;
     return y - x;
   });
-  // One table per dataset, never one ranking across them. A decision score is a
-  // mean over the questions of one corpus; ranking a run on the Farsi diary
-  // against one on the support tickets would be comparing two different
-  // questions and calling the difference a result. `leaderboard.py` groups the
-  // same way, one key finer.
+  // One table per dataset, never one ranking across them — a decision score is
+  // a mean over one corpus's questions, and comparing across corpora would call
+  // a different question a result. `leaderboard.py` groups the same way.
   const byDataset = new Map();
   for (const r of ranked) {
     const key = r.dataset || 'diary-fa';
@@ -1897,11 +1802,9 @@ async function loadBoard() {
   }
 }
 
-// Every experiment this lab has finished, from raglab.db — the one thing here
-// that outlives the process. Deliberately not ranked: a build and a retrieval
-// measure nothing, so numbering these rows would claim an ordering the work does
-// not support. What it answers instead is "what have I already tried, and did it
-// run on a real model?"
+// Every experiment this lab has finished, from raglab.db. Deliberately not
+// ranked: a build or a retrieval measures nothing, so numbering these rows
+// would claim an ordering the work does not support.
 async function loadExperiments() {
   let rows = [];
   try {
@@ -1931,9 +1834,8 @@ async function loadExperiments() {
       `<a href="#" onclick="showExperiment('${escapeHtml(r.experiment_id)}');return false">`
         + `${escapeHtml(r.experiment_id)}</a>`,
       escapeHtml(r.label || ''),
-      // The one column that separates a measurement from a rehearsal, so it is
-      // marked rather than merely printed: on `fake` every LLM number on the row
-      // came from a stub that cannot fail.
+      // Marked rather than merely printed: on `fake` every LLM number on the
+      // row came from a stub that cannot fail.
       r.provider === 'fake'
         ? '<b title="a stub answered and judged every call: these numbers measure '
           + 'nothing">fake</b>'
@@ -1952,10 +1854,9 @@ async function loadExperiments() {
     ]));
 }
 
-// The whole stored payload for one experiment. "All the details" means the
-// experiment's: its config, its per-question rows, its traced ranks. The chunk
-// text is deliberately not in there — it belongs to the index fingerprint and
-// rebuilding reproduces it exactly.
+// The whole stored payload for one experiment — config, per-question rows,
+// traced ranks. Chunk text is deliberately not in there: it belongs to the
+// index fingerprint, and rebuilding reproduces it exactly.
 window.showExperiment = async (id) => {
   const box = $('experimentDetail');
   box.innerHTML = '<div class="muted">reading the ledger…</div>';
@@ -1966,10 +1867,8 @@ window.showExperiment = async (id) => {
       + `${escapeHtml(found.experiment_id)}`
       + `${found.label ? ' · ' + escapeHtml(found.label) : ''}</summary>`
       + `<pre>${escapeHtml(JSON.stringify(found.detail, null, 1))}</pre></details>`;
-    // An evaluation's stored detail is exactly what the readings card renders, so
-    // it renders there too — the same screen you got when the run finished,
-    // rather than the same information as JSON you have to read. Closed above,
-    // because for a run the raw text is now the second-best view of it.
+    // An evaluation's stored detail is exactly what the readings card renders,
+    // so it renders there too, rather than only as JSON to read by hand.
     if (found.kind === 'run' && found.detail && found.detail.summary) {
       renderResult(found.detail);
       $('resultCard').scrollIntoView({ behavior: 'smooth' });

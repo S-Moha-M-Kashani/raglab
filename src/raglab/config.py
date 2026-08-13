@@ -1,18 +1,9 @@
-"""Lab settings and the three config objects the whole pipeline is driven by.
+"""Lab settings and the IndexConfig/RetrievalConfig/GenerationConfig/AgentConfig objects driving the pipeline.
 
-Splitting the knobs into IndexConfig / RetrievalConfig / GenerationConfig is not
-cosmetic: only IndexConfig changes what is stored, so its fingerprint names the
-in-memory index. Retrieval and generation can then be swept for free against
-an index that is already built — which is what makes the settings panel usable.
-
-**There is no *vector* storage setting here, and that is the design.** An
-experiment's index lives in process memory (`store.MemoryVectors`); its results
-go to one JSON file per run under RUNS_DIR and one row per finished experiment in
-`ledger.py`'s SQLite, whose only setting is the `RAGLAB_DB` path it reads for
-itself. The lab used to carry a Chroma url and its own database name, guarded by
-a check that refused 'lodestar'; a setting that does not exist is the stronger
-guard, because it cannot be pointed at real chat memory by a typo, a stale shell,
-or a command copied from an old README.
+Only IndexConfig enters the index fingerprint; the other three sweep for free
+against a build already made. There is deliberately no vector-storage setting
+here — the index lives in process memory (`store.MemoryVectors`), so nothing
+here can be pointed at real chat memory by a typo or a stale shell.
 """
 import hashlib
 import json
@@ -21,29 +12,19 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]        # the raglab repo root
-# At the repo root, not beside the code: runs and screens are the account of the
-# work, and burying them inside src/ reads as build output.
+# At the repo root, not beside the code: runs are the account of the work, and
+# burying them inside src/ would read as build output.
 RUNS_DIR = ROOT / '.runs'
 
-# Which backend serves the lab's chat models. Local Ollama is the default: the
-# lab's judged runs can make hundreds of model calls, so a default must never
-# silently spend API credit. Naming another provider is an explicit opt-in.
-#
-# `claude` and `codex` are a third kind (see clichat.py): not an endpoint but a
-# CLI on this machine, run as a subprocess. They need no key, which is what they
-# are for — the four deciding metrics are judged, so an unkeyed lab measures
-# nothing on the remote backend.
+# Local Ollama is the default so a judged run's hundreds of calls cannot
+# silently spend API credit; naming another provider is an explicit opt-in.
+# `claude`/`codex` are a CLI on this machine (clichat.py), not an endpoint, and need no key.
 LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'claude', 'codex', 'fake')
 
-# The default chat model per backend, because a slug only means something to the
+# One default model per backend, since a slug only means something to the
 # backend that serves it. The local default is the model the judge screen has a
-# row for (`.screens/`) — a default nobody screened is judge-shopping with extra
-# steps. 'fake' keeps the remote slug: it ignores the model entirely, and changing
-# it would make the offline runs' notes disagree with every earlier one. The two
-# CLI defaults are the aliases that actually ran here (3.9s and 8.2s per call on
-# a short grade probe, and 5.6s for claude on the lab's real grade prompt — a
-# longer prompt costs more); `gpt-5.6-luna` keeps high-volume Codex judging
-# affordable, and RAGLAB_MODEL names another.
+# row for (`.screens/`); 'fake' keeps the remote slug because it ignores the
+# model entirely.
 PROVIDER_MODELS = {'openrouter': 'openai/gpt-5-nano',
                    'ollama': '4skl/gemma4-e2b-mtp',
                    'claude': 'sonnet',
@@ -52,9 +33,7 @@ PROVIDER_MODELS = {'openrouter': 'openai/gpt-5-nano',
 
 
 def load_env_file(path: Path | None = None) -> None:
-    """Read repo-root .env into the environment without overriding what is
-    already set. The brain gets its key from the shell or Docker; the lab is
-    started by hand, so it reads the file the user already keeps there."""
+    """Load repo-root .env into the environment without overriding what is already set."""
     path = path or ROOT / '.env'
     if not path.exists():
         return
@@ -70,28 +49,22 @@ def load_env_file(path: Path | None = None) -> None:
 class LabSettings:
     openrouter_api_key: str = ''
     openrouter_base_url: str = 'https://openrouter.ai/api/v1'
-    # See LLM_PROVIDERS. Set RAGLAB_LLM=ollama to run every LLM stage — answerer,
-    # gate, reranker and the RAGAS judge — on a model on this machine, which is
-    # what makes the expensive candidates (a per-chunk LLM gate is k calls per
-    # question) measurable without buying credit.
+    # See LLM_PROVIDERS. RAGLAB_LLM=ollama runs every LLM stage on a model on
+    # this machine, which is what makes the expensive candidates measurable
+    # without buying credit.
     llm_provider: str = 'ollama'
     ollama_base_url: str = 'http://localhost:11434/v1'
-    # How hard a CLI backend is asked to think. A setting rather than a constant
-    # in the argv because it moves the numbers: under 'low' the grade probe
-    # scored 8 where the default scored 9. The two CLIs accept different values
-    # and `clichat.checked_effort` refuses one the chosen CLI does not — codex
-    # answers an unaccepted value with exit 0 and no text at all.
+    # A setting, not an argv constant, because it moves the numbers; the two
+    # CLIs accept different values and `clichat.checked_effort` refuses one the
+    # chosen CLI does not — an unaccepted value can exit 0 with no text at all.
     cli_effort: str = 'low'
-    # '' = the provider's own default (PROVIDER_MODELS), resolved in __post_init__
-    # so every reader sees a concrete slug. It has to follow the provider: a
-    # remote slug left standing under RAGLAB_LLM=ollama made
-    # `models.provider_problems` refuse every run, for a model the user never
-    # picked. A default that cannot run is a broken default, not a strict one.
+    # '' = the provider's own default (PROVIDER_MODELS), resolved in __post_init__.
+    # It must follow the provider: a remote slug left standing under
+    # RAGLAB_LLM=ollama made every run refuse for a model nobody picked.
     llm_model: str = ''
     fastembed_model: str = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
-    # Multilingual on purpose: fastembed's default rerankers (ms-marco-MiniLM,
-    # jina-reranker-v1-*-en) are English-only and score Farsi pairs as noise.
-    # ~1.1 GB on first use; override with RAGLAB_CROSS_ENCODER.
+    # Multilingual on purpose: fastembed's default rerankers are English-only
+    # and score Farsi pairs as noise. Override with RAGLAB_CROSS_ENCODER.
     cross_encoder_model: str = 'jinaai/jina-reranker-v2-base-multilingual'
 
     def __post_init__(self):
@@ -99,39 +72,29 @@ class LabSettings:
             raise ValueError(
                 f'unknown RAGLAB_LLM {self.llm_provider!r}; expected one of '
                 + ', '.join(repr(name) for name in LLM_PROVIDERS))
-        # Only when unset: overwriting a stated model would mean a run labelled
-        # with one model had been scored by another, which is the one artefact
-        # this lab must never produce.
+        # Only when unset: overwriting a stated model would label a run with
+        # one model while another scored it.
         if not self.llm_model:
             object.__setattr__(self, 'llm_model', PROVIDER_MODELS[self.provider])
 
     @property
     def provider(self) -> str:
-        """The backend a chat model will actually be built with — never ''.
-
-        One place resolves the blank, because every caller that resolved it for
-        itself was a chance for the judge to run on one backend while the run
-        notes claimed the other."""
+        """The backend a chat model will actually be built with — never ''."""
         if self.llm_provider:
             return self.llm_provider
         return 'openrouter' if self.openrouter_api_key else 'fake'
 
     @property
     def llm_ready(self) -> bool:
-        """Whether an LLM stage would reach a real model. 'fake' answers and
-        judges without ever failing, which is why this is not `bool(key)`: the
-        thing worth knowing is not whether a credential exists but whether the
-        numbers a run produces mean anything. A CLI backend reaches a real model
-        on somebody's subscription, so it counts."""
+        """Whether an LLM stage would reach a real model — not `bool(key)`, since 'fake' never fails either."""
         return self.provider in ('openrouter', 'ollama', 'claude', 'codex')
 
 
 def load_lab_settings(env: dict | None = None) -> LabSettings:
     load_env_file()
     env = os.environ if env is None else env
-    # BRAIN_CHROMA_URL and RAGLAB_CHROMA_DATABASE are deliberately not read: the
-    # board's Chroma stack runs whenever a board does, and an experiment must not
-    # be able to find it just because it is there.
+    # BRAIN_CHROMA_URL and RAGLAB_CHROMA_DATABASE are deliberately not read: an
+    # experiment must not find the board's Chroma stack just because it is there.
     return LabSettings(
         openrouter_api_key=env.get('OPENROUTER_API_KEY', ''),
         openrouter_base_url=env.get('OPENROUTER_BASE_URL',
@@ -150,14 +113,10 @@ def load_lab_settings(env: dict | None = None) -> LabSettings:
 
 
 def settings_for_provider(settings: LabSettings, provider: str) -> LabSettings:
-    """One run's backend override — how the panel's mode dropdown moves the
-    LLM stages without restarting the lab. '' means no override: the settings
-    pass through untouched.
+    """One run's backend override, e.g. the panel's mode dropdown; '' passes settings through untouched.
 
-    The old backend's *default* model does not survive the switch, because a
-    slug only means something to the backend that serves it (PROVIDER_MODELS);
-    a model the user explicitly named (RAGLAB_MODEL) is never replaced, or the
-    run's label and the model that produced it would disagree."""
+    The old backend's *default* model does not survive the switch (PROVIDER_MODELS),
+    but a model the user explicitly named (RAGLAB_MODEL) is never replaced."""
     if not provider:
         return settings
     if provider not in LLM_PROVIDERS:
@@ -169,105 +128,67 @@ def settings_for_provider(settings: LabSettings, provider: str) -> LabSettings:
     return replace(settings, llm_provider=provider, llm_model=model)
 
 
-# Every option tuple below leads with the value the lab actually defaults to.
-# That is not cosmetic ordering: these tuples are what both panels render, so a
-# default buried sixth reads as an exotic choice while three hash embedders that
-# exist only to be measured *against* sit at the top of the list. The measured
-# winner should be the first thing offered. `test_every_option_list_leads_with_
-# the_default` holds the two in step, so changing a default without moving it
-# fails rather than quietly demoting it.
+# Every option tuple leads with the value the lab actually defaults to, since
+# both panels render these directly as offered choices;
+# `test_every_option_list_leads_with_the_default` keeps a moved default from
+# quietly staying buried in the list.
 CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap', 'message', 'turn-pair',
             'session')
-# Which chunkers actually read chunk_chars and overlap. Read off chunking.py's
-# own branches rather than assumed: 'semantic-drift' passes chunk_chars to
-# _semantic_segments as its max_chars cap ("or where the segment would outgrow
-# max_chars"), so it belongs here even though it cuts on meaning rather than
-# length. 'message', 'turn-pair' and 'session' emit one piece per message, pair
-# or day and ignore both numbers entirely.
+# Chunkers that read chunk_chars/overlap, per chunking.py's own branches — the
+# rest emit one piece per message, pair or day and ignore both numbers.
 CHAR_SIZED_CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap')
 OVERLAP_CHUNKERS = ('fixed-overlap',)
-# Two of these load a named model: 'fastembed' (its own ONNX list) and
-# 'sentence-transformers' (any HuggingFace checkpoint — the only way to reach
-# the Persian-tuned encoders). The hash embedders take no model at all. The
-# 'openai' API backend left 2026-08-02 with its whole catalogue.
+# fastembed (its own ONNX list) and sentence-transformers (any HuggingFace
+# checkpoint) load a named model; the hash embedders load none.
 EMBEDDERS = ('sentence-transformers', 'fastembed',
              'ascii-hash', 'token-hash', 'char-hash')
 MODEL_EMBEDDERS = ('fastembed', 'sentence-transformers')
-# How chunks are grouped before they are summarised, and the summaries indexed
-# *beside* the leaves. '' is flat — today's index, and the default, because the
-# five metadata rollups this lab used to ship were deleted on 2026-07-31 for
-# scoring within 0.006 of the baseline. Re-adding a hierarchy is a new
-# experiment, so it is offered rather than assumed.
-#
-# Three families, and the order is the order they are worth reading in: the
-# graph partitions, the embedding clusterings, then the declared control.
-# Grouping is over *chunks*, never over entities: GraphRAG extracts entities
-# with a model, and a lab that builds offline over a Farsi corpus has no
-# extractor — `bipartite-terms` below is the closest honest analogue, and the
-# help text says so rather than letting a `leiden` row imply GraphRAG.
+# How chunks are grouped before being summarised beside the leaves; '' is flat
+# and the default. Three families, in the order worth reading them: graph
+# partitions, embedding clusterings, the declared control. Grouping is always
+# over *chunks*, never entities — this is not GraphRAG, and `bipartite-terms`
+# below is the closest honest analogue.
 HIERARCHIES = ('', 'louvain', 'leiden', 'label-prop',
                'raptor', 'agglomerative', 'kmeans', 'metadata')
 GRAPH_HIERARCHIES = ('louvain', 'leiden', 'label-prop')
 CLUSTER_HIERARCHIES = ('raptor', 'agglomerative', 'kmeans')
-# Which groupings can be asked for more than one level. `metadata` groups are
-# given, and `label-prop` and `kmeans` produce one partition and stop.
+# Groupings that can be asked for more than one level; label-prop and kmeans
+# produce one partition and stop.
 LEVELLED_HIERARCHIES = ('raptor', 'agglomerative', 'louvain', 'leiden')
-# Which groupings read `granularity` at all — see IndexConfig for the two things
-# it means. Label propagation is the control precisely because it has no such
-# parameter, and the metadata groups are given rather than chosen.
+# Groupings that read `granularity` (see IndexConfig for its two meanings).
+# label-prop is the control precisely because it has no such parameter.
 TUNED_HIERARCHIES = GRAPH_HIERARCHIES[:2] + CLUSTER_HIERARCHIES
-# What the chunk graph's edges are made of. Declared metadata is deliberately
-# absent: the lab already measured grouping by declared structure and deleted
-# it, so letting topic and thread edges in here would re-derive the answered
-# question inside the new one. `hierarchy='metadata'` is where declared
-# structure is measured, on its own, as a control.
+# Declared metadata is deliberately absent as an edge source: that grouping is
+# measured on its own as hierarchy='metadata', a control rather than an input here.
 GRAPH_SOURCES = ('hybrid', 'knn', 'lexical', 'bipartite-terms')
 KNN_SOURCES = ('hybrid', 'knn')
-# How a group becomes text. All four are extractive, because a build makes no
-# model call: a summariser that needed one would make an index unsweepable and
-# would let the `fake` provider fill a collection with confident invention that
-# no field on the row contradicts.
+# All extractive: a build that called a model would be unsweepable and would
+# let the `fake` provider fill the index with invention no field contradicts.
 SUMMARIZERS = ('centroid', 'lead-idf', 'mmr', 'card')
 RETRIEVERS = ('hybrid-rrf', 'dense', 'bm25')
-# What retrieval does with the summaries, once an index has any. `mixed` is the
-# default so that building a hierarchy changes nothing about retrieval until a
-# knob moves — the first row is then a clean answer to one question.
+# 'mixed' is the default so building a hierarchy changes nothing about
+# retrieval until this knob moves.
 SUMMARY_SCOPES = ('mixed', 'leaves', 'summaries', 'drill-down')
 RERANKERS = ('lexical', 'none', 'recency', 'agentic', 'cross-encoder', 'llm')
 GRADERS = ('none', 'lexical', 'llm')
 ANSWERERS = ('extractive', 'none', 'llm')
-# Which stage the agent is allowed to own. This is the whole feature: the four
-# values are a 2x2 — retrieval-agent {off,on} x generation-agent {off,on} — so a
-# row can attribute its win to a stage instead of to "the agent". '' is the
-# default and the control, because shipping a loop must move no number in a lab
-# nobody reconfigured (`summary_scope`'s rule applied one level up).
-#
-# `full` deliberately changes two things against the control, which the sweep
-# otherwise forbids: it is the interaction term, interpretable only beside the
-# two middle rows and never as a candidate on its own. See
-# docs/plans/2026-08-13-rag-agent-design.md.
+# The 2x2 the agent is built on: retrieval-agent {off,on} x generation-agent
+# {off,on}, so a row can attribute its win to a stage rather than to "the
+# agent". '' is the off control. 'full' deliberately changes both against the
+# control and is only interpretable beside the two middle rows — never alone.
 SCOPES = ('', 'retrieve', 'generate', 'full')
-# What the generation agent checks before it ships a draft. 'grounded' is the
-# hallucination check alone; 'both' adds "does this answer the question";
-# 'none' ships the first draft and is the control that says whether the critique
-# bought anything rather than merely costing calls.
+# What the generation agent checks before shipping a draft. 'none' is the
+# control for whether the critique bought anything at all.
 CRITICS = ('grounded', 'both', 'none')
-# Ascending, and the order the remainder of an uneven sample is handed out in, so
-# a balanced selection is reproducible rather than merely proportionate.
+# Ascending, and the order a sample's uneven remainder is handed out in.
 DIFFICULTIES = ('easy', 'medium', 'hard')
 # How a limited run picks its questions. See evaluate.select_questions.
 BALANCES = ('stride', 'difficulty')
 
 
-# Which controls are live, and under what. Served rather than duplicated in each
-# panel for the same reason STEPS is: two copies of a rule drift, and a panel
-# that greys out the wrong knob teaches the reader something false about the
-# pipeline. Each entry names the field it depends on, the values that switch it
-# on, and — the part that matters — *why*, because a control that is greyed out
-# with no reason is indistinguishable from one that is broken.
-#
-# `on` lists the enabling values; `on_true` means a boolean must be set. The
-# reason is written to complete the sentence "disabled because …".
+# Which controls are live, served here rather than duplicated per panel so the
+# two cannot grey out different knobs. `on` lists the enabling values,
+# `on_true` means a boolean must be set, and `reason` completes "disabled because …".
 DEPENDENCIES = {
     'index.chunk_chars': {
         'field': 'index.chunker', 'on': list(CHAR_SIZED_CHUNKERS),
@@ -344,11 +265,9 @@ DEPENDENCIES = {
     'generation.judge_model': {
         'field': 'generation.key_facts_judge', 'on_true': True,
         'reason': 'the key-facts judge is off'},
-    # The agent group, greyed out per *scope*: a knob that belongs to the stage
-    # this scope does not own is not a knob this run reads. The two model roles
-    # gate the same way, and `critic_model` gates on the critic rather than on
-    # the scope — which `dependency_state` resolves transitively, so turning the
-    # critic off also greys the model it would have used.
+    # Greyed out per *scope*, except `critic_model`, which gates on the critic —
+    # resolved transitively by `dependency_state`, so turning the critic off
+    # also greys the model it would have used.
     'agent.max_hops': {
         'field': 'agent.scope', 'on': ['retrieve', 'full'],
         'reason': 'this scope does not own retrieval, so it takes exactly one '
@@ -382,20 +301,11 @@ DEPENDENCIES = {
 
 
 def dependency_state(cfg_dict: dict) -> dict:
-    """For one config, which dependent fields are live and why not.
+    """For one config, `{'<group>.<field>': {'enabled': bool, 'reason': str}}` for every dependent field.
 
-    Returns `{'<group>.<field>': {'enabled': bool, 'reason': str}}`. Shared by
-    both panels and by the tests, so what the UI greys out and what the pipeline
-    ignores cannot disagree.
-
-    **A control whose owner is itself dead is dead**, and it reports its owner's
-    reason rather than its own. Without that the chain lies: `graph_knn` asks
-    whether the edge source builds nearest-neighbour edges, and the default
-    source does — so under a grouping that builds no graph at all it lit up,
-    offering a number for a stage that does not run. The rule is transitive
-    rather than a special case, because the next two-deep chain would have the
-    same defect.
-    """
+    A control whose owner is itself dead is dead, and reports the owner's
+    reason rather than its own — resolved transitively, not as a special case,
+    since a two-deep chain has the same defect."""
     state: dict = {}
 
     def resolve(key: str, seen: frozenset) -> dict:
@@ -424,16 +334,10 @@ def dependency_state(cfg_dict: dict) -> dict:
 
 @dataclass(frozen=True)
 class Step:
-    """One of the three stages a knob or a model can belong to.
+    """One of the stages a knob or a model can belong to; served rather than reinvented per frontend.
 
-    The panel groups and colour-codes everything by these, so the list is served
-    rather than reinvented in each frontend. Only the *meaning* lives here — the
-    ink for each step is a CSS token, because a colour that has to work on four
-    different papers is not a fact about the pipeline.
-
-    Two names on purpose: `label` titles a panel of knobs, `short` tags a group
-    of models inside another panel, where a whole clause would not fit.
-    """
+    Only the *meaning* lives here — the ink for each step is a CSS token.
+    `label` titles a panel of knobs, `short` tags a model group where a whole clause would not fit."""
     key: str        # matches the config group, and the CSS ink token
     short: str      # 'Index'
     label: str      # 'Index — what gets stored'
@@ -461,7 +365,7 @@ STEPS = (
 class IndexConfig:
     """What gets indexed. Its fingerprint names the in-memory index."""
     # Which corpus. '' is the built-in Farsi diary; anything else names a file
-    # under docs/groundtruth_datasets/ or .datasets/ (see raglab/datasets.py).
+    # under fixtures/groundtruth_datasets/ or .datasets/ (see raglab/datasets.py).
     # It belongs here rather than beside the run controls because it decides what
     # is stored: an index built over one corpus must never be handed a question
     # from another, and the fingerprint is what makes that impossible.
@@ -470,11 +374,8 @@ class IndexConfig:
     chunk_chars: int = 500
     overlap: int = 100          # fixed-overlap only
     contextual: bool = True     # prepend a situating header to every chunk
-    # Persian-tuned by default: the corpus is a Farsi diary, and the offline
-    # hash embedders exist to be *measured against* a real encoder, not to be it.
-    # '' below means "the recommended model for that backend"
-    # (embedding.BACKEND_DEFAULTS), which for sentence-transformers is
-    # heydariAI/persian-embeddings.
+    # Persian-tuned by default, since the corpus is a Farsi diary. '' below
+    # means the backend's recommended model (embedding.BACKEND_DEFAULTS).
     embedder: str = 'sentence-transformers'
     embed_model: str = ''       # model-backed kinds only; '' = backend default
     # --- the summary hierarchy, all of it built with no model call ----------
@@ -499,33 +400,27 @@ class IndexConfig:
                         'hierarchy_levels', 'min_group', 'summarizer')
 
     def normalized(self) -> 'IndexConfig':
-        # A model that is not consulted is blanked, because this object's
-        # fingerprint names the index: a model nobody calls must not invalidate
-        # it and cost a 157-session rebuild.
+        # A model that is not consulted is blanked, so it cannot invalidate the
+        # fingerprint and cost a rebuild nobody asked for.
         return replace(self, embed_model=(self.embed_model
                                           if self.embedder in MODEL_EMBEDDERS
                                           else ''))
 
     def fingerprint(self) -> str:
         fields = asdict(self.normalized())
-        # The built-in corpus is fingerprinted as it always was. A new field in
-        # this dataclass otherwise changes every hash, and the collection names
-        # recorded on the runs already in `.runs/` would stop matching anything a
-        # rebuild produces — a whole leaderboard's worth of rows quietly
-        # describing indexes that can no longer be reproduced by name.
+        # A new field here would otherwise change every hash and break every
+        # collection name already recorded in `.runs/`.
         if not fields.get('dataset'):
             fields.pop('dataset', None)
-        # Same rule, seven fields at once: a flat index is the index it always
-        # was, so none of the hierarchy settings may enter its hash. They are
-        # not merely defaulted out — `hierarchy=''` means nothing below it ran,
-        # so a stale graph_knn left in a browser must not name a second index
-        # holding byte-identical rows.
+        # Same rule, seven fields at once: `hierarchy=''` means none of them
+        # ran, so a stale graph_knn left in a browser must not name a second
+        # index holding byte-identical rows.
         if not fields.get('hierarchy'):
             for name in ('hierarchy', *self.HIERARCHY_FIELDS):
                 fields.pop(name, None)
         else:
-            # Within a hierarchy, the same argument one level down: a graph knob
-            # no partition reads must not cost a rebuild.
+            # Within a hierarchy, the same rule one level down: a graph knob no
+            # partition reads must not cost a rebuild.
             if fields['hierarchy'] not in GRAPH_HIERARCHIES:
                 fields.pop('graph_source', None)
                 fields.pop('graph_knn', None)
@@ -550,8 +445,7 @@ class RetrievalConfig:
     candidates: int = 40             # depth taken from each retriever
     rrf_k: int = 60
     time_filter: bool = True         # resolve Farsi time words into a date range
-    # On by default because it is free and measured positive on this fixture:
-    # quote recall 0.489 → 0.512 and precision 0.243 → 0.300, no LLM call.
+    # On by default: free, no LLM call, and measured positive on this fixture.
     multi_query: bool = True
     hyde: bool = False               # LLM hypothetical answer as the query
     expansion_model: str = ''        # HyDE only; '' = LabSettings.llm_model
@@ -566,14 +460,12 @@ class RetrievalConfig:
     grader_model: str = ''           # grader='llm' only
     max_context_chars: int = 6000
     # --- what retrieval does with an index that has summaries in it ---------
-    # These are retrieval settings, not index ones, so they are outside the
-    # fingerprint and all four scopes sweep free against a single build. That
-    # is the whole reason the hierarchy is worth putting in a lab.
+    # Retrieval settings, not index ones, so they stay outside the fingerprint
+    # and all four scopes sweep free against a single build.
     summary_scope: str = 'mixed'
-    # Applied **before the candidate cut, never after**: there are far more
-    # leaves than summaries, so a summary that had not already survived the cut
-    # could never be promoted into it, and a boost applied afterwards is a no-op
-    # that looks like a knob. Measured, in the 2026-07-30 sweep's candidate G.
+    # Applied before the candidate cut, never after: a summary that had not
+    # already survived the cut could never be promoted into it, and a boost
+    # applied afterwards is a no-op that looks like a knob.
     summary_boost: float = 1.0
     summary_levels: str = ''         # '' = every level
 
@@ -594,18 +486,10 @@ class GenerationConfig:
 class AgentConfig:
     """Which stage a bounded loop owns, and how far it may go.
 
-    **Nothing here is an index field**, so no scope enters
-    `IndexConfig.fingerprint()`: all four sweep free against a single build,
-    exactly as the four `summary_scope` values do. That is the property that
-    makes a 2x2 affordable to measure at all — a scope in the fingerprint would
-    mean four 167-session rebuilds to fill one table.
-
-    Every loop is bounded twice, by shape and by cost. `max_hops` and
-    `max_revisions` bound how many times the graph may go round;
-    `max_llm_calls` bounds what that is allowed to cost, because a
-    shape-bounded loop can still be expensive and a knob nobody can afford to
-    sweep is not a knob. Whichever cap ends a run is named in `agent_stop` on
-    the row.
+    Nothing here is an index field, so all four scopes sweep free against a
+    single build. Every loop is bounded twice: `max_hops`/`max_revisions` bound
+    its shape, `max_llm_calls` bounds its cost; whichever cap ends a run is
+    named in `agent_stop` on the row.
     """
     scope: str = ''                  # '' | retrieve | generate | full
     max_hops: int = 3                # retrieval loops; retrieve/full
@@ -628,8 +512,7 @@ class LabConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'LabConfig':
-        """Build from the panel's JSON, ignoring unknown keys so a stale browser
-        tab cannot crash a run."""
+        """Build from the panel's JSON, ignoring unknown keys so a stale browser tab cannot crash a run."""
         def pick(kind, payload):
             fields = {f for f in kind.__dataclass_fields__}
             return kind(**{k: v for k, v in (payload or {}).items() if k in fields})
@@ -666,11 +549,8 @@ class LabConfig:
                            f'{", ".join(allowed)})')
         if self.retrieval.k < 1:
             bad.append('k must be >= 1')
-        # A grouping whose library is not installed is refused, never
-        # substituted. The embedder rule applied to partitions: a row labelled
-        # `leiden` that was actually partitioned by Louvain is exactly the
-        # artefact this lab exists not to produce, and no other field on it
-        # would disagree.
+        # A grouping whose library is not installed is refused, never silently
+        # substituted for another one.
         if self.index.hierarchy:
             from .hierarchy import EXTRAS, hierarchy_available
             if not hierarchy_available(self.index.hierarchy):
@@ -685,10 +565,8 @@ class LabConfig:
                 bad.append('min_group must be >= 2 — a group of one is a chunk')
             if self.index.graph_knn < 1 and self.index.graph_source in KNN_SOURCES:
                 bad.append('graph_knn must be >= 1')
-        # A scope this installation cannot run is refused, never served by the
-        # fixed pipeline — the `leiden` rule applied to a loop. A row labelled
-        # `scope=full` that ran no agent is the worst artefact this lab can
-        # produce, because no other field on it disagrees.
+        # A scope this installation cannot run is refused, never silently
+        # served by the fixed pipeline.
         if self.agent.scope in SCOPES and self.agent.scope:
             from .agent import EXTRA, agent_available
             if not agent_available():
@@ -696,11 +574,8 @@ class LabConfig:
                     f'agent scope {self.agent.scope!r} needs a package this '
                     f'installation does not have: install it with {EXTRA}. It '
                     f'is refused rather than run without the agent.')
-            # The agent writes with a model, so under `extractive` — which quotes
-            # the corpus — there is nothing to critique and nothing a revision
-            # could change. A validation error rather than a silent promotion of
-            # the answerer: the row would then name a generation this run did not
-            # perform.
+            # Under `extractive` there is no LLM draft to critique or revise —
+            # refused rather than silently promoting the answerer.
             elif (self.agent.scope in ('generate', 'full')
                     and self.generation.answerer != 'llm'):
                 bad.append(
@@ -715,10 +590,8 @@ class LabConfig:
                 bad.append('agent max_revisions must be >= 0')
             if self.agent.max_llm_calls < 1:
                 bad.append('agent max_llm_calls must be >= 1')
-        # A model belongs to exactly one backend. Loading the backend's default
-        # instead of the model that was asked for would produce a run labelled
-        # with one encoder that measured a different one — the single worst
-        # failure a lab can have.
+        # A model belongs to exactly one backend; a mismatch is a validation
+        # error rather than a silent fall back to the backend's own default.
         wanted = self.index.embed_model
         if wanted and self.index.embedder in MODEL_EMBEDDERS:
             from .embedding import EMBED_MODELS
@@ -732,25 +605,13 @@ class LabConfig:
 
 
 def _production_config() -> dict:
-    """The settings the *shipped* Assistant retrieves with, in lab terms.
-
-    The values live in `baseline.py`, which explains why they are literals, what
-    the two deliberate differences from the lab's measured winner are, and what
-    to do when Lodestar's retrieval changes. Until 2026-08-11 they were read live
-    out of `lodestar_brain`, which is what made drift impossible; that guarantee
-    left with the repository split, and the label now carries a date instead."""
+    """The settings the *shipped* Assistant retrieves with, in lab terms — the values live in `baseline.py`."""
     from . import baseline
     return baseline.production_config(LabConfig().to_dict())
 
 
 def __getattr__(name: str):
-    """`PRODUCTION_CONFIG`, built on first access (PEP 562).
-
-    Built lazily because this module is imported by every fast unit test in the
-    lab and none of them needs the preset. It used to matter far more: deriving
-    it imported `lodestar_brain.retrieval` for its constants and cost ~4s of
-    LangChain import. `server.py` does `from .config import PRODUCTION_CONFIG`,
-    which PEP 562 serves, so the one source of truth stays one place."""
+    """`PRODUCTION_CONFIG`, built on first access (PEP 562) since deriving it imports LangChain."""
     if name == 'PRODUCTION_CONFIG':
         value = _production_config()
         globals()[name] = value        # built once per process
@@ -758,12 +619,10 @@ def __getattr__(name: str):
     raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
 
 
-# Every knob explains itself, in the panel, next to the control. This lives here
-# rather than in the frontend because it describes *these* definitions: a field
-# added above without a line below fails test_every_configuration_factor_has_an_
-# explainer, so a knob cannot ship unexplained. Keys are '<group>.<field>'; the
-# model fields are explained by models.ROLES instead, and 'run.*' describes the
-# controls that belong to one run rather than to a configuration.
+# Every knob explains itself in the panel, next to the control. A field added
+# above without a line below fails test_every_configuration_factor_has_an_explainer.
+# Keys are '<group>.<field>'; model fields are explained by models.ROLES
+# instead, and 'run.*' describes controls that belong to one run, not a config.
 HELP = {
     'index.dataset': (
         'Which corpus this experiment measures against. The built-in one is a '
@@ -776,6 +635,63 @@ HELP = {
         'button beside it: docs/groundtruth-dataset-contract.md is the shape, '
         'and the lab refuses a dataset whose evidence quotes are not verbatim '
         'in the messages they cite.'),
+    # `run.` not `index.` — this is not a field, it's the control beside one —
+    # and the key's last segment is the file input's own id, which is how the
+    # panel finds an explainer at all. The one entry written as a shape rather
+    # than prose (`p.explain` keeps its newlines); every other text is one line.
+    'run.dataset-file': (
+        'One JSON file holding a corpus and the questions it can be asked. '
+        'Three keys, all required, checked in full and refused — never '
+        'repaired — with every problem reported at once:\n'
+        '\n'
+        '"dataset": {\n'
+        '  "id": "support-en",\n'
+        '  "name": "Product support tickets",\n'
+        '  "language": "en"}\n'
+        'id is 2–40 characters of a–z, 0–9 and hyphens, and becomes the '
+        'value recorded on every run and every leaderboard row; language picks '
+        'the contextual header\'s language and is what lets the panel say that '
+        'an English-only embedder cannot read this corpus. Optional: '
+        'description, query_date.\n'
+        '\n'
+        '"sessions": [{\n'
+        '  "session_id": "t-1",\n'
+        '  "date": "2025-11-04",\n'
+        '  "messages": [{"role": "user", "content": "…"}]}]\n'
+        'One conversation per entry, at least one entry, session_id unique '
+        'because evidence points at it; date is YYYY-MM-DD, since the time '
+        'filter and every recency score read it as a number; role is "user" or '
+        '"assistant". Optional: time, source, topics, threads, and mood '
+        '{"label", "valence", "arousal"} — an absent mood is neutral, not an '
+        'error, and a corpus that is not a diary should not have to invent '
+        'one.\n'
+        '\n'
+        '"questions": [{\n'
+        '  "id": "q-1",\n'
+        '  "type": "single-hop",\n'
+        '  "difficulty": "easy",\n'
+        '  "answerable": true,\n'
+        '  "question": "…",\n'
+        '  "answer": "…",\n'
+        '  "evidence": [{"session_id": "t-1",\n'
+        '                "message_indices": [0],\n'
+        '                "quote": "…"}]}]\n'
+        'type is one of single-hop, temporal, multi-hop, aggregation, '
+        'knowledge-update, commitment, entity, pattern, habit, abstention, '
+        'adversarial — the list is closed because a run filters and reports by '
+        'it. difficulty is easy, medium or hard, and is load bearing: a '
+        'balanced sample takes an equal share of each. answer and evidence are '
+        'required when answerable is true, and the unanswerable questions are '
+        'what measures whether a pipeline knows to refuse. Optional: '
+        'question_en, key_facts, time_scope, query_date.\n'
+        '\n'
+        'The rule that earns its cost: every evidence quote must appear '
+        'verbatim in a message it cites. Quote recall, the Inspector\'s '
+        'highlighted spans and the offline context metrics are all computed '
+        'against those strings, so a corpus that misquotes itself does not '
+        'score worse — it scores confidently about text it never contained. '
+        'The full contract, with a commented skeleton and the four bundled '
+        'samples that meet it: docs/groundtruth-dataset-contract.md.'),
     'index.chunker': (
         'How a day of chat is cut into the pieces that get embedded. '
         '"fixed" packs 500 characters regardless of meaning; "message" keeps one '

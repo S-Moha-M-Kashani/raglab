@@ -1,26 +1,5 @@
-"""Retrieval, fusion, diversification, reranking and grading.
-
-Every stage is separately switchable because they cover different failures, and
-on this corpus the failures are specific:
-
-* **BM25** is the only thing that reliably finds a rare literal — a company
-  name, «آذر», an amount. Dense retrieval smooths those away.
-* **Dense** is the only thing that finds a paraphrase — the diarist asks about
-  «دعوا با همسرم» about a session that says «پریا باز شکایت کرد».
-* **RRF** fuses them without needing their scores to be comparable, which they
-  are not (a cosine and a BM25 score share no scale).
-* **Time filtering** is what makes "پارسال پاییز" answerable at all: without a
-  date pre-filter, a query about last autumn competes with fifty semantically
-  identical sessions from every other month.
-* **MMR** matters here more than in most corpora, because the same complaint
-  recurs verbatim for a year — the top 8 by relevance can be eight
-  near-duplicates of one fight.
-* **Reranking** fixes the ordering the first stage got roughly right; the
-  `agentic` variant adds recency and emotional importance, which is what a diary
-  reader actually wants ("what's the *current* state" beats "what matches best").
-* **Grading** is the only thing that produces an honest *no*: without a relevance
-  gate every question gets an answer, and the ground truth's abstention set is
-  scored zero by construction.
+"""Retrieval, fusion, diversification, reranking and grading — each stage
+independently switchable so a run can isolate which one moved the score.
 """
 import math
 import re
@@ -33,9 +12,7 @@ from .llm import lab_chat
 
 
 class BM25:
-    """Okapi BM25 over Persian-normalised tokens. Written here rather than taken
-    from a library so the lab keeps the brain's zero-heavy-dependency habit and
-    so the tokeniser is exactly the one the rest of the lab measures with."""
+    """Okapi BM25 over Persian-normalised tokens, using the same tokeniser as the rest of the lab."""
 
     def __init__(self, documents: list[str], k1: float = 1.5, b: float = 0.75):
         self.k1, self.b = k1, b
@@ -77,9 +54,7 @@ class BM25:
 
 
 def rrf(rankings: list[list[str]], k: int = 60) -> dict[str, float]:
-    """Reciprocal Rank Fusion. Scores never enter the formula — only ranks — so
-    a lexical list and a dense list combine without calibration, and one
-    retriever returning nonsense degrades the result instead of destroying it."""
+    """Reciprocal Rank Fusion: combines by rank alone, so incomparable scores (BM25 vs cosine) never need calibration."""
     fused: dict[str, float] = defaultdict(float)
     for ranking in rankings:
         for rank, chunk_id in enumerate(ranking, start=1):
@@ -89,12 +64,9 @@ def rrf(rankings: list[list[str]], k: int = 60) -> dict[str, float]:
 
 def mmr(candidate_vectors: np.ndarray, relevance: np.ndarray, k: int,
         lam: float) -> list[int]:
-    """Maximal Marginal Relevance: pick the next chunk that is relevant *and*
-    unlike what is already picked. lam=1.0 is plain relevance ordering.
-
-    Relevance carries the query, so no query vector is needed — and a candidate
-    set whose vectors could not all be read back degrades to relevance order
-    rather than mis-indexing the similarity matrix."""
+    """Maximal Marginal Relevance: picks the next chunk that is relevant *and*
+    unlike what is already picked. lam=1.0 is plain relevance order; a
+    candidate/relevance size mismatch falls back to relevance order."""
     if lam >= 1.0 or candidate_vectors.shape[0] != relevance.size:
         return list(np.argsort(-relevance)[:k])
     chosen: list[int] = []
@@ -113,9 +85,7 @@ def mmr(candidate_vectors: np.ndarray, relevance: np.ndarray, k: int,
 
 
 def recency_weight(span_to: int, query_date_int: int, half_life_days: float) -> float:
-    """Exponential decay on age, the recency term from Generative Agents. Diary
-    questions are overwhelmingly about the current state of things, so age is
-    information, not noise."""
+    """Exponential decay on age (the Generative Agents recency term); diary questions skew toward the current state, so age is signal."""
     days = max(0.0, _days_between(span_to, query_date_int))
     return float(0.5 ** (days / max(1.0, half_life_days)))
 
@@ -131,8 +101,7 @@ def _days_between(a: int, b: int) -> float:
 
 
 def normalize_scores(values: np.ndarray) -> np.ndarray:
-    """Min-max to [0,1]. Needed before mixing relevance with recency and
-    importance, which live on their own scales."""
+    """Min-max to [0,1], needed before mixing relevance with recency and importance, which live on their own scales."""
     if values.size == 0:
         return values
     low, high = float(values.min()), float(values.max())
@@ -142,9 +111,7 @@ def normalize_scores(values: np.ndarray) -> np.ndarray:
 
 
 class CrossEncoderReranker:
-    """fastembed's cross-encoder. Scores the (query, chunk) pair jointly instead
-    of comparing two independent embeddings, which is the single biggest quality
-    jump available — when a model that speaks the language is installed."""
+    """fastembed's cross-encoder: scores the (query, chunk) pair jointly rather than comparing two independent embeddings."""
 
     def __init__(self, model_name: str):
         from fastembed.rerank.cross_encoder import TextCrossEncoder
@@ -177,9 +144,7 @@ class GradeUnavailable(RuntimeError):
 
 def llm_scores(llm, model: str, query: str, documents: list[str],
                max_chars: int = 700) -> np.ndarray:
-    """Batch relevance grading in one call. One call per candidate would be more
-    accurate and would also make a 100-question sweep cost hundreds of requests,
-    which is the difference between a usable panel and an unusable one."""
+    """Batches all candidates into one call; one call per candidate would multiply request count across a sweep."""
     if not documents:
         return np.zeros(0, dtype=np.float32)
     listing = '\n\n'.join(f'[{i + 1}] {d[:max_chars]}'
@@ -191,13 +156,8 @@ def llm_scores(llm, model: str, query: str, documents: list[str],
                         model)
         text = turn.content or ''
     except Exception as error:
-        # This used to return 0.5 for every document, which clears the gate's
-        # default 0.4 threshold: an unreachable model turned grader='llm' into
-        # a no-op and no field on the run said so. A lab's whole output is a
-        # claim about what a configuration scored, so a row labelled
-        # grader='llm' that was measured ungated is the one artefact it must
-        # never produce — the reasoning that already makes judged_settings()
-        # refuse an unbacked run rather than let the fake provider fill in.
+        # Raise rather than default to 0.5: that score clears the gate's 0.4
+        # threshold, which would make grader='llm' silently score ungated.
         raise GradeUnavailable(
             f'the LLM grade stage could not reach its model '
             f'({model or "the configured default"}): {error}') from error
@@ -208,6 +168,5 @@ def llm_scores(llm, model: str, query: str, documents: list[str],
             i, value = int(match.group(1)) - 1, float(match.group(2))
             if 0 <= i < len(documents):
                 scores[i] = min(10.0, value) / 10.0
-    # An unparsed line means "no opinion", not "irrelevant" — defaulting those
-    # to zero would let a malformed reply silently empty the context.
+    # Unparsed means "no opinion", not "irrelevant" — zero would silently empty the context.
     return np.where(np.isnan(scores), 0.5, scores)

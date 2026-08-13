@@ -1,22 +1,7 @@
-/* The RAG Lab Inspector, in the lab's own hand.
- *
- * The panel on :9002 and this page are one instrument in two windows, so the
- * tokens below are the panel's: a graphite chassis carrying identity and state,
- * porcelain plates holding the readings, and three step inks — saffron for
- * index, verdigris for retrieval, lapis for generation — which are the only
- * saturated hues either page spends. A colour meaning a pipeline step is a fact
- * the service serves (`/api/options` → steps); it must not be a hue invented
- * once per page.
- *
- * `--ink-amber/green/blue` survive as the names the rest of this file is written
- * in, aliased to the step tokens rather than given values of their own — so
- * there is exactly one place a step's colour is decided.
- *
- * Farsi gets a stack of its own. It was being set in SF Mono, which has no
- * Persian glyphs to speak of, so the corpus this page exists to display arrived
- * letter-spaced and broken. A page about a Farsi diary has to be able to render
- * Farsi.
- */
+/* Shares its token system with the panel on :9002 — a colour meaning a
+ * pipeline step (`/api/options` → steps) must not be invented separately on
+ * either page. `--ink-amber/green/blue` alias the step tokens rather than
+ * holding values of their own, so there is one place a step's colour is set. */
 :root {
   --display: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
   --body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -41,12 +26,10 @@
   --step-index: oklch(0.56 0.14 58);
   --step-retrieval: oklch(0.49 0.11 168);
   --step-generation: oklch(0.50 0.15 262);
-  /* The fourth step is a loop around the other three, so its ink is the one that
-     is not a stage colour. Defined here with the same value :9002 uses: the two
-     pages must not disagree about what plum means. */
+  /* Plum: the fourth step, a loop around the other three rather than a stage.
+     Same value :9002 uses, so the two pages agree on what plum means. */
   --step-agent: oklch(0.48 0.16 318);
-  /* The same four, lifted for the chassis: an ink chosen to sit on porcelain is
-     close to unreadable on graphite, and the tab bar is on graphite. */
+  /* Lifted for the chassis: an ink tuned for porcelain reads too dark there. */
   --step-index-lit: oklch(0.78 0.13 62);
   --step-retrieval-lit: oklch(0.75 0.11 168);
   --step-generation-lit: oklch(0.76 0.11 258);
@@ -57,13 +40,11 @@
   --ink-blue: var(--step-generation);    /* generation */
   --ink-plum: var(--step-agent);         /* agent */
 
-  /* The row shading is the ground truth's verdict at chunk granularity: paper
-     for relevant, a shade back for not. It used to be a 4% difference nobody
-     could see; a table's most important distinction has to survive a glance. */
+  /* Ground truth's verdict at chunk granularity: paper for relevant, a shade
+     back for not — has to survive a glance, not just close reading. */
   --row-plain: #e3e8ee;
-  /* Evidence: a highlighter wash, plus an underline so the mark never depends
-     on hue alone. Kept apart from the retrieval pen by treatment — a wash is
-     never a rule, and a rule is never a wash. */
+  /* Highlighter wash plus underline, so relevance never depends on hue alone;
+     kept apart from the retrieval pen by treatment, not colour. */
   --evidence: #a9e6b0;
   --evidence-rule: #3f8a4c;
   --evidence-ink: #10240f;
@@ -84,10 +65,8 @@
     --step-retrieval: var(--step-retrieval-lit);
     --step-generation: var(--step-generation-lit);
     --step-agent: var(--step-agent-lit);
-    /* Well below --card, not a shade beside it. In light mode paper-versus-shade
-       is obvious; the first dark build had #23281f against a #2a2f29 card, which
-       is seven units apart and left the table's most important distinction
-       invisible on exactly the theme this page is read in at night. */
+    /* Well below --card, not a shade beside it, so the row-verdict distinction
+       still reads against the darker card. */
     --row-plain: #121821;
     --evidence: #2f6a3a;
     --evidence-rule: #86b08c;
@@ -111,10 +90,8 @@ select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
 
 /* --- the instrument header ------------------------------------------------- */
-/* Not a hero: a readout, and the same chassis the panel wears — the two windows
-   are one instrument. The first thing worth knowing here is which run you are
-   looking at, so the title stays small and the lab's state is what the eye
-   lands on. */
+/* A readout, not a hero: the title stays small so the run's own state is what
+   the eye lands on. */
 .inspector-header {
   padding: .85rem 1.25rem 0;
   background: var(--chassis);
@@ -154,9 +131,8 @@ select { font: inherit; color: inherit; }
 .follow-state[data-lab="down"]::before { background: #e07a6c; }
 
 /* --- tabs: the pipeline, left to right ------------------------------------ */
-/* Each tab is inked by the step it belongs to, and the selected one is the only
-   one that carries its pen at full weight — the bar doubles as a diagram of
-   where in the pipeline you are standing. */
+/* Each tab is inked by its step; only the selected one carries its pen at full
+   weight, so the bar doubles as a diagram of where you are in the pipeline. */
 .inspector-tabs { display: flex; gap: 1.4rem; }
 .inspector-tab {
   font: 700 .68rem/1.4 var(--body);
@@ -212,17 +188,13 @@ select { font: inherit; color: inherit; }
 
 /* --- Farsi, wherever it appears ------------------------------------------- */
 /* `plaintext` lets each line take the direction of its own first strong
-   character. The corpus is Farsi carrying Latin fragments — session ids, topic
-   slugs, the contextual header — and under a blanket rtl those arrive reversed:
-   `[2025-11-08-a]` renders as `[a-08-11-2025]`. This is a diary about a life
-   lived in two scripts, so mixed lines are the normal case, not the exception. */
+   character — a blanket rtl would reverse embedded Latin fragments (session
+   ids, topic slugs) like `[2025-11-08-a]` into `[a-08-11-2025]`. */
 [dir="rtl"] { font-family: var(--farsi); line-height: 1.85; unicode-bidi: plaintext; }
 
 /* --- ground truth: one card per pair -------------------------------------- */
-/* Every field is labelled above its own text and the card is held to a readable
-   measure. The first build let each row run the full width, which put the Farsi
-   question against the right edge, its English against the left, and the labels
-   stranded in the middle with a page of nothing between them and their text. */
+/* Held to a readable measure — full width strands the labels between the
+   Farsi question at the right edge and its English at the left. */
 .gt-row {
   background: var(--card);
   border: 1px solid var(--card-line); border-radius: 4px;
@@ -237,11 +209,9 @@ select { font: inherit; color: inherit; }
 .gt-en { font-size: .82rem; color: var(--ink-soft); }
 .gt-field { margin-top: .55rem; }
 .gt-field > div:not(.qh-label) { font-size: .88rem; }
-/* A quote is the exact string the ground truth stands on, so it is set apart
-   from the answer prose that surrounds it. */
-/* Logical, not left: the quote is Farsi, so its rule belongs on the edge the
-   text actually starts from. A `border-left` put the mark at the opposite side
-   of the card from the words it marks. */
+/* Set apart from the answer prose that surrounds it. */
+/* Logical, not left: the quote is Farsi, so the rule belongs on the edge the
+   text starts from — `border-left` marks the wrong side of the card. */
 .gt-quote {
   border-inline-start: 2px solid var(--evidence-rule);
   padding-inline-start: .55rem; margin-top: .2rem;
@@ -271,11 +241,9 @@ select { font: inherit; color: inherit; }
   margin-bottom: .15rem;
 }
 
-/* Which kind of row this view is listing. A segmented pair rather than two loose
-   buttons: the choice is exclusive, and the pressed one has to read as a position
-   rather than as an action just taken. Carries the index ink because both halves
-   are index-stage material — the leaves the chunker cut and the summaries a
-   grouping wrote beside them. */
+/* A segmented pair, not two loose buttons: the choice is exclusive, so the
+   pressed one must read as a position rather than an action just taken. Carries
+   the index ink since both halves — leaves and summaries — are index-stage. */
 .mode-toggle {
   display: inline-flex; margin: 0 0 .6rem;
   border: 1px solid var(--card-line); border-radius: 3px; overflow: hidden;
@@ -291,9 +259,8 @@ select { font: inherit; color: inherit; }
 .mode-toggle button[aria-pressed="true"] {
   background: var(--step-index); color: #fff;
 }
-/* The member ids a summary was written over, in the data face because they are
-   identifiers to be matched against the chunk list, not prose. LTR explicitly:
-   these are Latin ids sitting on a page whose text runs the other way. */
+/* Data face, since these are ids to match against the chunk list, not prose;
+   LTR explicitly, since they are Latin ids on a page that otherwise runs rtl. */
 .summary-members {
   font-family: var(--mono); font-size: .7rem; line-height: 1.6;
   color: var(--ink-soft); direction: ltr; word-break: break-all;
@@ -303,16 +270,11 @@ select { font: inherit; color: inherit; }
 .empty-note { font-size: .78rem; color: var(--ink-soft); max-width: 44rem; }
 
 /* --- the question picker -------------------------------------------------- */
-/* A listbox rather than a <select>, because a <select> can carry neither the
-   difficulty colour nor the hover detail: styling <option> is unreliable outside
-   Chrome and an <option> cannot be hovered for more.
- *
- * Difficulty is colour **here and nowhere else**. In the tables colour already
- * means a pipeline step and row shading already means the ground truth's
- * verdict; a third meaning loose on the page would make all three unreadable.
- * The hues are the board's own pens — red rule, amber, and plain ink for easy —
- * so even this local axis stays inside the family. Each option also carries the
- * word, so the colour is reinforcement and never the only carrier. */
+/* A listbox, not a <select>: styling <option> is unreliable outside Chrome and
+ * an <option> cannot carry a hover detail. Difficulty is colour here and
+ * nowhere else — colour elsewhere already means a pipeline step or a
+ * ground-truth verdict — and each option also carries the word, so colour is
+ * reinforcement, never the only carrier. */
 .question-picker {
   background: var(--card);
   border: 1px solid var(--ink);
@@ -361,9 +323,8 @@ select { font: inherit; color: inherit; }
   font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
   text-transform: uppercase; color: var(--ink-green);
 }
-/* Everything you need to decide whether this question is worth adding, without
-   leaving the picker: the question itself, what a right answer says, and the
-   evidence the ground truth stands on. */
+/* Everything needed to decide whether this question is worth adding, without
+   leaving the picker. */
 .q-option-detail {
   display: none; position: absolute; z-index: 30;
   top: 100%; inset-inline-start: 2rem;
@@ -381,15 +342,12 @@ select { font: inherit; color: inherit; }
 .added-label { border-top: 1px dotted var(--line); padding-top: .6rem; }
 
 /* --- a question, restated above its own rows ------------------------------ */
-/* The table answers "where did each chunk rank". It cannot answer "ranked for
-   what, and what would a right answer have contained" — so both sit here,
-   directly above the rows, rather than a tab away in the ground truth. */
+/* The table answers "where did each chunk rank", not "ranked for what" — so
+   the question sits here, above the rows, rather than a tab away. */
 .question-head { margin: .5rem 0 .7rem; }
 .question-head .qh-fa { font-size: 1.02rem; margin-bottom: .15rem; }
 .question-head .qh-en { font-size: .82rem; color: var(--ink-soft); }
-/* Unscoped on purpose: the ground-truth cards label their fields with this too,
-   and scoping it to `.question-head` was why those labels rendered as body text
-   instead of eyebrows. */
+/* Unscoped on purpose: the ground-truth cards use this label too. */
 .qh-label {
   font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
@@ -434,9 +392,8 @@ select { font: inherit; color: inherit; }
   width: 100%; border-collapse: collapse;
   font-family: var(--mono); font-size: .74rem;
 }
-/* Every column is centred, header and cells together. The first build left the
-   headers ranged left while the numbers under them ranged right, so each label
-   sat over the wrong end of its own column. */
+/* Every column is centred, header and cells together, so a label never sits
+   over the wrong end of its own column. */
 .retrieval-table th {
   text-align: center; color: var(--ink-soft);
   font: 600 .64rem/1.5 var(--body); letter-spacing: .08em; text-transform: uppercase;
@@ -445,10 +402,8 @@ select { font: inherit; color: inherit; }
 }
 .retrieval-table th[data-step="retrieval"] { color: var(--ink-green); }
 .retrieval-table th[data-step="generation"] { color: var(--ink-blue); }
-/* A sortable header looks pressable and says which way it points. The step inks
-   above still say which stage the column belongs to — the arrow is about your
-   click, the colour about the pipeline, and they never contend for the same mark.
-   A pseudo-element rather than text, so a header stays the string it was. */
+/* Arrow (your click) and step ink (the pipeline) never contend for the same
+   mark. A pseudo-element rather than text, so a header stays the string it was. */
 th.sort-col { cursor: pointer; user-select: none; }
 th.sort-col:hover { color: var(--ink); }
 th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
@@ -474,11 +429,9 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .retrieval-row:hover { outline: 1px solid var(--ink-soft); }
 
 /* --- the signature: a candidate's path through the ranking --------------- */
-/* Three cells, one per step that produces a rank — dense, BM25, and the RRF
-   fusion of the two. Bar height is how high the chunk stood at that step, so
-   "19th in dense, 1st in BM25, fused to 7th" arrives as a shape instead of
-   three numbers to subtract. The numbers are still in their own columns; this
-   is aria-hidden, so nothing is only available as a picture. */
+/* One bar per step that produces a rank — dense, BM25, RRF fusion — bar height
+   standing for how high the chunk placed. aria-hidden: the numbers are still
+   in their own columns, so nothing is only available as a picture. */
 .ladder {
   display: inline-flex; align-items: flex-end; gap: 2px;
   height: 1.35rem; width: 2.4rem;
@@ -492,15 +445,12 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .ladder-none { color: var(--ink-soft); }
 
 /* --- the chunk cell: a preview, and the whole thing on hover ------------- */
-/* The column has to stay narrow or seven columns of ranks become unreadable,
-   but 60 characters cannot say whether the retrieval was right. So the full
-   text is always in the DOM and revealed on hover — and on keyboard focus,
-   because a reveal only a mouse can open is one half the readers never get. */
+/* Stays narrow (seven rank columns need it) but 60 characters cannot say
+   whether the retrieval was right, so the full text is always in the DOM and
+   revealed on hover and on keyboard focus. */
 .chunk-cell { position: relative; width: 40%; }
-/* A summary row, named in the index ink because that is the step that wrote it.
-   This is the step axis, not the gold axis: the row's white-or-gray background
-   still says whether the ground truth considers it relevant, and the two answer
-   different questions about the same row. */
+/* Step axis, not the gold axis: the row's white-or-gray background is a
+   separate question — whether the ground truth considers it relevant. */
 .layer-badge {
   display: inline-block; margin-bottom: .2rem;
   font: 600 .64rem/1.5 var(--mono);
@@ -614,13 +564,10 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   .inspector-view { padding: .8rem .7rem 3rem; }
   .chunk-cell { width: auto; min-width: 11rem; }
   .retrieval-table { font-size: .68rem; }
-  /* Nine columns do not fit a phone, so the table scrolls inside its own box
-     rather than dragging the page sideways. The wrapper is only a scroller here:
-     on a wide screen `overflow-x` would also clip the reveal, which hangs below
-     its row. */
+  /* Scrolls the table in its own box instead of the page; scoped to this
+     breakpoint because on a wide screen it would clip the reveal below. */
   .table-scroll { overflow-x: auto; }
-  /* And the reveal stops being a popover, because there is nothing to hover
-     with. Tapping the preview focuses it and the full text opens in place. */
+  /* No popover: nothing to hover with. Tapping focuses it, opening in place. */
   .chunk-reveal {
     position: static; width: auto; max-width: none; max-height: none;
     margin-top: .4rem; box-shadow: none;
@@ -631,11 +578,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   @keyframes reveal { from { opacity: 0; transform: translateY(-2px); } }
 }
 
-/* The agent's ladder: which node ran, on which hop, and what it decided. A
-   table rather than a paragraph because the interesting reading is vertical —
-   the same node appearing three times is a loop that never settled, and that
-   has to be visible without counting words. The agent ink labels it, the same
-   ink :9002 uses for the scope that produced it. */
+/* A table, not a paragraph: the same node appearing three times is a loop that
+   never settled, and that reading is vertical. Agent ink, matching :9002. */
 .agent-ladder { border-left: 3px solid var(--step-agent); padding-left: .6rem; }
 .agent-ladder h4 { margin: .2rem 0 .4rem; color: var(--step-agent); font-size: .8rem;
   letter-spacing: .04em; text-transform: uppercase; }

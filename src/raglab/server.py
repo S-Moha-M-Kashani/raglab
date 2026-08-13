@@ -682,10 +682,6 @@ def create_app() -> FastAPI:
     def value_error(_request, error: ValueError):
         return JSONResponse({'detail': str(error)}, status_code=400)
 
-    # GradeUnavailable needs no handler any more: both routes that run the
-    # pipeline are jobs, so the gate's refusal surfaces as the job's error —
-    # named stage and all — rather than as an HTTP status.
-
     return app
 
 

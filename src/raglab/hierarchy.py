@@ -313,7 +313,7 @@ def _cluster_vectors(vectors: np.ndarray, method: str,
     # rather than an argmax. 1/k is "more likely than uniform chance", which is
     # the weakest claim that still means something.
     from sklearn.mixture import GaussianMixture
-    reduced = _reduced(vectors, k)
+    reduced = _reduced(vectors)
     model = GaussianMixture(n_components=k, random_state=SEED,
                             covariance_type='diag', reg_covar=1e-4)
     probabilities = model.fit(reduced).predict_proba(reduced)
@@ -326,7 +326,7 @@ def _cluster_vectors(vectors: np.ndarray, method: str,
     return groups
 
 
-def _reduced(vectors: np.ndarray, k: int) -> np.ndarray:
+def _reduced(vectors: np.ndarray) -> np.ndarray:
     """PCA down to something a mixture model can fit. A GMM over 768 dimensions
     on a thousand points is fitting more parameters than it has data for; UMAP
     is what RAPTOR uses and is a heavy dependency for a step whose job is only

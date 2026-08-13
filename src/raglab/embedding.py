@@ -35,8 +35,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-import numpy as np  # noqa: F811  (already imported above; kept beside its use)
-
 from . import textnorm
 
 ASCII_DIM = 128
@@ -216,8 +214,6 @@ class SentenceTransformerEmbedder:
         vectors = self.model.encode(payload, batch_size=self.batch_size,
                                     show_progress_bar=False,
                                     convert_to_numpy=True)
-        # Normalised here rather than trusting the flag: cosine similarity in
-        # Cosine similarity is only cosine if the vectors are unit length.
         return _normalize(np.asarray(vectors, dtype=np.float32))
 
     def embed(self, texts: list[str]) -> np.ndarray:
@@ -404,7 +400,7 @@ def sentence_transformers_available() -> bool:
     return True
 
 
-def backend_availability(settings=None) -> dict:
+def backend_availability() -> dict:
     """Which of the two model backends can be used right now."""
     return {'fastembed': fastembed_available(),
             'sentence-transformers': sentence_transformers_available()}
@@ -414,7 +410,7 @@ def embedder_hints(settings=None) -> list[dict]:
     """One hint per embedder kind, in registry order. The hash embedders are
     always available; the two model backends answer for themselves, so a kind
     that cannot run says NA instead of failing when a run starts."""
-    live = backend_availability(settings)
+    live = backend_availability()
     return [hint.as_dict(live.get(hint.kind, True)) for hint in EMBEDDER_HINTS]
 
 
@@ -425,7 +421,7 @@ def embed_model_catalogue(settings=None) -> list[dict]:
     HuggingFace checkpoint or for an API key."""
     default_id = getattr(settings, 'fastembed_model', None) or DEFAULT_FASTEMBED
     served = fastembed_models()
-    live = backend_availability(settings)
+    live = backend_availability()
     known = list(EMBED_MODELS)
     if default_id not in _MODELS:
         # An id set by RAGLAB_FASTEMBED_MODEL is by definition one the user wants.

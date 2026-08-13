@@ -302,7 +302,7 @@ def _rerank(index, cfg, question, chunks, relevance, query_date, stage_scores,
         scores, key = final, 'agentic'
     elif cfg.reranker == 'cross-encoder':
         try:
-            encoder = _cross_encoder(index)
+            encoder = _cross_encoder()
             scores = encoder.score(question, [c.text for c in chunks])
             final = retrieval.normalize_scores(scores)
         except Exception:
@@ -323,7 +323,7 @@ def _rerank(index, cfg, question, chunks, relevance, query_date, stage_scores,
 _ENCODERS: dict[str, retrieval.CrossEncoderReranker] = {}
 
 
-def _cross_encoder(index):
+def _cross_encoder():
     from .config import load_lab_settings
     name = load_lab_settings().cross_encoder_model
     if name not in _ENCODERS:

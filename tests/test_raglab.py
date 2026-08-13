@@ -1,11 +1,4 @@
-"""Tests for the RAG Lab (brain/tests/raglab).
-
-Fully offline by construction: the lab's index is process memory, embeddings are
-its hash embedders, and no test touches an LLM. The integration tests run against
-the real one-year fixture rather than a toy corpus, because the properties worth
-asserting — that a Farsi question finds its evidence session, that the current
-production embedder finds nothing at all — only exist at that scale.
-"""
+"""Tests for the RAG lab."""
 import ast
 import json
 import os
@@ -20,20 +13,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
-from raglab import textnorm
-
 import raglab
 from raglab import (baseline, chunking, clichat, config, corpus, embedding,
                     evaluate, explain, leaderboard, metrics, models, pipeline,
-                    query, ragas_eval, retrieval, store, sweep)
+                    query, ragas_eval, retrieval, store, sweep, textnorm)
 from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
                             LabConfig, LabSettings, RetrievalConfig)
 from raglab.index import IndexRegistry, LabIndex
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 RAGLAB_DIR = Path(raglab.__file__).resolve().parent
-REPO_ROOT = RAGLAB_DIR.parents[2]
 
 
 # --- fixtures --------------------------------------------------------------
@@ -223,8 +212,6 @@ def test_importance_rises_with_emotional_intensity():
     wrecked = {'mood': {'label': 'داغون', 'valence': 1, 'arousal': 9}}
     assert chunking.importance_of(wrecked) > chunking.importance_of(calm)
 
-
-# --- summary hierarchy -----------------------------------------------------
 
 # --- habits: the card you repeat instead of finish -------------------------
 # The board grew a habit type — a card carrying `habitCount` repetitions per
@@ -2643,8 +2630,6 @@ def test_the_standalone_panel_says_which_backends_consult_the_model():
     """It said "fastembed only", which stopped being true the moment a second
     backend could load a model — and "or openai" stopped being true when that
     backend left with its catalogue."""
-    import re
-
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
     label = re.search(r'<label>Embedding model.*?</label>', html, re.S)
@@ -2658,8 +2643,6 @@ def test_the_standalone_panel_says_which_backends_consult_the_model():
 def test_the_standalone_panel_keeps_every_model_in_one_place():
     """The embedder is a language model too, so it belongs in the model column
     with the other seven rather than buried among the chunking knobs."""
-    import re
-
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
     card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)

@@ -1,9 +1,9 @@
 """Which controls the panel greys out, and why."""
 
-from .config import (CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKERS, MODEL_EMBEDDERS,
-                     GRAPH_HIERARCHIES, KNN_SOURCES, TUNED_HIERARCHIES,
-                     LEVELLED_HIERARCHIES, HIERARCHIES, RERANKERS, GRADERS,
-                     SCOPES, CRITICS)
+from .options import (CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKERS, MODEL_EMBEDDERS,
+                      GRAPH_HIERARCHIES, KNN_SOURCES, TUNED_HIERARCHIES,
+                      LEVELLED_HIERARCHIES, HIERARCHIES, RERANKERS, GRADERS,
+                      SCOPES, CRITICS)
 
 
 # Which controls are live, served here rather than duplicated per panel so the

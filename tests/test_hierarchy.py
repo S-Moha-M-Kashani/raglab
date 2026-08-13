@@ -310,7 +310,7 @@ def test_the_store_filter_and_the_bm25_mask_agree_about_layers(registry):
         cfg = RetrievalConfig(summary_scope=scope)
         layers, levels = pipeline.summary_filter(cfg)
         where = query_mod.layer_clause(None, layers, levels)
-        mask = pipeline._mask(grouped, None, layers, levels)
+        mask = pipeline._allowed(grouped, None, layers, levels)
         for i, chunk in enumerate(grouped.chunks):
             assert bool(mask[i]) == matches(chunk.metadata(), where), (
                 f'{scope}: {chunk.id} disagrees between the two halves')

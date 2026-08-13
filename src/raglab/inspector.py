@@ -19,7 +19,8 @@ from . import config as lab_config
 from .config import LabConfig, load_lab_settings, settings_for_provider
 from . import datasets
 from .corpus import load_diary, load_ground_truth
-from .index import IndexRegistry, _lab_llm
+from .index import IndexRegistry
+from .llm import lab_llm
 from .present import (chunks_by_session, gold_available, mark_gold,
                       summary_rows)
 from .server import Jobs
@@ -57,6 +58,93 @@ CHOSEN_CONFIG = {
     'retrieval': {'retriever': 'hybrid-rrf', 'k': 8, 'reranker': 'lexical',
                   'time_filter': True, 'grader': 'llm', 'grade_threshold': 0.4},
 }
+
+
+def _newest_done(jobs_index: dict, kind: str) -> dict | None:
+    for entry in jobs_index.get('jobs', []):
+        if entry.get('kind') == kind and entry.get('state') == 'done':
+            return entry
+    return None
+
+
+def _job_view(jobs_index: dict, kind: str, fields: tuple[str, ...]) -> dict | None:
+    entry = _newest_done(jobs_index, kind)
+    if entry is None:
+        return None
+    full = _lab_get(f"/api/jobs/{entry['id']}")
+    if full is None or full.get('result') is None:
+        return None
+    result = full['result']
+    out = {'job_id': entry['id'], 'config': full.get('config')}
+    out.update({field: result.get(field) for field in fields})
+    return out
+
+
+def _question_set(jobs_index: dict) -> dict | None:
+    """The newest finished run over a *set* of questions, normalised from either lab route to one shape."""
+    for entry in jobs_index.get('jobs', []):
+        kind, key = entry.get('kind'), None
+        if kind == 'retrieve':
+            key = 'questions'
+        elif kind == 'run':
+            key = 'traces'
+        if key is None or entry.get('state') != 'done':
+            continue
+        full = _lab_get(f"/api/jobs/{entry['id']}")
+        result = (full or {}).get('result') or {}
+        rows = result.get(key)
+        if not rows:
+            continue        # predates tracing, or an empty selection
+        return {'kind': kind, 'job_id': entry['id'],
+                'config': full.get('config'),
+                'selection': result.get('selection'),
+                'questions': rows}
+    return None
+
+
+def _newest_chunks(jobs_index: dict) -> dict | None:
+    """The chunks the lab's newest finished job actually used, whatever kind of job it was.
+
+    Not `kind == 'index'`: a run builds its index implicitly and creates
+    no index job, so the rule is "the newest job that reported any
+    chunks" — every index-building route reports them for this reason."""
+    for entry in jobs_index.get('jobs', []):
+        if entry.get('state') != 'done':
+            continue
+        full = _lab_get(f"/api/jobs/{entry['id']}")
+        result = (full or {}).get('result') or {}
+        groups = result.get('chunks_by_session')
+        if not groups:
+            continue        # a query job, or a run from before this
+        return {'kind': entry.get('kind'), 'job_id': entry['id'],
+                'config': full.get('config'),
+                'chunks_by_session': groups,
+                # `or []`: a job recorded before the lab reported
+                # summaries has no such key, and absent is not an error.
+                'summaries': result.get('summaries') or []}
+    return None
+
+
+def _generation_view(jobs_index: dict) -> dict | None:
+    """What the newest *evaluation* wrote and how it scored — only an evaluation generates."""
+    out = _job_view(jobs_index, 'run', ('rows', 'summary', 'ragas'))
+    return out if out and out.get('rows') else None
+
+
+def _followed_dataset(jobs_index: dict) -> str:
+    """Which corpus the lab is working on, from its newest finished job.
+
+    A config that names no index is passed over rather than read as the
+    diary — "does not say" and "says the built-in one" are different facts.
+    `''` is the built-in diary and also what a lab with nothing to say returns."""
+    for entry in jobs_index.get('jobs', []):
+        if entry.get('state') != 'done':
+            continue
+        index_cfg = (entry.get('config') or {}).get('index')
+        if index_cfg is None:
+            continue
+        return index_cfg.get('dataset') or ''
+    return ''
 
 
 def create_inspector_app() -> FastAPI:
@@ -153,7 +241,7 @@ def create_inspector_app() -> FastAPI:
 
         def work(report):
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
-            llm = _lab_llm(run_settings)
+            llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.8, question['question_fa'][:80])
             _outcome, tr = pipeline.retrieve_traced(
@@ -188,7 +276,7 @@ def create_inspector_app() -> FastAPI:
 
         def work(report):
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.6))
-            llm = _lab_llm(run_settings)
+            llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.65, question['question_fa'][:80])
             outcome, trace = pipeline.retrieve_traced(
@@ -234,92 +322,13 @@ def create_inspector_app() -> FastAPI:
                     'index': None, 'query': None, 'retrieval': None,
                     'generation': None}
 
-        def newest_done(kind: str) -> dict | None:
-            for entry in jobs_index.get('jobs', []):
-                if entry.get('kind') == kind and entry.get('state') == 'done':
-                    return entry
-            return None
-
-        def view(kind: str, fields: tuple[str, ...]) -> dict | None:
-            entry = newest_done(kind)
-            if entry is None:
-                return None
-            full = _lab_get(f"/api/jobs/{entry['id']}")
-            if full is None or full.get('result') is None:
-                return None
-            result = full['result']
-            out = {'job_id': entry['id'], 'config': full.get('config')}
-            out.update({field: result.get(field) for field in fields})
-            return out
-
-        def question_set() -> dict | None:
-            """The newest finished run over a *set* of questions, normalised from either lab route to one shape."""
-            for entry in jobs_index.get('jobs', []):
-                kind, key = entry.get('kind'), None
-                if kind == 'retrieve':
-                    key = 'questions'
-                elif kind == 'run':
-                    key = 'traces'
-                if key is None or entry.get('state') != 'done':
-                    continue
-                full = _lab_get(f"/api/jobs/{entry['id']}")
-                result = (full or {}).get('result') or {}
-                rows = result.get(key)
-                if not rows:
-                    continue        # predates tracing, or an empty selection
-                return {'kind': kind, 'job_id': entry['id'],
-                        'config': full.get('config'),
-                        'selection': result.get('selection'),
-                        'questions': rows}
-            return None
-
-        def newest_chunks() -> dict | None:
-            """The chunks the lab's newest finished job actually used, whatever kind of job it was.
-
-            Not `kind == 'index'`: a run builds its index implicitly and creates
-            no index job, so the rule is "the newest job that reported any
-            chunks" — every index-building route reports them for this reason."""
-            for entry in jobs_index.get('jobs', []):
-                if entry.get('state') != 'done':
-                    continue
-                full = _lab_get(f"/api/jobs/{entry['id']}")
-                result = (full or {}).get('result') or {}
-                groups = result.get('chunks_by_session')
-                if not groups:
-                    continue        # a query job, or a run from before this
-                return {'kind': entry.get('kind'), 'job_id': entry['id'],
-                        'config': full.get('config'),
-                        'chunks_by_session': groups,
-                        # `or []`: a job recorded before the lab reported
-                        # summaries has no such key, and absent is not an error.
-                        'summaries': result.get('summaries') or []}
-            return None
-
-        def generation() -> dict | None:
-            """What the newest *evaluation* wrote and how it scored — only an evaluation generates."""
-            out = view('run', ('rows', 'summary', 'ragas'))
-            return out if out and out.get('rows') else None
-
-        def followed_dataset() -> str:
-            """Which corpus the lab is working on, from its newest finished job.
-
-            A config that names no index is passed over rather than read as the
-            diary — "does not say" and "says the built-in one" are different facts.
-            `''` is the built-in diary and also what a lab with nothing to say returns."""
-            for entry in jobs_index.get('jobs', []):
-                if entry.get('state') != 'done':
-                    continue
-                index_cfg = (entry.get('config') or {}).get('index')
-                if index_cfg is None:
-                    continue
-                return index_cfg.get('dataset') or ''
-            return ''
-
-        query_view = view('query', ('trace', 'question', 'question_id', 'answer'))
+        query_view = _job_view(jobs_index, 'query',
+                               ('trace', 'question', 'question_id', 'answer'))
         return {'lab': 'up', 'lab_url': lab_base_url(),
-                'dataset': followed_dataset(),
-                'index': newest_chunks(), 'query': query_view,
-                'retrieval': question_set(), 'generation': generation()}
+                'dataset': _followed_dataset(jobs_index),
+                'index': _newest_chunks(jobs_index), 'query': query_view,
+                'retrieval': _question_set(jobs_index),
+                'generation': _generation_view(jobs_index)}
 
     return app
 

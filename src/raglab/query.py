@@ -155,7 +155,7 @@ def layer_clause(scope: TimeScope | None,
                  layers: tuple[str, ...] | None = None,
                  levels: tuple[int, ...] | None = None) -> dict | None:
     """The time scope plus, once an index holds summaries, which layers and
-    levels the search may see — kept in lockstep with `pipeline._mask`, the
+    levels the search may see — kept in lockstep with `pipeline._allowed`, the
     same restriction over the BM25 side; if the two disagree, hybrid fusion
     silently compares two different candidate pools."""
     clauses: list[dict] = []
@@ -165,7 +165,7 @@ def layer_clause(scope: TimeScope | None,
     if layers is not None:
         clauses.append({'layer': {'$in': list(layers)}})
     if levels:
-        # Leaves (level 0) are exempted under 'mixed' — pipeline._mask makes the same exemption.
+        # Leaves (level 0) are exempted under 'mixed' — pipeline._allowed makes the same exemption.
         chosen = {'level': {'$in': list(levels)}}
         clauses.append(chosen if layers == ('summary',)
                        else {'$or': [{'layer': {'$eq': ''}}, chosen]})

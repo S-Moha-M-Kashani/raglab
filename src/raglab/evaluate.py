@@ -14,8 +14,8 @@ from typing import Any, Callable
 from . import (agent, corpus, datasets, embedding, metrics, models, pipeline,
                ragas_eval)
 from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
-from .index import IndexRegistry, _lab_llm
-from .llm import lab_chat
+from .index import IndexRegistry
+from .llm import lab_chat, lab_llm
 # Aliased: `RunResult.chunks_by_session` is a field of the same name (kept for
 # the run files that serialise it), and the two must not shadow each other.
 from .present import (chunks_by_session as chunks_by_session_rows, evidence_spans,
@@ -332,7 +332,7 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     questions = select_questions(ground_truth, types, limit, difficulty, balance)
     selection = selection_note(questions, limit, balance)
     query_date = ground_truth['meta'].get('query_date', '2026-07-28')
-    llm = _lab_llm(settings)
+    llm = lab_llm(settings)
     roles = models.resolve(cfg, settings)
     # Normalised once: `gold_available` counts gold over every chunk in the
     # index, and per-question would re-tokenise the corpus needlessly. Needed
@@ -401,6 +401,82 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
             'questions': rows}
 
 
+def _assemble_notes(index, cfg: LabConfig, settings: LabSettings) -> list[str]:
+    """The row's free-text notes: the index's own build notes, which model ran
+    which stage (so two leaderboard rows are comparable), the agent scope if
+    one ran, the embedder's language coverage, and — only when it would
+    otherwise go unsaid — that an LLM stage fell back to the offline fake
+    provider and so measured nothing."""
+    notes = list(index.stats.notes)
+    notes.append(models.note_for(cfg, settings))
+    if cfg.agent.scope:
+        notes.append(agent.note_for(cfg.agent))
+    notes.append(embedding.language_note(
+        cfg.index.embedder,
+        embedding.resolve_model(cfg.index.embedder, settings,
+                                cfg.index.embed_model)))
+    if not settings.llm_ready and (cfg.generation.answerer == 'llm'
+                                            or cfg.retrieval.reranker == 'llm'
+                                            or cfg.retrieval.grader == 'llm'
+                                            or cfg.retrieval.hyde):
+        notes.append('no OPENROUTER_API_KEY: LLM stages fell back to the offline '
+                     'fake provider, so their numbers are meaningless')
+    return notes
+
+
+def _run_questions(questions: list[dict], handle: Callable, workers: int,
+                   report: Callable) -> list[tuple]:
+    """Runs `handle` over every question — threaded above one worker, serial
+    otherwise — and returns the results in question order regardless of which
+    way they finished, reporting progress as each one lands rather than after
+    all of them."""
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(handle, q): i for i, q in enumerate(questions)}
+            done_count = 0
+            slots: list = [None] * len(questions)
+            for future in as_completed(futures):
+                landed = futures[future]
+                slots[landed] = future.result()
+                done_count += 1
+                report('scoring', 0.4 + 0.5 * done_count / len(questions),
+                       _question_note(done_count, questions,
+                                      questions[landed]['difficulty']))
+        return [row for row in slots if row is not None]
+    results = []
+    for i, question in enumerate(questions):
+        results.append(handle(question))
+        report('scoring', 0.4 + 0.5 * (i + 1) / len(questions),
+               _question_note(i + 1, questions, question['difficulty']))
+    return results
+
+
+def _build_result(*, run_id: str, cfg: LabConfig, index, summary: dict,
+                  rows: list, ragas_report: dict, started: float,
+                  started_at: str, notes: list, selection: dict, traces: list,
+                  trace: bool) -> RunResult:
+    """The `RunResult` `run_eval` ends its work with — one call rather than one
+    seventeen-field literal, so the conductor reads as "build the result" and
+    not as the result's own shape."""
+    return RunResult(run_id=run_id, label=cfg.label or cfg.index.chunker,
+                     config=cfg.to_dict(),
+                     dataset=cfg.index.dataset or datasets.BUILTIN,
+                     index={'collection': index.stats.collection,
+                            'chunks': index.stats.chunks,
+                            'avg_chars': index.stats.avg_chars,
+                            'p95_chars': index.stats.p95_chars,
+                            'embed_dim': index.stats.embed_dim,
+                            'build_seconds': index.stats.build_seconds,
+                            'reused': index.stats.reused},
+                     summary=summary, rows=rows, ragas=ragas_report,
+                     seconds=round(time.time() - started, 2),
+                     started_at=started_at, notes=notes,
+                     selection=selection, traces=traces,
+                     chunks_by_session=(chunks_by_session_rows(index)
+                                        if trace else []),
+                     summaries=summary_rows(index) if trace else [])
+
+
 def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
              settings: LabSettings, *, types: list[str] | None = None,
              limit: int | None = None, difficulty: list[str] | None = None,
@@ -424,21 +500,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     clock = time.localtime(started)
     started_at = time.strftime('%Y-%m-%d %H:%M:%S', clock)
     run_id = time.strftime('%Y%m%d-%H%M%S', clock) + '-' + cfg.index.fingerprint()[:6]
-    notes = list(index.stats.notes)
-    # Which model ran which stage, so two leaderboard rows are comparable.
-    notes.append(models.note_for(cfg, settings))
-    if cfg.agent.scope:
-        notes.append(agent.note_for(cfg.agent))
-    notes.append(embedding.language_note(
-        cfg.index.embedder,
-        embedding.resolve_model(cfg.index.embedder, settings,
-                                cfg.index.embed_model)))
-    if not settings.llm_ready and (cfg.generation.answerer == 'llm'
-                                            or cfg.retrieval.reranker == 'llm'
-                                            or cfg.retrieval.grader == 'llm'
-                                            or cfg.retrieval.hyde):
-        notes.append('no OPENROUTER_API_KEY: LLM stages fell back to the offline '
-                     'fake provider, so their numbers are meaningless')
+    notes = _assemble_notes(index, cfg, settings)
 
     def handle(question: dict):
         check_cancelled()
@@ -474,26 +536,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
         return question, outcome, row, recorded
 
     pairs, rows, traces = [], [], []
-    results: list = []
-    if workers > 1:
-        # Progress reported as each question lands, not after all of them.
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(handle, q): i for i, q in enumerate(questions)}
-            done_count = 0
-            slots: list = [None] * len(questions)
-            for future in as_completed(futures):
-                landed = futures[future]
-                slots[landed] = future.result()
-                done_count += 1
-                report('scoring', 0.4 + 0.5 * done_count / len(questions),
-                       _question_note(done_count, questions,
-                                      questions[landed]['difficulty']))
-        results = [row for row in slots if row is not None]
-    else:
-        for i, question in enumerate(questions):
-            results.append(handle(question))
-            report('scoring', 0.4 + 0.5 * (i + 1) / len(questions),
-                   _question_note(i + 1, questions, question['difficulty']))
+    results = _run_questions(questions, handle, workers, report)
     for question, outcome, row, recorded in results:
         pairs.append((question, outcome))
         rows.append(json_safe(row))
@@ -513,23 +556,10 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                                       judge_model=roles.ragas,
                                       progress=report, k=cfg.retrieval.k)
     report('done', 1.0, 'done')
-    result = RunResult(run_id=run_id, label=cfg.label or cfg.index.chunker,
-                       config=cfg.to_dict(),
-                       dataset=cfg.index.dataset or datasets.BUILTIN,
-                       index={'collection': index.stats.collection,
-                              'chunks': index.stats.chunks,
-                              'avg_chars': index.stats.avg_chars,
-                              'p95_chars': index.stats.p95_chars,
-                              'embed_dim': index.stats.embed_dim,
-                              'build_seconds': index.stats.build_seconds,
-                              'reused': index.stats.reused},
-                       summary=summary, rows=rows, ragas=ragas_report,
-                       seconds=round(time.time() - started, 2),
-                       started_at=started_at, notes=notes,
-                       selection=selection, traces=traces,
-                       chunks_by_session=(chunks_by_session_rows(index)
-                                          if trace else []),
-                       summaries=summary_rows(index) if trace else [])
+    result = _build_result(run_id=run_id, cfg=cfg, index=index, summary=summary,
+                           rows=rows, ragas_report=ragas_report, started=started,
+                           started_at=started_at, notes=notes, selection=selection,
+                           traces=traces, trace=trace)
     save_run(result)
     return result
 

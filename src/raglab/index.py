@@ -175,10 +175,6 @@ class LabIndex:
         self.store.drop()
 
 
-# Re-exported: evaluate.py and server.py import _lab_llm from here.
-from .llm import lab_llm as _lab_llm  # noqa: E402  (kept beside its callers)
-
-
 class IndexRegistry:
     """Process-lifetime cache of built indexes, keyed by fingerprint; every
     index it built dies with the process."""

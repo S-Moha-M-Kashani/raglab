@@ -1,4 +1,11 @@
-"""Tests for the RAG lab."""
+"""What is left of the original monolith after the topic sections moved into
+their own files: the evaluation harness, the RAGAS bridge, the four metrics
+that decide the architecture, the sweep that produces the leaderboard, what
+each number on the dashboard means, the three pipeline steps, retrieval on
+its own and the shipped assistant's settings, the project's production
+preset, and a handful of short untitled fragments (the HTTP surface,
+the panel's dependency rules, two regression reproductions) that were tacked
+onto other banners without one of their own."""
 import ast
 import json
 import os

@@ -110,14 +110,21 @@ def _term_postings(texts: list[str], top_terms: int = 12
     return postings, idf
 
 
+def _surviving_terms(postings: dict[str, list[int]], n_texts: int):
+    """Terms worth an edge: shared by at least two chunks, and not so common
+    they would swamp the partition (more than a fifth of the corpus)."""
+    ceiling = max(2, n_texts // 5)
+    for token, docs in postings.items():
+        if len(docs) < 2 or len(docs) > ceiling:
+            continue
+        yield token, docs
+
+
 def _lexical_edges(texts: list[str]) -> dict[tuple[int, int], float]:
     """Chunks sharing a rare word, weighted by rarity; a term in over a fifth of the corpus is skipped (it would swamp the partition)."""
     postings, idf = _term_postings(texts)
     edges: dict[tuple[int, int], float] = defaultdict(float)
-    ceiling = max(2, len(texts) // 5)
-    for token, docs in postings.items():
-        if len(docs) < 2 or len(docs) > ceiling:
-            continue
+    for token, docs in _surviving_terms(postings, len(texts)):
         weight = idf.get(token, 0.0)
         for a_index, a in enumerate(docs):
             for b in docs[a_index + 1:]:
@@ -143,10 +150,7 @@ def build_graph(texts: list[str], vectors: np.ndarray, source: str, knn: int):
     graph.add_nodes_from(range(len(texts)))
     if source == 'bipartite-terms':
         postings, idf = _term_postings(texts)
-        ceiling = max(2, len(texts) // 5)
-        for token, docs in postings.items():
-            if len(docs) < 2 or len(docs) > ceiling:
-                continue
+        for token, docs in _surviving_terms(postings, len(texts)):
             node = f'term:{token}'
             graph.add_node(node, term=True)
             for doc in docs:

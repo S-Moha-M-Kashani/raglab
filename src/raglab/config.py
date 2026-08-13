@@ -776,6 +776,71 @@ HELP = {
         'button beside it: docs/groundtruth-dataset-contract.md is the shape, '
         'and the lab refuses a dataset whose evidence quotes are not verbatim '
         'in the messages they cite.'),
+    # Beside the dataset rather than down among the `run.*` texts, because the
+    # two explain one decision: which corpus, and what a corpus has to look
+    # like. `run.` and not `index.` because it is not a field of anything — it
+    # is the control next to one — and the key's last segment is the file
+    # input's id, which is how the panel finds an explainer at all.
+    #
+    # It is the one entry here written as a shape instead of as prose: the
+    # importer refuses rather than repairs, so a file that misses the contract
+    # costs a round trip through a list of problems, and a reader who has to
+    # reconstruct nesting from a paragraph will take that trip. `p.explain`
+    # keeps the newlines (white-space: pre-wrap); every other text is one line,
+    # so that costs them nothing.
+    'run.dataset-file': (
+        'One JSON file holding a corpus and the questions it can be asked. '
+        'Three keys, all required, checked in full and refused — never '
+        'repaired — with every problem reported at once:\n'
+        '\n'
+        '"dataset": {\n'
+        '  "id": "support-en",\n'
+        '  "name": "Product support tickets",\n'
+        '  "language": "en"}\n'
+        'id is 2–40 characters of a–z, 0–9 and hyphens, and becomes the '
+        'value recorded on every run and every leaderboard row; language picks '
+        'the contextual header\'s language and is what lets the panel say that '
+        'an English-only embedder cannot read this corpus. Optional: '
+        'description, query_date.\n'
+        '\n'
+        '"sessions": [{\n'
+        '  "session_id": "t-1",\n'
+        '  "date": "2025-11-04",\n'
+        '  "messages": [{"role": "user", "content": "…"}]}]\n'
+        'One conversation per entry, at least one entry, session_id unique '
+        'because evidence points at it; date is YYYY-MM-DD, since the time '
+        'filter and every recency score read it as a number; role is "user" or '
+        '"assistant". Optional: time, source, topics, threads, and mood '
+        '{"label", "valence", "arousal"} — an absent mood is neutral, not an '
+        'error, and a corpus that is not a diary should not have to invent '
+        'one.\n'
+        '\n'
+        '"questions": [{\n'
+        '  "id": "q-1",\n'
+        '  "type": "single-hop",\n'
+        '  "difficulty": "easy",\n'
+        '  "answerable": true,\n'
+        '  "question": "…",\n'
+        '  "answer": "…",\n'
+        '  "evidence": [{"session_id": "t-1",\n'
+        '                "message_indices": [0],\n'
+        '                "quote": "…"}]}]\n'
+        'type is one of single-hop, temporal, multi-hop, aggregation, '
+        'knowledge-update, commitment, entity, pattern, habit, abstention, '
+        'adversarial — the list is closed because a run filters and reports by '
+        'it. difficulty is easy, medium or hard, and is load bearing: a '
+        'balanced sample takes an equal share of each. answer and evidence are '
+        'required when answerable is true, and the unanswerable questions are '
+        'what measures whether a pipeline knows to refuse. Optional: '
+        'question_en, key_facts, time_scope, query_date.\n'
+        '\n'
+        'The rule that earns its cost: every evidence quote must appear '
+        'verbatim in a message it cites. Quote recall, the Inspector\'s '
+        'highlighted spans and the offline context metrics are all computed '
+        'against those strings, so a corpus that misquotes itself does not '
+        'score worse — it scores confidently about text it never contained. '
+        'The full contract, with a commented skeleton and the four bundled '
+        'samples that meet it: docs/groundtruth-dataset-contract.md.'),
     'index.chunker': (
         'How a day of chat is cut into the pieces that get embedded. '
         '"fixed" packs 500 characters regardless of meaning; "message" keeps one '

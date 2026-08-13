@@ -376,6 +376,65 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
     assert len(groups) == 1, 'the old row and the new one are the same corpus'
 
 
+# --- what the import control says the file must look like -------------------
+#
+# The importer refuses rather than repairs, so a corpus that does not meet the
+# contract is a list of problems and a second attempt. The panel can spend that
+# round trip or state the shape before a file is picked; there is a whole
+# document (`docs/groundtruth-dataset-contract.md`), and nothing on screen said
+# so.
+
+# This is a unit test.
+def test_the_import_control_describes_the_file_it_takes():
+    """Under the same `!` as every knob, and keyed to the control's own id, so
+    the panel's one explainer mechanism hangs it on the Import label without a
+    second mechanism for file inputs."""
+    from raglab import explain
+    text = explain.topics()['run.dataset-file']
+    for named in ('dataset', 'sessions', 'questions',      # the three keys
+                  'id', 'name', 'language',                 # what a corpus is
+                  'session_id', 'date', 'messages', 'role', 'content',
+                  'type', 'difficulty', 'answerable', 'answer',
+                  'evidence', 'message_indices', 'quote'):
+        assert named in text, named
+    # The two closed vocabularies are named rather than gestured at, because the
+    # importer refuses a value outside them and nobody can guess eleven types.
+    # Listed by hand and pinned here: config cannot import metrics.
+    from raglab.config import DIFFICULTIES
+    from raglab.metrics import TYPES
+    for value in TYPES + DIFFICULTIES:
+        assert value in text, value
+    # The rule that earns its cost is the one a reader must not discover from a
+    # rejection, and the full contract is one line away.
+    assert 'verbatim' in text
+    assert 'docs/groundtruth-dataset-contract.md' in text
+
+
+# This is a unit test.
+def test_the_described_shape_is_the_shape_the_importer_enforces():
+    """A description beside a checker is a description that can drift from it.
+    Each top-level key the text names has to be one `validate` really refuses
+    the absence of, or the panel promises a contract nobody keeps."""
+    from raglab import explain
+    text = explain.topics()['run.dataset-file']
+    for key in ('dataset', 'sessions', 'questions'):
+        assert key in text, key
+        without = _valid()
+        without.pop(key)
+        assert datasets.validate(without), f'{key} is described as required'
+
+
+# This is a configuration invariant.
+def test_the_panel_renders_the_json_shape_as_a_shape():
+    """This is the one help text with a structure in it, and a structure that
+    arrives as one run-on paragraph is not one. Every other explainer is a
+    single line, so preserving the newlines costs them nothing."""
+    from raglab.server import STATIC
+    html = (STATIC / 'index.html').read_text(encoding='utf-8')
+    rule = html.split('p.explain {')[1].split('}')[0]
+    assert 'pre-wrap' in rule
+
+
 # This is a configuration invariant.
 def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     from raglab.server import STATIC

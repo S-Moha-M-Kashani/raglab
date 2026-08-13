@@ -41,15 +41,21 @@
   --step-index: oklch(0.56 0.14 58);
   --step-retrieval: oklch(0.49 0.11 168);
   --step-generation: oklch(0.50 0.15 262);
-  /* The same three, lifted for the chassis: an ink chosen to sit on porcelain is
+  /* The fourth step is a loop around the other three, so its ink is the one that
+     is not a stage colour. Defined here with the same value :9002 uses: the two
+     pages must not disagree about what plum means. */
+  --step-agent: oklch(0.48 0.16 318);
+  /* The same four, lifted for the chassis: an ink chosen to sit on porcelain is
      close to unreadable on graphite, and the tab bar is on graphite. */
   --step-index-lit: oklch(0.78 0.13 62);
   --step-retrieval-lit: oklch(0.75 0.11 168);
   --step-generation-lit: oklch(0.76 0.11 258);
+  --step-agent-lit: oklch(0.77 0.12 318);
 
   --ink-amber: var(--step-index);        /* index */
   --ink-green: var(--step-retrieval);    /* retrieval */
   --ink-blue: var(--step-generation);    /* generation */
+  --ink-plum: var(--step-agent);         /* agent */
 
   /* The row shading is the ground truth's verdict at chunk granularity: paper
      for relevant, a shade back for not. It used to be a 4% difference nobody
@@ -77,6 +83,7 @@
     --step-index: var(--step-index-lit);
     --step-retrieval: var(--step-retrieval-lit);
     --step-generation: var(--step-generation-lit);
+    --step-agent: var(--step-agent-lit);
     /* Well below --card, not a shade beside it. In light mode paper-versus-shade
        is obvious; the first dark build had #23281f against a #2a2f29 card, which
        is seven units apart and left the table's most important distinction
@@ -263,6 +270,37 @@ select { font: inherit; color: inherit; }
   text-transform: uppercase; color: var(--ink-amber);
   margin-bottom: .15rem;
 }
+
+/* Which kind of row this view is listing. A segmented pair rather than two loose
+   buttons: the choice is exclusive, and the pressed one has to read as a position
+   rather than as an action just taken. Carries the index ink because both halves
+   are index-stage material — the leaves the chunker cut and the summaries a
+   grouping wrote beside them. */
+.mode-toggle {
+  display: inline-flex; margin: 0 0 .6rem;
+  border: 1px solid var(--card-line); border-radius: 3px; overflow: hidden;
+}
+.mode-toggle button {
+  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  text-transform: uppercase;
+  background: var(--card); color: var(--ink-soft);
+  border: 0; padding: .3rem .7rem; cursor: pointer;
+}
+.mode-toggle button + button { border-left: 1px solid var(--card-line); }
+.mode-toggle button:hover { color: var(--ink); }
+.mode-toggle button[aria-pressed="true"] {
+  background: var(--step-index); color: #fff;
+}
+/* The member ids a summary was written over, in the data face because they are
+   identifiers to be matched against the chunk list, not prose. LTR explicitly:
+   these are Latin ids sitting on a page whose text runs the other way. */
+.summary-members {
+  font-family: var(--mono); font-size: .7rem; line-height: 1.6;
+  color: var(--ink-soft); direction: ltr; word-break: break-all;
+}
+/* An empty view says what to do next rather than leaving a blank pane, which
+   reads as a page that failed to load. */
+.empty-note { font-size: .78rem; color: var(--ink-soft); max-width: 44rem; }
 
 /* --- the question picker -------------------------------------------------- */
 /* A listbox rather than a <select>, because a <select> can carry neither the
@@ -592,3 +630,18 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   .chunk-reveal { animation: reveal .12s ease-out; }
   @keyframes reveal { from { opacity: 0; transform: translateY(-2px); } }
 }
+
+/* The agent's ladder: which node ran, on which hop, and what it decided. A
+   table rather than a paragraph because the interesting reading is vertical —
+   the same node appearing three times is a loop that never settled, and that
+   has to be visible without counting words. The agent ink labels it, the same
+   ink :9002 uses for the scope that produced it. */
+.agent-ladder { border-left: 3px solid var(--step-agent); padding-left: .6rem; }
+.agent-ladder h4 { margin: .2rem 0 .4rem; color: var(--step-agent); font-size: .8rem;
+  letter-spacing: .04em; text-transform: uppercase; }
+.agent-ladder table { border-collapse: collapse; width: 100%; }
+.agent-ladder th { text-align: left; color: var(--step-agent); font-weight: 600; }
+.agent-ladder td, .agent-ladder th { padding: .15rem .5rem .15rem 0;
+  border-bottom: 1px solid var(--line); vertical-align: top; }
+.agent-ladder td.node { color: var(--step-agent); font-weight: 600; }
+.agent-ladder td.detail { color: var(--ink-soft); }

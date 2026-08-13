@@ -36,12 +36,18 @@
   --step-index: oklch(0.56 0.14 58);        /* saffron  — what gets stored */
   --step-retrieval: oklch(0.49 0.11 168);   /* verdigris — what gets found */
   --step-generation: oklch(0.50 0.15 262);  /* lapis    — what gets written */
+  /* The fourth step is a loop around the other three, so its ink is the one
+     that is not a stage colour: plum, adjacent to lapis because generation is
+     the stage it most often owns, distinct enough that a hop count is never
+     mistaken for a generation score. */
+  --step-agent: oklch(0.48 0.16 318);       /* plum     — what loops */
   /* The same three hues lifted for the chassis. An ink chosen to sit on
      porcelain is close to unreadable on graphite, and the spine is where a
      reader looks to find out what is running. */
   --step-index-lit: oklch(0.78 0.13 62);
   --step-retrieval-lit: oklch(0.75 0.11 168);
   --step-generation-lit: oklch(0.76 0.11 258);
+  --step-agent-lit: oklch(0.77 0.12 318);
   --alert: #a33227;
   --alert-wash: #fdf4f2;
   --good: oklch(0.49 0.11 168);
@@ -56,9 +62,11 @@
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
 [data-step="generation"] { --step: var(--step-generation); }
+[data-step="agent"] { --step: var(--step-agent); }
 .chassis [data-step="index"], .spine [data-step="index"] { --step: var(--step-index-lit); }
 .chassis [data-step="retrieval"], .spine [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
 .chassis [data-step="generation"], .spine [data-step="generation"] { --step: var(--step-generation-lit); }
+.chassis [data-step="agent"], .spine [data-step="agent"] { --step: var(--step-agent-lit); }
 
 * { box-sizing: border-box; }
 body {
@@ -174,10 +182,22 @@ h1 .lab-mark {
 main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
 .bench {
   display: grid; gap: 1rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px);
+  /* Four step cards, then the models column. It was three until the agent
+     arrived, and adding a card to a four-slot grid put the *models* card on a
+     second row — which quietly broke the rule that every model lives in the one
+     right-hand column, because auto-placement fills a row before it wraps.
+     Hence the pin below rather than a wider grid alone: the column the models
+     live in is a stated property of this page, not a consequence of how many
+     step cards there happen to be. */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 300px);
   align-items: start;
 }
-@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* The models card holds the last column at every width; the step cards take the
+   rest and wrap among themselves. */
+.bench > .rag-models { grid-column: -2 / -1; }
+@media (max-width: 1400px) { .bench { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px); } }
+@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
+@media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
 .stack { display: grid; gap: 1rem; margin-top: 1rem; }
 
@@ -449,6 +469,8 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
         <b>Retrieval</b><span>what gets found</span></button>
       <button class="spine-seg" type="button" data-step="generation" data-target="card-generation">
         <b>Generation</b><span>what gets written</span></button>
+      <button class="spine-seg" type="button" data-step="agent" data-target="card-agent">
+        <b>Agent</b><span>what loops</span></button>
       <!-- The long note stays on the card beside the controls it describes;
            `titleSteps` fills the short hint here from the same served step. -->
     </div>
@@ -622,6 +644,41 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <div id="jobBox"></div>
   </section>
 
+  <!-- The fourth step: a loop around the three above, off by default. Its own
+       card rather than four more knobs in the generation one, because it is not
+       a generation setting — under `retrieval` it never touches generation at
+       all. The scope dropdown is the whole feature: it says which stage the
+       loop owns, and therefore what a row measured. -->
+  <section class="card" id="card-agent" data-step="agent">
+    <div class="card-head"><span class="num">4</span><h2 id="head-agent">Agent</h2></div>
+    <p class="card-note" id="note-agent"></p>
+    <div class="field">
+      <label>Scope <span class="muted">· which stage the loop owns</span></label>
+      <select id="scope"></select>
+    </div>
+    <!-- The retrieval half. Greyed out under a scope that does not own
+         retrieval, by the served dependency rules. -->
+    <div class="step-tag group-tag" data-step="agent">Looking again</div>
+    <div class="field-row">
+      <div><label>Max hops</label><input type="number" id="max_hops" min="1" max="9"></div>
+      <div><label>Evidence bar</label><input type="number" id="evidence_threshold"
+           min="0" max="1" step="0.05"></div>
+    </div>
+    <div class="switches">
+      <label><input type="checkbox" id="rewrite"> rewrite the query between hops</label>
+    </div>
+    <!-- The generation half. -->
+    <div class="step-tag group-tag" data-step="agent">Checking its own answer</div>
+    <div class="field">
+      <label>Critic</label>
+      <select id="critic"></select>
+    </div>
+    <div class="field-row">
+      <div><label>Max revisions</label><input type="number" id="max_revisions" min="0" max="5"></div>
+      <div><label>Max calls / question</label><input type="number" id="max_llm_calls" min="1" max="60"></div>
+    </div>
+  </section>
+
   <!-- One model per task, never one model for everything: a gate runs k times a
        question and wants cheap, a judge runs once and wants strong. Licences are
        on the label because on Farsi the open-weight candidates are the
@@ -677,6 +734,10 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
     <div class="step" data-step="generation">
       <span class="step-tag">Generation</span>
       <div id="modelRoles-generation"></div>
+    </div>
+    <div class="step" data-step="agent">
+      <span class="step-tag">Agent</span>
+      <div id="modelRoles-agent"></div>
     </div>
     <div id="modelRoles"></div>
   </section>
@@ -801,6 +862,38 @@ const SUMMARY_SCOPE_HELP = {
 // service if picked — never quietly served by a different partition. The same
 // rule the embedder catalogue follows, and the reason availability is served
 // rather than guessed in the browser.
+// One line per scope, naming the stage it owns. The four are a 2x2, and the
+// labels say so: a reader picking `both` has to know it changes two things at
+// once and is only readable beside the two middle rows.
+const SCOPE_HELP = {
+  '': 'the fixed pipeline (default)',
+  'retrieve': 'retrieval only · plan, retrieve, judge the evidence, rewrite, again',
+  'generate': 'generation only · draft, critique it, revise — retrieval held fixed',
+  'full': 'both · and the one edge neither has: a bad critique can re-retrieve',
+};
+
+const CRITIC_HELP = {
+  'grounded': 'is every claim supported by the retrieved text?',
+  'both': 'that, plus: does the draft answer the question?',
+  'none': 'ship the first draft — the control',
+};
+
+// An agent scope this installation cannot run is offered as NA and refused by
+// the service if picked, never quietly served by the fixed pipeline. Exactly
+// `fillHierarchies`, for exactly the reason: availability is served, verified by
+// import, and a panel that guesses offers what the lab refuses.
+function fillScopes() {
+  const support = OPTIONS.agent_support || {};
+  $('scope').innerHTML = (OPTIONS.scopes || []).map((v) => {
+    const state = support[v];
+    const na = (state && state.available === false)
+      ? ` — NA, needs \`${state.install}\`` : '';
+    const help = SCOPE_HELP[v] ? ' — ' + SCOPE_HELP[v] : '';
+    return `<option value="${escapeHtml(v)}"${na ? ' disabled' : ''}>`
+      + `${escapeHtml(v || 'off')}${escapeHtml(help)}${escapeHtml(na)}</option>`;
+  }).join('');
+}
+
 function fillHierarchies() {
   const support = OPTIONS.hierarchy_support || {};
   $('hierarchy').innerHTML = (OPTIONS.hierarchies || []).map((v) => {
@@ -1048,13 +1141,13 @@ async function api(path, body) {
 // happen to be equal right now, so the bug was invisible; the day the brain's
 // RRF_K moves it would not be. Whatever set them last keeps them, and a real
 // control always wins.
-let UNSHOWN = { index: {}, retrieval: {}, generation: {} };
+let UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
 
 // Remember the parts of a config the controls cannot express, having applied it.
 function keepUnshown(applied) {
   const shown = readConfig();
-  UNSHOWN = { index: {}, retrieval: {}, generation: {} };
-  for (const group of ['index', 'retrieval', 'generation']) {
+  UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
+  for (const group of ['index', 'retrieval', 'generation', 'agent']) {
     for (const [key, value] of Object.entries(applied[group] || {})) {
       if (!(key in shown[group])) UNSHOWN[group][key] = value;
     }
@@ -1089,6 +1182,13 @@ function readConfig() {
     generation: {
       answerer: $('answerer').value, key_facts_judge: $('key_facts_judge').checked,
     },
+    agent: {
+      scope: $('scope').value, max_hops: +$('max_hops').value,
+      rewrite: $('rewrite').checked,
+      evidence_threshold: +$('evidence_threshold').value,
+      max_revisions: +$('max_revisions').value, critic: $('critic').value,
+      max_llm_calls: +$('max_llm_calls').value,
+    },
   };
   // Each role writes into the config group whose stage uses it, so the index
   // fingerprint keeps describing exactly what was stored.
@@ -1098,7 +1198,7 @@ function readConfig() {
   }
   // Under the controls, never over them: a value you can see and change is
   // always the one that runs.
-  for (const group of ['index', 'retrieval', 'generation']) {
+  for (const group of ['index', 'retrieval', 'generation', 'agent']) {
     cfg[group] = Object.assign({}, UNSHOWN[group], cfg[group]);
   }
   return cfg;
@@ -1202,6 +1302,14 @@ function applyDefaults(d) {
   $('grade_threshold').value = d.retrieval.grade_threshold;
   $('answerer').value = d.generation.answerer;
   $('key_facts_judge').checked = d.generation.key_facts_judge;
+  const a = d.agent || {};
+  $('scope').value = a.scope || '';
+  $('max_hops').value = a.max_hops;
+  $('rewrite').checked = !!a.rewrite;
+  $('evidence_threshold').value = a.evidence_threshold;
+  $('max_revisions').value = a.max_revisions;
+  $('critic').value = a.critic;
+  $('max_llm_calls').value = a.max_llm_calls;
   for (const select of document.querySelectorAll('.rag-model')) {
     const [group, field] = select.dataset.field.split('.');
     select.value = (d[group] || {})[field] || '';
@@ -1238,11 +1346,19 @@ function remember(key, value) {
 // The settings you picked, merged over the served defaults per group — so a
 // config saved before a knob existed still boots, with the new knob at its
 // default rather than undefined.
+// The groups come from the *served* defaults, never from a list written here.
+// A browser holding a config remembered before a group existed would otherwise
+// return a merged object with that group missing, and every control in it would
+// come up blank — a blank number input reads as 0, which validation then refuses
+// for a knob the reader never touched. Measured 2026-08-13 against the running
+// service, the day the agent group was added: same class as UNSHOWN, and the
+// same fix — the page must not hold its own idea of what a config contains.
 function startingConfig(defaults) {
   const kept = saved(SAVED_CONFIG);
   if (!kept) return defaults;
   const merged = { label: kept.label || defaults.label || '' };
-  for (const group of ['index', 'retrieval', 'generation']) {
+  for (const group of Object.keys(defaults)) {
+    if (group === 'label') continue;
     merged[group] = Object.assign({}, defaults[group], kept[group] || {});
   }
   return merged;
@@ -1277,6 +1393,8 @@ async function boot() {
   fill($('reranker'), o.rerankers);
   fill($('grader'), o.graders);
   fill($('answerer'), o.answerers);
+  fillScopes();
+  fill($('critic'), o.critics, CRITIC_HELP);
   checkboxes($('types'), o.question_types, []);
   document.addEventListener('change', applyDependencies);
   fillModels();

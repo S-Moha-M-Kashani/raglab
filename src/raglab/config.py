@@ -42,12 +42,12 @@ LLM_PROVIDERS = ('', 'openrouter', 'ollama', 'claude', 'codex', 'fake')
 # it would make the offline runs' notes disagree with every earlier one. The two
 # CLI defaults are the aliases that actually ran here (3.9s and 8.2s per call on
 # a short grade probe, and 5.6s for claude on the lab's real grade prompt — a
-# longer prompt costs more); `gpt-5.6-terra` is what this installation's codex serves, and
-# RAGLAB_MODEL names another.
+# longer prompt costs more); `gpt-5.6-luna` keeps high-volume Codex judging
+# affordable, and RAGLAB_MODEL names another.
 PROVIDER_MODELS = {'openrouter': 'openai/gpt-5-nano',
                    'ollama': '4skl/gemma4-e2b-mtp',
                    'claude': 'sonnet',
-                   'codex': 'gpt-5.6-terra',
+                   'codex': 'gpt-5.6-luna',
                    'fake': 'openai/gpt-5-nano'}
 
 
@@ -236,6 +236,22 @@ SUMMARY_SCOPES = ('mixed', 'leaves', 'summaries', 'drill-down')
 RERANKERS = ('lexical', 'none', 'recency', 'agentic', 'cross-encoder', 'llm')
 GRADERS = ('none', 'lexical', 'llm')
 ANSWERERS = ('extractive', 'none', 'llm')
+# Which stage the agent is allowed to own. This is the whole feature: the four
+# values are a 2x2 — retrieval-agent {off,on} x generation-agent {off,on} — so a
+# row can attribute its win to a stage instead of to "the agent". '' is the
+# default and the control, because shipping a loop must move no number in a lab
+# nobody reconfigured (`summary_scope`'s rule applied one level up).
+#
+# `full` deliberately changes two things against the control, which the sweep
+# otherwise forbids: it is the interaction term, interpretable only beside the
+# two middle rows and never as a candidate on its own. See
+# docs/plans/2026-08-13-rag-agent-design.md.
+SCOPES = ('', 'retrieve', 'generate', 'full')
+# What the generation agent checks before it ships a draft. 'grounded' is the
+# hallucination check alone; 'both' adds "does this answer the question";
+# 'none' ships the first draft and is the control that says whether the critique
+# bought anything rather than merely costing calls.
+CRITICS = ('grounded', 'both', 'none')
 # Ascending, and the order the remainder of an uneven sample is handed out in, so
 # a balanced selection is reproducible rather than merely proportionate.
 DIFFICULTIES = ('easy', 'medium', 'hard')
@@ -328,6 +344,40 @@ DEPENDENCIES = {
     'generation.judge_model': {
         'field': 'generation.key_facts_judge', 'on_true': True,
         'reason': 'the key-facts judge is off'},
+    # The agent group, greyed out per *scope*: a knob that belongs to the stage
+    # this scope does not own is not a knob this run reads. The two model roles
+    # gate the same way, and `critic_model` gates on the critic rather than on
+    # the scope — which `dependency_state` resolves transitively, so turning the
+    # critic off also greys the model it would have used.
+    'agent.max_hops': {
+        'field': 'agent.scope', 'on': ['retrieve', 'full'],
+        'reason': 'this scope does not own retrieval, so it takes exactly one '
+                  'hop'},
+    'agent.rewrite': {
+        'field': 'agent.scope', 'on': ['retrieve', 'full'],
+        'reason': 'only a scope that hops has a query to rewrite between hops'},
+    'agent.evidence_threshold': {
+        'field': 'agent.scope', 'on': ['retrieve', 'full'],
+        'reason': 'nothing asks whether the evidence is sufficient — retrieval '
+                  'runs once'},
+    'agent.max_revisions': {
+        'field': 'agent.scope', 'on': ['generate', 'full'],
+        'reason': 'this scope does not own generation, so the answerer writes '
+                  'once'},
+    'agent.critic': {
+        'field': 'agent.scope', 'on': ['generate', 'full'],
+        'reason': 'this scope does not own generation, so there is no draft to '
+                  'critique'},
+    'agent.max_llm_calls': {
+        'field': 'agent.scope', 'on': [s for s in SCOPES if s],
+        'reason': 'no agent is running, so there is no loop to put a ceiling on'},
+    'agent.plan_model': {
+        'field': 'agent.scope', 'on': ['retrieve', 'full'],
+        'reason': 'planning, rewriting and the sufficiency verdict all belong '
+                  'to the retrieval loop'},
+    'agent.critic_model': {
+        'field': 'agent.critic', 'on': [c for c in CRITICS if c != 'none'],
+        'reason': 'the critic is off, so nothing reads a critic model'},
 }
 
 
@@ -400,6 +450,10 @@ STEPS = (
     Step('generation', 'Generation', 'Generation & scoring',
          'Turns the retrieved contexts into a Farsi answer, refuses when the '
          'diary is silent, and grades what it wrote.'),
+    Step('agent', 'Agent', 'Agent — the loop around the stages',
+         'Off by default. Hands one stage above to a bounded LangGraph loop that '
+         'can look again: retrieval, generation, or both. It changes no knob '
+         'above it — it runs them repeatedly and decides when to stop.'),
 )
 
 
@@ -537,10 +591,39 @@ class GenerationConfig:
 
 
 @dataclass(frozen=True)
+class AgentConfig:
+    """Which stage a bounded loop owns, and how far it may go.
+
+    **Nothing here is an index field**, so no scope enters
+    `IndexConfig.fingerprint()`: all four sweep free against a single build,
+    exactly as the four `summary_scope` values do. That is the property that
+    makes a 2x2 affordable to measure at all — a scope in the fingerprint would
+    mean four 167-session rebuilds to fill one table.
+
+    Every loop is bounded twice, by shape and by cost. `max_hops` and
+    `max_revisions` bound how many times the graph may go round;
+    `max_llm_calls` bounds what that is allowed to cost, because a
+    shape-bounded loop can still be expensive and a knob nobody can afford to
+    sweep is not a knob. Whichever cap ends a run is named in `agent_stop` on
+    the row.
+    """
+    scope: str = ''                  # '' | retrieve | generate | full
+    max_hops: int = 3                # retrieval loops; retrieve/full
+    rewrite: bool = True             # rewrite the query between hops
+    evidence_threshold: float = 0.5  # the sufficiency verdict a hop must clear
+    max_revisions: int = 1           # generation retries; generate/full
+    critic: str = 'grounded'         # grounded | both | none
+    max_llm_calls: int = 12          # the cost ceiling, per question
+    plan_model: str = ''             # '' = LabSettings.llm_model
+    critic_model: str = ''
+
+
+@dataclass(frozen=True)
 class LabConfig:
     index: IndexConfig = field(default_factory=IndexConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
+    agent: AgentConfig = field(default_factory=AgentConfig)
     label: str = ''
 
     @classmethod
@@ -553,12 +636,15 @@ class LabConfig:
         index = pick(IndexConfig, data.get('index'))
         retrieval = pick(RetrievalConfig, data.get('retrieval'))
         generation = pick(GenerationConfig, data.get('generation'))
+        agent = pick(AgentConfig, data.get('agent'))
         return cls(index=index.normalized(), retrieval=retrieval.normalized(),
-                   generation=generation, label=data.get('label', ''))
+                   generation=generation, agent=agent,
+                   label=data.get('label', ''))
 
     def to_dict(self) -> dict:
         return {'index': asdict(self.index), 'retrieval': asdict(self.retrieval),
-                'generation': asdict(self.generation), 'label': self.label}
+                'generation': asdict(self.generation),
+                'agent': asdict(self.agent), 'label': self.label}
 
     def validate(self) -> list[str]:
         bad = []
@@ -571,7 +657,9 @@ class LabConfig:
                   (self.retrieval.retriever, RETRIEVERS, 'retriever'),
                   (self.retrieval.reranker, RERANKERS, 'reranker'),
                   (self.retrieval.grader, GRADERS, 'grader'),
-                  (self.generation.answerer, ANSWERERS, 'answerer'))
+                  (self.generation.answerer, ANSWERERS, 'answerer'),
+                  (self.agent.scope, SCOPES, 'agent scope'),
+                  (self.agent.critic, CRITICS, 'agent critic'))
         for value, allowed, name in checks:
             if value not in allowed:
                 bad.append(f'unknown {name}: {value!r} (expected one of '
@@ -597,6 +685,36 @@ class LabConfig:
                 bad.append('min_group must be >= 2 — a group of one is a chunk')
             if self.index.graph_knn < 1 and self.index.graph_source in KNN_SOURCES:
                 bad.append('graph_knn must be >= 1')
+        # A scope this installation cannot run is refused, never served by the
+        # fixed pipeline — the `leiden` rule applied to a loop. A row labelled
+        # `scope=full` that ran no agent is the worst artefact this lab can
+        # produce, because no other field on it disagrees.
+        if self.agent.scope in SCOPES and self.agent.scope:
+            from .agent import EXTRA, agent_available
+            if not agent_available():
+                bad.append(
+                    f'agent scope {self.agent.scope!r} needs a package this '
+                    f'installation does not have: install it with {EXTRA}. It '
+                    f'is refused rather than run without the agent.')
+            # The agent writes with a model, so under `extractive` — which quotes
+            # the corpus — there is nothing to critique and nothing a revision
+            # could change. A validation error rather than a silent promotion of
+            # the answerer: the row would then name a generation this run did not
+            # perform.
+            elif (self.agent.scope in ('generate', 'full')
+                    and self.generation.answerer != 'llm'):
+                bad.append(
+                    f'agent scope {self.agent.scope!r} owns generation, so the '
+                    f'answerer must be llm (it is '
+                    f'{self.generation.answerer!r}): the agent drafts, '
+                    f'critiques and revises with a model')
+            if self.agent.max_hops < 1:
+                bad.append('agent max_hops must be >= 1 — a scope that owns '
+                           'retrieval still retrieves once')
+            if self.agent.max_revisions < 0:
+                bad.append('agent max_revisions must be >= 0')
+            if self.agent.max_llm_calls < 1:
+                bad.append('agent max_llm_calls must be >= 1')
         # A model belongs to exactly one backend. Loading the backend's default
         # instead of the model that was asked for would produce a run labelled
         # with one encoder that measured a different one — the single worst
@@ -859,6 +977,55 @@ HELP = {
         'model. The facts are English and the answers Farsi, so no lexical metric '
         'can do this — and it is the metric that exposed generation as the '
         'bottleneck (coverage 0.261 against faithfulness 0.743).'),
+    'agent.scope': (
+        'Which stage a bounded loop is allowed to own, and the only setting '
+        'here that changes what runs. "off" is the fixed pipeline every number '
+        'in docs/report was measured on. "retrieval" lets the agent look again: '
+        'plan → retrieve → is this enough? → rewrite → retrieve, with '
+        'generation left exactly as it is. "generation" holds retrieval fixed '
+        'and lets the agent draft, critique its own draft against the retrieved '
+        'text, and revise. "both" is the two together plus the one edge neither '
+        'has alone — a bad critique can send it back for different evidence. '
+        'The four are a 2×2 on purpose: "both" changes two things at once, so '
+        'it means something only beside the two middle rows and nothing on its '
+        'own. Every retrieval and generation knob above still applies on every '
+        'hop; the agent runs them repeatedly, it does not replace them.'),
+    'agent.max_hops': (
+        'How many times the retrieval loop may go round before it settles for '
+        'what it has. Each hop is a fresh retrieval plus a sufficiency verdict, '
+        'so this is the retrieval scope\'s cost dial. 1 makes the agent a single '
+        'extra model call over the fixed pipeline, which is the honest floor to '
+        'compare the rest against.'),
+    'agent.rewrite': (
+        'Rewrite the query between hops, rather than searching the same words '
+        'again. Off, the hops differ only in what the sufficiency verdict asked '
+        'for — which is the control that says whether rewriting was the useful '
+        'part of the loop or whether looking twice was.'),
+    'agent.evidence_threshold': (
+        'The sufficiency verdict a hop has to clear for the agent to stop '
+        'looking. High values hop more and cost more; low values make the loop '
+        'a formality. An unreadable verdict counts as *insufficient* — never as '
+        'a number that clears this bar — because a model that cannot be reached '
+        'must not look like a loop that succeeded.'),
+    'agent.max_revisions': (
+        'How many times a refused draft may be rewritten. 0 means the critic '
+        'reports and nothing acts on it, which is worth running: it separates '
+        '"the critic was right" from "the revision helped".'),
+    'agent.critic': (
+        'What the agent checks before it ships a draft. "grounded" asks only '
+        'whether every claim is supported by the retrieved text — the '
+        'hallucination check. "both" also asks whether the draft actually '
+        'answers the question, which is the failure the key-facts judge '
+        'measured (coverage 0.261 against faithfulness 0.743). "none" ships the '
+        'first draft and is the control: a generation row that cannot beat it '
+        'paid for a critique that changed nothing.'),
+    'agent.max_llm_calls': (
+        'A hard ceiling on model calls per question, whatever the loop still '
+        'wants to do. The shape caps above bound how many times it goes round; '
+        'this bounds what that costs, because a judged sweep multiplies it by '
+        'thirty questions and four candidates. When this is what ends a run the '
+        'row says so ("call-cap"), so a cheap-looking score can never be a '
+        'truncated loop nobody noticed.'),
     'run.mode': (
         'Where the LLM stages run. "Local (Ollama)" is the lab default — free '
         'and private — and resets every stage to the lab\'s own defaults. '

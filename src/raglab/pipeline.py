@@ -470,18 +470,37 @@ def _extractive_answer(outcome: Outcome, limit: int = 3) -> str:
     return ' '.join(lines)
 
 
+def context_blocks(outcome: Outcome) -> str:
+    """The retrieved evidence as the answerer sees it: labelled, dated, and
+    **never truncated**.
+
+    Shared with `agent.py` rather than rebuilt there, and that is a measurement
+    property rather than tidiness. The agent's `generate` scope exists to answer
+    "does a critique loop write better answers from the *same* evidence?", so a
+    draft node with a shorter block of its own would make the scope partly a
+    measurement of truncation. Found the expensive way on 2026-08-13: the agent
+    cut each context to 900 characters, and under the `session` chunker the
+    sentence answering q-sh-004 sat past the cut — so `full` answered from a
+    different fight while `retrieve`, which routes through the answerer below,
+    got it right from the identical contexts.
+
+    The length limit is applied one stage earlier and differently:
+    `_fit_budget` drops whole contexts to `max_context_chars`, because cutting a
+    chunk mid-sentence is the exact failure that function exists to prevent.
+    """
+    return '\n\n'.join(
+        f'[{context.session_id or context.chunk_id} | {context.date}]\n'
+        f'{context.text}' for context in outcome.contexts)
+
+
 def _llm_answer(outcome: Outcome, llm, model: str) -> str:
     if llm is None:
         return REFUSAL
-    blocks = []
-    for context in outcome.contexts:
-        label = context.session_id or context.chunk_id
-        blocks.append(f'[{label} | {context.date}]\n{context.text}')
     try:
         turn = lab_chat(llm, [{'role': 'system', 'content': ANSWER_PROMPT},
                               {'role': 'user', 'content':
                                f"سؤال: {outcome.question}\n\nتکه‌های دفترچه:\n"
-                               + '\n\n'.join(blocks)}], model)
+                               + context_blocks(outcome)}], model)
         return (turn.content or '').strip() or REFUSAL
     except Exception as error:
         outcome.diagnostics['answer_error'] = str(error)[:200]

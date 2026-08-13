@@ -197,7 +197,7 @@ def create_inspector_app() -> FastAPI:
             quotes = [ev['quote'] for ev in question.get('evidence', [])]
             retrieval = evaluate.trace_row(
                 question, trace,
-                gold_available=gold_available(index, quotes))
+                gold_present=gold_available(index, quotes))
             report('answering', 0.85)
             outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
                                       models=roles)

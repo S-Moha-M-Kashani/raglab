@@ -14,14 +14,34 @@ def test_panel_is_served(client):
     assert 'RAG Lab' in page.text
 
 
+def test_the_panels_style_and_script_are_served_as_their_own_files(client):
+    """The markup, the style and the script were split into three files —
+    `index.html`, `panel.css`, `panel.js` — and a split that is not routed is
+    just a dead file next to the one still being served. This pins the two
+    new routes rather than only the files on disk."""
+    css = client.get('/panel.css')
+    assert css.status_code == 200
+    assert css.headers['content-type'].startswith('text/css')
+    assert '--step-index' in css.text
+
+    js = client.get('/panel.js')
+    assert js.status_code == 200
+    assert js.headers['content-type'].startswith('application/javascript')
+    assert 'model_roles' in js.text
+
+    html = client.get('/').text
+    assert '/panel.css' in html
+    assert '/panel.js' in html
+
+
 # --- the standalone panel: models, colours, metrics ---------------------
 
 def test_the_standalone_panel_offers_the_model_pickers_too():
     """The lab still runs without a board, and that panel must not be the one
     place where a model is hard-coded."""
     from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'model_roles' in html and 'rag-model' in html
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
+    assert 'model_roles' in js and 'rag-model' in js
 
 
 def test_the_standalone_panel_reads_only_fields_the_lab_still_produces():
@@ -46,17 +66,18 @@ def test_the_standalone_panel_reads_only_fields_the_lab_still_produces():
 
 def test_the_standalone_panel_offers_the_embedding_models_too():
     from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'embed_models' in html and 'embedder_hints' in html
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
+    assert 'embed_models' in js and 'embedder_hints' in js
 
 
 def test_the_standalone_panel_colour_codes_the_steps_too():
     """One ink per step, defined once as a token and applied by data-step, so the
     two panels cannot end up disagreeing about what orange means."""
     from raglab.server import STATIC
+    css = (STATIC / 'panel.css').read_text(encoding='utf-8')
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
     for token in ('--step-index', '--step-retrieval', '--step-generation'):
-        assert token in html, token
+        assert token in css, token
     assert 'data-step="index"' in html
     assert 'data-step="retrieval"' in html
     assert 'data-step="generation"' in html
@@ -67,10 +88,10 @@ def test_the_standalone_panel_takes_its_metric_definitions_from_the_service():
     explain a metric the same way the board's page does, or the same number ends
     up with two names and one definition."""
     from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'OPTIONS.metrics' in html
-    assert 'metric.${key}' in html or "metric.' + key" in html
-    assert 'SCORE_CARDS' not in html, 'the hard-coded score list is back'
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
+    assert 'OPTIONS.metrics' in js
+    assert 'metric.${key}' in js or "metric.' + key" in js
+    assert 'SCORE_CARDS' not in js, 'the hard-coded score list is back'
 
 
 def test_the_standalone_panel_says_which_backends_consult_the_model():
@@ -101,10 +122,11 @@ def test_the_standalone_panel_ranks_the_leaderboard_by_the_deciding_score():
     to say which column chose the architecture."""
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'ragas_decision' in html
     # And by the score *with its error*: neither panel may show the mean alone,
     # because the candidates in a sweep sit inside each other's error bars.
-    assert 'ragas_decision_stderr' in html
+    assert 'ragas_decision_stderr' in js
 
 
 # --- progress and control -------------------------------------------------
@@ -112,16 +134,17 @@ def test_the_standalone_panel_ranks_the_leaderboard_by_the_deciding_score():
 def test_the_panel_reads_the_progress_detail():
     """A judged local run spends hours in one stage, and the detail is the
     only thing that moves — the panel may not quietly stop showing it."""
-    panel = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    panel = (RAGLAB_DIR / 'static' / 'panel.js').read_text(encoding='utf-8')
     assert 'job.detail' in panel
 
 
 def test_the_panel_offers_a_cooperative_stop():
     """A run that cannot be stopped is a run you kill the process to escape,
     and the ledger row it was about to write goes with it."""
-    panel = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
-    assert 'Stop experiment' in panel
-    assert "'/api/jobs/' + jobId + '/cancel'" in panel
+    html = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    js = (RAGLAB_DIR / 'static' / 'panel.js').read_text(encoding='utf-8')
+    assert 'Stop experiment' in html
+    assert "'/api/jobs/' + jobId + '/cancel'" in js
 
 
 def test_the_panel_watches_the_ask_as_a_job():
@@ -183,9 +206,10 @@ def test_the_panel_lists_every_experiment_beside_the_ranked_runs(client):
     business in a numbered table. So the ledger is a second table beside it,
     listing everything that ran."""
     html = client.get('/').text
+    js = client.get('/panel.js').text
     assert 'id="board"' in html, 'the ranked leaderboard stays'
     assert 'id="experiments"' in html
-    assert '/api/experiments' in html
+    assert '/api/experiments' in js
 
 
 # The served panel's own markup.
@@ -212,13 +236,15 @@ def test_both_lab_pages_share_one_column_sorter(client):
 
     assert (STATIC / 'sorttable.js').exists()
     panel = client.get('/').text
+    js = client.get('/panel.js').text
     assert 'sorttable.js' in panel
     # The two tables worth sorting, both marked at the point they are rendered.
-    assert panel.count('sortable') >= 2
+    assert js.count('sortable') >= 2
     # The hardcoded arrow is gone from the leaderboard's header: an indicator
     # that cannot move is a lie the moment you sort by anything else, and the
     # column's role is stated in prose beside the table instead.
     assert 'ragas_decision ▼' not in panel
+    assert 'ragas_decision ▼' not in js
 
     inspector = (STATIC / 'inspector.html').read_text(encoding='utf-8')
     assert 'sorttable.js' in inspector
@@ -235,7 +261,7 @@ def test_the_panel_keeps_its_experiment_and_its_settings_across_a_reload(client)
     settings on screen. Both are remembered in localStorage and restored on
     boot — the last experiment by id, re-read from the service so the page
     never renders a stale copy of a run that has since been deleted."""
-    html = client.get('/').text
+    html = client.get('/panel.js').text
     assert 'localStorage' in html
     assert 'lodestar:raglab-last-run' in html
     assert 'lodestar:raglab-config' in html
@@ -254,8 +280,8 @@ def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client):
     # Served, not counted in the browser: the page cannot know how many files it
     # was not sent.
     assert body['total'] >= len(body['runs'])
-    html = client.get('/').text
-    assert '/api/evaluations?limit=' in html, 'the panel must ask for a stated limit'
+    js = client.get('/panel.js').text
+    assert '/api/evaluations?limit=' in js, 'the panel must ask for a stated limit'
 
 
 # --- the project's own RAG settings, in one click --------------------------
@@ -267,7 +293,8 @@ def test_the_panel_fills_the_projects_settings_from_the_served_preset(client):
     the same reason the mode dropdown is served. Settings only: a preset
     that also started a job would download a large encoder for someone who
     only wanted to see what the real system uses."""
-    panel = client.get('/').text
+    html = client.get('/').text
+    panel = client.get('/panel.js').text
 
     assert 'OPTIONS.production' in panel
 
@@ -282,7 +309,8 @@ def test_the_panel_fills_the_projects_settings_from_the_served_preset(client):
     handler = handler[:handler.index('\n};')]
     assert '/api/indexes' not in handler, 'the preset must not start a build'
     assert 'doRetrieve' not in handler, 'the preset must not start a retrieval'
-    assert 'then run' not in panel, 'the button no longer claims to run'
+    assert 'then run' not in panel and 'then run' not in html, (
+        'the button no longer claims to run')
 
 
 def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
@@ -295,7 +323,9 @@ def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
     with the lab default is what has to be noticed."""
     body = client.get('/api/options').json()
     preset, defaults = body['production'], body['defaults']
-    panel = client.get('/').text
+    # A control may be marked up in the page or wired up in its script, so
+    # both are searched — the split moved `$('key')` calls into panel.js.
+    panel = client.get('/').text + client.get('/panel.js').text
 
     unshown = {}
     for group in ('index', 'retrieval', 'generation', 'agent'):
@@ -320,7 +350,7 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it():
     """A hint that lists some of the ways out is worse than one that lists
     none, because a reader takes it for the whole set — so this fails the
     day a backend is added and the sentence is not."""
-    page = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    page = (RAGLAB_DIR / 'static' / 'panel.js').read_text(encoding='utf-8')
     hint = [line for line in page.splitlines() if 'no LLM backend' in line]
     assert hint, 'the panel must say what to do when no backend is reachable'
     for provider in config.LLM_PROVIDERS:

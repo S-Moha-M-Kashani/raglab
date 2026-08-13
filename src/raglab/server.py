@@ -308,8 +308,19 @@ def create_app() -> FastAPI:
 
     @app.get('/sorttable.js')
     def sorttable():
-        """The column sorter, shared with the Inspector — the only static file served outside the one page."""
+        """The column sorter, shared with the Inspector — one of three static files served outside the one page."""
         return FileResponse(STATIC / 'sorttable.js',
+                            media_type='application/javascript')
+
+    @app.get('/panel.css')
+    def panel_css():
+        """The panel's style, extracted from index.html's <style> block."""
+        return FileResponse(STATIC / 'panel.css', media_type='text/css')
+
+    @app.get('/panel.js')
+    def panel_js():
+        """The panel's script, extracted from index.html's <script> block."""
+        return FileResponse(STATIC / 'panel.js',
                             media_type='application/javascript')
 
     @app.get('/api/options')

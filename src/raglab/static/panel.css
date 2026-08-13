@@ -1,0 +1,385 @@
+/* Colour is spent in exactly one place: the three step inks (index saffron,
+   retrieval verdigris, generation lapis) are the only saturated hues on the
+   page, carrying meaning the service serves (`/api/options` → steps).
+   Everything else is graphite and porcelain so they read. */
+:root {
+  /* the machine */
+  --chassis: #101620;
+  --chassis-soft: #1c2734;
+  --chassis-ink: #c3cdda;
+  --chassis-ink-soft: #7d8b9c;
+  /* the plates */
+  --plate: #edf0f3;
+  --card: #ffffff;
+  --rule: #d3dae2;
+  --rule-soft: #e8ecf1;
+  --ink: #17202b;
+  --ink-soft: #5b6875;
+  /* One ink per pipeline step. The Inspector on :9003 defines the same three
+     tokens with the same values — the two pages must not disagree. */
+  --step-index: oklch(0.56 0.14 58);        /* saffron  — what gets stored */
+  --step-retrieval: oklch(0.49 0.11 168);   /* verdigris — what gets found */
+  --step-generation: oklch(0.50 0.15 262);  /* lapis    — what gets written */
+  /* Plum: the fourth step, a loop around the other three rather than a
+     stage colour, distinct enough that a hop count reads as its own thing. */
+  --step-agent: oklch(0.48 0.16 318);       /* plum     — what loops */
+  /* Lifted for the chassis: an ink tuned for porcelain reads too dark there. */
+  --step-index-lit: oklch(0.78 0.13 62);
+  --step-retrieval-lit: oklch(0.75 0.11 168);
+  --step-generation-lit: oklch(0.76 0.11 258);
+  --step-agent-lit: oklch(0.77 0.12 318);
+  --alert: #a33227;
+  --alert-wash: #fdf4f2;
+  --good: oklch(0.49 0.11 168);
+  --shadow: 0 1px 2px rgba(16, 22, 32, .05), 0 10px 24px -18px rgba(16, 22, 32, .5);
+  /* A slab serif for the machine's own voice, a plain sans for instructions,
+     and a tabular mono for every number — three faces, three jobs. All resolve
+     locally: the lab runs offline and must never wait on a font. */
+  --slab: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+}
+[data-step="index"] { --step: var(--step-index); }
+[data-step="retrieval"] { --step: var(--step-retrieval); }
+[data-step="generation"] { --step: var(--step-generation); }
+[data-step="agent"] { --step: var(--step-agent); }
+.chassis [data-step="index"], .spine [data-step="index"] { --step: var(--step-index-lit); }
+.chassis [data-step="retrieval"], .spine [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
+.chassis [data-step="generation"], .spine [data-step="generation"] { --step: var(--step-generation-lit); }
+.chassis [data-step="agent"], .spine [data-step="agent"] { --step: var(--step-agent-lit); }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0 0 5rem; background: var(--plate); color: var(--ink);
+  font: 13px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+
+/* ── the chassis ─────────────────────────────────────────────────────────── */
+.chassis {
+  background: var(--chassis); color: var(--chassis-ink);
+  padding: 1rem 1.4rem .6rem;
+}
+.chassis a { color: #fff; }
+.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
+            max-width: 1560px; margin: 0 auto; }
+h1 {
+  font: 600 1.32rem/1 var(--slab); letter-spacing: -.01em; margin: 0;
+  color: #fff;
+}
+h1 .lab-mark {
+  /* The lab's own initial, set as a plate on the chassis. One ornament. */
+  display: inline-block; margin-right: .5rem; padding: .18rem .42rem;
+  background: var(--step-index); color: var(--chassis);
+  font: 700 .82rem/1 var(--mono); vertical-align: .18em; border-radius: 2px;
+}
+#corpus {
+  font: .74rem/1.4 var(--mono); color: var(--chassis-ink-soft);
+  letter-spacing: -.01em;
+}
+.chassis-right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+/* A door to another service, so it looks like a link and not like one of this
+   panel's own run buttons. */
+.lab-link {
+  align-self: center; color: var(--step-generation); text-decoration: none;
+  font: 600 .76rem/1 var(--sans);
+  border-bottom: 1px solid var(--step-generation); padding-bottom: 2px;
+}
+.lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.chassis button.ghost { color: var(--chassis-ink); border-color: #35424f; }
+.chassis button.ghost:hover { background: var(--chassis-soft); color: #fff; }
+#productionNote { font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft);
+                  align-self: center; max-width: 40ch; }
+
+/* Capability chips: what this installation can actually do, before you spend an
+   hour finding out. Green edge = ready, brick = not. */
+.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem auto 0;
+         max-width: 1560px; }
+.chip {
+  font: .68rem/1.5 var(--mono); padding: .05rem .45rem; border-radius: 2px;
+  background: var(--chassis-soft); color: var(--chassis-ink-soft);
+  border-left: 2px solid transparent;
+}
+.chip.on { border-left-color: var(--good); color: var(--chassis-ink); }
+.chip.off { border-left-color: var(--alert); color: #e6b4ad; }
+
+.findings { max-width: 1560px; margin: .55rem auto 0; }
+.findings > summary {
+  cursor: pointer; color: var(--chassis-ink-soft); font-size: .74rem;
+  list-style: none;
+}
+.findings > summary::before { content: "▸ "; }
+.findings[open] > summary::before { content: "▾ "; }
+.findings > summary:hover { color: #fff; }
+.findings ul { margin: .5rem 0 .3rem; padding-left: 1.1rem; columns: 2; column-gap: 2rem; }
+.findings li { font-size: .74rem; line-height: 1.5; color: var(--chassis-ink-soft);
+               margin-bottom: .35rem; break-inside: avoid; }
+.findings b { color: var(--chassis-ink); }
+.findings code { font: .72rem var(--mono); color: #fff; }
+@media (max-width: 900px) { .findings ul { columns: 1; } }
+
+/* ── the spine ───────────────────────────────────────────────────────────────
+   One element doing three jobs: legend for the three inks, progress bar for
+   whatever job is running, and the way to a stage's controls. On the chassis
+   because it belongs to the machine, not to any one plate. */
+.spine { background: var(--chassis); padding: 0 1.4rem .7rem; }
+.spine-inner { max-width: 1560px; margin: 0 auto; }
+.spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.spine-seg {
+  appearance: none; border: 0; text-align: left; cursor: pointer;
+  background: var(--chassis-soft); color: var(--chassis-ink-soft);
+  padding: .3rem .55rem .26rem; border-top: 3px solid var(--step);
+  font: inherit; opacity: .7; transition: opacity .15s, background .15s;
+  display: flex; align-items: baseline; gap: .5rem;
+}
+.spine-seg:hover, .spine-seg[aria-current="step"] { opacity: 1; background: #222e3c; }
+.spine-seg b {
+  color: var(--step); font: 700 .66rem/1.6 var(--sans);
+  text-transform: uppercase; letter-spacing: .14em;
+}
+/* The note lives on the card, where the controls it describes are. Here it is a
+   hint, so the spine stays one line high whether or not anything is running. */
+.spine-seg span { font-size: .68rem; line-height: 1.6; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+.spine-track { height: 4px; background: var(--chassis-soft); margin-top: 2px; }
+.spine-track i { display: block; height: 4px; background: var(--step, var(--chassis-ink-soft));
+                 width: 0; transition: width .25s linear; }
+.spine-caption {
+  display: flex; gap: .6rem; align-items: baseline; margin-top: .4rem;
+  font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
+}
+.spine-caption b { color: var(--step, #fff); font-weight: 600; }
+.spine-caption .right { margin-left: auto; }
+
+/* ── the bench ───────────────────────────────────────────────────────────── */
+main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
+.bench {
+  display: grid; gap: 1rem;
+  /* Four step cards, then the models column — pinned explicitly below rather
+     than left to auto-placement, which would wrap the models card onto a
+     second row instead of keeping it in the one right-hand column. */
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 300px);
+  align-items: start;
+}
+/* The models card holds the last column at every width; the step cards take the
+   rest and wrap among themselves. */
+.bench > .rag-models { grid-column: -2 / -1; }
+@media (max-width: 1400px) { .bench { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px); } }
+@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
+@media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.stack { display: grid; gap: 1rem; margin-top: 1rem; }
+
+.card {
+  background: var(--card); border: 1px solid var(--rule); border-radius: 5px;
+  box-shadow: var(--shadow); padding: .1rem .9rem 1rem;
+  /* min-width:0, else a grid item defaults to min-width:auto and grows to its
+     widest child (the leaderboard), so the page scrolls sideways instead of
+     just that one table. */
+  min-width: 0;
+}
+.card[data-step] { border-top: 3px solid var(--step); }
+.card-head {
+  display: flex; align-items: baseline; gap: .5rem; margin: .85rem 0 .2rem;
+}
+.card-head h2 {
+  margin: 0; font: 700 .72rem/1.4 var(--sans); text-transform: uppercase;
+  letter-spacing: .13em; color: var(--ink);
+}
+.card[data-step] .card-head h2 { color: var(--step); }
+.card-head .num {
+  font: 700 .7rem/1 var(--mono); color: var(--step, var(--ink-soft));
+  border: 1px solid currentColor; border-radius: 2px; padding: .12rem .28rem;
+}
+.card-note { margin: .1rem 0 .7rem; font-size: .74rem; color: var(--ink-soft); }
+h3 { font: 700 .68rem/1.4 var(--sans); text-transform: uppercase;
+     letter-spacing: .12em; color: var(--ink-soft); margin: 1rem 0 .4rem; }
+
+/* ── controls ────────────────────────────────────────────────────────────── */
+.field { margin-top: .6rem; }
+.field-row { display: flex; gap: .6rem; }
+.field-row > * { flex: 1; min-width: 0; margin-top: .6rem; }
+label {
+  display: block; margin-bottom: .18rem; color: var(--ink-soft);
+  font: 600 .67rem/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
+}
+label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+select, input[type=number], input[type=text], input[type=password], textarea {
+  width: 100%; font: 13px/1.4 var(--sans); padding: .34rem .4rem; color: var(--ink);
+  background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+}
+input[type=number], input[type=password] { font-family: var(--mono); font-size: 12.5px; }
+select:hover, input:hover { border-color: var(--ink-soft); }
+textarea { min-height: 3.2rem; resize: vertical; }
+.switches { display: flex; flex-wrap: wrap; gap: .1rem .9rem; margin-top: .55rem; }
+.switches label {
+  display: flex; align-items: center; gap: .35rem; margin: 0; font-weight: 400;
+  text-transform: none; letter-spacing: 0; font-size: .78rem; color: var(--ink);
+}
+input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
+.actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; }
+button {
+  font: 600 .78rem/1.4 var(--sans); padding: .42rem .85rem; cursor: pointer;
+  color: #fff; background: var(--chassis); border: 1px solid var(--chassis);
+  border-radius: 3px;
+}
+button:hover { background: var(--chassis-soft); }
+button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+button.ghost:hover { background: var(--plate); border-color: var(--ink-soft); }
+button.step-action { background: var(--step); border-color: var(--step); }
+button.step-action:hover { filter: brightness(1.12); }
+button:disabled { opacity: .4; cursor: default; }
+
+/* A knob the current pipeline would ignore: dimmed and locked, but its reason
+   stays at full contrast, because that sentence is the only part still worth
+   reading. The control keeps its box so nothing below it shifts when a dropdown
+   changes. */
+.rag-field-off { opacity: 0.5; }
+.rag-field-off .rag-when-dep {
+  opacity: 1; display: block; font-style: italic; font-size: .7rem;
+  color: var(--ink-soft); margin-top: .2rem;
+}
+.rag-field-off input, .rag-field-off select { cursor: not-allowed; }
+
+button.why {
+  font: 700 .6rem/1 var(--mono); padding: .12rem .3rem; margin-left: .3rem;
+  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
+  border-radius: 999px; vertical-align: middle;
+}
+button.why:hover { color: var(--card); background: var(--step, var(--chassis));
+                   border-color: var(--step, var(--chassis)); }
+/* pre-wrap because one explainer — the import control's — is a JSON shape, and
+   a shape flattened into a paragraph is prose about nesting rather than the
+   nesting. Every other text in the registry is a single line with no leading
+   space, so they render exactly as they did. */
+p.explain {
+  margin: .3rem 0 .1rem; font-size: .73rem; line-height: 1.5; color: var(--ink-soft);
+  border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
+  background: var(--plate); padding: .35rem .55rem; border-radius: 0 3px 3px 0;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* ── the model rail ──────────────────────────────────────────────────────── */
+.rag-models .step {
+  border-left: 3px solid var(--step); padding: .1rem 0 .4rem .55rem;
+  margin-bottom: .7rem;
+}
+.step-tag {
+  font: 700 .62rem/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
+  color: var(--step);
+}
+/* The same tag used to head a group of knobs *inside* a card, where it needs a
+   rule above it to say where one group of controls ends and the next begins —
+   a card with two subjects and no divider reads as one long list. */
+.group-tag {
+  margin: 1.1rem 0 .5rem; padding-top: .7rem;
+  border-top: 1px solid var(--rule-soft);
+}
+
+/* ── readings ────────────────────────────────────────────────────────────── */
+.scores { display: grid; gap: .55rem;
+          grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
+.score {
+  border: 1px solid var(--rule-soft); border-left: 3px solid var(--rule);
+  border-radius: 3px; padding: .45rem .6rem; background: var(--card);
+}
+.score[data-step] { border-left-color: var(--step); }
+.score b {
+  display: block; font: 400 1.5rem/1.15 var(--mono); letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.score > span { display: block; color: var(--ink-soft); font-size: .67rem;
+                text-transform: uppercase; letter-spacing: .07em; }
+.score[data-step] > span:first-child { color: var(--step); }
+.score .bar { height: 3px; background: var(--rule-soft); margin-top: .35rem; }
+.score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
+.score .muted { text-transform: none; letter-spacing: 0; font-size: .68rem; }
+
+table { border-collapse: collapse; width: 100%; font: 12.5px/1.45 var(--mono);
+        font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: .26rem .45rem;
+         border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th {
+  color: var(--ink-soft); font: 600 .66rem/1.5 var(--sans); text-transform: uppercase;
+  letter-spacing: .07em; border-bottom: 1px solid var(--rule); position: sticky;
+  top: 0; background: var(--card);
+}
+th[data-step] { color: var(--step); }
+tbody tr:hover { background: var(--plate); }
+td a { color: var(--step-generation); text-decoration: none; }
+td a:hover { text-decoration: underline; }
+/* A sortable header looks pressable and says which way it is pointing. The
+   glyph is a pseudo-element so it never lands in the cell's text — the e2e
+   suite reads these headers as strings. */
+th.sort-col { cursor: pointer; user-select: none; }
+th.sort-col:hover { color: var(--ink); }
+th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
+th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
+/* The two widest tables scroll inside themselves rather than dragging the whole
+   page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
+   neither can honestly be narrowed: every column is a knob you compare rows on. */
+#board .board-group { overflow-x: auto; margin-bottom: 1.2rem; }
+#board .board-group h3 { margin-top: .2rem; }
+#experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
+#rows { max-height: 26rem; overflow-y: auto; }
+
+.muted { color: var(--ink-soft); }
+/* Attached to the score it qualifies, quieter but never dropped. */
+.stderr { font-size: .8em; font-weight: 400; color: var(--ink-soft);
+          white-space: nowrap; }
+.note {
+  border-left: 3px solid var(--alert); padding: .35rem .6rem; font-size: .75rem;
+  background: var(--alert-wash); margin: .35rem 0; border-radius: 0 3px 3px 0;
+}
+.pill {
+  font: .66rem/1.6 var(--mono); padding: 0 .35rem; border: 1px solid var(--rule);
+  border-radius: 2px; color: var(--ink-soft);
+}
+details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
+.right { margin-left: auto; }
+.hidden { display: none; }
+.fa { direction: rtl; text-align: right; font-family: "Vazirmatn", Tahoma, sans-serif; }
+.section-meta { font: .72rem/1.5 var(--mono); color: var(--ink-soft); }
+.prose { font-size: .75rem; line-height: 1.55; color: var(--ink-soft);
+         margin: .1rem 0 .7rem; max-width: 92ch; }
+.prose b { color: var(--ink); }
+.prose code { font: .72rem var(--mono); }
+#indexInfo, #retrieveInfo { margin-top: .6rem; font-size: .74rem; color: var(--ink-soft); }
+#datasetInfo, #importInfo { margin-top: .3rem; font-size: .72rem; line-height: 1.45; }
+#dataset-file { font-size: .74rem; padding: .25rem; }
+#experimentDetail pre, #jobBox pre {
+  white-space: pre-wrap; font: 11.5px/1.5 var(--mono); max-height: 30rem;
+  overflow: auto; background: var(--plate); padding: .5rem; border-radius: 3px;
+}
+
+/* Only the tokens move: every rule above is written in them, so there is no
+   second stylesheet to keep in step with the Inspector's own dark theme. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --plate: #151b24;
+    --card: #1e2733;
+    --rule: #33404f;
+    --rule-soft: #2c3745;
+    --ink: #e3e9ef;
+    --ink-soft: #97a4b3;
+    --alert: #d98376;
+    --alert-wash: #2a1d1b;
+    /* On this theme every surface is the chassis, so a step reads at the weight
+       the chassis needs. */
+    --step-index: var(--step-index-lit);
+    --step-retrieval: var(--step-retrieval-lit);
+    --step-generation: var(--step-generation-lit);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  }
+  button { background: var(--step-generation); border-color: var(--step-generation);
+           color: var(--chassis); }
+  button:hover { filter: brightness(1.1); background: var(--step-generation); }
+  button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
+  button.ghost:hover { background: var(--rule-soft); }
+  button.step-action { color: var(--chassis); }
+}

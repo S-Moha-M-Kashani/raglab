@@ -643,16 +643,19 @@ def _static(name: str) -> str:
 
 
 def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
-    """One ink per step, defined once per page with the same value. The lab and
-    the Inspector are one instrument in two windows, so a step whose colour
-    exists on one page only is a legend that lies on the other."""
+    """One ink per step, defined once — in the shared tokens.css both pages
+    link before their own stylesheet — with the same value both pages read.
+    The lab and the Inspector are one instrument in two windows, so a step
+    whose colour exists on one page only is a legend that lies on the other."""
+    tokens = _static('tokens.css')
+    assert '--step-agent:' in tokens
+    assert '--step-agent-lit:' in tokens
+    # The one value both pages read, not merely a token of the same name.
+    ink = 'oklch(0.48 0.16 318)'
+    assert ink in tokens
     css, sheet = _static('panel.css'), _static('inspector.css')
     for page in (css, sheet):
-        assert '--step-agent:' in page
-        assert '--step-agent-lit:' in page
-    # The same value on both pages, not merely a token of the same name.
-    ink = 'oklch(0.48 0.16 318)'
-    assert ink in css and ink in sheet
+        assert 'var(--step-agent)' in page
     assert 'data-step="agent"' in _static('index.html')
 
 

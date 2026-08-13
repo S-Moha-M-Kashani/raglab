@@ -312,6 +312,17 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'sorttable.js',
                             media_type='application/javascript')
 
+    @app.get('/tokens.css')
+    def tokens_css():
+        """The design tokens shared with the Inspector, so a colour cannot drift apart on either page."""
+        return FileResponse(STATIC / 'tokens.css', media_type='text/css')
+
+    @app.get('/lab.js')
+    def lab_js():
+        """The utilities shared with the Inspector, so a name like escapeHtml has one behaviour, not two."""
+        return FileResponse(STATIC / 'lab.js',
+                            media_type='application/javascript')
+
     @app.get('/panel.css')
     def panel_css():
         """The panel's style, extracted from index.html's <style> block."""

@@ -960,11 +960,6 @@ function renderTable(id, head, rows) {
   return host;
 }
 
-function escapeHtml(s) {
-  return String(s === null || s === undefined ? '' : s)
-    .replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-}
-
 // How many runs the leaderboard asks for. Stated rather than left to the
 // service's default, and reported beside the table, so a truncated board says so.
 const BOARD_LIMIT = 200;

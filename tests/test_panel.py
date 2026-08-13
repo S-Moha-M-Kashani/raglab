@@ -253,6 +253,52 @@ def test_both_lab_pages_share_one_column_sorter(client):
     assert 'data-nosort' in inspector
 
 
+# The served pages' own markup, plus the routes on both services.
+def test_both_lab_pages_share_one_token_sheet_and_one_script(client, monkeypatch):
+    """tokens.css and lab.js follow the same pattern as sorttable.js: one file
+    for both pages rather than a copy each, so a design token or a utility
+    cannot drift apart on either page. This pins that both services actually
+    route them, both pages actually load them, and each loads before the
+    page's own stylesheet or script — a later link would lose the tokens to
+    the page's own overrides instead of feeding them."""
+    from fastapi.testclient import TestClient
+
+    from raglab import inspector
+    from raglab.config import LabSettings
+    from raglab.server import STATIC
+
+    assert (STATIC / 'tokens.css').exists()
+    assert (STATIC / 'lab.js').exists()
+
+    panel_html = client.get('/').text
+    tokens = client.get('/tokens.css')
+    lab = client.get('/lab.js')
+    assert tokens.status_code == 200
+    assert tokens.headers['content-type'].startswith('text/css')
+    assert lab.status_code == 200
+    assert lab.headers['content-type'].startswith('application/javascript')
+    assert (panel_html.index('href="/tokens.css"')
+            < panel_html.index('href="/panel.css"'))
+    assert (panel_html.index('src="/lab.js"')
+            < panel_html.index('src="/panel.js"'))
+
+    monkeypatch.setattr(
+        inspector, 'load_lab_settings',
+        lambda: LabSettings(openrouter_api_key='', llm_provider='fake'))
+    insp_client = TestClient(inspector.create_inspector_app())
+    inspector_html = insp_client.get('/').text
+    insp_tokens = insp_client.get('/tokens.css')
+    insp_lab = insp_client.get('/lab.js')
+    assert insp_tokens.status_code == 200
+    assert insp_tokens.headers['content-type'].startswith('text/css')
+    assert insp_lab.status_code == 200
+    assert insp_lab.headers['content-type'].startswith('application/javascript')
+    assert (inspector_html.index('href="/tokens.css"')
+            < inspector_html.index('href="/inspector.css"'))
+    assert (inspector_html.index('src="/lab.js"')
+            < inspector_html.index('src="/inspector.js"'))
+
+
 # --- the panel does not forget across a reload -----------------------------
 
 # The served panel's own markup.

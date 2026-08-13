@@ -4,10 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAG Lab</title>
+<!-- Design tokens shared with the Inspector on :9003; before panel.css so its
+     overrides still win. -->
+<link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/panel.css">
 <!-- The column sorter, shared with the Inspector: one file, so clicking a
      header means the same thing on both pages. -->
 <script src="/sorttable.js"></script>
+<!-- Shared utilities, before panel.js, which calls into it. -->
+<script src="/lab.js"></script>
 </head>
 <body>
 

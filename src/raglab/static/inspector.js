@@ -54,11 +54,6 @@ function formatConfig(cfg) {
   return `showing: ${parts.join(' · ')}`;
 }
 
-function escapeHtml(text) {
-  return String(text === null || text === undefined ? '' : text)
-    .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-
 // --- What every score means: the '!' marks, reading the lab's own text -------
 // Fetched from /api/explain rather than written here, so this page and the
 // panel on :9002 cannot end up explaining the same metric differently.

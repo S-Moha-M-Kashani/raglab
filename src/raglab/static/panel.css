@@ -2,42 +2,15 @@
    retrieval verdigris, generation lapis) are the only saturated hues on the
    page, carrying meaning the service serves (`/api/options` → steps).
    Everything else is graphite and porcelain so they read. */
+/* The shared tokens — chassis, plates, rules, ink, the step inks and the
+   three faces — live in tokens.css, linked before this file so these rules
+   still win. Only the panel's own tokens are declared here: `--good` is the
+   panel's own meaning for this value, kept distinct from the Inspector's
+   `--step-retrieval`, which happens to share it. */
 :root {
-  /* the machine */
-  --chassis: #101620;
-  --chassis-soft: #1c2734;
-  --chassis-ink: #c3cdda;
-  --chassis-ink-soft: #7d8b9c;
-  /* the plates */
-  --plate: #edf0f3;
-  --card: #ffffff;
-  --rule: #d3dae2;
-  --rule-soft: #e8ecf1;
-  --ink: #17202b;
-  --ink-soft: #5b6875;
-  /* One ink per pipeline step. The Inspector on :9003 defines the same three
-     tokens with the same values — the two pages must not disagree. */
-  --step-index: oklch(0.56 0.14 58);        /* saffron  — what gets stored */
-  --step-retrieval: oklch(0.49 0.11 168);   /* verdigris — what gets found */
-  --step-generation: oklch(0.50 0.15 262);  /* lapis    — what gets written */
-  /* Plum: the fourth step, a loop around the other three rather than a
-     stage colour, distinct enough that a hop count reads as its own thing. */
-  --step-agent: oklch(0.48 0.16 318);       /* plum     — what loops */
-  /* Lifted for the chassis: an ink tuned for porcelain reads too dark there. */
-  --step-index-lit: oklch(0.78 0.13 62);
-  --step-retrieval-lit: oklch(0.75 0.11 168);
-  --step-generation-lit: oklch(0.76 0.11 258);
-  --step-agent-lit: oklch(0.77 0.12 318);
-  --alert: #a33227;
   --alert-wash: #fdf4f2;
   --good: oklch(0.49 0.11 168);
   --shadow: 0 1px 2px rgba(16, 22, 32, .05), 0 10px 24px -18px rgba(16, 22, 32, .5);
-  /* A slab serif for the machine's own voice, a plain sans for instructions,
-     and a tabular mono for every number — three faces, three jobs. All resolve
-     locally: the lab runs offline and must never wait on a font. */
-  --slab: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
 }
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
@@ -358,22 +331,12 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
 }
 
 /* Only the tokens move: every rule above is written in them, so there is no
-   second stylesheet to keep in step with the Inspector's own dark theme. */
+   second stylesheet to keep in step with the Inspector's own dark theme.
+   The shared tokens' own dark values live in tokens.css; only the panel's
+   own tokens are redefined here. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --plate: #151b24;
-    --card: #1e2733;
-    --rule: #33404f;
-    --rule-soft: #2c3745;
-    --ink: #e3e9ef;
-    --ink-soft: #97a4b3;
-    --alert: #d98376;
     --alert-wash: #2a1d1b;
-    /* On this theme every surface is the chassis, so a step reads at the weight
-       the chassis needs. */
-    --step-index: var(--step-index-lit);
-    --step-retrieval: var(--step-retrieval-lit);
-    --step-generation: var(--step-generation-lit);
     --shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
   button { background: var(--step-generation); border-color: var(--step-generation);

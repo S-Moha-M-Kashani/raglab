@@ -204,6 +204,13 @@ def _client(monkeypatch):
     return TestClient(inspector.create_inspector_app())
 
 
+def _static(name: str) -> str:
+    """One of the browser files, as text. The Inspector's page script runs
+    against a live DOM at import, so there is no seam to import it through — the
+    agent ladder is pinned the same way."""
+    return (inspector.STATIC / name).read_text(encoding='utf-8')
+
+
 # This is an integration test (FastAPI TestClient over the read-only app).
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     client = _client(monkeypatch)
@@ -839,3 +846,79 @@ def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
     # And it did not quietly fail to record either — that would be the same bug
     # wearing an error message.
     assert 'ledger_error' not in job
+
+
+# A build on a corpus that is not the built-in diary — the shape of the fault
+# this pins: the lab names its dataset on every job it starts, and the Inspector
+# reads the fixture from somewhere else entirely.
+FAKE_OTHER_CORPUS_JOB = {
+    'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
+    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+                         'dataset': 'meetings-de'}},
+    'result': {'chunks': 1, 'chunks_by_session': [
+        {'session_id': 'mtg-0113', 'date': '2026-01-13',
+         'chunks': [{'id': 'mtg-0113:c0', 'text': 'Protokoll'}]}]}}
+
+
+# This is an integration test (FastAPI TestClient; the lab is a canned fake).
+def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
+                                                       request):
+    """Which corpus the lab is on is a fact about the whole page, not about one
+    window, so `/api/follow` answers it once.
+
+    Every finding this lab produces is a finding *about* a corpus, and the
+    Inspector's ground truth was loaded once at page load from the built-in
+    diary and never reloaded — so building an index over `meetings-de` left the
+    Chunks tab showing German sessions and the Ground Truth tab showing Farsi
+    diary questions, with nothing on screen admitting the two were different
+    corpora. Decided here rather than in the browser for the reason
+    `truth_for` exists at all: the field name belongs to one place."""
+    module = request.module
+    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
+    client = _client(monkeypatch)
+
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [FAKE_OTHER_CORPUS_JOB, FAKE_INDEX_JOB])
+    assert client.get('/api/follow').json()['dataset'] == 'meetings-de'
+
+    # The newest job wins, exactly as every other window on this page follows
+    # the newest job — switching back to the diary must switch the fixture back.
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [FAKE_INDEX_JOB, FAKE_OTHER_CORPUS_JOB])
+    assert client.get('/api/follow').json()['dataset'] == ''
+
+    # A job whose config names no index at all cannot say which corpus it ran
+    # on, so it is passed over rather than read as the built-in one: "does not
+    # say" and "says the diary" are different facts.
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [FAKE_QUERY_JOB, FAKE_OTHER_CORPUS_JOB])
+    assert client.get('/api/follow').json()['dataset'] == 'meetings-de'
+
+    # And a lab that is not running names no corpus rather than the diary.
+    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', 'http://127.0.0.1:9')
+    assert _client(monkeypatch).get('/api/follow').json()['dataset'] == ''
+
+
+# This is a unit test (it reads the browser file the way the agent-ladder test
+# does; the Inspector's page script has no module seam to import).
+def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
+    """The three things on this page that come from the fixture rather than from
+    a run — the Ground Truth tab, the ideal answer restated beside each row, and
+    the question picker — all read one map, filled by one fetch. That fetch has
+    to name the corpus, and has to happen again when the corpus changes.
+
+    The last assertion is the one that keeps the fix from breaking something
+    else: with the picker now offering another corpus's ids, a question added
+    here must be *run* against that corpus too, or every added row comes back
+    404 for an id the page itself just offered."""
+    js = _static('inspector.js')
+    assert "'/api/groundtruth?dataset='" in js, \
+        'the fixture is fetched without naming a corpus'
+    assert "(body.dataset || '') !== followed.dataset" in js, \
+        'the follow loop never notices the corpus changing'
+    assert 'followDataset(followed.dataset)' in js, \
+        'the corpus changed and the fixture was not reloaded'
+    assert 'await loadGroundTruth(dataset)' in js, \
+        'the reload does not name the corpus it was given'
+    assert 'dataset: FOLLOWED_DATASET' in js, \
+        'an added question is run against a corpus the picker did not offer'

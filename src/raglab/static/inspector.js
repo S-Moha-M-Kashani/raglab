@@ -43,6 +43,11 @@ async function startedJob(response) {
 function formatConfig(cfg) {
   if (!cfg) return '';
   const parts = [];
+  // The corpus first when it is not the built-in diary. Two rows measured on
+  // two corpora are not two configurations of one measurement — the leaderboard
+  // groups on it before anything else, and a window that does not name it lets
+  // a reader take German sessions for a different chunking of the diary.
+  if (cfg.index && cfg.index.dataset) parts.push(cfg.index.dataset);
   if (cfg.index) parts.push(`${cfg.index.chunker} · ${cfg.index.embedder}`);
   if (cfg.retrieval) {
     parts.push(`${cfg.retrieval.retriever} k=${cfg.retrieval.k}`,
@@ -65,7 +70,7 @@ let EXPLAIN = { metrics: [], help: {} };
 // `loadGroundTruth` clears two of these when the fixture lands, and it runs
 // before the follow loop is set up further down.
 const followed = { indexJobId: null, queryJobId: null, retrievalJobId: null,
-                   generationJobId: null };
+                   generationJobId: null, dataset: '' };
 
 function measureOf(key) {
   return EXPLAIN.metrics.find(m => m.key === key) || { key, label: key };
@@ -110,9 +115,20 @@ loadExplain();
 // belong to the fixture rather than to any run.
 const GT = new Map();
 
-async function loadGroundTruth() {
-  const body = await (await fetch('/api/groundtruth')).json();
+// Which corpus this map holds. `''` is the built-in diary, and is what the page
+// starts on so the tab has something in it before the first poll answers.
+let FOLLOWED_DATASET = '';
+
+async function loadGroundTruth(dataset) {
+  FOLLOWED_DATASET = dataset || '';
+  // Named on every request, never assumed: every finding this lab produces is a
+  // finding about one corpus, and a fixture loaded once from the diary made a
+  // build over another corpus show German sessions in the chunks window beside
+  // Farsi questions everywhere else.
+  const body = await (await fetch('/api/groundtruth?dataset='
+                                  + encodeURIComponent(FOLLOWED_DATASET))).json();
   const root = document.getElementById('view-groundtruth');
+  GT.clear();
   root.innerHTML = '';
   for (const q of body.questions) {
     GT.set(q.id, q);
@@ -147,7 +163,18 @@ async function loadGroundTruth() {
   followed.generationJobId = null;
   if (!picker.hidden) renderPicker(pickerFilter.value);
 }
-loadGroundTruth();
+loadGroundTruth('');
+
+// The corpus changed under us, so everything on this page that came from the
+// old one has to go: the questions you added are rows about ids the new fixture
+// does not contain, and the followed windows redraw from the lab on their own.
+// Called only from the poll — the initial load has no previous corpus to drop,
+// and `ADDED` is not declared yet when this file first runs.
+async function followDataset(dataset) {
+  ADDED.clear();
+  renderAdded();
+  await loadGroundTruth(dataset);
+}
 
 // --- Chunks: shared render, used by both the followed view and the manual one ---
 function renderChunkGroups(container, groups) {
@@ -472,8 +499,14 @@ function renderQuestionTables(questions) {
 // The config a question is run under is the one the page is following, so an
 // added row is measured the same way as the rows beside it. With the lab down
 // there is nothing to follow, and the chosen architecture stands in.
+// The corpus is overlaid rather than taken from the followed config, because
+// the two can name different ones: `FOLLOWED_CONFIG` comes from the last run
+// that *retrieved*, while the picker offers the ids of whatever corpus the page
+// is currently showing. A question run against the other one comes back 404 for
+// an id this page itself just offered.
 function activeConfig() {
-  return FOLLOWED_CONFIG || CHOSEN;
+  const cfg = FOLLOWED_CONFIG || CHOSEN;
+  return { ...cfg, index: { ...cfg.index, dataset: FOLLOWED_DATASET } };
 }
 let FOLLOWED_CONFIG = null;
 
@@ -690,6 +723,16 @@ function renderFollow(body) {
   const setCfg = document.getElementById('retrieval-set-config');
   const genCfg = document.getElementById('generation-active-config');
   setFollowState(body);
+
+  // Before the windows, because all three of them restate the fixture: the
+  // ideal answer beside a row and the picker's ids come from the corpus, not
+  // from the run. Guarded on a change rather than reloaded every tick — this
+  // polls every ~2s, and re-rendering the tab would collapse the reader's
+  // scroll and drop the questions they had added.
+  if (body.lab === 'up' && (body.dataset || '') !== followed.dataset) {
+    followed.dataset = body.dataset || '';
+    followDataset(followed.dataset);
+  }
 
   if (body.lab === 'down') {
     showLabDown(chunksCfg);

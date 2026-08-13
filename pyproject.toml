@@ -45,6 +45,18 @@ local-embeddings = ["sentence-transformers>=3.0"]
 # starts — `hierarchy='leiden'` is then reported NA and refused by validation,
 # never quietly served by Louvain.
 graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
+# The agent candidates (`raglab/agent.py`, `AgentConfig.scope`). Optional for the
+# reason `graph-index` is: a lab that cannot import it still starts, and a scope
+# it cannot run is reported NA and **refused** by validation rather than quietly
+# served by the fixed pipeline — a row labelled `scope=full` that ran no agent is
+# exactly the artefact this lab exists not to produce.
+#
+# langgraph 1.0 resolves against the langchain-core 0.3.x that ragas 0.4 pins
+# (checked: 1.0.1 alongside core 0.3.86), so this costs no move on the caveat at
+# the top of this file. Nothing from `langsmith` is enabled: a lab that phones a
+# tracing service to explain its own numbers has put the account of a run
+# somewhere `.runs/` and the ledger are not.
+agent = ["langgraph>=1.0,<2"]
 
 [project.scripts]
 raglab = "raglab.cli.serve:panel"

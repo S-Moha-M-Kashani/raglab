@@ -1,11 +1,11 @@
 // The Inspector's whole frontend: four views over the read-only :9003 API —
 // ground truth, chunks, retrieval, generation — three of which auto-follow
 // whatever the lab (:9002) actually ran.
-const CHOSEN = {
-  index: { chunker: 'semantic-drift', embedder: 'sentence-transformers' },
-  retrieval: { retriever: 'hybrid-rrf', k: 8, reranker: 'lexical',
-               time_filter: true, grader: 'llm', grade_threshold: 0.4 },
-};
+let CHOSEN = null;   // fallback config, served by /api/config so it cannot drift
+async function loadChosen() {
+  CHOSEN = (await (await fetch('/api/config')).json()).chosen;
+}
+const chosenReady = loadChosen();
 
 const views = ['groundtruth', 'chunks', 'retrieval', 'generation'];
 function show(view) {
@@ -265,6 +265,7 @@ document.getElementById('build-chunks').addEventListener('click', async () => {
   const status = document.getElementById('chunks-status');
   try {
     status.textContent = 'building…';
+    await chosenReady;
     const response = await fetch('/api/chunks',
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(CHOSEN) });
@@ -593,6 +594,7 @@ async function addQuestion(questionId) {
   openPicker(false);
   try {
     status.textContent = `running ${questionId}…`;
+    await chosenReady;
     const response = await fetch('/api/questions',
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...activeConfig(), question_id: questionId }) });

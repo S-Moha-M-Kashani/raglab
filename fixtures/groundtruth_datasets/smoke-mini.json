@@ -1,0 +1,214 @@
+{
+ "dataset": {
+  "id": "smoke-mini",
+  "name": "Smoke set — five sessions",
+  "language": "en",
+  "query_date": "2026-06-08",
+  "description": "Five sessions and six questions across all three difficulty bands. Too small to measure anything and not meant to: it is the set you run end to end in seconds to check that a pipeline works before spending an hour on one that does not."
+ },
+ "sessions": [
+  {
+   "session_id": "mini-01",
+   "date": "2026-06-01",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Note to self: the espresso machine in the kitchen broke on Monday. Repair booked for Wednesday."
+    },
+    {
+     "role": "assistant",
+     "content": "Noted — I'll remind you Tuesday evening."
+    }
+   ],
+   "topics": [
+    "office"
+   ]
+  },
+  {
+   "session_id": "mini-02",
+   "date": "2026-06-02",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Reminder: the spare office keys are in the blue tin on the top shelf, not in the drawer where they used to be."
+    },
+    {
+     "role": "assistant",
+     "content": "Saved."
+    }
+   ],
+   "topics": [
+    "office"
+   ]
+  },
+  {
+   "session_id": "mini-03",
+   "date": "2026-06-03",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Delivery: the parcel from Hälsa arrives on Thursday between 9 and 11. Someone has to be in."
+    },
+    {
+     "role": "assistant",
+     "content": "I'll flag it Thursday morning."
+    }
+   ],
+   "topics": [
+    "deliveries"
+   ]
+  },
+  {
+   "session_id": "mini-04",
+   "date": "2026-06-04",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Plant care: the fig tree needs watering twice a week in summer, once a week the rest of the year."
+    },
+    {
+     "role": "assistant",
+     "content": "Noted."
+    }
+   ],
+   "topics": [
+    "plants"
+   ]
+  },
+  {
+   "session_id": "mini-05",
+   "date": "2026-06-05",
+   "messages": [
+    {
+     "role": "user",
+     "content": "IT: the guest wifi password changed to harbour-lantern-42. The old one stopped working this morning."
+    },
+    {
+     "role": "assistant",
+     "content": "Saved. Tell visitors at reception rather than by email."
+    }
+   ],
+   "topics": [
+    "it"
+   ]
+  }
+ ],
+ "questions": [
+  {
+   "id": "mini-001",
+   "type": "single-hop",
+   "difficulty": "easy",
+   "answerable": true,
+   "question": "What broke in the kitchen?",
+   "answer": "The espresso machine, on Monday.",
+   "key_facts": [
+    "The espresso machine broke"
+   ],
+   "evidence": [
+    {
+     "session_id": "mini-01",
+     "message_indices": [
+      0
+     ],
+     "quote": "the espresso machine in the kitchen broke on Monday"
+    }
+   ]
+  },
+  {
+   "id": "mini-002",
+   "type": "single-hop",
+   "difficulty": "easy",
+   "answerable": true,
+   "question": "Where are the spare keys?",
+   "answer": "In the blue tin on the top shelf.",
+   "key_facts": [
+    "They are in the blue tin"
+   ],
+   "evidence": [
+    {
+     "session_id": "mini-02",
+     "message_indices": [
+      0
+     ],
+     "quote": "the spare office keys are in the blue tin on the top shelf"
+    }
+   ]
+  },
+  {
+   "id": "mini-003",
+   "type": "temporal",
+   "difficulty": "medium",
+   "answerable": true,
+   "question": "When does the parcel arrive?",
+   "answer": "Thursday between 9 and 11.",
+   "key_facts": [
+    "Thursday between 9 and 11"
+   ],
+   "evidence": [
+    {
+     "session_id": "mini-03",
+     "message_indices": [
+      0
+     ],
+     "quote": "the parcel from Hälsa arrives on Thursday between 9 and 11"
+    }
+   ]
+  },
+  {
+   "id": "mini-004",
+   "type": "single-hop",
+   "difficulty": "medium",
+   "answerable": true,
+   "question": "How often does the fig tree need watering?",
+   "answer": "Twice a week in summer, once a week the rest of the year.",
+   "key_facts": [
+    "Twice a week in summer"
+   ],
+   "evidence": [
+    {
+     "session_id": "mini-04",
+     "message_indices": [
+      0
+     ],
+     "quote": "the fig tree needs watering twice a week in summer"
+    }
+   ]
+  },
+  {
+   "id": "mini-005",
+   "type": "multi-hop",
+   "difficulty": "hard",
+   "answerable": true,
+   "question": "What two things changed in the office this week?",
+   "answer": "The espresso machine broke on Monday and the guest wifi password changed.",
+   "key_facts": [
+    "The espresso machine broke",
+    "The wifi password changed"
+   ],
+   "evidence": [
+    {
+     "session_id": "mini-01",
+     "message_indices": [
+      0
+     ],
+     "quote": "the espresso machine in the kitchen broke on Monday"
+    },
+    {
+     "session_id": "mini-05",
+     "message_indices": [
+      0
+     ],
+     "quote": "the guest wifi password changed to harbour-lantern-42"
+    }
+   ]
+  },
+  {
+   "id": "mini-006",
+   "type": "abstention",
+   "difficulty": "hard",
+   "answerable": false,
+   "question": "Who is paying for the espresso machine repair?",
+   "evidence": []
+  }
+ ]
+}

@@ -1,0 +1,588 @@
+{
+ "dataset": {
+  "id": "meetings-de",
+  "name": "Team meeting notes (German)",
+  "language": "de",
+  "query_date": "2026-07-01",
+  "description": "Synthetic German weekly meeting notes for a fictional software team over six months. A third script family, compound nouns and dates written in words — where an English-only embedder separates sharply from a multilingual one. All names, companies and events are fictional."
+ },
+ "sessions": [
+  {
+   "session_id": "mtg-0113",
+   "date": "2026-01-13",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Protokoll Wochenmeeting: Das Budget für 2026 wurde auf 480.000 Euro festgelegt. Davon sind 120.000 Euro für Infrastruktur vorgesehen."
+    },
+    {
+     "role": "assistant",
+     "content": "Notiert. Die Aufteilung auf die Teams besprechen wir in der nächsten Sitzung."
+    }
+   ],
+   "topics": [
+    "budget"
+   ],
+   "threads": [
+    "budget-2026"
+   ]
+  },
+  {
+   "session_id": "mtg-0120",
+   "date": "2026-01-20",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Wir stellen zwei Werkstudenten für das Datenteam ein, Start im Februar. Die Ausschreibung ist seit gestern online."
+    },
+    {
+     "role": "assistant",
+     "content": "Gut. Ich lege die Einarbeitungspläne an, sobald die Zusagen da sind."
+    }
+   ],
+   "topics": [
+    "personal"
+   ],
+   "threads": [
+    "einstellungen"
+   ]
+  },
+  {
+   "session_id": "mtg-0127",
+   "date": "2026-01-27",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Zum Thema Werkzeuge: Wir bleiben vorerst bei Jira. Ein Wechsel mitten im Quartal wäre zu teuer."
+    },
+    {
+     "role": "assistant",
+     "content": "Einverstanden. Wir prüfen die Alternativen erneut im Mai."
+    }
+   ],
+   "topics": [
+    "tooling"
+   ],
+   "threads": [
+    "tool-wechsel"
+   ]
+  },
+  {
+   "session_id": "mtg-0203",
+   "date": "2026-02-03",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Der Umzug in das neue Büro in der Sonnenstraße findet am 15. März statt. Die Kartons werden eine Woche vorher geliefert."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich trage den Termin ein und informiere die Hausverwaltung."
+    }
+   ],
+   "topics": [
+    "umzug"
+   ],
+   "threads": [
+    "bueroumzug"
+   ]
+  },
+  {
+   "session_id": "mtg-0210",
+   "date": "2026-02-10",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Sprint 14 wurde um eine Woche verlängert, weil die Schnittstelle zum Abrechnungssystem länger dauert als geplant."
+    },
+    {
+     "role": "assistant",
+     "content": "Verstanden. Die Demo verschiebt sich damit auf den 24. Februar."
+    }
+   ],
+   "topics": [
+    "sprint"
+   ],
+   "threads": [
+    "sprint-planung"
+   ]
+  },
+  {
+   "session_id": "mtg-0224",
+   "date": "2026-02-24",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Demo lief gut. Die Abrechnungsschnittstelle steht, die Tests fehlen noch."
+    },
+    {
+     "role": "assistant",
+     "content": "Dann planen wir die Tests in Sprint 15 ein."
+    }
+   ],
+   "topics": [
+    "sprint"
+   ],
+   "threads": [
+    "sprint-planung"
+   ]
+  },
+  {
+   "session_id": "mtg-0303",
+   "date": "2026-03-03",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Personelles: Frau Berger verlässt das Team zum 30. April. Sie übergibt das Reporting an Herrn Novak."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich setze einen Übergabetermin für Anfang April an."
+    }
+   ],
+   "topics": [
+    "personal"
+   ],
+   "threads": [
+    "einstellungen"
+   ],
+   "mood": {
+    "label": "nachdenklich",
+    "valence": 4,
+    "arousal": 4
+   }
+  },
+  {
+   "session_id": "mtg-0317",
+   "date": "2026-03-17",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Der Umzug ist durch. Zwei Monitore fehlen noch, sonst ist alles da."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich melde die fehlenden Geräte beim Lieferanten."
+    }
+   ],
+   "topics": [
+    "umzug"
+   ],
+   "threads": [
+    "bueroumzug"
+   ]
+  },
+  {
+   "session_id": "mtg-0407",
+   "date": "2026-04-07",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Neuer Auftrag: Der Kunde Hafenwerk hat den Vertrag um zwei Jahre verlängert. Der Vertrag läuft damit bis Ende 2028."
+    },
+    {
+     "role": "assistant",
+     "content": "Sehr gut. Ich aktualisiere die Umsatzplanung."
+    }
+   ],
+   "topics": [
+    "kunden"
+   ],
+   "threads": [
+    "hafenwerk"
+   ],
+   "mood": {
+    "label": "zufrieden",
+    "valence": 8,
+    "arousal": 5
+   }
+  },
+  {
+   "session_id": "mtg-0421",
+   "date": "2026-04-21",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Zusage an Hafenwerk: Der Prototyp wird bis zum 12. Mai fertig. Das Team ist informiert."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich blocke die letzten zwei Wochen dafür frei."
+    }
+   ],
+   "topics": [
+    "kunden"
+   ],
+   "threads": [
+    "hafenwerk"
+   ]
+  },
+  {
+   "session_id": "mtg-0505",
+   "date": "2026-05-05",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Entscheidung zum Werkzeug ist gefallen: Ab dem 1. Juni wechseln wir von Jira zu Linear. Die Migration der offenen Vorgänge übernimmt das Plattformteam."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich kündige das den Teams in der Freitagsrunde an."
+    }
+   ],
+   "topics": [
+    "tooling"
+   ],
+   "threads": [
+    "tool-wechsel"
+   ]
+  },
+  {
+   "session_id": "mtg-0512",
+   "date": "2026-05-12",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Der Prototyp wurde am 11. Mai übergeben, einen Tag vor dem zugesagten Termin."
+    },
+    {
+     "role": "assistant",
+     "content": "Notiert. Das Feedback des Kunden kommt bis Ende der Woche."
+    }
+   ],
+   "topics": [
+    "kunden"
+   ],
+   "threads": [
+    "hafenwerk"
+   ]
+  },
+  {
+   "session_id": "mtg-0602",
+   "date": "2026-06-02",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Die Schulung zu Datenschutz ist für alle verpflichtend, Frist ist der 30. Juni. Bisher haben neun von vierzehn Personen teilgenommen."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich erinnere die übrigen fünf per Kalendereinladung."
+    }
+   ],
+   "topics": [
+    "schulung"
+   ],
+   "threads": [
+    "datenschutz"
+   ]
+  },
+  {
+   "session_id": "mtg-0616",
+   "date": "2026-06-16",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Die Migration zu Linear ist abgeschlossen. Zwei alte Projekte bleiben als Archiv in Jira."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich dokumentiere, wo das Archiv liegt."
+    }
+   ],
+   "topics": [
+    "tooling"
+   ],
+   "threads": [
+    "tool-wechsel"
+   ]
+  },
+  {
+   "session_id": "mtg-0630",
+   "date": "2026-06-30",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Halbjahresbilanz: Budget eingehalten, ein Kunde verlängert, ein Abgang im Team."
+    },
+    {
+     "role": "assistant",
+     "content": "Ich fasse das für die Geschäftsführung zusammen."
+    }
+   ],
+   "topics": [
+    "bilanz"
+   ],
+   "threads": [
+    "budget-2026"
+   ]
+  }
+ ],
+ "questions": [
+  {
+   "id": "mtg-001",
+   "type": "single-hop",
+   "difficulty": "easy",
+   "answerable": true,
+   "question": "Wie hoch ist das Budget für 2026?",
+   "question_en": "How large is the 2026 budget?",
+   "answer": "Es wurde auf 480.000 Euro festgelegt, davon 120.000 Euro für Infrastruktur.",
+   "key_facts": [
+    "The 2026 budget is 480,000 euros"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0113",
+     "message_indices": [
+      0
+     ],
+     "quote": "Das Budget für 2026 wurde auf 480.000 Euro festgelegt"
+    }
+   ]
+  },
+  {
+   "id": "mtg-002",
+   "type": "temporal",
+   "difficulty": "easy",
+   "answerable": true,
+   "question": "Wann war der Büroumzug?",
+   "question_en": "When did the office move happen?",
+   "answer": "Am 15. März 2026, in die Sonnenstraße.",
+   "key_facts": [
+    "The move was on 15 March",
+    "The new office is in Sonnenstraße"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0203",
+     "message_indices": [
+      0
+     ],
+     "quote": "Der Umzug in das neue Büro in der Sonnenstraße findet am 15. März statt"
+    }
+   ]
+  },
+  {
+   "id": "mtg-003",
+   "type": "knowledge-update",
+   "difficulty": "hard",
+   "answerable": true,
+   "question": "Welches Werkzeug benutzt das Team für Vorgänge?",
+   "question_en": "Which issue tracker does the team use?",
+   "answer": "Seit dem 1. Juni 2026 Linear. Im Januar war noch entschieden worden, vorerst bei Jira zu bleiben.",
+   "key_facts": [
+    "The team moved to Linear",
+    "The switch happened on 1 June"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0127",
+     "message_indices": [
+      0
+     ],
+     "quote": "Wir bleiben vorerst bei Jira"
+    },
+    {
+     "session_id": "mtg-0505",
+     "message_indices": [
+      0
+     ],
+     "quote": "Ab dem 1. Juni wechseln wir von Jira zu Linear"
+    }
+   ]
+  },
+  {
+   "id": "mtg-004",
+   "type": "commitment",
+   "difficulty": "medium",
+   "answerable": true,
+   "question": "Wurde die Zusage an Hafenwerk eingehalten?",
+   "question_en": "Was the promise to Hafenwerk kept?",
+   "answer": "Ja. Der Prototyp war für den 12. Mai zugesagt und wurde am 11. Mai übergeben.",
+   "key_facts": [
+    "The prototype was promised for 12 May",
+    "It was delivered on 11 May"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0421",
+     "message_indices": [
+      0
+     ],
+     "quote": "Der Prototyp wird bis zum 12. Mai fertig"
+    },
+    {
+     "session_id": "mtg-0512",
+     "message_indices": [
+      0
+     ],
+     "quote": "Der Prototyp wurde am 11. Mai übergeben"
+    }
+   ]
+  },
+  {
+   "id": "mtg-005",
+   "type": "entity",
+   "difficulty": "medium",
+   "answerable": true,
+   "question": "Was ist mit Frau Berger?",
+   "question_en": "What happened with Ms Berger?",
+   "answer": "Sie verlässt das Team zum 30. April 2026 und übergibt das Reporting an Herrn Novak.",
+   "key_facts": [
+    "She leaves the team on 30 April"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0303",
+     "message_indices": [
+      0
+     ],
+     "quote": "Frau Berger verlässt das Team zum 30. April"
+    }
+   ]
+  },
+  {
+   "id": "mtg-006",
+   "type": "single-hop",
+   "difficulty": "easy",
+   "answerable": true,
+   "question": "Wie viele Werkstudenten werden eingestellt?",
+   "question_en": "How many working students are being hired?",
+   "answer": "Zwei, für das Datenteam.",
+   "key_facts": [
+    "Two working students",
+    "They join the data team"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0120",
+     "message_indices": [
+      0
+     ],
+     "quote": "Wir stellen zwei Werkstudenten für das Datenteam ein"
+    }
+   ]
+  },
+  {
+   "id": "mtg-007",
+   "type": "multi-hop",
+   "difficulty": "hard",
+   "answerable": true,
+   "question": "Warum verschob sich die Demo im Februar?",
+   "question_en": "Why was the February demo postponed?",
+   "answer": "Sprint 14 wurde um eine Woche verlängert, weil die Abrechnungsschnittstelle länger dauerte; die Demo fand daher am 24. Februar statt.",
+   "key_facts": [
+    "Sprint 14 was extended by one week",
+    "The demo moved to 24 February"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0210",
+     "message_indices": [
+      0
+     ],
+     "quote": "Sprint 14 wurde um eine Woche verlängert"
+    },
+    {
+     "session_id": "mtg-0210",
+     "message_indices": [
+      1
+     ],
+     "quote": "Die Demo verschiebt sich damit auf den 24. Februar"
+    }
+   ]
+  },
+  {
+   "id": "mtg-008",
+   "type": "aggregation",
+   "difficulty": "hard",
+   "answerable": true,
+   "question": "Wie viele Personen fehlten Anfang Juni noch bei der Datenschutzschulung?",
+   "question_en": "How many people still had to do the training in early June?",
+   "answer": "Fünf von vierzehn.",
+   "key_facts": [
+    "Five of fourteen had not attended"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0602",
+     "message_indices": [
+      0
+     ],
+     "quote": "Die Schulung zu Datenschutz ist für alle verpflichtend"
+    },
+    {
+     "session_id": "mtg-0602",
+     "message_indices": [
+      0
+     ],
+     "quote": "haben neun von vierzehn"
+    }
+   ]
+  },
+  {
+   "id": "mtg-009",
+   "type": "single-hop",
+   "difficulty": "medium",
+   "answerable": true,
+   "question": "Wie lange läuft der Vertrag mit Hafenwerk?",
+   "question_en": "How long does the Hafenwerk contract run?",
+   "answer": "Er wurde um zwei Jahre verlängert und läuft bis Ende 2028.",
+   "key_facts": [
+    "The contract was extended by two years"
+   ],
+   "evidence": [
+    {
+     "session_id": "mtg-0407",
+     "message_indices": [
+      0
+     ],
+     "quote": "Der Kunde Hafenwerk hat den Vertrag um zwei Jahre verlängert"
+    }
+   ]
+  },
+  {
+   "id": "mtg-010",
+   "type": "temporal",
+   "difficulty": "medium",
+   "answerable": true,
+   "question": "Bis wann muss die Datenschutzschulung abgeschlossen sein?",
+   "question_en": "By when must the data protection training be done?",
+   "answer": "Bis zum 30. Juni 2026.",
+   "key_facts": [
+    "The deadline is 30 June"
+   ],
+   "time_scope": {
+    "from": "2026-06-01",
+    "to": "2026-06-30"
+   },
+   "evidence": [
+    {
+     "session_id": "mtg-0602",
+     "message_indices": [
+      0
+     ],
+     "quote": "Frist ist der 30. Juni"
+    }
+   ]
+  },
+  {
+   "id": "mtg-011",
+   "type": "abstention",
+   "difficulty": "medium",
+   "answerable": false,
+   "question": "Wie hoch ist das Gehalt von Herrn Novak?",
+   "question_en": "What is Mr Novak's salary?",
+   "evidence": []
+  },
+  {
+   "id": "mtg-012",
+   "type": "adversarial",
+   "difficulty": "hard",
+   "answerable": false,
+   "question": "Warum wurde der Umzug in die Bahnhofstraße abgesagt?",
+   "question_en": "Why was the move to Bahnhofstraße cancelled?",
+   "evidence": []
+  }
+ ]
+}

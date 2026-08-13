@@ -26,6 +26,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import evaluate, explain, metrics, models, pipeline
+from . import config as lab_config
 from .config import LabConfig, load_lab_settings, settings_for_provider
 from . import datasets
 from .corpus import load_diary, load_ground_truth
@@ -143,6 +144,17 @@ def create_inspector_app() -> FastAPI:
         return {'meta': asked['meta'], 'questions': asked['questions'],
                 'dataset': dataset or datasets.BUILTIN,
                 'datasets': [found.as_dict() for found in datasets.catalogue()]}
+
+    @app.get('/api/config')
+    def chosen_config() -> dict:
+        return {
+            'chosen': CHOSEN_CONFIG,
+            'chunkers': list(lab_config.CHUNKERS),
+            'embedders': list(lab_config.EMBEDDERS),
+            'retrievers': list(lab_config.RETRIEVERS),
+            'rerankers': list(lab_config.RERANKERS),
+            'graders': list(lab_config.GRADERS),
+        }
 
     @app.post('/api/chunks')
     def chunks(payload: dict):

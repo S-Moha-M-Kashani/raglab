@@ -922,3 +922,58 @@ def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
         'the reload does not name the corpus it was given'
     assert 'dataset: FOLLOWED_DATASET' in js, \
         'an added question is run against a corpus the picker did not offer'
+# This is an integration test (FastAPI TestClient over the read-only app).
+def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeypatch):
+    """The comment above `CHOSEN_CONFIG` claims it is "one source for the
+    endpoint tests and the frontend so the two cannot drift". Until this route
+    existed that was false: `inspector.js` opened with a byte-identical copy of
+    the same pipeline in a different language, and nothing connected the two.
+    The frontend reads its fallback config from here instead.
+
+    The option lists ride along, reused from `config.py` rather than retyped, for
+    the reason `/api/explain` serves the metric help rather than the page
+    carrying it: a list written twice is a list whose two readers eventually
+    offer different pipelines."""
+    from raglab import config as lab_config
+
+    client = _client(monkeypatch)
+    body = client.get('/api/config').json()
+
+    assert body['chosen'] == inspector.CHOSEN_CONFIG
+    assert body['chunkers'] == list(lab_config.CHUNKERS)
+    assert body['embedders'] == list(lab_config.EMBEDDERS)
+    assert body['retrievers'] == list(lab_config.RETRIEVERS)
+    assert body['rerankers'] == list(lab_config.RERANKERS)
+    assert body['graders'] == list(lab_config.GRADERS)
+    # A config naming a value its own lists do not offer is the drift this route
+    # exists to make impossible, so every field of the chosen config is checked
+    # against the list it is chosen from.
+    assert body['chosen']['index']['chunker'] in body['chunkers']
+    assert body['chosen']['index']['embedder'] in body['embedders']
+    assert body['chosen']['retrieval']['retriever'] in body['retrievers']
+    assert body['chosen']['retrieval']['reranker'] in body['rerankers']
+    assert body['chosen']['retrieval']['grader'] in body['graders']
+
+
+# This is an integration test (the served asset keeps no config of its own).
+def test_inspector_js_keeps_no_config_literal_of_its_own(monkeypatch):
+    """The duplication itself, pinned. `inspector.js` used to open with a
+    `CHOSEN` literal naming the whole pipeline — the same six values as
+    `CHOSEN_CONFIG`, maintained by hand in a second language. They agreed on
+    2026-08-05 by luck, and the day one moved, the Inspector would have labelled
+    its rows with a pipeline it had not run: the one artefact this lab must never
+    produce.
+
+    Asserted on the *values*, not on the name, so renaming the literal cannot
+    smuggle it back. `hybrid-rrf` is deliberately not among them — it also
+    appears in a comment showing what the active-config line reads like, and a
+    guard that forbids describing the code is a guard nobody keeps."""
+    client = _client(monkeypatch)
+    js = client.get('/inspector.js').text
+
+    for value in ('semantic-drift', 'sentence-transformers', 'grade_threshold'):
+        assert value not in js, f'inspector.js still names {value} itself'
+    assert '/api/config' in js, 'inspector.js must fetch the config it renders'
+    # Following the lab stays the primary path — the served config is only the
+    # fallback for a lab that is down, which is all `CHOSEN` ever was.
+    assert 'FOLLOWED_CONFIG' in js

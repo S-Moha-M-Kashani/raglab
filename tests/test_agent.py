@@ -723,3 +723,32 @@ def test_the_inspector_renders_the_loop_beside_the_ranks():
     assert 'function agentLadder' in js
     assert 'trace.agent' in js
     assert 'agent-ladder' in _static('inspector.css')
+
+
+# This is a behavioural test.
+def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
+                                                               query_date,
+                                                               monkeypatch):
+    """The `generate` scope asks whether a critique loop writes better answers
+    from the *same* evidence, so a draft node holding less of it makes the scope
+    partly a measurement of truncation.
+
+    Found on 2026-08-13 by one real hop on the `claude` backend: the agent cut
+    each context to 900 characters, and under the `session` chunker the sentence
+    answering q-sh-004 sat past the cut — `full` answered from a different fight
+    while `retrieve` got it right from the identical contexts. The bound belongs
+    to `max_context_chars`, which drops whole contexts rather than cutting one.
+    """
+    seen: dict[str, str] = {}
+
+    def spy(llm, model, node, system, user):
+        seen[node] = user
+        return 'SCORE: 0.9'
+
+    monkeypatch.setattr(agent, '_ask', spy)
+    outcome = agent.run(index, agent_cfg(scope='full', critic='both'), question,
+                        query_date, llm=FakeChat())
+    handed = pipeline.context_blocks(outcome)
+    assert len(handed) > 900, 'a shorter corpus than this cannot show the fault'
+    for node in ('assess', 'draft', 'critique', 'completeness'):
+        assert handed in seen[node], node

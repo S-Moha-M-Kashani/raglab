@@ -163,10 +163,20 @@ COMPLETENESS_PROMPT = (
     'other text.')
 
 
-def _contexts_block(outcome, limit: int = 700) -> str:
-    return '\n\n'.join(
-        f'[{c.session_id or c.chunk_id} | {c.date}]\n{c.text[:limit]}'
-        for c in outcome.contexts) if outcome else '(nothing retrieved)'
+def _contexts_block(outcome) -> str:
+    """Exactly what the answerer is handed — `pipeline.context_blocks`.
+
+    Every node that reads evidence reads the same text. A critic judging
+    groundedness against a truncated context returns a *wrong* verdict rather
+    than a cheap one, and a draft node holding less evidence than the fixed
+    answerer would make the `generate` scope partly a measurement of truncation.
+    This module cut contexts to 700 and 900 characters until 2026-08-13, which is
+    what one real hop on the `claude` backend caught — the reasoning is written
+    out at `pipeline.context_blocks`.
+    """
+    if outcome is None or not outcome.contexts:
+        return '(nothing retrieved)'
+    return pipeline.context_blocks(outcome)
 
 
 # --- the graph's shape, as data -------------------------------------------
@@ -342,7 +352,7 @@ def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
         outcome = best['outcome']
         previous = state.get('draft')
         user = (f'سؤال: {state["question"]}\n\n'
-                f'تکه‌های دفترچه:\n{_contexts_block(outcome, 900)}')
+                f'تکه‌های دفترچه:\n{_contexts_block(outcome)}')
         if previous:
             user += (f'\n\nپیش‌نویس قبلی که رد شد:\n{previous}\n'
                      'دوباره بنویس و فقط به تکه‌های بالا تکیه کن.')

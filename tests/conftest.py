@@ -2,6 +2,7 @@
 fixtures and settings shared across more than one test file."""
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,11 @@ from raglab.index import IndexRegistry
 RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
+
+# The local backend's own settings, read by the service tests (which check
+# /api/options against it) and by the provider tests (which build it).
+OLLAMA_SETTINGS = replace(LAB_SETTINGS, llm_provider='ollama',
+                          llm_model='gemma4:e2b')
 
 # Each of these embedded a Farsi sentence here, through the backend it names —
 # read by the catalogue tests that define the claim and by the service tests

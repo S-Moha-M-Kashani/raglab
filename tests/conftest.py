@@ -1,7 +1,22 @@
 """Suite-wide guards, autouse so no test has to remember them."""
 import os
+from pathlib import Path
 
 import pytest
+
+import raglab
+
+RAGLAB_DIR = Path(raglab.__file__).resolve().parent
+
+
+@pytest.fixture(scope='module')
+def client():
+    """A TestClient over the lab's own FastAPI app — shared by the service
+    tests and the panel tests that read the same served pages."""
+    from fastapi.testclient import TestClient
+
+    from raglab.server import create_app
+    return TestClient(create_app())
 
 
 @pytest.fixture(autouse=True, scope='session')

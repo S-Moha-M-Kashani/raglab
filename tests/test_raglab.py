@@ -13,7 +13,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import raglab
 from raglab import (baseline, chunking, clichat, config, corpus, embedding,
                     evaluate, explain, leaderboard, metrics, models, pipeline,
                     query, ragas_eval, retrieval, store, sweep, textnorm)
@@ -21,8 +20,9 @@ from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
                             LabConfig, LabSettings, RetrievalConfig)
 from raglab.index import IndexRegistry, LabIndex
 
+from conftest import RAGLAB_DIR
+
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
-RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 
 
 # --- fixtures --------------------------------------------------------------
@@ -1989,14 +1989,6 @@ def test_the_export_never_invents_the_context_text(ground_truth, tmp_path):
 
 # --- the service -----------------------------------------------------------
 
-@pytest.fixture(scope='module')
-def client():
-    from fastapi.testclient import TestClient
-
-    from raglab.server import create_app
-    return TestClient(create_app())
-
-
 def _finished(client, job_id: str, timeout: float = 30.0) -> dict:
     """Poll a job to its terminal state, the way both frontends do."""
     deadline = time.time() + timeout
@@ -2076,12 +2068,6 @@ def test_options_explains_the_new_metadata_and_the_deciding_score(client):
     assert by_key['ragas_decision']['step'] == ''
 
 
-def test_panel_is_served(client):
-    page = client.get('/')
-    assert page.status_code == 200
-    assert 'RAG Lab' in page.text
-
-
 def test_ad_hoc_query_returns_stages_and_contexts(client):
     body = _ask(client, {
         'question': 'آذر چه خبر بود؟',
@@ -2159,34 +2145,6 @@ def test_a_per_task_model_is_accepted_by_the_query_endpoint(client):
     assert body['contexts']
 
 
-def test_the_standalone_panel_offers_the_model_pickers_too():
-    """The lab still runs without a board, and that panel must not be the one
-    place where a model is hard-coded."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'model_roles' in html and 'rag-model' in html
-
-
-def test_the_standalone_panel_reads_only_fields_the_lab_still_produces():
-    """A field the panel reads but the lab no longer sends prints
-    "undefined" or throws — checked against what the lab actually returns
-    rather than a list of names someone has to remember to prune."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-
-    served = set(metrics.aggregate([]))
-    read = set(re.findall(r'result\.summary\.(\w+)', html))
-    assert read <= served, (
-        'the panel reads summary fields the lab no longer returns: '
-        f'{sorted(read - served)}')
-
-    # This panel renders no retrieved context at all now; that risk moved to
-    # the Inspector, covered by test_inspector.py against a real trace.
-    assert 'out.contexts' not in html, (
-        'a contexts loop is back in the standalone panel — either restore the '
-        'field check above with it, or move it to :9003 where the rest went')
-
-
 def test_ragas_takes_its_own_judge_model(index, ground_truth):
     pytest.importorskip('ragas')
     pytest.importorskip('rapidfuzz')
@@ -2229,12 +2187,6 @@ def test_an_embedding_model_is_accepted_by_the_query_endpoint(client):
         'retrieval': {'k': 4},
         'generation': {'answerer': 'extractive'}})
     assert body['contexts']
-
-
-def test_the_standalone_panel_offers_the_embedding_models_too():
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'embed_models' in html and 'embedder_hints' in html
 
 
 def test_options_define_every_metric_the_panel_can_show(client):
@@ -2282,63 +2234,6 @@ def test_options_offer_the_local_backend_and_its_models(client):
     caps = body['capabilities']
     assert isinstance(caps['sentence_transformers'], bool)
     assert 'openai_embeddings' not in caps
-
-
-def test_the_standalone_panel_colour_codes_the_steps_too():
-    """One ink per step, defined once as a token and applied by data-step, so the
-    two panels cannot end up disagreeing about what orange means."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    for token in ('--step-index', '--step-retrieval', '--step-generation'):
-        assert token in html, token
-    assert 'data-step="index"' in html
-    assert 'data-step="retrieval"' in html
-    assert 'data-step="generation"' in html
-
-
-def test_the_standalone_panel_takes_its_metric_definitions_from_the_service():
-    """No second list of score labels: the panel that runs without a board has to
-    explain a metric the same way the board's page does, or the same number ends
-    up with two names and one definition."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'OPTIONS.metrics' in html
-    assert 'metric.${key}' in html or "metric.' + key" in html
-    assert 'SCORE_CARDS' not in html, 'the hard-coded score list is back'
-
-
-def test_the_standalone_panel_says_which_backends_consult_the_model():
-    """The label must name every backend that can actually load a model, and
-    no backend whose catalogue is gone."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    label = re.search(r'<label>Embedding model.*?</label>', html, re.S)
-    assert label, 'the standalone panel lost its embedding-model label'
-    assert 'sentence-transformers' in label.group(0)
-    assert 'fastembed' in label.group(0)
-    assert 'openai' not in label.group(0)
-
-
-def test_the_standalone_panel_keeps_every_model_in_one_place():
-    """The embedder is a language model too, so it belongs in the model column
-    with the other seven rather than buried among the chunking knobs."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)
-    assert card, 'the standalone panel has no model column'
-    assert 'id="embedder"' in card.group(0)
-    assert 'id="embed_model"' in card.group(0)
-
-
-def test_the_standalone_panel_ranks_the_leaderboard_by_the_deciding_score():
-    """Two numbers on one row invite ranking by the wrong one, so the panel has
-    to say which column chose the architecture."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'ragas_decision' in html
-    # And by the score *with its error*: neither panel may show the mean alone,
-    # because the candidates in a sweep sit inside each other's error bars.
-    assert 'ragas_decision_stderr' in html
 
 
 # --- the local backend: a model on this machine ----------------------------
@@ -2926,21 +2821,6 @@ def test_a_running_job_can_be_cancelled_before_its_next_call():
     assert '_cancel' not in job
 
 
-def test_the_panel_reads_the_progress_detail():
-    """A judged local run spends hours in one stage, and the detail is the
-    only thing that moves — the panel may not quietly stop showing it."""
-    panel = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
-    assert 'job.detail' in panel
-
-
-def test_the_panel_offers_a_cooperative_stop():
-    """A run that cannot be stopped is a run you kill the process to escape,
-    and the ledger row it was about to write goes with it."""
-    panel = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
-    assert 'Stop experiment' in panel
-    assert "'/api/jobs/' + jobId + '/cancel'" in panel
-
-
 def test_the_terminal_bar_says_stage_fraction_elapsed_and_detail():
     line = sweep.bar('Stage F', 'scoring', 0.5, 'question 16/30 · hard',
                      time.time() - 63)
@@ -3457,15 +3337,6 @@ def test_the_query_job_hands_its_reporter_to_the_index_build(monkeypatch):
     assert callable(seen.get('progress'))
 
 
-def test_the_panel_watches_the_ask_as_a_job():
-    """The panel may not block on a bare fetch behind a static note: the ask
-    goes through the same job box as builds and runs, so the reader sees
-    stage, fraction and detail instead of guessing whether anything is
-    happening at all."""
-    panel = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
-    assert 'retrieving…' not in panel
-
-
 def test_a_second_job_is_refused_in_readable_english(client):
     """The refusal read 'a index job is still stopping' — wrong article, and
     'stopping' for a job that is running. A message describing the wrong state
@@ -3966,37 +3837,6 @@ def test_each_mode_carries_the_catalogue_of_its_own_backend(client):
     assert (remote & local) <= {'', named}
 
 
-def test_the_panel_sends_you_to_the_inspector():
-    """The lab measures; the Inspector shows why. The panel has to name the
-    door, or :9003 is a port you have to already know about."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'localhost:9003' in html, 'the panel does not link to the Inspector'
-    assert 'inspector' in html.lower(), 'the panel does not name the Inspector'
-
-
-def test_the_panel_no_longer_asks_one_question():
-    """Asking one question lives on :9003 now, where the answer arrives
-    beside its ranks, gold evidence and scores. Asserted by absence, like
-    the repo's other retirements: a control that still exists is exactly
-    how a removed feature comes back."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    for gone in ('id="question"', 'id="gtPick"', 'id="ask"', 'id="queryOut"'):
-        assert gone not in html, f'the panel still carries {gone}'
-    # the route itself stays: it is the lab's API, and the Inspector's followed
-    # query view reads whatever runs through it
-    assert 'api/queries' in (STATIC.parent / 'server.py').read_text(encoding='utf-8')
-
-
-def test_the_panel_offers_the_mode_dropdown():
-    """The dropdown reads the served modes rather than a local copy — a
-    preset kept in a frontend is a preset that will drift."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'modes' in html
-
-
 # --- retrieval on its own, and the shipped assistant's own settings ---------
 # The panel could build an index and score a full judged run, but it had no way
 # to do the middle step alone: retrieve for the questions an experiment is
@@ -4144,15 +3984,6 @@ def test_a_traced_evaluation_scores_identically_and_leaves_traces_off_disk(
     assert not untraced.traces, 'trace=False must record nothing'
     assert scores(untraced.rows) == scores(result['rows'])
     assert scores(untraced.summary) == scores(result['summary'])
-
-
-def test_the_panel_offers_retrieve_and_the_production_preset():
-    """Both buttons the loop needs: run retrieval for the selected questions,
-    and load the shipped assistant's settings in one click."""
-    from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    assert 'id="retrieve-selected"' in html
-    assert 'id="use-production"' in html
 
 
 # --- the experiment ledger (raglab.db) -------------------------------------
@@ -4312,158 +4143,7 @@ def test_the_ledger_is_not_kept_beside_the_code_that_writes_it():
     assert ledger.db_path(env={'RAGLAB_DB': '/tmp/x.db'}) == Path('/tmp/x.db')
 
 
-def test_the_panel_lists_every_experiment_beside_the_ranked_runs(client):
-    """The leaderboard ranks judged runs and must keep doing exactly that — an
-    index build has no decision score, and a row that cannot be ranked has no
-    business in a numbered table. So the ledger is a second table beside it,
-    listing everything that ran."""
-    html = client.get('/').text
-    assert 'id="board"' in html, 'the ranked leaderboard stays'
-    assert 'id="experiments"' in html
-    assert '/api/experiments' in html
-
-
-# The served panel's own markup.
-def test_the_panel_ends_its_run_buttons_with_the_inspector(client):
-    """The door to :9003 belongs at the end of the row you press to run
-    something, not above it: it is where you go *after* an experiment, so it
-    reads as the last step rather than a second heading."""
-    html = client.get('/').text
-    assert html.index('id="use-production"') < html.index('id="open-inspector"')
-    anchor = html[html.index('id="open-inspector"') - 200:
-                  html.index('id="open-inspector"') + 200]
-    assert 'right' in anchor, 'the link sits at the far right of the row'
-
-
-# --- sortable columns ------------------------------------------------------
-
-# The served pages' own markup.
-def test_both_lab_pages_share_one_column_sorter(client):
-    """One file for both pages rather than a copy each, so "what does
-    clicking a header do" has one answer instead of two that drift. The
-    order it produces is unit tested in `tests/sorttable.test.js`; this
-    pins that both pages actually load it."""
-    from raglab.server import STATIC
-
-    assert (STATIC / 'sorttable.js').exists()
-    panel = client.get('/').text
-    assert 'sorttable.js' in panel
-    # The two tables worth sorting, both marked at the point they are rendered.
-    assert panel.count('sortable') >= 2
-    # The hardcoded arrow is gone from the leaderboard's header: an indicator
-    # that cannot move is a lie the moment you sort by anything else, and the
-    # column's role is stated in prose beside the table instead.
-    assert 'ragas_decision ▼' not in panel
-
-    inspector = (STATIC / 'inspector.html').read_text(encoding='utf-8')
-    assert 'sorttable.js' in inspector
-    # `path` draws the three ranks as a shape and the same three numbers follow
-    # it, so sorting on the picture would sort on nothing.
-    assert 'data-nosort' in inspector
-
-
-# --- the panel does not forget across a reload -----------------------------
-
-# The served panel's own markup.
-def test_the_panel_keeps_its_experiment_and_its_settings_across_a_reload(client):
-    """Refreshing the page must not throw away the grades card and the
-    settings on screen. Both are remembered in localStorage and restored on
-    boot — the last experiment by id, re-read from the service so the page
-    never renders a stale copy of a run that has since been deleted."""
-    html = client.get('/').text
-    assert 'localStorage' in html
-    assert 'lodestar:raglab-last-run' in html
-    assert 'lodestar:raglab-config' in html
-    # Re-read by id rather than stored whole: a run file can be deleted between
-    # two visits, and a page rendering a copy of something that is gone is worse
-    # than a page that has forgotten it.
-    assert 'restoreLastRun' in html
-
-
-def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client):
-    """A run can rank differently on a bounded page than over the whole
-    directory, with nothing on screen explaining the disagreement — a
-    bounded view has to say what it left out."""
-    body = client.get('/api/evaluations?limit=3').json()
-    assert len(body['runs']) <= 3
-    # Served, not counted in the browser: the page cannot know how many files it
-    # was not sent.
-    assert body['total'] >= len(body['runs'])
-    html = client.get('/').text
-    assert '/api/evaluations?limit=' in html, 'the panel must ask for a stated limit'
-
-
 # --- the project's own RAG settings, in one click --------------------------
-
-# The panel's own source, against the served preset.
-def test_the_panel_fills_the_projects_settings_from_the_served_preset(client):
-    """The preset is served from `/api/options`, so a button claiming to be
-    the real system reads one source rather than keeping its own copy —
-    the same reason the mode dropdown is served. Settings only: a preset
-    that also started a job would download a large encoder for someone who
-    only wanted to see what the real system uses."""
-    panel = client.get('/').text
-
-    assert 'OPTIONS.production' in panel
-
-    # The preset's own label is served with it, so its presence in the frontend
-    # would mean the frontend had a second copy of the preset to go stale.
-    served = client.get('/api/options').json()['production']
-    assert served['label'] == baseline.LABEL
-    assert served['label'] not in panel, 'the panel keeps its own preset'
-
-    # The button runs nothing.
-    handler = panel[panel.index("$('use-production').onclick"):]
-    handler = handler[:handler.index('\n};')]
-    assert '/api/indexes' not in handler, 'the preset must not start a build'
-    assert 'doRetrieve' not in handler, 'the preset must not start a retrieval'
-    assert 'then run' not in panel, 'the button no longer claims to run'
-
-
-def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
-    """Three fields of a `LabConfig` have no control on either panel —
-    `rrf_k`, `agentic_weights` and `max_context_chars` — and the production
-    preset sets all three. Dropped, the run would fall back to
-    `LabConfig`'s own defaults while the label claims the shipped
-    Assistant. The three happen to equal the lab's defaults today, which is
-    why this tripwire exists: a field whose preset value silently disagrees
-    with the lab default is what has to be noticed."""
-    body = client.get('/api/options').json()
-    preset, defaults = body['production'], body['defaults']
-    panel = client.get('/').text
-
-    unshown = {}
-    for group in ('index', 'retrieval', 'generation', 'agent'):
-        for key, value in preset[group].items():
-            # A control is `$('key')` in the panel, or a model dropdown carrying
-            # the dotted path — the two ways this page reads a field.
-            if f"$('{key}')" in panel or f'"{group}.{key}"' in panel:
-                continue
-            unshown[f'{group}.{key}'] = (value, defaults[group].get(key))
-
-    assert unshown, 'if nothing is unshown this guard has become dead weight'
-    assert 'UNSHOWN' in panel, 'the panel must carry what it cannot render'
-    for path, (wanted, fallback) in unshown.items():
-        assert wanted == fallback, (
-            f'{path}: the preset wants {wanted!r} but the lab defaults to '
-            f'{fallback!r}, and the panel has no control for it — so a run '
-            f'labelled "the shipped assistant" would use {fallback!r}. Give it '
-            f'a control, or confirm the carry-through still reaches the payload.')
-
-
-def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it():
-    """A hint that lists some of the ways out is worse than one that lists
-    none, because a reader takes it for the whole set — so this fails the
-    day a backend is added and the sentence is not."""
-    page = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
-    hint = [line for line in page.splitlines() if 'no LLM backend' in line]
-    assert hint, 'the panel must say what to do when no backend is reachable'
-    for provider in config.LLM_PROVIDERS:
-        # 'fake' is not a way out: it answers without failing, which is the
-        # problem rather than the fix.
-        if provider and provider != 'fake':
-            assert provider in hint[0], provider
-
 
 def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():
     """The panel's hint is one of three places this sentence is written;

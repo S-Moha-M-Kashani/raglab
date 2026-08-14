@@ -31,3 +31,5 @@ ARCHITECTURE.md
 # One JSON file per judge screen — the evidence for which model was allowed to
 # grade the deciding metrics. Machine-local, like the runs it qualifies.
 .screens/
+.env
+docs/

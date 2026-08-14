@@ -1,4 +1,4 @@
-"""Screen a model before letting it judge, on a held-out task with known answers built by `_mutate_number` (see docs/decisions.md for why the context is dated and the claim is one sentence).
+"""Screen a model before letting it judge, on a held-out task with known answers built by `_mutate_number`: the context is dated and the claim is one sentence.
 Degeneracy and schema adherence are scored separately (`score`'s `degenerate`, and `parsed` since RAGAS retries malformed JSON) because the two are fixed differently.
 The judge must be chosen by its score here **before** looking at the leaderboard it would produce — that is judge-shopping.
 """
@@ -94,7 +94,7 @@ def _mutate_number(claim: str, context: list[str]) -> str | None:
 
 def dated_context(sessions: dict, question: dict) -> list[str]:
     """The cited evidence messages, each carrying the date of its session — as
-    `IndexConfig.contextual` does for the real pipeline (see docs/decisions.md)."""
+    `IndexConfig.contextual` does for the real pipeline."""
     lines: list[str] = []
     for evidence in question.get('evidence', []):
         session = sessions.get(evidence['session_id'])

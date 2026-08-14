@@ -8,12 +8,12 @@ HELP = {
     'index.dataset': (
         'Which corpus this experiment measures against. The built-in one is a '
         'year of Farsi diary chat with 112 ground-truth questions, and every '
-        'finding in docs/report is about it; the bundled samples are there to '
+        'finding this lab has produced is about it; the bundled samples are there to '
         'tell a general result from one that is true of Farsi diaries. Changing '
         'it rebuilds the index — a corpus is what gets stored — and the '
         'leaderboard groups by it before anything else, because two corpora are '
         'not two configurations of one measurement. Import your own with the '
-        'button beside it: docs/groundtruth-dataset-contract.md is the shape, '
+        'button beside it — the ! there states the shape a file must have — '
         'and the lab refuses a dataset whose evidence quotes are not verbatim '
         'in the messages they cite.'),
     # `run.` not `index.` — this is not a field, it's the control beside one —
@@ -71,8 +71,8 @@ HELP = {
         'highlighted spans and the offline context metrics are all computed '
         'against those strings, so a corpus that misquotes itself does not '
         'score worse — it scores confidently about text it never contained. '
-        'The full contract, with a commented skeleton and the four bundled '
-        'samples that meet it: docs/groundtruth-dataset-contract.md.'),
+        'The four bundled samples in fixtures/groundtruth_datasets/ all meet '
+        'it and are the working reference.'),
     'index.chunker': (
         'How a day of chat is cut into the pieces that get embedded. '
         '"fixed" packs 500 characters regardless of meaning; "message" keeps one '
@@ -277,7 +277,7 @@ HELP = {
     'agent.scope': (
         'Which stage a bounded loop is allowed to own, and the only setting '
         'here that changes what runs. "off" is the fixed pipeline every number '
-        'in docs/report was measured on. "retrieval" lets the agent look again: '
+        'this lab has measured was produced on. "retrieval" lets the agent look again: '
         'plan → retrieve → is this enough? → rewrite → retrieve, with '
         'generation left exactly as it is. "generation" holds retrieval fixed '
         'and lets the agent draft, critique its own draft against the retrieved '

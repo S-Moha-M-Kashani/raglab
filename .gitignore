@@ -18,8 +18,9 @@ __pycache__/
 *.db
 *.db-journal
 *.db-wal
+
+# Tooling scratch, none of it source.
 .claude
-.docs
 .superpowers/
 .pytest_cache/
 

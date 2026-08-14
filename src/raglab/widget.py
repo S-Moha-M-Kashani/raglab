@@ -128,8 +128,10 @@ def reset() -> None:
 
 
 def _build_agent():
+    # `load_env` strips values, so a bare `KEY= ` line in .env lands here as
+    # '' — an empty variable is a missing one, not a present one.
     for name in REQUIRED_ENV:
-        if name not in os.environ:
+        if not os.environ.get(name, '').strip():
             raise WidgetUnavailable(
                 f'{name} is not set — the widget needs it in .env')
     # Present, and read the way the spec states them. LangSmith picks its

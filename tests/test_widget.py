@@ -62,6 +62,21 @@ def test_a_missing_env_variable_is_a_stated_refusal(monkeypatch):
     assert 'OPENROUTER_API_KEY' in str(caught.value)
 
 
+def test_an_empty_env_variable_is_missing_too(monkeypatch):
+    """`load_env` strips values, so a `KEY= ` line in .env lands as ''. An
+    empty key would sail past a presence check and die inside the OpenAI
+    client naming a variable this lab never reads (OPENAI_API_KEY) — found
+    live 2026-08-14, a duplicate OPENROUTER_API_KEY line whose first, junk
+    occurrence won `setdefault`."""
+    widget.reset()
+    for name in widget.REQUIRED_ENV:
+        monkeypatch.setenv(name, 'test-value')
+    monkeypatch.setenv('OPENROUTER_API_KEY', '   ')
+    with pytest.raises(widget.WidgetUnavailable) as caught:
+        widget.ask('hello')
+    assert 'OPENROUTER_API_KEY' in str(caught.value)
+
+
 # --- the route -----------------------------------------------------------
 
 def test_the_route_answers_with_the_agents_reply(client, monkeypatch):

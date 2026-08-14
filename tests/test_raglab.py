@@ -539,16 +539,9 @@ def test_a_model_role_is_serialised_with_its_step():
 # ---------------------------------------------------------------------------
 # The HTTP surface — resource collections rather than action verbs.
 # ---------------------------------------------------------------------------
-
-def test_the_run_and_runs_collision_is_gone(client):
-    """The old singular/plural split meant two unrelated things at one
-    character apart. The new names are gone rather than aliased, since a
-    second name for one thing is the thing this rename was fixing."""
-    assert client.post('/api/run', json={}).status_code == 404
-    assert client.get('/api/runs').status_code == 404
-    assert client.post('/api/index', json={}).status_code == 404
-    assert client.post('/api/query', json={'question': 'x'}).status_code == 404
-
+# `test_the_run_and_runs_collision_is_gone` and
+# `test_evaluations_lists_and_fetches_the_same_resource` moved to
+# tests/test_server.py's route-contract group (Step 3 of the test-plan).
 
 def test_starting_work_creates_a_job_and_says_where_to_watch_it(client):
     """202 rather than 200: the work has been accepted, not done — the response
@@ -572,12 +565,6 @@ def test_starting_work_creates_a_job_and_says_where_to_watch_it(client):
         # only one job runs at a time, so a leaked job here would hand the
         # next post (or the next test) a spurious 409.
         _finished(client, job_id)
-
-
-def test_evaluations_lists_and_fetches_the_same_resource(client):
-    """One noun, three operations, no second spelling for any of them."""
-    assert 'runs' in client.get('/api/evaluations').json()
-    assert client.get('/api/evaluations/no-such-run').status_code == 404
 
 
 def test_a_query_is_a_job_like_its_sibling_collections(client):

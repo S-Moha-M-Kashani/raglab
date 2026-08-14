@@ -1,10 +1,7 @@
 """Run one configuration over the ground-truth set and persist the result.
 
-A run is: build (or reuse) the index → for every question, retrieve and
-optionally answer → score deterministically → optionally score with RAGAS →
-write a JSON file. Runs are kept on disk so the panel can show a leaderboard
-across sessions; nothing here writes anywhere near board.db or the brain's own
-in-memory index.
+Build (or reuse) the index, retrieve and optionally answer each question, score
+deterministically, optionally score with RAGAS, then write a JSON run file.
 """
 import inspect
 import json
@@ -12,14 +9,17 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
+from typing import Any, Callable
 
 from . import (agent, corpus, datasets, embedding, metrics, models, pipeline,
                ragas_eval)
 from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
-from .index import IndexRegistry, _lab_llm
-from .llm import lab_chat
-from .present import (chunks_by_session, evidence_spans, gold_available,
-                      mark_gold, normalised_chunks, summary_rows)
+from .index import IndexRegistry
+from .llm import lab_chat, lab_llm
+# Aliased: `RunResult.chunks_by_session` is a field of the same name (kept for
+# the run files that serialise it), and the two must not shadow each other.
+from .present import (chunks_by_session as chunks_by_session_rows, evidence_spans,
+                      gold_available, mark_gold, normalised_chunks, summary_rows)
 
 KEY_FACTS_PROMPT = (
     'You check whether an answer contains specific facts. The answer is in '
@@ -29,12 +29,9 @@ KEY_FACTS_PROMPT = (
 
 
 def judge_key_facts(llm, model: str, question: dict, answer: str) -> float:
-    """Share of the ground truth's atomic key facts present in the answer.
-
-    The key facts are the most valuable field in the ground truth and the only
-    one no deterministic metric can use: they are written in English while the
-    answers are Farsi, so lexical overlap is meaningless and a translating judge
-    is the honest way to score them."""
+    """Share of the ground truth's key facts present in the answer. Facts are
+    English, answers are Farsi, so lexical overlap can't score this — a judge
+    that translates as it checks is the only option."""
     facts = question.get('key_facts') or []
     if not facts or not answer:
         return float('nan')
@@ -59,13 +56,8 @@ def judge_key_facts(llm, model: str, question: dict, answer: str) -> float:
 
 
 def json_safe(value):
-    """NaN → None, recursively.
-
-    A metric that is *undefined* for a question (quote recall with no evidence,
-    latest-state on a question whose facts never changed) is NaN internally so
-    the aggregator can skip it. NaN is not JSON, and both the panel's responses
-    and the saved run files are JSON — this converts at the boundary rather than
-    forcing every metric to invent a placeholder number."""
+    """NaN → None, recursively. Metrics use NaN internally for "undefined for
+    this question"; NaN is not valid JSON, so this converts at the boundary."""
     if isinstance(value, float):
         return None if value != value else value
     if isinstance(value, dict):
@@ -75,6 +67,25 @@ def json_safe(value):
     return value
 
 
+def _row_shape(*, run_id: str, label: str, started_at: str, seconds: float,
+              config: dict, dataset: str, summary: dict, ragas: dict,
+              selection: dict, n_questions: int) -> dict:
+    """The row `RunResult.brief()` and `list_runs` both build; `selection`/`n_questions` are taken pre-computed since the two callers disagree about what each strips (`brief()` drops question ids, `list_runs` keeps them)."""
+    return {'run_id': run_id, 'label': label, 'started_at': started_at,
+            'seconds': seconds, 'config': config, 'dataset': dataset,
+            'summary': summary,
+            'ragas': ragas.get('metrics', {}),
+            # Absent or None both mean "not ranked", which is the truth.
+            'ragas_decision': ragas.get('decision'),
+            # None rather than 0: `± 0` would claim more precision than the
+            # rows that actually measured a spread.
+            'ragas_decision_stderr': (ragas.get('decision_spread')
+                                      or {}).get('stderr'),
+            'selection': selection,
+            'judge': ragas.get('judge') or {},
+            'n_questions': n_questions}
+
+
 @dataclass
 class RunResult:
     run_id: str
@@ -82,9 +93,7 @@ class RunResult:
     config: dict
     index: dict
     summary: dict
-    # Which corpus this was measured against, resolved rather than left blank —
-    # the leaderboard groups by it first, and a row that does not say which
-    # corpus produced a mean cannot be compared with anything.
+    # Resolved rather than left blank: the leaderboard groups by dataset first.
     dataset: str = ''
     rows: list = field(default_factory=list)
     ragas: dict = field(default_factory=dict)
@@ -92,22 +101,11 @@ class RunResult:
     started_at: str = ''
     notes: list = field(default_factory=list)
     selection: dict = field(default_factory=dict)
-    # Per-question retrieval traces, for the Inspector (:9003) to show why a
-    # question scored the way it did. Deliberately **absent from `as_dict`**, so
-    # `save_run` cannot write them: a run file is the leaderboard's durable
-    # artifact, and 112 questions of full candidate text is megabytes of data no
-    # score is computed from. They travel in the job's result and die with it.
+    # traces, chunks_by_session and summaries are deliberately absent from
+    # as_dict/save_run, so no per-question trace or chunk text reaches a run
+    # file; they travel in the job's result and die with it.
     traces: list = field(default_factory=list)
-    # The chunks this run retrieved *from*, for the same reason and with the same
-    # rule: absent from `as_dict`, so no chunk text reaches a run file. A run
-    # builds its index implicitly and creates no index job, so without this the
-    # Inspector's chunks window can only show whatever index job was last
-    # started — a different chunker beside these rankings, silently.
     chunks_by_session: list = field(default_factory=list)
-    # The rows the grouping wrote, beside the leaves above and under the same
-    # rule. They are not in `chunks_by_session` — a summary is not something the
-    # diarist said — so a run that reported only that half left every summary it
-    # built unreachable from the one view that lists rows.
     summaries: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -119,44 +117,24 @@ class RunResult:
                 'selection': self.selection}
 
     def brief(self) -> dict:
-        """Leaderboard row — no per-question detail.
-
-        `ragas_decision` is carried explicitly rather than left for the frontend
-        to recompute from `ragas`: it is the number the architecture was chosen
-        by, and a leaderboard that ranks on a figure it does not store cannot be
-        checked against the run it came from."""
-        return {'run_id': self.run_id, 'label': self.label,
-                'started_at': self.started_at, 'seconds': self.seconds,
-                'config': self.config, 'dataset': self.dataset,
-                'summary': self.summary,
-                'ragas': self.ragas.get('metrics', {}),
-                'ragas_decision': self.ragas.get('decision'),
-                # The error travels with the mean it qualifies. These candidates
-                # sit within 0.01 of one another, so a row without it cannot say
-                # whether it beat the row below it.
-                'ragas_decision_stderr': (self.ragas.get('decision_spread')
-                                          or {}).get('stderr'),
-                # Which sample and which judge, for the same reason: a decision
-                # score is comparable only against rows that scored the same
-                # questions with the same model, and the leaderboard is exactly
-                # where that mistake gets made.
-                'selection': {k: v for k, v in self.selection.items()
-                              if k != 'question_ids'},
-                'judge': self.ragas.get('judge') or {},
-                'n_questions': self.summary.get('n_questions', 0)}
+        """Leaderboard row — no per-question detail."""
+        return _row_shape(run_id=self.run_id, label=self.label,
+                          started_at=self.started_at, seconds=self.seconds,
+                          config=self.config, dataset=self.dataset,
+                          summary=self.summary, ragas=self.ragas,
+                          # selection/judge travel too: a decision score is
+                          # comparable only against rows that scored the same
+                          # questions with the same model.
+                          selection={k: v for k, v in self.selection.items()
+                                    if k != 'question_ids'},
+                          n_questions=self.summary.get('n_questions', 0))
 
 
 def _stride(questions: list[dict], limit: int) -> list[dict]:
-    """`limit` questions spread evenly across the list.
-
-    Stride rather than truncate: the set is grouped by type, so the first N would
-    be twenty single-hop questions and nothing else.
-
-    Spread across the *whole* list rather than `questions[::step][:limit]`, which
-    drops a tail whenever the count is not a multiple of the limit — at 112
-    questions and a limit of 20 the step is 5, so it stopped at index 95 and the
-    last sixteen were unreachable. Since new question types are appended, that
-    silently excluded the newest type from every limited run."""
+    """`limit` questions spread evenly across the list, not truncated: the set is
+    grouped by type, so the first N would be one type and nothing else. Indexes
+    across the whole list rather than `questions[::step][:limit]`, which drops a
+    tail whenever the count is not a multiple of the limit."""
     total = len(questions)
     if limit >= total:
         return list(questions)
@@ -164,21 +142,11 @@ def _stride(questions: list[dict], limit: int) -> list[dict]:
 
 
 def _balanced(questions: list[dict], limit: int) -> list[dict]:
-    """`limit` questions with the difficulty bands as equal as the count allows.
-
-    The natural distribution is lopsided — 29 easy, 57 medium, 26 hard — so a
-    plain stride hands medium roughly half of every sample. That is a problem
-    specifically for the four deciding metrics: they are means over questions, so
-    a sample weighted toward one band measures that band's pipeline and reports
-    it as the pipeline's score.
-
-    An exactly equal split is only possible when `limit` divides by three, and
-    the remainder has to land somewhere. It goes to the earlier bands in
-    DIFFICULTIES order — deterministically, so two runs at the same limit sample
-    the same questions and their rows are comparable. At limit=49 that is
-    easy 17 / medium 16 / hard 16.
-
-    Within each band the questions are strided, so the types stay spread too."""
+    """`limit` questions with the difficulty bands as equal as the count allows —
+    a plain stride hands medium roughly half of every sample, which would let one
+    band's pipeline stand in for the four deciding metrics' score. The remainder
+    when `limit` doesn't divide by three goes to the earlier bands in
+    DIFFICULTIES order, deterministically. Each band is itself strided."""
     bands = [[q for q in questions if q['difficulty'] == name]
              for name in DIFFICULTIES]
     bands += [[q for q in questions
@@ -186,18 +154,14 @@ def _balanced(questions: list[dict], limit: int) -> list[dict]:
     quotas = _quotas(limit, [len(band) for band in bands])
     picked_ids = {q['id'] for band, quota in zip(bands, quotas)
                   for q in _stride(band, quota)}
-    # Returned in the ground truth's own order rather than band by band: the
-    # per-question rows in a run file are then in the same order as the fixture,
-    # which is what makes two runs diffable line by line.
+    # In the ground truth's own order, not band by band, so two runs' rows stay
+    # diffable line by line.
     return [q for q in questions if q['id'] in picked_ids]
 
 
 def _quotas(limit: int, sizes: list[int]) -> list[int]:
-    """How many questions to take from each band.
-
-    A band smaller than its share cannot make it up, so what it cannot supply is
-    offered to the others rather than silently shrinking the sample — a run asked
-    for 49 questions must produce 49 whenever the set holds that many."""
+    """How many questions to take from each band. A band smaller than its share
+    offers the remainder to the others, so a limit the set can meet is always met."""
     quotas = [0] * len(sizes)
     remaining = min(limit, sum(sizes))
     while remaining > 0:
@@ -216,16 +180,11 @@ def select_questions(ground_truth: dict, types: list[str] | None = None,
                      limit: int | None = None,
                      difficulty: list[str] | None = None,
                      balance: str = 'stride') -> list[dict]:
-    """The questions one run is measured on.
-
-    `balance='difficulty'` equalises the easy/medium/hard bands; 'stride' spreads
-    across the set as it is. The default stays 'stride' so the twelve runs already
-    in `.runs/` remain reproducible from their own config — a sampling rule that
-    changed underneath the leaderboard would silently make old rows
-    incomparable rather than merely old."""
-    # Validated before anything else, and unconditionally: checked further down it
-    # would pass silently whenever there was no limit to apply, so a typo in a
-    # config would only raise on the runs where it happened to matter.
+    """The questions one run is measured on. `balance='difficulty'` equalises the
+    easy/medium/hard bands; 'stride' (the default, for reproducibility against
+    `.runs/`) spreads across the set as it is."""
+    # Validated unconditionally, before the limit check below, so a bad config
+    # raises on every run rather than only the ones where a limit is applied.
     if balance not in BALANCES:
         raise ValueError(f'unknown balance {balance!r}; expected one of '
                          + ', '.join(repr(name) for name in BALANCES))
@@ -243,12 +202,9 @@ def select_questions(ground_truth: dict, types: list[str] | None = None,
 
 def selection_note(questions: list[dict], limit: int | None,
                    balance: str) -> dict:
-    """What a run was actually measured on, saved onto the run itself.
-
-    Two rows are only comparable if they scored the same questions, and neither
-    the config nor the metric means say which those were. So the ids travel with
-    the row — the sample is part of the measurement, not part of the invocation
-    that produced it."""
+    """What a run was actually measured on. The question ids travel with the row,
+    because two rows are comparable only if they scored the same questions, and
+    nothing else on the row says which those were."""
     counts: dict[str, int] = {}
     for question in questions:
         counts[question['difficulty']] = counts.get(question['difficulty'], 0) + 1
@@ -259,18 +215,15 @@ def selection_note(questions: list[dict], limit: int | None,
 
 
 def _question_note(done: int, questions: list[dict], difficulty: str) -> str:
-    """"question 16/30 · hard". The band is there because a phase that is slow on
-    hard questions is a different fact from one that is slow throughout."""
+    """"question 16/30 · hard" — the band says whether a slow phase is slow
+    throughout or only on hard questions."""
     return f'question {done}/{len(questions)} · {difficulty}'
 
 
 def _reporter(progress):
     """Adapt a progress callback to `(stage, fraction, detail)` whether or not it
-    accepts the detail.
-
-    Arity is inspected once rather than caught per call: a `TypeError` swallowed
-    around a user callback would also swallow a real error raised *inside* it, and
-    a progress bar that hides exceptions is worse than no progress bar."""
+    accepts the detail. Arity is inspected once rather than caught per call, so a
+    real error raised inside the callback is not swallowed as a `TypeError`."""
     if progress is None:
         return lambda stage, fraction, detail='': None
     try:
@@ -286,36 +239,87 @@ def _reporter(progress):
 
 
 def trace_row(question: dict, trace: dict,
-              gold_available: int | None = None) -> dict:
+              gold_present: int | None = None) -> dict:
     """One question's retrieval trace, gold-marked, in the shape the Inspector
-    renders a table from. Gold is the *ground truth's* verdict on a candidate,
-    never the pipeline's: `kept` already carries what the pipeline decided, and
-    keeping the two apart is the whole point of the table — a gold chunk that
-    was dropped is exactly what you are looking for.
-
-    `gold_available` is how many gold chunks existed to be found, which makes
-    the count a recall statement rather than a bare tally. It is passed in
-    because it is a property of the index, which this function does not hold;
-    a caller without one gets `None`, and the view says "1 gold" rather than
-    inventing a denominator."""
+    renders a table from. Gold is the ground truth's verdict on a candidate,
+    kept apart from `kept` (the pipeline's own decision), so a gold chunk that
+    was dropped is visible rather than hidden. `gold_present` is a property of
+    the index the caller may not hold; without one the view shows no denominator
+    rather than inventing one."""
     quotes = [ev['quote'] for ev in question.get('evidence', [])]
     candidates = trace.get('candidates', [])
     for candidate, gold in zip(candidates,
                                mark_gold([c['text'] for c in candidates],
                                          quotes)):
         candidate['gold'] = gold
-        # Where to paint the evidence green. Computed for every candidate rather
-        # than only the gold ones, so a verbatim quote can never sit in a row
-        # that was not marked — the two would disagree and the page would show
-        # the disagreement instead of hiding it.
+        # Computed for every candidate, not only gold ones, so a verbatim quote
+        # can never sit in a row that was not marked gold.
         candidate['gold_spans'] = evidence_spans(candidate['text'], quotes)
     return {'question_id': question['id'],
             'question_fa': question['question_fa'],
             'question_en': question.get('question_en', ''),
             'type': question['type'], 'difficulty': question['difficulty'],
             'answerable': bool(question.get('answerable')),
-            'gold_available': gold_available,
+            'gold_available': gold_present,
             'trace': trace}
+
+
+def _gold_trace_row(question: dict, trace: dict, index, norm_chunks: list) -> dict:
+    """`trace_row`, with gold availability counted from this question's own
+    evidence quotes against the index — the three lines `run_retrieval` and
+    `run_eval` both repeated identically."""
+    quotes = [ev['quote'] for ev in question.get('evidence', [])]
+    return trace_row(question, trace,
+                     gold_present=gold_available(index, quotes, norm_chunks))
+
+
+@dataclass(frozen=True)
+class _RunSetup:
+    """What `run_retrieval` and `run_eval` both need before their question loop, built once by `_prepare_run`; `started` is read right after validation and only `run_eval` derives its run id/started_at from it."""
+    started: float
+    report: Callable
+    check_cancelled: Callable
+    index: Any
+    questions: list[dict]
+    selection: dict
+    query_date: str
+    llm: Any
+    roles: Any
+    norm_chunks: list
+
+
+def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
+                 settings: LabSettings, *, types: list[str] | None,
+                 limit: int | None, difficulty: list[str] | None, balance: str,
+                 progress, cancelled, need_norm_chunks: bool,
+                 recheck_after_index: bool) -> _RunSetup:
+    """The setup `run_retrieval` and `run_eval` both open with; `need_norm_chunks`/`recheck_after_index` are the two points where the two callers differ. `started` is read here, right after validation and before the index build, because `models.provider_problems` can be a network round trip — `run_eval`'s run id and `started_at` must be timestamped after that call resolves, not before it, or a slow or unreachable backend would stretch the recorded start time backwards."""
+    problems = cfg.validate() + models.provider_problems(cfg, settings)
+    if problems:
+        raise ValueError('; '.join(problems))
+    started = time.time()
+    report = _reporter(progress)
+    check_cancelled = cancelled or (lambda: None)
+
+    check_cancelled()
+    index = registry.get(cfg.index,
+                         progress=lambda stage, f: report(stage, f * 0.4))
+    if recheck_after_index:
+        check_cancelled()
+    questions = select_questions(ground_truth, types, limit, difficulty, balance)
+    selection = selection_note(questions, limit, balance)
+    query_date = ground_truth['meta'].get('query_date', '2026-07-28')
+    llm = lab_llm(settings)
+    roles = models.resolve(cfg, settings)
+    # Normalised once: `gold_available` counts gold over every chunk in the
+    # index, and per-question would re-tokenise the corpus needlessly. Needed
+    # unconditionally by `run_retrieval`; only for a traced `run_eval`.
+    norm_chunks = normalised_chunks(index) if need_norm_chunks else []
+    return _RunSetup(started=started, report=report,
+                     check_cancelled=check_cancelled, index=index,
+                     questions=questions, selection=selection,
+                     query_date=query_date, llm=llm, roles=roles,
+                     norm_chunks=norm_chunks)
 
 
 def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
@@ -323,48 +327,27 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                   limit: int | None = None, difficulty: list[str] | None = None,
                   balance: str = 'stride', progress=None,
                   cancelled=None) -> dict:
-    """Retrieval only, over the questions an experiment selected.
-
-    The middle step the panel could not do alone: build (or reuse) the index,
-    retrieve for each selected question with a full per-step trace, mark gold
-    against the ground truth — and stop. Nothing is answered, nothing is scored
-    and nothing is written to `.runs/`, because none of those is what this
-    answers: it exists to show *what came back and where it ranked*, which is
-    the loop you run twenty times while moving one knob.
-
-    The selection is `select_questions` with the same arguments `run_eval`
-    takes, deliberately: retrieval shown for questions the numbers were never
-    about would be worse than showing nothing."""
-    problems = cfg.validate() + models.provider_problems(cfg, settings)
-    if problems:
-        raise ValueError('; '.join(problems))
-    report = _reporter(progress)
-    check_cancelled = cancelled or (lambda: None)
-
-    check_cancelled()
-    index = registry.get(cfg.index, progress=lambda stage, f: report(stage, f * 0.4))
-    questions = select_questions(ground_truth, types, limit, difficulty, balance)
-    query_date = ground_truth['meta'].get('query_date', '2026-07-28')
-    llm = _lab_llm(settings)
-    roles = models.resolve(cfg, settings)
-
-    # Normalised once for the whole run: `gold_available` counts gold over every
-    # chunk in the index, and doing that per question would re-tokenise the
-    # corpus once per question for no new information.
-    norm_chunks = normalised_chunks(index)
+    """Retrieval only, over the questions an experiment selected: build (or reuse)
+    the index, retrieve with a full per-step trace, mark gold — and stop. Nothing
+    is answered, scored or written to `.runs/`. Takes the same selection
+    arguments as `run_eval`, deliberately, so what is shown is what the numbers
+    were about."""
+    setup = _prepare_run(registry, ground_truth, cfg, settings, types=types,
+                         limit=limit, difficulty=difficulty, balance=balance,
+                         progress=progress, cancelled=cancelled,
+                         need_norm_chunks=True, recheck_after_index=False)
+    report, check_cancelled = setup.report, setup.check_cancelled
+    index, questions = setup.index, setup.questions
+    query_date, llm, roles = setup.query_date, setup.llm, setup.roles
+    norm_chunks = setup.norm_chunks
 
     rows = []
     for i, question in enumerate(questions):
         check_cancelled()
         if agent.owns_retrieval(cfg.agent.scope):
-            # This route shows a configuration's *search*, so an agent that owns
-            # retrieval is part of what there is to show — a loop whose hops were
-            # invisible here would leave the cheap feedback step describing a
-            # pipeline the expensive one does not run. The drafting half of
-            # `full` is an answering stage and this route does not answer, so the
-            # answerer is forced off and the scope narrowed to its retrieval
-            # half: `pipeline.answer` under 'none' returns the outcome
-            # untouched, which is exactly "retrieve and stop".
+            # Narrowed to the retrieval half of the scope and the answerer
+            # forced off: this route retrieves and stops, and the drafting half
+            # of `full` is an answering stage.
             trace = {}
             _outcome = agent.run(
                 index,
@@ -377,82 +360,34 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
             _outcome, trace = pipeline.retrieve_traced(
                 index, cfg.retrieval, question['question_fa'],
                 question.get('query_date', query_date), llm=llm, models=roles)
-        quotes = [ev['quote'] for ev in question.get('evidence', [])]
-        rows.append(trace_row(
-            question, trace,
-            gold_available=gold_available(index, quotes, norm_chunks)))
+        rows.append(_gold_trace_row(question, trace, index, norm_chunks))
         report('retrieving', 0.4 + 0.6 * (i + 1) / len(questions),
                _question_note(i + 1, questions, question['difficulty']))
     report('done', 1.0, 'done')
-    return {'selection': selection_note(questions, limit, balance),
+    return {'selection': setup.selection,
             'dataset': cfg.index.dataset or datasets.BUILTIN,
             'index': {'collection': index.stats.collection,
                       'chunks': index.stats.chunks,
                       'reused': index.stats.reused},
             'config': cfg.to_dict(),
             'models': roles.as_dict(),
-            # The chunks these rankings are over, reported by the run itself:
-            # it built the index implicitly, so there is no index job the
-            # Inspector could read them from.
-            'chunks_by_session': chunks_by_session(index),
+            # Reported here because this run built its index implicitly, so
+            # there is no index job the Inspector could read the chunks from.
+            'chunks_by_session': chunks_by_session_rows(index),
             'summaries': summary_rows(index),
             'questions': rows}
 
 
-def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
-             settings: LabSettings, *, types: list[str] | None = None,
-             limit: int | None = None, difficulty: list[str] | None = None,
-             balance: str = 'stride',
-             ragas_mode: str = 'offline', ragas_limit: int | None = None,
-             workers: int = 1, trace: bool = False,
-             progress=None, cancelled=None) -> RunResult:
-    """`trace=True` records each question's per-step retrieval trace alongside
-    its row, so the Inspector is not blank after an evaluation. It records the
-    *same* retrieval: `retrieve_traced` fills a dict the plain path never looks
-    at and returns the identical `Outcome`, so no score can move because
-    tracing was asked for."""
-    problems = cfg.validate() + models.provider_problems(cfg, settings)
-    if problems:
-        raise ValueError('; '.join(problems))
-    started = time.time()
-    # Both stamps come from the one clock read, so a field named for the start
-    # cannot end up holding the finish — a ten-minute run whose start time is its
-    # end time makes the leaderboard's timeline unreconstructable.
-    clock = time.localtime(started)
-    started_at = time.strftime('%Y-%m-%d %H:%M:%S', clock)
-    run_id = time.strftime('%Y%m%d-%H%M%S', clock) + '-' + cfg.index.fingerprint()[:6]
-    # The detail is what makes a long phase readable — "question 16/30 · hard"
-    # rather than "0.66". It is passed positionally to a caller that wants it and
-    # dropped for one that does not, because the panel's reporter predates it and
-    # a run must not fail on its progress bar.
-    report = _reporter(progress)
-    check_cancelled = cancelled or (lambda: None)
-
-    check_cancelled()
-    index = registry.get(cfg.index, progress=lambda stage, f: report(stage, f * 0.4))
-    check_cancelled()
-    questions = select_questions(ground_truth, types, limit, difficulty, balance)
-    selection = selection_note(questions, limit, balance)
-    query_date = ground_truth['meta'].get('query_date', '2026-07-28')
-    llm = _lab_llm(settings)
-    roles = models.resolve(cfg, settings)
-    # Only needed by the traced path, where every question's gold count is taken
-    # over the whole index; normalised once so it is not re-tokenised per
-    # question. Empty when untraced, and then nothing reads it.
-    norm_chunks = normalised_chunks(index) if trace else []
+def _assemble_notes(index, cfg: LabConfig, settings: LabSettings) -> list[str]:
+    """The row's free-text notes: the index's own build notes, which model ran
+    which stage (so two leaderboard rows are comparable), the agent scope if
+    one ran, the embedder's language coverage, and — only when it would
+    otherwise go unsaid — that an LLM stage fell back to the offline fake
+    provider and so measured nothing."""
     notes = list(index.stats.notes)
-    # Which model ran which stage belongs in the run's own notes: comparing two
-    # rows of the leaderboard without it compares two unknowns.
     notes.append(models.note_for(cfg, settings))
     if cfg.agent.scope:
-        # The loop's shape belongs in the notes for the same reason the backend
-        # and the CLI effort do: two rows that differ only in `max_hops` are
-        # otherwise identically labelled, and `leaderboard.group` would rank
-        # them as a comparable pair. The config carries the numbers; this is the
-        # sentence a human reads.
         notes.append(agent.note_for(cfg.agent))
-    # Same reason, one layer down: a row whose embedder could not represent the
-    # corpus is not a result, and nothing else on the row would say so.
     notes.append(embedding.language_note(
         cfg.index.embedder,
         embedding.resolve_model(cfg.index.embedder, settings,
@@ -463,6 +398,86 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                                             or cfg.retrieval.hyde):
         notes.append('no OPENROUTER_API_KEY: LLM stages fell back to the offline '
                      'fake provider, so their numbers are meaningless')
+    return notes
+
+
+def _run_questions(questions: list[dict], handle: Callable, workers: int,
+                   report: Callable) -> list[tuple]:
+    """Runs `handle` over every question — threaded above one worker, serial
+    otherwise — and returns the results in question order regardless of which
+    way they finished, reporting progress as each one lands rather than after
+    all of them."""
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(handle, q): i for i, q in enumerate(questions)}
+            done_count = 0
+            slots: list = [None] * len(questions)
+            for future in as_completed(futures):
+                landed = futures[future]
+                slots[landed] = future.result()
+                done_count += 1
+                report('scoring', 0.4 + 0.5 * done_count / len(questions),
+                       _question_note(done_count, questions,
+                                      questions[landed]['difficulty']))
+        return [row for row in slots if row is not None]
+    results = []
+    for i, question in enumerate(questions):
+        results.append(handle(question))
+        report('scoring', 0.4 + 0.5 * (i + 1) / len(questions),
+               _question_note(i + 1, questions, question['difficulty']))
+    return results
+
+
+def _build_result(*, run_id: str, cfg: LabConfig, index, summary: dict,
+                  rows: list, ragas_report: dict, started: float,
+                  started_at: str, notes: list, selection: dict, traces: list,
+                  trace: bool) -> RunResult:
+    """The `RunResult` `run_eval` ends its work with — one call rather than one
+    seventeen-field literal, so the conductor reads as "build the result" and
+    not as the result's own shape."""
+    return RunResult(run_id=run_id, label=cfg.label or cfg.index.chunker,
+                     config=cfg.to_dict(),
+                     dataset=cfg.index.dataset or datasets.BUILTIN,
+                     index={'collection': index.stats.collection,
+                            'chunks': index.stats.chunks,
+                            'avg_chars': index.stats.avg_chars,
+                            'p95_chars': index.stats.p95_chars,
+                            'embed_dim': index.stats.embed_dim,
+                            'build_seconds': index.stats.build_seconds,
+                            'reused': index.stats.reused},
+                     summary=summary, rows=rows, ragas=ragas_report,
+                     seconds=round(time.time() - started, 2),
+                     started_at=started_at, notes=notes,
+                     selection=selection, traces=traces,
+                     chunks_by_session=(chunks_by_session_rows(index)
+                                        if trace else []),
+                     summaries=summary_rows(index) if trace else [])
+
+
+def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
+             settings: LabSettings, *, types: list[str] | None = None,
+             limit: int | None = None, difficulty: list[str] | None = None,
+             balance: str = 'stride',
+             ragas_mode: str = 'offline', ragas_limit: int | None = None,
+             workers: int = 1, trace: bool = False,
+             progress=None, cancelled=None) -> RunResult:
+    """`trace=True` records each question's retrieval trace via `retrieve_traced`,
+    which fills a dict the plain path never reads and returns the identical
+    `Outcome` — so no score can move because tracing was asked for."""
+    setup = _prepare_run(registry, ground_truth, cfg, settings, types=types,
+                         limit=limit, difficulty=difficulty, balance=balance,
+                         progress=progress, cancelled=cancelled,
+                         need_norm_chunks=trace, recheck_after_index=True)
+    started = setup.started
+    report, check_cancelled = setup.report, setup.check_cancelled
+    index, questions, selection = setup.index, setup.questions, setup.selection
+    query_date, llm, roles = setup.query_date, setup.llm, setup.roles
+    norm_chunks = setup.norm_chunks
+    # One clock read for both stamps, so start and finish cannot end up the same.
+    clock = time.localtime(started)
+    started_at = time.strftime('%Y-%m-%d %H:%M:%S', clock)
+    run_id = time.strftime('%Y%m%d-%H%M%S', clock) + '-' + cfg.index.fingerprint()[:6]
+    notes = _assemble_notes(index, cfg, settings)
 
     def handle(question: dict):
         check_cancelled()
@@ -470,13 +485,9 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
         asked = question['question_fa']
         when = question.get('query_date', query_date)
         if cfg.agent.scope:
-            # One branch, at the one place a question becomes an outcome. The
-            # agent owns at least one stage and answers as well as retrieves —
-            # under `retrieve` it calls `pipeline.answer` itself with this same
-            # `cfg.generation`, so generation stays comparable with an unagented
-            # row. Which is also why `pipeline.answer` must not run again below:
-            # a second call would re-answer the question the loop already
-            # answered and the row would describe neither.
+            # The agent answers as well as retrieves — under `retrieve` it calls
+            # `pipeline.answer` itself — so `pipeline.answer` must not run again
+            # below, or the row would describe neither call.
             tr = {} if trace else None
             outcome = agent.run(index, cfg, asked, when, llm=llm, models=roles,
                                 trace=tr)
@@ -487,10 +498,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
             outcome = pipeline.retrieve(index, cfg.retrieval, asked, when,
                                         llm=llm, models=roles)
         if trace:
-            quotes = [ev['quote'] for ev in question.get('evidence', [])]
-            recorded = trace_row(
-                question, tr,
-                gold_available=gold_available(index, quotes, norm_chunks))
+            recorded = _gold_trace_row(question, tr, index, norm_chunks)
         check_cancelled()
         if not cfg.agent.scope:
             outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
@@ -505,28 +513,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
         return question, outcome, row, recorded
 
     pairs, rows, traces = [], [], []
-    results: list = []
-    if workers > 1:
-        # Reported as each question lands, not after all of them: with LLM
-        # answering this is the longest phase by far, and a progress bar that
-        # sits at 40% for four minutes is indistinguishable from a hang.
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(handle, q): i for i, q in enumerate(questions)}
-            done_count = 0
-            slots: list = [None] * len(questions)
-            for future in as_completed(futures):
-                landed = futures[future]
-                slots[landed] = future.result()
-                done_count += 1
-                report('scoring', 0.4 + 0.5 * done_count / len(questions),
-                       _question_note(done_count, questions,
-                                      questions[landed]['difficulty']))
-        results = [row for row in slots if row is not None]
-    else:
-        for i, question in enumerate(questions):
-            results.append(handle(question))
-            report('scoring', 0.4 + 0.5 * (i + 1) / len(questions),
-                   _question_note(i + 1, questions, question['difficulty']))
+    results = _run_questions(questions, handle, workers, report)
     for question, outcome, row, recorded in results:
         pairs.append((question, outcome))
         rows.append(json_safe(row))
@@ -546,23 +533,10 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                                       judge_model=roles.ragas,
                                       progress=report, k=cfg.retrieval.k)
     report('done', 1.0, 'done')
-    result = RunResult(run_id=run_id, label=cfg.label or cfg.index.chunker,
-                       config=cfg.to_dict(),
-                       dataset=cfg.index.dataset or datasets.BUILTIN,
-                       index={'collection': index.stats.collection,
-                              'chunks': index.stats.chunks,
-                              'avg_chars': index.stats.avg_chars,
-                              'p95_chars': index.stats.p95_chars,
-                              'embed_dim': index.stats.embed_dim,
-                              'build_seconds': index.stats.build_seconds,
-                              'reused': index.stats.reused},
-                       summary=summary, rows=rows, ragas=ragas_report,
-                       seconds=round(time.time() - started, 2),
-                       started_at=started_at, notes=notes,
-                       selection=selection, traces=traces,
-                       chunks_by_session=(chunks_by_session(index)
-                                          if trace else []),
-                       summaries=summary_rows(index) if trace else [])
+    result = _build_result(run_id=run_id, cfg=cfg, index=index, summary=summary,
+                           rows=rows, ragas_report=ragas_report, started=started,
+                           started_at=started_at, notes=notes, selection=selection,
+                           traces=traces, trace=trace)
     save_run(result)
     return result
 
@@ -570,21 +544,14 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
 def save_run(result: RunResult) -> None:
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     path = RUNS_DIR / f'{result.run_id}.json'
-    # allow_nan=False on purpose: a NaN here would write a file that strict JSON
-    # parsers reject, and the failure would surface much later as an unreadable
-    # leaderboard rather than at the line that produced it.
+    # allow_nan=False: a NaN here would write a file strict JSON parsers reject.
     path.write_text(json.dumps(json_safe(result.as_dict()), ensure_ascii=False,
                                indent=1, allow_nan=False), encoding='utf-8')
 
 
 def count_runs() -> int:
-    """How many run files exist, whether or not they were listed.
-
-    Served beside a limited listing because the panel asked `/api/evaluations`
-    with no limit and showed the newest 50 of 164, calling that the leaderboard.
-    On 2026-08-04 the same run ranked 2nd on the page and 4th over the whole
-    directory and nothing on screen could explain the disagreement. A bounded
-    view has to say what it left out."""
+    """How many run files exist, whether or not they were listed — so a bounded
+    listing can say what it left out."""
     if not RUNS_DIR.exists():
         return 0
     return sum(1 for _ in RUNS_DIR.glob('*.json'))
@@ -602,35 +569,18 @@ def list_runs(limit: int = 50) -> list[dict]:
         if 'run_id' not in data:
             continue        # not a run: never assume a directory holds only ours
         ragas = data.get('ragas') or {}
-        out.append({'run_id': data['run_id'], 'label': data.get('label', ''),
-                    'started_at': data.get('started_at', ''),
-                    # Absent on every run recorded before a second corpus
-                    # existed — and those runs *are* the built-in diary, which
-                    # is the only corpus there was. Filling it in is what keeps
-                    # them comparable with new ones rather than quarantined.
-                    'dataset': data.get('dataset') or datasets.BUILTIN,
-                    'seconds': data.get('seconds', 0), 'config': data.get('config'),
-                    'summary': data.get('summary', {}),
-                    'ragas': ragas.get('metrics', {}),
-                    # Absent on every run recorded before the score existed, and
-                    # None on every run that could not measure all four — both
-                    # read as "this row was not ranked", which is the truth.
-                    'ragas_decision': ragas.get('decision'),
-                    # None on every run recorded before the spread existed: those
-                    # per-question composites are not recoverable, and `± 0`
-                    # would claim more precision than the rows that measured it.
-                    'ragas_decision_stderr': (ragas.get('decision_spread')
-                                              or {}).get('stderr'),
-                    # Which sample and which judge. `brief()` has carried these
-                    # since the sweep started recording them and this list did
-                    # not, so the panel's own leaderboard could not tell an
-                    # incomparable row from a comparable one — which is the single
-                    # mistake a leaderboard exists to prevent. The question ids
-                    # stay in, unlike `brief()`: grouping needs them, and this
-                    # list is read by code rather than rendered.
-                    'selection': data.get('selection') or {},
-                    'judge': ragas.get('judge') or {},
-                    'n_questions': (data.get('summary') or {}).get('n_questions', 0)})
+        out.append(_row_shape(
+            run_id=data['run_id'], label=data.get('label', ''),
+            started_at=data.get('started_at', ''),
+            seconds=data.get('seconds', 0), config=data.get('config'),
+            # Absent means the built-in diary: the only corpus there was
+            # before a second one existed.
+            dataset=data.get('dataset') or datasets.BUILTIN,
+            summary=data.get('summary', {}), ragas=ragas,
+            # Question ids stay in, unlike `brief()`: grouping needs them and
+            # this list is read by code, never rendered.
+            selection=data.get('selection') or {},
+            n_questions=(data.get('summary') or {}).get('n_questions', 0)))
     return out
 
 

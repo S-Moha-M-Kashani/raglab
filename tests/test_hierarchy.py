@@ -35,23 +35,15 @@ def registry(diary):
 
 # --- the fingerprint -------------------------------------------------------
 
-# This is a unit test.
 def test_a_flat_index_is_fingerprinted_exactly_as_it_was_before_hierarchies():
-    """Seven new fields, and none of them may touch a flat index's name.
-
-    The literals are the same ones `test_the_built_in_corpus_keeps_the_
-    fingerprints_already_recorded` pins for the dataset field, and for the same
-    reason: every `index.collection` already written into `.runs/` names an
-    index a rebuild has to be able to reproduce. A new field that entered the
-    hash would leave a whole leaderboard describing collections that can no
-    longer be built by name.
-    """
+    """Seven new fields, none of which may touch a flat index's name — every
+    `index.collection` already written into `.runs/` names an index a
+    rebuild has to be able to reproduce."""
     assert IndexConfig().fingerprint() == '804444ae65db'
     assert IndexConfig().collection() == 'raglab-804444ae65db'
     assert IndexConfig(embedder='ascii-hash').fingerprint() == '9d62a8c374b6'
 
 
-# This is a unit test.
 def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index():
     """A stale `graph_knn` in a browser tab must not cost a 167-session rebuild
     of an index that is byte-identical to the one already built. `hierarchy=''`
@@ -61,7 +53,6 @@ def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index()
             == IndexConfig().fingerprint())
 
 
-# This is a unit test.
 def test_a_knob_the_chosen_grouping_never_reads_does_not_cost_a_rebuild():
     """The same argument one level down: k-means builds no graph, so the number
     of graph neighbours cannot change what it stored."""
@@ -72,7 +63,6 @@ def test_a_knob_the_chosen_grouping_never_reads_does_not_cost_a_rebuild():
             != IndexConfig(hierarchy='kmeans').fingerprint())
 
 
-# This is a unit test.
 def test_two_groupings_are_two_indexes():
     """Leiden and Louvain partition the same graph differently, so they store
     different rows and must never share a collection."""
@@ -82,16 +72,11 @@ def test_two_groupings_are_two_indexes():
 
 # --- availability, refused rather than substituted -------------------------
 
-# This is a unit test.
 def test_a_grouping_whose_library_is_missing_is_refused_and_never_substituted(
         monkeypatch):
-    """The embedder rule applied to partitions.
-
-    A row labelled `leiden` that Louvain actually produced is the one artefact
-    this lab must not make, because nothing else on the row contradicts it. The
-    availability *check* is stubbed rather than the option list, so this asserts
-    on the rule and not on which extras happen to be installed here.
-    """
+    """The availability *check* is stubbed rather than the option list, so
+    this asserts on the rule and not on which extras happen to be installed
+    here."""
     monkeypatch.setattr(hierarchy, 'hierarchy_available',
                         lambda name: name != 'leiden')
     problems = LabConfig(index=IndexConfig(hierarchy='leiden')).validate()
@@ -99,11 +84,9 @@ def test_a_grouping_whose_library_is_missing_is_refused_and_never_substituted(
     assert 'leiden' in problems[0]
     assert 'graph-index' in problems[0], 'the error has to say what to install'
     assert 'louvain' not in problems[0].lower(), 'never offer a substitute'
-    # Everything else still validates: one missing wheel is not a broken lab.
     assert LabConfig(index=IndexConfig(hierarchy='louvain')).validate() == []
 
 
-# This is a unit test.
 def test_availability_is_verified_rather_than_asserted():
     """`available()` answers per grouping, and says what to install. networkx
     and scikit-learn are core dependencies, so those five are always true."""
@@ -115,14 +98,12 @@ def test_availability_is_verified_rather_than_asserted():
 
 # --- the build -------------------------------------------------------------
 
-# This is an integration test (real in-memory index, offline hash embedder).
+# Real in-memory index, offline hash embedder.
 @pytest.mark.parametrize('name', [h for h in HIERARCHIES if h])
 def test_every_grouping_writes_summaries_beside_the_leaves_it_grouped(
         registry, name):
-    """Additive, always: the leaves a flat build produced are all still there,
-    by id. Replacing a session with its summary is what loses information
-    permanently — a summary that drops "the sixth rejection" makes the counting
-    question unanswerable forever."""
+    """Additive, always: replacing a leaf with its summary loses information
+    permanently, unlike keeping both."""
     flat = registry.get(IndexConfig(**LEAVES))
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy=name))
 
@@ -137,22 +118,18 @@ def test_every_grouping_writes_summaries_beside_the_leaves_it_grouped(
         assert set(summary.member_ids) <= leaf_ids
 
 
-# This is an integration test.
 def test_the_metadata_control_reproduces_the_corpus_own_storylines(registry,
                                                                    diary):
-    """The grouping that was measured and deleted on 2026-07-31, kept as a
-    control so the old finding and the new one can be read off one table. It has
-    to be the thing it claims to be: one group per declared thread."""
+    """Kept as a control against the old, deleted rollups: it has to be the
+    thing it claims to be, one group per declared thread."""
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='metadata'))
     summaries = [c for c in grouped.chunks if c.layer == 'summary']
     assert len(summaries) == len(diary['threads']) == 18
 
 
-# This is an integration test.
 def test_a_build_reports_what_the_grouping_did(registry):
-    """"The index built" is not a result. A partition with no community
-    structure makes every score under it uninformative, and that is worth
-    knowing before reading them."""
+    """A partition with no community structure makes every score under it
+    uninformative, and that is worth knowing before reading them."""
     stats = registry.get(IndexConfig(**LEAVES, hierarchy='louvain')).stats
     report = stats.hierarchy
     assert report['hierarchy'] == 'louvain'
@@ -168,20 +145,17 @@ def test_a_build_reports_what_the_grouping_did(registry):
     assert clustered.hierarchy['modularity'] is None, 'k-means builds no graph'
 
 
-# This is an integration test.
 def test_a_flat_build_reports_no_hierarchy_at_all(registry):
     """None rather than an empty block: "no hierarchy" and "a hierarchy that
     found nothing" are different facts about a build."""
     assert registry.get(IndexConfig(**LEAVES)).stats.hierarchy is None
 
 
-# This is an integration test.
 def test_building_a_hierarchy_opens_no_socket_and_calls_no_model(monkeypatch,
                                                                  diary):
-    """The decision that makes a hierarchy sweepable at all. It is asserted
-    rather than assumed, because a summariser that reached for a model would
-    also let the offline `fake` backend fill an index with confident invention
-    that no field on the resulting row contradicts."""
+    """The decision that makes a hierarchy sweepable at all — a summariser
+    that reached for a model would let the offline `fake` backend fill an
+    index with confident invention no field on the row contradicts."""
     import socket
 
     def refuse(*args, **kwargs):
@@ -194,7 +168,6 @@ def test_building_a_hierarchy_opens_no_socket_and_calls_no_model(monkeypatch,
     assert any(c.layer == 'summary' for c in index.chunks)
 
 
-# This is an integration test.
 def test_a_deeper_hierarchy_groups_its_own_summaries(registry):
     """Level 2 is the same operation applied to level 1's output, which is what
     makes "recursive" mean something rather than being a second parameter."""
@@ -208,7 +181,6 @@ def test_a_deeper_hierarchy_groups_its_own_summaries(registry):
 
 # --- the summarisers -------------------------------------------------------
 
-# This is a unit test.
 @pytest.mark.parametrize('name', config.SUMMARIZERS)
 def test_every_summariser_writes_text_from_the_group_and_calls_no_model(name):
     from raglab.chunking import Chunk
@@ -221,12 +193,9 @@ def test_every_summariser_writes_text_from_the_group_and_calls_no_model(name):
     assert text.strip()
 
 
-# This is a unit test.
 def test_the_card_summariser_states_the_count_rather_than_implying_it():
-    """The cheapest summariser, and the one most likely to help a counting
-    question: it states a number instead of asking the model to count retrieved
-    chunks — the task the 2026-07-31 record identifies as the one a language
-    model is worst at."""
+    """States a number instead of asking a model to count retrieved chunks —
+    counting is a task a language model is bad at."""
     from raglab.chunking import Chunk
     chunks = [Chunk(id=f'c{i}', text=f'روز {i} باشگاه رفتم',
                     session_id=f's{i}', date=f'2026-04-{i + 1:02d}')
@@ -244,7 +213,6 @@ def _question(ground_truth):
     return ground_truth['questions'][0]
 
 
-# This is an integration test.
 def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
     """The control has to actually be a control: if `leaves` moved a single
     context, no row using it could say whether building the summaries cost
@@ -263,7 +231,6 @@ def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
            [c.chunk_id for c in plain.contexts]
 
 
-# This is an integration test.
 def test_the_summaries_scope_retrieves_only_summaries(registry):
     ground_truth = load_ground_truth()
     question = _question(ground_truth)
@@ -277,12 +244,10 @@ def test_the_summaries_scope_retrieves_only_summaries(registry):
     assert outcome.diagnostics['contexts_by_layer']['leaf'] == 0
 
 
-# This is an integration test.
 def test_drill_down_expands_each_summary_to_the_members_it_stands_for(registry):
-    """The mechanism the 2026-07-31 post-mortem asked for and `rollup_boost` was
-    not: summaries compete only against summaries, so being outnumbered twenty
-    to one by leaves cannot happen, and the members arrive as evidence the
-    answerer can quote."""
+    """Summaries compete only against summaries, so being outnumbered by
+    leaves cannot happen, and the members arrive as evidence the answerer
+    can quote."""
     ground_truth = load_ground_truth()
     question = _question(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
@@ -300,12 +265,10 @@ def test_drill_down_expands_each_summary_to_the_members_it_stands_for(registry):
     assert counts['summary'] and counts['expanded']
 
 
-# This is an integration test.
 def test_a_boost_promotes_a_summary_into_the_candidate_cut(registry):
-    """Applied before the cut, never after. There are far more leaves than
-    summaries, so a summary that had not already survived the cut could not be
-    promoted into it — that version was measured in the 2026-07-30 sweep and was
-    a no-op that looked like a knob."""
+    """Applied before the cut, never after: there are far more leaves than
+    summaries, so a summary that had not already survived the cut could not
+    be promoted into it — that would be a no-op that looked like a knob."""
     ground_truth = load_ground_truth()
     question = _question(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='metadata'))
@@ -328,7 +291,6 @@ def replace_boost(cfg: RetrievalConfig, value: float) -> RetrievalConfig:
     return replace(cfg, summary_boost=value)
 
 
-# This is an integration test.
 def test_mixed_is_the_default_so_a_hierarchy_changes_no_retrieval_by_itself():
     """Building a hierarchy must not move a number on its own — the first row is
     then a clean answer to one question, and drill-down is a second candidate
@@ -337,7 +299,6 @@ def test_mixed_is_the_default_so_a_hierarchy_changes_no_retrieval_by_itself():
     assert RetrievalConfig().summary_boost == 1.0
 
 
-# This is a unit test.
 def test_the_store_filter_and_the_bm25_mask_agree_about_layers(registry):
     """Hybrid fusion compares two candidate pools. If the `where` clause and the
     mask disagree about which rows exist, the two halves of the search are
@@ -349,13 +310,12 @@ def test_the_store_filter_and_the_bm25_mask_agree_about_layers(registry):
         cfg = RetrievalConfig(summary_scope=scope)
         layers, levels = pipeline.summary_filter(cfg)
         where = query_mod.layer_clause(None, layers, levels)
-        mask = pipeline._mask(grouped, None, layers, levels)
+        mask = pipeline._allowed(grouped, None, layers, levels)
         for i, chunk in enumerate(grouped.chunks):
             assert bool(mask[i]) == matches(chunk.metadata(), where), (
                 f'{scope}: {chunk.id} disagrees between the two halves')
 
 
-# This is a unit test.
 def test_every_hierarchy_control_is_dead_until_it_means_something():
     """What the panels grey out by, including the three retrieval knobs that
     gate on an *index* field — what retrieval may do with summaries is decided
@@ -387,12 +347,11 @@ def test_every_hierarchy_control_is_dead_until_it_means_something():
     assert kmeans['index.granularity']['enabled']
 
 
-# This is an integration test (real evaluation, offline embedder, fake LLM).
+# Real evaluation, offline embedder, fake LLM.
 def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
-    """The field the 2026-07-31 post-mortem had to be reconstructed by hand to
-    get. "The hierarchy was configured" and "the hierarchy was retrieved" are
-    different facts, and a row that scores flat is uninterpretable without the
-    second."""
+    """"The hierarchy was configured" and "the hierarchy was retrieved" are
+    different facts, and a row that scores flat is uninterpretable without
+    the second."""
     from raglab import evaluate
     ground_truth = load_ground_truth()
     registry = IndexRegistry(LAB_SETTINGS, diary)
@@ -408,7 +367,7 @@ def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
     assert 'n_summaries' in result.summary['overall']
 
 
-# This is an integration test (FastAPI TestClient).
+# FastAPI TestClient.
 def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
     """A 400 naming what to install, not a 500 from an import three frames
     down. Both run routes already apply one screen; a build applies the half of
@@ -425,10 +384,8 @@ def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
     assert 'graph-index' in response.json()['detail']
 
 
-# This is an integration test (FastAPI TestClient).
+# FastAPI TestClient.
 def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
-    """Two frontends holding their own copy of an option list is two frontends
-    that will disagree about what the lab can do."""
     from fastapi.testclient import TestClient
 
     from raglab import server
@@ -440,22 +397,16 @@ def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     assert 'retrieval.summary_scope' in options['dependencies']
 
 
-# This is a unit test (reads the panel's own source).
+# Reads the panel's own source.
 def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
-    """The rules are served, but resolving them happens per keystroke in the
-    browser without a round trip — so the resolution exists twice and the two
-    copies must agree.
-
-    This is what the browser caught that the Python tests could not: with a
-    single-level resolver, `graph_knn` asked only whether the edge source builds
-    kNN edges. The default source does, so the control stayed live under a
-    grouping that builds no graph at all — a number offered for a stage that
-    never runs, which is the exact failure the whole dependency table exists to
-    prevent.
-    """
+    """Resolving the dependency rules happens per keystroke in the browser
+    without a round trip, so the resolution exists twice and the two copies
+    must agree — a single-level resolver once left `graph_knn` live under a
+    grouping that builds no graph at all, because it only asked whether the
+    edge *source* builds kNN edges rather than resolving transitively."""
     from pathlib import Path
     panel = (Path(__file__).resolve().parents[1] / 'src' / 'raglab' / 'static'
-             / 'index.html').read_text(encoding='utf-8')
+             / 'panel.js').read_text(encoding='utf-8')
     assert 'function dependencyState(' in panel, (
         'the panel must resolve chains, not just single rules')
     assert 'resolve(rule.field' in panel, 'the resolution has to be transitive'
@@ -470,7 +421,6 @@ def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
             'own would describe a condition that is not why it is dead')
 
 
-# This is a unit test.
 def test_the_graph_methods_are_named_as_chunk_graphs_and_not_as_graphrag():
     """A reader who sees `leiden` on a leaderboard row will think GraphRAG
     unless told otherwise, and GraphRAG's graph is over LLM-extracted entities.
@@ -484,40 +434,23 @@ def test_the_graph_methods_are_named_as_chunk_graphs_and_not_as_graphrag():
 # --- determinism: one fingerprint must name one index ------------------------
 
 # Every token here is shared by exactly two documents, so every token has the
-# same document frequency and therefore the *same IDF*. That makes the per-chunk
-# "top terms by IDF" cut a pure tie, which is the state the ordering bug lives
-# in: with 20 documents each holding 19 tied candidates and room for only 12,
-# something has to choose, and until it chooses deterministically the choice is
-# whatever `set` iteration happened to yield in this process.
+# same IDF — a pure tie on the per-chunk "top terms by IDF" cut, which is the
+# state the ordering bug lives in.
 TIED_DOCS = 20
 
 
 def _tied_corpus() -> list[str]:
-    """One document per node; the token for a pair names that pair."""
     return [' '.join(f'p{min(i, j):02d}x{max(i, j):02d}'
                      for j in range(TIED_DOCS) if j != i)
             for i in range(TIED_DOCS)]
 
 
-# This is a unit test.
 def test_terms_that_tie_on_idf_are_chosen_by_a_stated_rule():
-    """A tie has to be broken by something written down, not by hash order.
-
-    `_term_postings` keeps only the top terms by IDF per chunk, and `sorted` is
-    stable — so when candidates tie, the survivors are whichever ones `set`
-    iteration offered first. Python randomises string hashing per process, so
-    that is a different twelve every run, and everything downstream (the lexical
-    edges, the graph, the partition, the summaries, the fingerprint's meaning)
-    follows it.
-
-    The rule asserted here is lexicographic: among terms of equal IDF, the ones
-    that sort first win. Any total order would do; what matters is that it is a
-    property of the corpus rather than of the process.
-
-    This can pass against the broken code only if hash order happens to agree
-    with sorted order across all nineteen candidates, which is one arrangement
-    out of more than 10^12.
-    """
+    """A tie must be broken by something written down, not by `set`
+    iteration order, which Python randomises per process — everything
+    downstream (edges, partition, summaries, fingerprint) follows it. The
+    rule asserted here is lexicographic: among terms of equal IDF, the ones
+    that sort first win."""
     postings, idf = hierarchy._term_postings(_tied_corpus(), top_terms=12)
 
     # the premise: every candidate really does tie, so the cut is arbitrary
@@ -535,26 +468,13 @@ def test_terms_that_tie_on_idf_are_chosen_by_a_stated_rule():
             'terms rather than the twelve that sort first')
 
 
-# This is an integration test (two subprocesses, so it tests the thing that
-# actually varies: PYTHONHASHSEED, which is fixed within any one process).
+# Two subprocesses, so it tests the thing that actually varies:
+# PYTHONHASHSEED, which is fixed within any one process.
 def test_the_same_corpus_builds_the_same_graph_in_a_different_process():
     """One fingerprint must name one index, across processes and not merely
-    within one.
-
-    Measured 2026-08-12 on the diary, `louvain` + `hybrid`, identical config and
-    identical fingerprint `raglab-6561f330c7c8`: three fresh processes produced
-    **8, 8 and 6 groups** with modularity 0.2657, 0.2689 and 0.2732 and entirely
-    different group sizes. Under `PYTHONHASHSEED=0` all three were byte-identical.
-    So `SEED` was never the whole story — it fixes Louvain's own RNG, not the
-    order of the input it is handed.
-
-    That makes every `index.collection` recorded in `.runs/` for a graph
-    hierarchy a name for an index a rebuild does not reproduce, which is the one
-    thing a fingerprint exists to prevent.
-
-    Two subprocesses rather than one test body, because string hashing is fixed
-    for the life of a process: a single-process test cannot see this at all.
-    """
+    within one. `SEED` fixes Louvain's own RNG, not the order of the input
+    it is handed — and string hashing is fixed for the life of a process, so
+    only two subprocesses can see this vary at all."""
     import json
     import os
     import subprocess

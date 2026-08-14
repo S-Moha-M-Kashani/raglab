@@ -18,17 +18,9 @@ _ENV_READS = re.compile(r"""
 _ENV_DOCUMENTED = re.compile(r'^#?\s*([A-Z][A-Z0-9_]{2,})=')
 
 
-# This is a configuration invariant.
 def test_env_example_documents_every_variable_the_code_reads():
-    """`.env.example` is the only list of what this lab can be configured with,
-    so a variable missing from it is undiscoverable and one lingering in it after
-    the code stopped reading it is a lie. Both directions are asserted for that
-    reason — and the second direction is what caught `RAGLAB_URL` coming across
-    in the move, a variable only Lodestar's Node proxy ever read.
-
-    Scanned: the package. Not the tests — those set variables to exercise the
-    readers above, and a value invented for one assertion is not configuration
-    anyone should be told about."""
+    """Scans `src/` only, not the tests — a variable a test invents for one
+    assertion is not configuration anyone should be told about."""
     read = {name for path in sorted((ROOT / 'src').rglob('*.py'))
             for match in _ENV_READS.finditer(path.read_text(encoding='utf-8'))
             for name in match.groups() if name}

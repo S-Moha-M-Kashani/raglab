@@ -1,29 +1,8 @@
-"""Which language model runs which stage.
+"""Which language model runs which stage; each stage carries its own choice rather than sharing one.
 
-Seven stages of the lab can call a model, and they want different things from
-one. The summariser runs once per session (157 calls per build) and wants cheap;
-the key-facts judge runs once per question and wants the strongest thing
-available; the reranker sits in the latency path of every query. Sharing one
-model across all of them makes those trade-offs unmeasurable, so each stage
-carries its own choice and nothing here is hard-coded.
-
-Two rules the catalogue keeps:
-
-**Every option says where its weights stand.** On a Farsi corpus the open-weight
-models are the interesting ones — they can be run locally later, which is the
-whole direction of the brain's LLMProvider seam — so `open` / `closed` is part of
-the label, not a footnote.
-
-**The remote catalogue offers only models this account can reach.** The old rule
-— an unrun model stays listed as NA, "worth trying, nobody measured it yet" —
-was checked against the wire on 2026-08-02 and had rotted: all six open-weight
-options answered 404 ("no endpoints matching your guardrail restrictions and
-data policy"), so NA had stopped meaning "unmeasured" and started meaning
-"broken", the one thing a dropdown must not hide. The local list keeps the old
-rule, because there NA is honest: a tag that is merely not pulled is one
-`ollama pull` away, and the daemon is asked directly rather than guessed at.
-Availability is still verified against OpenRouter's own model list when a key is
-present, and never guessed when it is not.
+Every option says where its weights stand (`open`/`closed`). The remote
+catalogue offers only models verified reachable on this account; the local
+(Ollama) list keeps NA meaning "not pulled yet", since a daemon can be asked directly.
 """
 from dataclasses import dataclass, fields
 
@@ -59,16 +38,9 @@ CHAT_MODELS = (
                 note='cheap long context, useful for the summary pass'),
 )
 
-# Served by Ollama on this machine, and therefore a different list: an OpenRouter
-# slug is not a thing Ollama can load, and a local tag is not a thing OpenRouter
-# serves. Mixing them in one dropdown would offer every user roughly half a menu
-# of choices that cannot work, so the catalogue serves whichever list matches the
-# active provider.
-#
-# Free, private, and slow — which reorders the trade-offs completely. On
-# OpenRouter the interesting question is capability per cent; here it is capability
-# per second, because the judge is ~276 calls per run and a reasoning model that
-# spends 500 thinking tokens per verdict turns one candidate into an hour.
+# A separate list because an OpenRouter slug is not a thing Ollama can load and
+# a local tag is not a thing OpenRouter serves; the catalogue serves whichever
+# list matches the active provider.
 OLLAMA_MODELS = (
     ModelOption('gemma4:e2b', 'Gemma 4 E2B', 'open',
                 note='read the Farsi correctly and scored 4/5 on the judge '
@@ -98,20 +70,11 @@ OLLAMA_MODELS = (
 )
 
 # Reached by running the CLI already installed and logged in on this machine
-# (clichat.py), so a third and fourth list — an OpenRouter slug is not a thing
-# `claude --model` accepts, and an alias is not a thing OpenRouter serves.
-# Deliberately three entries: the answerer, the judge that must not be the
-# answerer, and the speed candidate. `fable` is reachable through RAGLAB_MODEL
-# and is not offered, because nothing here has measured it.
-#
-# **None of these is `verified`**, and that is not a claim that nothing was
-# measured — `sonnet` and `gpt-5.6-terra` both answered here. `verified` makes an
-# option available *unconditionally* (`ModelOption.as_dict` returns
-# `verified or id in live`), which is the right escape hatch when availability
-# cannot be checked. Here it can: the binary either exists or it does not. A
-# verified option would show as usable on a machine with no `claude` installed,
-# while `provider_problems` refused the run — the panel offering what the lab
-# refuses. The measurement lives in the note instead.
+# (clichat.py) — a separate list, since an OpenRouter slug is not a thing
+# `claude --model` accepts. None of these is `verified`: that flag would make an
+# option available unconditionally, but here availability can be checked (the
+# binary exists or it does not), so an unverified option showing as usable would
+# disagree with `provider_problems` refusing the run.
 CLAUDE_MODELS = (
     ModelOption('sonnet', 'Claude Sonnet (CLI)', 'closed',
                 note='what this backend was measured on, all at effort=low: '
@@ -153,10 +116,7 @@ class ModelRole:
 
     @property
     def step(self) -> str:
-        """Which pipeline step this model serves, and therefore which colour it
-        wears in the panel. Derived from the field rather than declared twice:
-        an ink that disagreed with where the value is stored would be worse than
-        no ink at all."""
+        """Which pipeline step this model serves, derived from `field` so the two cannot disagree."""
         return self.field.partition('.')[0]
 
     def as_dict(self) -> dict:
@@ -253,23 +213,15 @@ _LIVE: dict[str, frozenset] = {}
 
 
 def forget_live() -> None:
-    """Drop what has been verified about every backend's model list.
-
-    Availability is asked of the backend and cached per url, which is right for
-    a panel that reloads its options on every visit and wrong the moment the
-    credential changes underneath it: with no key, "what does OpenRouter serve"
-    answers the empty set, and a cached empty set reads as *nothing is
-    available*. `credentials.set_key` calls this, so entering a key in the panel
-    re-asks rather than leaving every remote model marked NA until a restart."""
+    """Drop the cached per-url availability, so `credentials.set_key` re-asks instead of leaving stale NAs."""
     _LIVE.clear()
 
 
 def openrouter_ids(settings: LabSettings) -> frozenset:
     """Model ids OpenRouter is currently serving, or an empty set.
 
-    Best-effort by design: the lab must run with no network at all, so a failure
-    here means "cannot verify" (everything unverified shows as NA) and never an
-    exception. Cached per base URL — the panel asks for options on every visit."""
+    Best-effort: a failure here means "cannot verify" (shows as NA), never an
+    exception — the lab must still run with no network at all."""
     if not settings.openrouter_api_key:
         return frozenset()
     if settings.openrouter_base_url in _LIVE:
@@ -290,13 +242,10 @@ def openrouter_ids(settings: LabSettings) -> frozenset:
 def ollama_ids(settings: LabSettings) -> frozenset:
     """Model tags Ollama is serving on this machine, or an empty set.
 
-    Verified, never guessed — the same rule the embedder catalogue keeps. And
-    unlike OpenRouter's list this one is authoritative in both directions: a tag
-    absent here genuinely cannot be loaded, which is what lets
-    `provider_problems` refuse a run instead of merely marking it NA.
-
-    `/api/tags` rather than the OpenAI-compatible `/v1/models`, because a tag is
-    what `ollama pull` names and what a run should be labelled with."""
+    Authoritative in both directions, unlike OpenRouter's list: a tag absent
+    here genuinely cannot be loaded, which lets `provider_problems` refuse a run
+    rather than merely mark it NA. `/api/tags`, not `/v1/models`, since a tag is
+    what `ollama pull` names."""
     if settings.provider != 'ollama':
         return frozenset()
     root = settings.ollama_base_url.rstrip('/').removesuffix('/v1')
@@ -322,13 +271,9 @@ def ollama_ids(settings: LabSettings) -> frozenset:
 def cli_ids(settings: LabSettings) -> frozenset:
     """Aliases the configured CLI backend can be asked for, or an empty set.
 
-    For a CLI the checkable fact is the *binary*: there is no `/api/tags` to
-    ask, and an alias cannot be verified without paying for a call. So with the
-    command present its catalogue is offerable — plus whatever RAGLAB_MODEL
-    named, which is by definition a model the user wants — and with the command
-    absent nothing is, which is what makes the catalogue say NA instead of
-    claiming an alias on a machine that cannot run any of them.
-    """
+    The checkable fact for a CLI is the *binary*, since there is no `/api/tags`
+    and an alias cannot be verified without paying for a call. Present, its
+    catalogue plus whatever RAGLAB_MODEL named is offerable; absent, nothing is."""
     if settings.provider not in clichat.CLIS:
         return frozenset()
     if not clichat.cli_available(settings.provider):
@@ -358,33 +303,18 @@ def known_models(settings: LabSettings) -> tuple[ModelOption, ...]:
 
 
 def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:
-    """Model choices the active backend cannot serve.
+    """Model choices the active backend cannot serve — a validation error, never a silent fallback.
 
-    A validation error, never a silent fallback — the embedder rule applied to
-    chat models, for the same reason: a leaderboard row labelled qwen3.5:2b that
-    was actually scored by gpt-5-mini is the single worst artefact this lab can
-    produce, and no field on the row would contradict it.
-
-    Two refusals, and one rule joining them: **this guard only ever refuses what
-    it has verified absent**, so what it checks is whatever the backend can be
-    asked. For `ollama` that is the model — `/api/tags` answers with the tags it
-    serves, and an unreachable daemon claims *nothing*, because "cannot check"
-    and "not there" are different facts. For a CLI there is no `/api/tags` and an
-    alias cannot be checked without paying for a call, so the verifiable fact is
-    the **binary**: a missing command is refused and an unknown alias is not, the
-    CLI naming an alias it cannot serve better at call time than anything guessed
-    here.
-
-    `openrouter` is therefore refused nothing. Its list is authoritative in one
-    direction only: everything on it works, but a slug missing from it may still
-    be perfectly valid — the routing suffixes (`:free`, `:floor`) do not appear as
-    ids. Refusing on that basis would block runs that used to work, which is a
-    worse failure than the one this guard prevents."""
+    This guard only ever refuses what it has verified absent. For `ollama` that
+    is the model, via `/api/tags` (an unreachable daemon claims nothing, since
+    "cannot check" and "not there" are different facts). For a CLI there is no
+    such list, so the verifiable fact is the binary; an unknown alias is left to
+    fail at call time. `openrouter`'s list is authoritative in one direction
+    only (routing suffixes like `:free` don't appear as ids), so it is refused
+    nothing here."""
     if settings.provider in clichat.CLIS:
-        # One check, and it is the one that can be made. An alias is *not*
-        # refused here: nothing verified it absent, and this guard only ever
-        # refuses what it has verified — the CLI names an alias it cannot serve
-        # itself, at call time, better than anything guessed here could.
+        # The one check that can be made: an alias is not refused here, since
+        # nothing verified it absent.
         if clichat.cli_available(settings.provider):
             return []
         return [f'{settings.provider} is the chosen backend but its command is '
@@ -404,26 +334,16 @@ def provider_problems(cfg: LabConfig, settings: LabSettings) -> list[str]:
 
 
 def catalogue(settings: LabSettings) -> list[dict]:
-    """The dropdown contents: the lab default first, then every candidate with
-    its licence and whether it can be used right now."""
+    """The dropdown contents: the lab default first, then every candidate with its licence and availability."""
     live = served_ids(settings)
     known = list(known_models(settings))
     if settings.llm_model not in {option.id for option in known}:
-        # An id set by RAGLAB_MODEL is by definition one the user wants, so it is
-        # offered even though nothing is known about its weights.
-        #
-        # `verified` makes an option available *unconditionally*, which is the
-        # right escape hatch when availability cannot be checked and the wrong one
-        # when it can. Three cases, not two. With a served list in hand,
-        # membership of that list decides — including for the user's own pick,
-        # which is exactly the case provider_problems will refuse a run over. With
-        # no list on an HTTP backend, nothing could be *asked* — a daemon that did
-        # not answer — so the user's choice is taken at face value rather than
-        # shown as NA. With no list on a CLI backend the emptiness is a *checked*
-        # fact: `cli_available` read the filesystem and the command is not there,
-        # so every alias is NA and this one has to be too. Otherwise the panel
-        # offers the one model the lab refuses to run, which is the fault
-        # CLAUDE_MODELS' own comment argues against.
+        # An id set by RAGLAB_MODEL is offered even though nothing is known
+        # about its weights. With a served list, membership decides; with none
+        # on an HTTP backend the daemon simply didn't answer, so the user's
+        # choice is taken at face value; with none on a CLI backend the
+        # emptiness is a checked fact (the command is not there), so this alias
+        # is NA too — never offering a model the lab actually refuses to run.
         verified = not live and settings.provider not in clichat.CLIS
         known.insert(0, ModelOption(settings.llm_model, settings.llm_model,
                                     'unknown', verified=verified,
@@ -484,24 +404,15 @@ MODE_MODEL = 'openai/gpt-5-nano'
 MODE_MODELS = {'openrouter': MODE_MODEL, 'claude': 'sonnet',
                'codex': 'gpt-5.6-luna'}
 
-# Preferred relevance-gate models, in order. A purpose-built reranker (query +
-# text → relevance score) beats a prompted chat model at exactly this job — but
-# one is picked only when OpenRouter's own model list verifies it, and the
-# resolution happens when the preset is served, never at run time: a runtime
-# fallback would produce a row labelled with a model that did not score it.
-# Measured 2026-07-31: OpenRouter's catalogue had no rerank entries at all
-# (test_no_knob_offers_an_openrouter_embedding_or_rerank_model), so today this
-# chain resolves to MODE_MODEL; the preference stands so the day the list
-# gains one, the preset starts offering it without a code change.
+# Preferred relevance-gate models, in order: a purpose-built reranker beats a
+# prompted chat model at this job, but one is picked only when OpenRouter's own
+# model list verifies it — resolved when the preset is served, never at run
+# time, since a runtime fallback would label a row with a model that never scored it.
 GATE_MODELS = ('cohere/rerank-4-fast', 'cohere/rerank-4-pro')
 
-# The fields a mode presets — and only these. Index is deliberately absent:
-# heydariAI/persian-embeddings is the measured winner regardless of where the
-# chat models run. **Every** mode patches exactly these fields, read off this one
-# table — the three in MODE_MODELS by naming their own model at each stage, and
-# `local` by writing the lab's own defaults back into the same set — so switching
-# back is a full reset rather than a remote model leaking into a local run's
-# label. `mode_config`'s closing assertion is what holds the two paths to it.
+# The fields a mode presets, and only these — index is absent since the
+# embedder is the measured winner regardless of where the chat models run.
+# `mode_config`'s closing assertion holds every mode to exactly this set.
 _MODE_FIELDS = {
     'retrieval': ('hyde', 'expansion_model', 'reranker', 'reranker_model',
                   'grader', 'grader_model', 'grade_threshold'),
@@ -540,8 +451,8 @@ def mode_config(key: str, settings: LabSettings) -> dict:
                 # that mode consults it.
                 'grader_model': (gate_model(settings) if key == 'openrouter'
                                  else model),
-                # The measured setting: an LLM gate at 0.4 refused all five
-                # unanswerable questions with 3% false refusals.
+                # Measured threshold: balances refusing unanswerable questions
+                # against wrongly refusing answerable ones.
                 'grade_threshold': 0.4},
             'generation': {
                 'answerer': 'llm', 'model': model,
@@ -558,12 +469,7 @@ def mode_config(key: str, settings: LabSettings) -> dict:
 
 
 def mode_catalogue(settings: LabSettings) -> list[dict]:
-    """The dropdown contents: each mode with the backend it runs on, the exact
-    patch picking it applies, and — because a slug only means something to the
-    backend that serves it — that backend's own model catalogue. Without the
-    list riding along, the panels filled their dropdowns from the boot
-    provider's catalogue, could not display the preset under the other mode,
-    and their config-follows-the-panel rule silently wiped it back to ''."""
+    """Each mode with the backend it runs on, its config patch, and that backend's own model catalogue."""
     return [{'key': mode.key, 'label': mode.label, 'provider': mode.provider,
              'note': mode.note, 'config': mode_config(mode.key, settings),
              'models': catalogue(settings_for_provider(settings, mode.provider))}
@@ -573,22 +479,11 @@ def mode_catalogue(settings: LabSettings) -> list[dict]:
 def note_for(cfg: LabConfig, settings: LabSettings) -> str:
     """A one-line description of the stage/model split, for a run's notes.
 
-    The backend is named as well as the models, because the same slug is a
-    different measurement depending on where it ran: 'fake' means every LLM
-    number on the row is meaningless, and local versus remote is the difference
-    between a free row and a paid one.
-
-    On a CLI backend the reasoning effort is named too, for exactly that reason:
-    it moves the numbers (the grade probe scored 8 under `low` where the default
-    scored 9), and without it two rows on claude/sonnet at `effort=low` and
-    `effort=max` are labelled identically. `leaderboard.group` would then rank
-    them against each other as a comparable pair, which is this repository's one
-    unbreakable rule broken by a knob. **The row is now self-describing but the
-    grouping is not**: effort is deliberately not a `LabConfig` field and not in
-    the index fingerprint — that is a larger change, and doing it here would put
-    an LLM setting into the config that decides whether an index needs
-    rebuilding. So two efforts still group together; the note is what tells the
-    reader they were two."""
+    Names the backend too, since the same slug is a different measurement
+    depending on where it ran. On a CLI backend it also names the reasoning
+    effort, which moves the numbers but is deliberately not a `LabConfig` field
+    or in the index fingerprint — so the row is self-describing even though
+    `leaderboard.group` cannot tell two efforts apart on its own."""
     roles = resolve(cfg, settings)
     used = {role.key: getattr(roles, role.key) for role in ROLES}
     distinct = sorted(set(used.values()))

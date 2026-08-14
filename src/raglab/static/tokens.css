@@ -1,0 +1,57 @@
+/* Design tokens shared by the panel (:9002) and the Inspector (:9003) — one
+   place a colour, a face or a step ink is defined so the two pages, written
+   months apart, cannot drift apart on what one of these means. Linked before
+   each page's own stylesheet, so a page's overrides still win. A property
+   only one page reads stays in that page's own sheet instead — `--good` on
+   the panel and `--farsi`/`--evidence`/`--row-plain`/`--ink-amber` and
+   siblings on the Inspector, among others. */
+:root {
+  /* the machine */
+  --chassis: #101620;
+  --chassis-soft: #1c2734;
+  --chassis-ink: #c3cdda;
+  --chassis-ink-soft: #7d8b9c;
+  /* the plates */
+  --plate: #edf0f3;
+  --card: #ffffff;
+  --rule: #d3dae2;
+  --rule-soft: #e8ecf1;
+  --ink: #17202b;
+  --ink-soft: #5b6875;
+  --alert: #a33227;
+  /* One ink per pipeline step. Both pages must agree on what a step's colour
+     is, which is the whole reason this file exists. */
+  --step-index: oklch(0.56 0.14 58);        /* saffron  — what gets stored */
+  --step-retrieval: oklch(0.49 0.11 168);   /* verdigris — what gets found */
+  --step-generation: oklch(0.50 0.15 262);  /* lapis    — what gets written */
+  --step-agent: oklch(0.48 0.16 318);       /* plum     — what loops */
+  /* Lifted for the chassis: an ink tuned for porcelain reads too dark there. */
+  --step-index-lit: oklch(0.78 0.13 62);
+  --step-retrieval-lit: oklch(0.75 0.11 168);
+  --step-generation-lit: oklch(0.76 0.11 258);
+  --step-agent-lit: oklch(0.77 0.12 318);
+  /* A slab serif for the machine's own voice, a plain sans for instructions,
+     and a tabular mono for every number — three faces, three jobs. All
+     resolve locally: both services run offline and must never wait on a font. */
+  --slab: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --plate: #151b24;
+    --card: #1e2733;
+    --rule: #33404f;
+    --rule-soft: #2c3745;
+    --ink: #e3e9ef;
+    --ink-soft: #97a4b3;
+    --alert: #d98376;
+    /* On this theme every surface is the chassis, so a step reads at the
+       weight the chassis needs. `--step-agent` is deliberately absent here:
+       the panel never re-lit it in dark mode and the Inspector always did —
+       a pre-existing per-page difference this file must not erase. */
+    --step-index: var(--step-index-lit);
+    --step-retrieval: var(--step-retrieval-lit);
+    --step-generation: var(--step-generation-lit);
+  }
+}

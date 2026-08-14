@@ -1,42 +1,6 @@
-"""Grouping chunks, and writing one summary per group — all of it offline.
-
-The lab shipped five summary layers and deleted every one of them on
-2026-07-31, because the candidate that removed them scored within 0.006 of the
-baseline. This module is not that revert. Two things are different, and both
-come out of the post-mortem in `docs/rag-architecture.md`:
-
-* **The groups are discovered, not declared.** The deleted rollups grouped by
-  what the corpus already said about itself — session, month, storyline. Here a
-  group is a community in a graph built over the chunks, or a cluster of their
-  vectors. `hierarchy='metadata'` keeps the old grouping as a *control*, so the
-  old finding and the new one can be read off the same table instead of seven
-  months apart.
-* **Nothing here calls a model.** All four summarisers are extractive. A build
-  that made LLM calls would take hours rather than seconds — so nobody would
-  sweep it, which is the only reason to put a thing in a lab — and it would let
-  the offline `fake` backend fill a collection with confident invention that no
-  field on the resulting row would contradict.
-
-**These are not GraphRAG, and the help text says so out loud.** GraphRAG's graph
-is over entities and relations that a model extracted. There is no offline
-entity extractor for Farsi, so the nodes here are chunks; `bipartite-terms`
-promotes rare words to nodes as well, which is the closest honest analogue and
-the only source under which a community has a nameable subject.
-
-Everything is deterministic. Louvain and k-means both take a seed, fixed here
-rather than exposed, because a grouping that changes between two builds of the
-same fingerprint would make an index name a lie.
-
-**A seed was not enough, and this file claimed otherwise until 2026-08-13.** A
-seed fixes a method's own RNG; it says nothing about the order of the input the
-method is handed. `_term_postings` cut its per-chunk top terms with a stable sort
-over a `set`, so terms tying on IDF — which on a real corpus is most of them —
-were kept in hash order, and Python randomises string hashing per process. Three
-fresh processes built the diary under one config and one fingerprint into 8, 8
-and 6 groups. The tie-break is now the token itself, and
-`test_the_same_corpus_builds_the_same_graph_in_a_different_process` holds the
-line from a second process, because a single-process test cannot see this class
-of bug at all.
+"""Grouping chunks and writing one summary per group, all offline (no model calls).
+Deterministic by construction: two builds of one fingerprint must produce one
+index, so seeds and tie-breaks are fixed rather than left to input order.
 """
 import math
 from collections import defaultdict
@@ -54,7 +18,7 @@ SEED = 20260812
 
 # What to install when a grouping's library is missing. Only Leiden has one —
 # everything else runs on networkx and scikit-learn, which are core.
-EXTRAS = {
+HIERARCHY_EXTRAS = {
     'leiden': "uv sync --extra graph-index",
     'louvain': 'nothing — networkx is a core dependency',
     'label-prop': 'nothing — networkx is a core dependency',
@@ -66,12 +30,7 @@ EXTRAS = {
 
 
 def hierarchy_available(name: str) -> bool:
-    """Whether this grouping can actually run *here*.
-
-    Verified by import rather than guessed from a list, for the reason the
-    embedder catalogue is verified: NA has to mean one thing — this
-    installation cannot load it — or it rots into meaning nothing.
-    """
+    """Verified by import, not guessed from a list, so NA means one thing: this installation cannot load it."""
     if not name:
         return True
     if name == 'leiden':
@@ -97,27 +56,23 @@ def hierarchy_available(name: str) -> bool:
 
 
 def available() -> dict:
-    """Every grouping → whether this installation can run it, and what to
-    install when it cannot. Served to both panels, so neither guesses."""
+    """Every grouping → whether this installation can run it, and what to install if not."""
     return {name: {'available': hierarchy_available(name),
-                   'install': EXTRAS.get(name, '')}
-            for name in EXTRAS}
+                   'install': HIERARCHY_EXTRAS.get(name, '')}
+            for name in HIERARCHY_EXTRAS}
 
 
 # --- the graph -------------------------------------------------------------
 
 def _knn_edges(vectors: np.ndarray, k: int) -> dict[tuple[int, int], float]:
-    """Each chunk joined to its `k` nearest neighbours by cosine.
-
-    Symmetric by construction: an edge is kept once, under the ordered pair, and
-    carries the larger of the two similarities — a mutual-kNN rule would drop
-    the long-tail chunk that only *one* other chunk considers a neighbour, which
-    on a diary is exactly the unusual day worth finding.
-    """
+    """Each chunk joined to its `k` nearest neighbours by cosine, symmetric by
+    construction (edge kept once, weighted by the larger similarity) — a
+    mutual-kNN rule would drop the long-tail chunk only one other considers a neighbour."""
     edges: dict[tuple[int, int], float] = {}
     if vectors.shape[0] < 2:
         return edges
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    # Guards on < 1e-12, not == 0 like store.py/embedding.py: a tiny-but-nonzero norm is left unscaled rather than blown up.
     unit = vectors / np.where(norms < 1e-12, 1.0, norms)
     similarity = unit @ unit.T
     np.fill_diagonal(similarity, -2.0)
@@ -134,12 +89,8 @@ def _knn_edges(vectors: np.ndarray, k: int) -> dict[tuple[int, int], float]:
 
 def _term_postings(texts: list[str], top_terms: int = 12
                    ) -> tuple[dict[str, list[int]], dict[str, float]]:
-    """The rare words each chunk is *about*, and how rare each one is.
-
-    Only the top `top_terms` by IDF per chunk: every chunk shares its common
-    words with every other, so keeping them would join the whole corpus into
-    one community and measure nothing.
-    """
+    """The rare words each chunk is about, and how rare each is. Kept to the
+    top `top_terms` by IDF per chunk — common words would join the whole corpus into one community."""
     tokenised = [textnorm.tokens(text) for text in texts]
     document_count: dict[str, int] = defaultdict(int)
     for tokens in tokenised:
@@ -150,21 +101,9 @@ def _term_postings(texts: list[str], top_terms: int = 12
            for token, count in document_count.items()}
     postings: dict[str, list[int]] = defaultdict(list)
     for i, tokens in enumerate(tokenised):
-        # The token itself is the tie-break, and it is load bearing. IDF is a
-        # function of document frequency, so on any real corpus a great many
-        # terms tie exactly — and `sorted` is stable, which means ties used to
-        # keep the order `set` iteration happened to offer. Python randomises
-        # string hashing per process, so *which* of the tied terms survived this
-        # cut was different every run, and the lexical edges, the graph, the
-        # partition and the summaries all followed it.
-        #
-        # Measured 2026-08-13 before the fix: three fresh processes built the
-        # diary under one identical config and one identical fingerprint
-        # (`raglab-6561f330c7c8`) into 8, 8 and 6 groups, at modularity 0.2657,
-        # 0.2689 and 0.2732. `SEED` never covered this — it fixes Louvain's own
-        # RNG, not the order of the input it is handed — so an index name was a
-        # claim no rebuild could honour, which is the one thing a fingerprint
-        # exists to prevent.
+        # Tie-break is the token itself, not iteration order: IDF ties are
+        # common, and Python randomises string-hash order per process, so any
+        # other tie-break would make one fingerprint build a different graph each run.
         ranked = sorted(set(tokens),
                         key=lambda t: (-idf.get(t, 0.0), t))[:top_terms]
         for token in ranked:
@@ -172,18 +111,21 @@ def _term_postings(texts: list[str], top_terms: int = 12
     return postings, idf
 
 
-def _lexical_edges(texts: list[str]) -> dict[tuple[int, int], float]:
-    """Chunks sharing a rare word, weighted by how rare it is.
-
-    A term appearing in more than a fifth of the corpus is skipped: it would
-    add a clique of that size and swamp the partition.
-    """
-    postings, idf = _term_postings(texts)
-    edges: dict[tuple[int, int], float] = defaultdict(float)
-    ceiling = max(2, len(texts) // 5)
+def _surviving_terms(postings: dict[str, list[int]], n_texts: int):
+    """Terms worth an edge: shared by at least two chunks, and not so common
+    they would swamp the partition (more than a fifth of the corpus)."""
+    ceiling = max(2, n_texts // 5)
     for token, docs in postings.items():
         if len(docs) < 2 or len(docs) > ceiling:
             continue
+        yield token, docs
+
+
+def _lexical_edges(texts: list[str]) -> dict[tuple[int, int], float]:
+    """Chunks sharing a rare word, weighted by rarity; a term in over a fifth of the corpus is skipped (it would swamp the partition)."""
+    postings, idf = _term_postings(texts)
+    edges: dict[tuple[int, int], float] = defaultdict(float)
+    for token, docs in _surviving_terms(postings, len(texts)):
         weight = idf.get(token, 0.0)
         for a_index, a in enumerate(docs):
             for b in docs[a_index + 1:]:
@@ -192,9 +134,7 @@ def _lexical_edges(texts: list[str]) -> dict[tuple[int, int], float]:
 
 
 def _normalised(edges: dict[tuple[int, int], float]) -> dict[tuple[int, int], float]:
-    """Edge weights to [0,1], so a cosine and an IDF sum can be added together.
-    They share no scale, exactly as a BM25 score and a cosine do not — the same
-    reason RRF fuses ranks rather than scores."""
+    """Edge weights to [0,1], so a cosine and an IDF sum (which share no scale) can be added — the reason RRF fuses ranks rather than scores."""
     if not edges:
         return edges
     high = max(edges.values())
@@ -204,21 +144,14 @@ def _normalised(edges: dict[tuple[int, int], float]) -> dict[tuple[int, int], fl
 
 
 def build_graph(texts: list[str], vectors: np.ndarray, source: str, knn: int):
-    """The chunk graph, as a networkx Graph. Node ids are chunk indices.
-
-    `bipartite-terms` returns a graph over chunks *and* terms; the caller
-    projects the communities back onto the chunk nodes, which is what makes a
-    community have a nameable subject.
-    """
+    """The chunk graph as a networkx Graph, node ids are chunk indices.
+    `bipartite-terms` returns chunks and terms; the caller projects communities back onto chunk nodes."""
     import networkx as nx
     graph = nx.Graph()
     graph.add_nodes_from(range(len(texts)))
     if source == 'bipartite-terms':
         postings, idf = _term_postings(texts)
-        ceiling = max(2, len(texts) // 5)
-        for token, docs in postings.items():
-            if len(docs) < 2 or len(docs) > ceiling:
-                continue
+        for token, docs in _surviving_terms(postings, len(texts)):
             node = f'term:{token}'
             graph.add_node(node, term=True)
             for doc in docs:
@@ -238,8 +171,7 @@ def build_graph(texts: list[str], vectors: np.ndarray, source: str, knn: int):
 # --- partitioning ----------------------------------------------------------
 
 def _partition_graph(graph, method: str, granularity: float) -> list[list[int]]:
-    """Communities as lists of chunk indices. Term nodes are dropped on the way
-    out, so `bipartite-terms` and the other sources return the same shape."""
+    """Communities as lists of chunk indices; term nodes are dropped so every source returns the same shape."""
     import networkx as nx
     if graph.number_of_nodes() == 0:
         return []
@@ -249,9 +181,11 @@ def _partition_graph(graph, method: str, granularity: float) -> list[list[int]]:
         communities = [set(c) for c in
                        nx.algorithms.community.asyn_lpa_communities(
                            graph, weight='weight', seed=SEED)]
-    else:   # 'louvain'
+    elif method == 'louvain':
         communities = nx.algorithms.community.louvain_communities(
             graph, weight='weight', resolution=granularity, seed=SEED)
+    else:
+        raise ValueError(f'unknown grouping method: {method!r}')
     out = []
     for community in communities:
         members = sorted(node for node in community if isinstance(node, int))
@@ -261,12 +195,8 @@ def _partition_graph(graph, method: str, granularity: float) -> list[list[int]]:
 
 
 def _leiden(graph, granularity: float) -> list[set]:
-    """Leiden over an igraph copy of the same graph.
-
-    A copy rather than a rewrite of the construction above, so every source
-    feeds every method and the only thing that differs between a `leiden` row
-    and a `louvain` row is the partition — which is the comparison.
-    """
+    """Leiden over an igraph copy of the same graph, so every source feeds
+    every method and only the partition differs between a `leiden` row and a `louvain` row."""
     import igraph
     import leidenalg
     nodes = list(graph.nodes())
@@ -283,18 +213,14 @@ def _leiden(graph, granularity: float) -> list[set]:
 
 
 def _cluster_count(n: int, granularity: float) -> int:
-    """`granularity × √(n/2)`, the usual rule of thumb — so 1.0 is the group
-    count anyone would have picked by hand, and the dial reads the same way it
-    does for the graph methods (higher = more, smaller groups)."""
+    """`granularity × √(n/2)`, so 1.0 is the group count anyone would pick by hand."""
     base = math.sqrt(max(1, n) / 2.0)
     return max(2, min(n, int(round(max(0.05, granularity) * base))))
 
 
 def _cluster_vectors(vectors: np.ndarray, method: str,
                      granularity: float) -> list[list[int]]:
-    """Groups from the chunk vectors. RAPTOR's GMM is soft — a chunk can sit in
-    two groups, which no partition here can express — so it is the one method
-    that can put a chunk under two summaries."""
+    """Groups from the chunk vectors. RAPTOR's GMM is soft — the one method that can put a chunk under two summaries."""
     n = vectors.shape[0]
     if n < 2:
         return [list(range(n))] if n else []
@@ -309,11 +235,9 @@ def _cluster_vectors(vectors: np.ndarray, method: str,
         labels = AgglomerativeClustering(n_clusters=k,
                                          linkage='ward').fit_predict(vectors)
         return _by_label(labels, k)
-    # 'raptor' — soft assignment, so membership is a probability threshold
-    # rather than an argmax. 1/k is "more likely than uniform chance", which is
-    # the weakest claim that still means something.
+    # 'raptor': soft assignment. 1/k ("more likely than uniform chance") is the membership threshold.
     from sklearn.mixture import GaussianMixture
-    reduced = _reduced(vectors, k)
+    reduced = _reduced(vectors)
     model = GaussianMixture(n_components=k, random_state=SEED,
                             covariance_type='diag', reg_covar=1e-4)
     probabilities = model.fit(reduced).predict_proba(reduced)
@@ -326,11 +250,9 @@ def _cluster_vectors(vectors: np.ndarray, method: str,
     return groups
 
 
-def _reduced(vectors: np.ndarray, k: int) -> np.ndarray:
-    """PCA down to something a mixture model can fit. A GMM over 768 dimensions
-    on a thousand points is fitting more parameters than it has data for; UMAP
-    is what RAPTOR uses and is a heavy dependency for a step whose job is only
-    to stop the covariance from being singular."""
+def _reduced(vectors: np.ndarray) -> np.ndarray:
+    """PCA down to a width a mixture model can fit; UMAP (what RAPTOR uses) is
+    too heavy a dependency just to keep the covariance non-singular."""
     from sklearn.decomposition import PCA
     width = min(vectors.shape[1], max(2, min(50, vectors.shape[0] - 1)))
     if width >= vectors.shape[1]:
@@ -346,10 +268,8 @@ def _by_label(labels, k: int) -> list[list[int]]:
 
 
 def _metadata_groups(chunks: list[Chunk]) -> list[list[int]]:
-    """The deleted rollup, as a control: one group per storyline the corpus
-    declares. Threads and not topics — the thread rollup is the one that was
-    measured and deleted, and topics are per-session and noisier, so grouping on
-    them would be a new thing wearing the control's name."""
+    """The deleted rollup, as a control: one group per storyline. Threads, not
+    topics — topics are per-session and noisier, which would be a different thing wearing the control's name."""
     by_thread: dict[str, list[int]] = defaultdict(list)
     for i, chunk in enumerate(chunks):
         for thread in chunk.threads:
@@ -391,13 +311,9 @@ def _idf_of(texts: list[str]) -> dict[str, float]:
 
 def summarize(chunks: list[Chunk], vectors: np.ndarray, members: list[int],
               summarizer: str, idf: dict[str, float], budget: int = 900) -> str:
-    """One group → one piece of text, extractively.
-
-    `budget` is characters. It is not a knob: a summary long enough to dominate
-    its own members in the search is not a summary, and the number that matters
-    — how a summary competes against a leaf — is `summary_boost` on the
-    retrieval side, where it can be swept without a rebuild.
-    """
+    """One group → one piece of text, extractively. `budget` (characters) is
+    not a knob: a summary long enough to dominate its own members is not a
+    summary — `summary_boost` on the retrieval side is what gets swept."""
     texts = [chunks[i].body for i in members]
     if summarizer == 'card':
         return _card(chunks, members, idf)
@@ -412,9 +328,7 @@ def summarize(chunks: list[Chunk], vectors: np.ndarray, members: list[int],
         relevance = (block @ (centre / norm)).astype(np.float32)
         order = mmr(block.astype(np.float32), relevance, len(members), 0.5)
         return _fit([chunks[members[i]].body for i in order], budget)
-    # 'lead-idf' — the sentences that cover the most rare words, greedily, and
-    # never the same word twice: coverage is the point, so a second sentence
-    # about the term already covered adds nothing.
+    # 'lead-idf': greedily takes sentences covering the most uncovered rare words.
     scored: list[tuple[float, str]] = []
     for text in texts:
         for sentence in _sentences(text):
@@ -436,13 +350,7 @@ def summarize(chunks: list[Chunk], vectors: np.ndarray, members: list[int],
 
 
 def _card(chunks: list[Chunk], members: list[int], idf: dict[str, float]) -> str:
-    """No prose: the terms, the span, the count, the sessions.
-
-    The cheapest summariser and plausibly the most useful one for a counting
-    question, because it *states* a number instead of asking the model to count
-    retrieved chunks — the task the 2026-07-31 record identifies as the one a
-    language model is worst at.
-    """
+    """No prose: states the terms, span, count and sessions directly rather than asking a model to count retrieved chunks."""
     weights: dict[str, float] = defaultdict(float)
     for i in members:
         for token in set(textnorm.tokens(chunks[i].body)):
@@ -471,10 +379,8 @@ def _fit(texts: list[str], budget: int) -> str:
 
 @dataclass
 class HierarchyStats:
-    """What the grouping did. Reported because "the index built" is not a
-    result: a partition with modularity 0.05 found no community structure, and
-    the retrieval scores under it are uninformative — which is worth knowing
-    before reading them rather than after."""
+    """What the grouping did. Reported because "the index built" isn't a
+    result: a modularity of 0.05 means the scores under it are uninformative."""
     hierarchy: str = ''
     graph_source: str = ''
     summarizer: str = ''
@@ -531,9 +437,7 @@ def _modularity(graph, groups: list[list[int]]) -> float | None:
         return round(float(nx.algorithms.community.modularity(
             graph, partition, weight='weight')), 4)
     except Exception:
-        # An overlapping partition (RAPTOR's soft groups reaching a graph
-        # method through a later level) has no defined modularity. Reporting
-        # nothing is right; failing a build over a statistic is not.
+        # An overlapping partition (RAPTOR reaching a graph method through a later level) has no defined modularity.
         return None
 
 
@@ -554,12 +458,8 @@ def _silhouette(vectors: np.ndarray, groups: list[list[int]]) -> float | None:
 
 def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
           stats: HierarchyStats) -> list[Chunk]:
-    """Every summary row this config asks for, over the leaves it is given.
-
-    Returns the new chunks only — the caller keeps the leaves, always. Level 1
-    groups the leaves; level 2 groups level 1's summaries, and so on, so a
-    deeper hierarchy is the same operation applied to its own output.
-    """
+    """Every summary row this config asks for, over the given leaves — the
+    caller keeps the leaves always. Level 2 groups level 1's summaries, and so on."""
     import time
     started = time.time()
     stats.hierarchy = cfg.hierarchy
@@ -621,9 +521,8 @@ def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
 
 def _summary_chunk(members_of: list[Chunk], members: list[int], text: str,
                    level: int, group_id: str) -> Chunk:
-    """A summary row, carrying the union of its members' date span so the time
-    filter keeps working over it, and their ids so it can be expanded to them
-    without a second lookup."""
+    """A summary row carrying the union of its members' date span (so the time
+    filter still works) and their ids (so it can be expanded without a second lookup)."""
     block = [members_of[i] for i in members]
     dates = sorted(c.date for c in block if c.date)
     spans_from = [c.span_from for c in block if c.span_from]
@@ -640,10 +539,8 @@ def _summary_chunk(members_of: list[Chunk], members: list[int], text: str,
     sessions = {c.session_id for c in block if c.session_id}
     return Chunk(
         id=f'summary:{group_id}', text=text,
-        # One session's summary keeps that session's id, so the ground truth's
-        # own unit still lines up; a summary spanning several claims none,
-        # because naming one of them would put a citation on a row that is
-        # mostly about the others.
+        # One session's summary keeps that session's id; a summary spanning
+        # several claims none, since naming one would misattribute a citation.
         session_id=next(iter(sessions)) if len(sessions) == 1 else '',
         date=dates[0] if dates else '',
         span_from=min(spans_from) if spans_from else 0,

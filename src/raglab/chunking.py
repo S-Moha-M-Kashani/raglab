@@ -1,44 +1,18 @@
-"""Chunking strategies for spoken diary text, plus the metadata every chunk
-carries into the index.
-
-The corpus is what makes this hard: a voice session rambles, switches topic
-mid-message («... حالا اینا رو ولش کن، امروز پریا...»), and the thing worth
-retrieving a year later is usually one clause inside a 900-character monologue.
-Six strategies are offered because they fail differently, and the lab exists to
-show which failure costs least:
-
-  fixed          the brain's current behaviour (greedy 500-char packing) — the
-                 baseline; splits mid-thought and drops speaker attribution
-  fixed-overlap  the same with a sliding overlap, so a thought cut in half is
-                 whole in one of the two windows
-  message        one chunk per turn: precise, but a short «آره همون» is
-                 unretrievable on its own
-  turn-pair      user turn + the coach's reply: keeps the interpretation with
-                 the raw feeling
-  session        one chunk per session: maximum fidelity, minimum precision
-  semantic-drift topic segmentation — cut where consecutive messages stop being
-                 about the same thing (embedding drift + Farsi discourse markers)
-
-Orthogonal to all six: `contextual`. Anthropic's contextual-retrieval result
-(chunks prefixed with a short situating header retrieve markedly better) applies
-directly here, because a diary chunk read cold has no date, no mood, and no
-subject — «بلاخره جواب داد» is meaningless until you know it is about the tax
-office, in January. The header is built from metadata alone, so it costs no LLM
-call and no summary.
+"""Chunking strategies for spoken diary text (fixed, fixed-overlap, message,
+turn-pair, session, semantic-drift), plus the per-chunk metadata every chunk
+carries into the index. `contextual` is orthogonal to all six: a short
+metadata-only header prepended to each chunk before embedding.
 """
 from dataclasses import dataclass
 
 import numpy as np
 
 from . import textnorm
+from .corpus import date_int, session_text
 
 
 def chunk_text(text: str, max_chars: int = 500) -> list[str]:
-    """The greedy word packing the brain used to chunk chat with, kept
-    **verbatim** as the `fixed` baseline. Production now uses LangChain's
-    recursive splitter; this stays because every `fixed` row in `.runs/` was
-    measured against this exact packing, and a baseline that quietly changed
-    would make old rows incomparable rather than merely old."""
+    """Greedy word packing, kept verbatim as the `fixed` baseline so old `.runs/` rows stay comparable."""
     chunks: list[str] = []
     current = ''
     for word in text.split():
@@ -50,7 +24,6 @@ def chunk_text(text: str, max_chars: int = 500) -> list[str]:
     if current:
         chunks.append(current)
     return chunks
-from .corpus import date_int, session_text
 
 # Phrases the diarist actually uses when he abandons one subject for another.
 # A hard cut here is cheap and catches shifts the embedding drift misses.
@@ -76,23 +49,17 @@ class Chunk:
     threads: tuple[str, ...] = ()
     msg_start: int = -1
     msg_end: int = -1
-    prefix: str = ''            # the contextual header, kept separately so
-                                # metrics can measure the body alone
-    # Where this row sits in the index. A leaf is `layer=''`, `level=0`; a row
-    # written by `hierarchy.py` is `layer='summary'` at its level. Both fields
-    # are present on every chunk and empty rather than absent on leaves — a
-    # field only some rows carry turns a `where` clause into a silent partial
-    # scan, which reads as a retrieval bug rather than a schema one.
+    prefix: str = ''            # the contextual header, kept separately so metrics can measure the body alone
+    # A leaf is layer='', level=0; hierarchy.py writes layer='summary' at its
+    # level. Present (empty) on every chunk, never absent — an optional field
+    # would turn a `where` clause into a silent partial scan.
     layer: str = ''
     level: int = 0
     group_id: str = ''
     member_ids: tuple[str, ...] = ()
 
     def metadata(self) -> dict:
-        """Flat and filterable. Lists become space-joined strings: the store can
-        only filter on scalars, and a JSON blob would not be filterable either —
-        the fields we actually filter on (span_from/span_to/session_id) are
-        scalars by design."""
+        """Flat and filterable: lists become space-joined strings since the store can only filter on scalars."""
         return {
             'session_id': self.session_id, 'date': self.date,
             'span_from': self.span_from, 'span_to': self.span_to,
@@ -102,9 +69,6 @@ class Chunk:
             'topics': ' '.join(self.topics), 'threads': ' '.join(self.threads),
             'msg_start': self.msg_start, 'msg_end': self.msg_end,
             'chars': len(self.text),
-            # Space-joined for the reason topics and threads are: the store
-            # filters on scalars only, and a JSON blob here would not be
-            # filterable either.
             'layer': self.layer, 'level': self.level,
             'group_id': self.group_id, 'member_ids': ' '.join(self.member_ids),
         }
@@ -116,21 +80,16 @@ class Chunk:
 
 
 def importance_of(session: dict) -> float:
-    """Emotional intensity as a memorability proxy — the 'importance' term from
-    Generative Agents, which the lab's `agentic` reranker weights alongside
-    relevance and recency. High arousal *or* an extreme valence in either
-    direction marks a session the diarist would still remember."""
+    """Emotional intensity as a memorability proxy (Generative Agents'
+    'importance' term): high arousal or extreme valence marks a memorable session."""
     mood = session['mood']
     arousal = mood['arousal'] / 10.0
     extremity = abs(mood['valence'] - 5.5) / 4.5
     return round(min(1.0, 0.6 * arousal + 0.4 * extremity), 3)
 
 
-# Who said it, and the header that situates a chunk — in the corpus's own
-# language. Both strings are prepended to text that gets embedded, so writing
-# them in Farsi over an English corpus adds a constant foreign phrase to every
-# vector. Farsi stays the default because the corpus this lab was built for is
-# Farsi and its chunks must not change.
+# Both strings are prepended to text that gets embedded, so writing them in
+# Farsi over an English corpus would add a constant foreign phrase to every vector.
 SPEAKERS = {'fa': ('کاربر', 'دستیار'), 'de': ('Nutzer', 'Assistent')}
 SPEAKERS_DEFAULT = ('User', 'Assistant')
 HEADERS = {'fa': ('حال', 'موضوع', 'رشته', '، '),
@@ -139,8 +98,7 @@ HEADERS_DEFAULT = ('mood', 'topic', 'thread', ', ')
 
 
 def _language(session: dict) -> str:
-    """The corpus's language, carried on every session by `datasets._split`.
-    Absent — which is every session of the built-in fixture — it is Farsi."""
+    """The corpus's language; absent (every session of the built-in fixture) defaults to Farsi."""
     return session.get('language') or 'fa'
 
 
@@ -161,9 +119,8 @@ def _base(session: dict) -> dict:
 
 
 def contextual_prefix(session: dict) -> str:
-    """A two-line header naming when this was said, how it felt, and what the
-    session was about. Deliberately short: it is duplicated into every chunk of
-    the session, so anything longer starts to dominate the embedding."""
+    """A short header naming when this was said, how it felt, and what it was
+    about. Deliberately short: duplicated into every chunk of the session."""
     mood_word, topic_word, thread_word, comma = HEADERS.get(_language(session),
                                                             HEADERS_DEFAULT)
     threads = comma.join(session['recurring_threads']) or '—'
@@ -200,13 +157,9 @@ def _windows(text: str, size: int, overlap: int) -> list[str]:
 
 
 def _semantic_segments(session: dict, embedder, max_chars: int) -> list[list[int]]:
-    """Group consecutive messages into topical segments.
-
-    Boundary rule: cut where the cosine similarity between neighbouring messages
-    falls into the bottom of *this session's* distribution (a relative threshold
-    — an absolute one is meaningless across embedders whose scales differ by an
-    order of magnitude), or where the diarist says out loud that he is changing
-    subject, or where the segment would outgrow max_chars."""
+    """Groups consecutive messages into topical segments: cut where similarity
+    drops into the bottom of *this session's own* distribution (a relative
+    threshold, since embedder scales are not comparable), a shift marker fires, or max_chars is exceeded."""
     messages = session['messages']
     if len(messages) <= 2:
         return [list(range(len(messages)))]

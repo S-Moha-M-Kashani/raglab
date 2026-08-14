@@ -1,69 +1,24 @@
-/* The RAG Lab Inspector, in the lab's own hand.
- *
- * The panel on :9002 and this page are one instrument in two windows, so the
- * tokens below are the panel's: a graphite chassis carrying identity and state,
- * porcelain plates holding the readings, and three step inks — saffron for
- * index, verdigris for retrieval, lapis for generation — which are the only
- * saturated hues either page spends. A colour meaning a pipeline step is a fact
- * the service serves (`/api/options` → steps); it must not be a hue invented
- * once per page.
- *
- * `--ink-amber/green/blue` survive as the names the rest of this file is written
- * in, aliased to the step tokens rather than given values of their own — so
- * there is exactly one place a step's colour is decided.
- *
- * Farsi gets a stack of its own. It was being set in SF Mono, which has no
- * Persian glyphs to speak of, so the corpus this page exists to display arrived
- * letter-spaced and broken. A page about a Farsi diary has to be able to render
- * Farsi.
- */
+/* Shares its token system with the panel on :9002, in tokens.css, linked
+ * before this file so these rules still win — a colour meaning a pipeline
+ * step (`/api/options` → steps) must not be invented separately on either
+ * page. `--ink-amber/green/blue/plum` alias the step tokens rather than
+ * holding values of their own, so there is one place a step's colour is set.
+ * Only this page's own tokens are declared here. */
 :root {
-  --display: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
-  --body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", "Menlo", monospace;
   /* Persian first, then the faces macOS and Windows actually ship. */
   --farsi: "Vazirmatn", "IRANSansX", "IRANSans", "Geeza Pro", "Tahoma",
            "Segoe UI", sans-serif;
-
-  --chassis: #101620;
-  --chassis-soft: #1c2734;
-  --chassis-ink: #c3cdda;
-  --chassis-ink-soft: #7d8b9c;
-
-  --paper: #edf0f3;
-  --card: #ffffff;
-  --card-line: #e8ecf1;
-  --line: #d3dae2;
-  --ink: #17202b;
-  --ink-soft: #5b6875;
-  --rule-red: #a33227;
-
-  --step-index: oklch(0.56 0.14 58);
-  --step-retrieval: oklch(0.49 0.11 168);
-  --step-generation: oklch(0.50 0.15 262);
-  /* The fourth step is a loop around the other three, so its ink is the one that
-     is not a stage colour. Defined here with the same value :9002 uses: the two
-     pages must not disagree about what plum means. */
-  --step-agent: oklch(0.48 0.16 318);
-  /* The same four, lifted for the chassis: an ink chosen to sit on porcelain is
-     close to unreadable on graphite, and the tab bar is on graphite. */
-  --step-index-lit: oklch(0.78 0.13 62);
-  --step-retrieval-lit: oklch(0.75 0.11 168);
-  --step-generation-lit: oklch(0.76 0.11 258);
-  --step-agent-lit: oklch(0.77 0.12 318);
 
   --ink-amber: var(--step-index);        /* index */
   --ink-green: var(--step-retrieval);    /* retrieval */
   --ink-blue: var(--step-generation);    /* generation */
   --ink-plum: var(--step-agent);         /* agent */
 
-  /* The row shading is the ground truth's verdict at chunk granularity: paper
-     for relevant, a shade back for not. It used to be a 4% difference nobody
-     could see; a table's most important distinction has to survive a glance. */
+  /* Ground truth's verdict at chunk granularity: paper for relevant, a shade
+     back for not — has to survive a glance, not just close reading. */
   --row-plain: #e3e8ee;
-  /* Evidence: a highlighter wash, plus an underline so the mark never depends
-     on hue alone. Kept apart from the retrieval pen by treatment — a wash is
-     never a rule, and a rule is never a wash. */
+  /* Highlighter wash plus underline, so relevance never depends on hue alone;
+     kept apart from the retrieval pen by treatment, not colour. */
   --evidence: #a9e6b0;
   --evidence-rule: #3f8a4c;
   --evidence-ink: #10240f;
@@ -71,23 +26,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #151b24;
-    --card: #1e2733;
-    --card-line: #2c3745;
-    --line: #33404f;
-    --ink: #e3e9ef;
-    --ink-soft: #97a4b3;
-    --rule-red: #d98376;
-    /* The lit inks become the working inks: on this theme every surface is the
-       chassis, so a step reads at the weight the chassis needs. */
-    --step-index: var(--step-index-lit);
-    --step-retrieval: var(--step-retrieval-lit);
-    --step-generation: var(--step-generation-lit);
+    /* The shared tokens' own dark values live in tokens.css. `--step-agent`
+       is the one step ink tokens.css does not re-lit for dark mode — the
+       panel never did either, but this page's agent ladder wants it, so the
+       override stays here rather than in the shared file. */
     --step-agent: var(--step-agent-lit);
-    /* Well below --card, not a shade beside it. In light mode paper-versus-shade
-       is obvious; the first dark build had #23281f against a #2a2f29 card, which
-       is seven units apart and left the table's most important distinction
-       invisible on exactly the theme this page is read in at night. */
+    /* Well below --card, not a shade beside it, so the row-verdict distinction
+       still reads against the darker card. */
     --row-plain: #121821;
     --evidence: #2f6a3a;
     --evidence-rule: #86b08c;
@@ -99,9 +44,9 @@
 
 body {
   margin: 0;
-  font-family: var(--body);
+  font-family: var(--sans);
   color: var(--ink);
-  background-color: var(--paper);
+  background-color: var(--plate);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -111,17 +56,15 @@ select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
 
 /* --- the instrument header ------------------------------------------------- */
-/* Not a hero: a readout, and the same chassis the panel wears — the two windows
-   are one instrument. The first thing worth knowing here is which run you are
-   looking at, so the title stays small and the lab's state is what the eye
-   lands on. */
+/* A readout, not a hero: the title stays small so the run's own state is what
+   the eye lands on. */
 .inspector-header {
   padding: .85rem 1.25rem 0;
   background: var(--chassis);
   color: var(--chassis-ink);
 }
 .inspector-header h1 {
-  font-family: var(--display);
+  font-family: var(--slab);
   font-size: 1.15rem;
   font-weight: 600;
   letter-spacing: -.01em;
@@ -154,12 +97,11 @@ select { font: inherit; color: inherit; }
 .follow-state[data-lab="down"]::before { background: #e07a6c; }
 
 /* --- tabs: the pipeline, left to right ------------------------------------ */
-/* Each tab is inked by the step it belongs to, and the selected one is the only
-   one that carries its pen at full weight — the bar doubles as a diagram of
-   where in the pipeline you are standing. */
+/* Each tab is inked by its step; only the selected one carries its pen at full
+   weight, so the bar doubles as a diagram of where you are in the pipeline. */
 .inspector-tabs { display: flex; gap: 1.4rem; }
 .inspector-tab {
-  font: 700 .68rem/1.4 var(--body);
+  font: 700 .68rem/1.4 var(--sans);
   letter-spacing: .13em;
   text-transform: uppercase;
   background: transparent;
@@ -185,8 +127,8 @@ select { font: inherit; color: inherit; }
   font-size: .74rem;
   color: var(--ink-soft);
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 0 4px 4px 0;
-  border-left: 3px solid var(--line);
+  border: 1px solid var(--rule-soft); border-radius: 0 4px 4px 0;
+  border-left: 3px solid var(--rule);
   padding: .45rem .7rem;
   margin-bottom: .9rem;
   min-height: 1.1em;
@@ -201,31 +143,27 @@ select { font: inherit; color: inherit; }
   font-family: var(--mono); font-size: .78rem;
 }
 .inspector-controls button {
-  font: 600 .78rem/1.4 var(--body);
+  font: 600 .78rem/1.4 var(--sans);
   background: var(--card); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 3px; padding: .38rem .8rem;
+  border: 1px solid var(--rule); border-radius: 3px; padding: .38rem .8rem;
 }
 .inspector-controls button:hover { background: var(--chassis); color: #fff;
                                      border-color: var(--chassis); }
-.inspector-controls select { border: 1px solid var(--line); background: var(--card);
+.inspector-controls select { border: 1px solid var(--rule); background: var(--card);
                              padding: .25rem .35rem; max-width: 22rem; }
 
 /* --- Farsi, wherever it appears ------------------------------------------- */
 /* `plaintext` lets each line take the direction of its own first strong
-   character. The corpus is Farsi carrying Latin fragments — session ids, topic
-   slugs, the contextual header — and under a blanket rtl those arrive reversed:
-   `[2025-11-08-a]` renders as `[a-08-11-2025]`. This is a diary about a life
-   lived in two scripts, so mixed lines are the normal case, not the exception. */
+   character — a blanket rtl would reverse embedded Latin fragments (session
+   ids, topic slugs) like `[2025-11-08-a]` into `[a-08-11-2025]`. */
 [dir="rtl"] { font-family: var(--farsi); line-height: 1.85; unicode-bidi: plaintext; }
 
 /* --- ground truth: one card per pair -------------------------------------- */
-/* Every field is labelled above its own text and the card is held to a readable
-   measure. The first build let each row run the full width, which put the Farsi
-   question against the right edge, its English against the left, and the labels
-   stranded in the middle with a page of nothing between them and their text. */
+/* Held to a readable measure — full width strands the labels between the
+   Farsi question at the right edge and its English at the left. */
 .gt-row {
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 4px;
+  border: 1px solid var(--rule-soft); border-radius: 4px;
   box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   border-left: 3px solid var(--ink);
   padding: .65rem .85rem;
@@ -237,11 +175,9 @@ select { font: inherit; color: inherit; }
 .gt-en { font-size: .82rem; color: var(--ink-soft); }
 .gt-field { margin-top: .55rem; }
 .gt-field > div:not(.qh-label) { font-size: .88rem; }
-/* A quote is the exact string the ground truth stands on, so it is set apart
-   from the answer prose that surrounds it. */
-/* Logical, not left: the quote is Farsi, so its rule belongs on the edge the
-   text actually starts from. A `border-left` put the mark at the opposite side
-   of the card from the words it marks. */
+/* Set apart from the answer prose that surrounds it. */
+/* Logical, not left: the quote is Farsi, so the rule belongs on the edge the
+   text starts from — `border-left` marks the wrong side of the card. */
 .gt-quote {
   border-inline-start: 2px solid var(--evidence-rule);
   padding-inline-start: .55rem; margin-top: .2rem;
@@ -250,7 +186,7 @@ select { font: inherit; color: inherit; }
 /* --- chunks: a session is a page of the diary ----------------------------- */
 .chunk-session {
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 4px;
+  border: 1px solid var(--rule-soft); border-radius: 4px;
   box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   border-left: 3px solid var(--ink-amber);
   margin-bottom: .4rem;
@@ -260,40 +196,37 @@ select { font: inherit; color: inherit; }
   font-family: var(--mono); font-size: .78rem; cursor: pointer;
 }
 .chunk-line {
-  border-top: 1px dotted var(--line);
+  border-top: 1px dotted var(--rule);
   padding: .5rem 0 .45rem;
   max-width: 58rem;
 }
 .chunk-line > div:last-child { font-size: .88rem; }
 .chunk-no {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-amber);
   margin-bottom: .15rem;
 }
 
-/* Which kind of row this view is listing. A segmented pair rather than two loose
-   buttons: the choice is exclusive, and the pressed one has to read as a position
-   rather than as an action just taken. Carries the index ink because both halves
-   are index-stage material — the leaves the chunker cut and the summaries a
-   grouping wrote beside them. */
+/* A segmented pair, not two loose buttons: the choice is exclusive, so the
+   pressed one must read as a position rather than an action just taken. Carries
+   the index ink since both halves — leaves and summaries — are index-stage. */
 .mode-toggle {
   display: inline-flex; margin: 0 0 .6rem;
-  border: 1px solid var(--card-line); border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--rule-soft); border-radius: 3px; overflow: hidden;
 }
 .mode-toggle button {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase;
   background: var(--card); color: var(--ink-soft);
   border: 0; padding: .3rem .7rem; cursor: pointer;
 }
-.mode-toggle button + button { border-left: 1px solid var(--card-line); }
+.mode-toggle button + button { border-left: 1px solid var(--rule-soft); }
 .mode-toggle button:hover { color: var(--ink); }
 .mode-toggle button[aria-pressed="true"] {
   background: var(--step-index); color: #fff;
 }
-/* The member ids a summary was written over, in the data face because they are
-   identifiers to be matched against the chunk list, not prose. LTR explicitly:
-   these are Latin ids sitting on a page whose text runs the other way. */
+/* Data face, since these are ids to match against the chunk list, not prose;
+   LTR explicitly, since they are Latin ids on a page that otherwise runs rtl. */
 .summary-members {
   font-family: var(--mono); font-size: .7rem; line-height: 1.6;
   color: var(--ink-soft); direction: ltr; word-break: break-all;
@@ -303,16 +236,11 @@ select { font: inherit; color: inherit; }
 .empty-note { font-size: .78rem; color: var(--ink-soft); max-width: 44rem; }
 
 /* --- the question picker -------------------------------------------------- */
-/* A listbox rather than a <select>, because a <select> can carry neither the
-   difficulty colour nor the hover detail: styling <option> is unreliable outside
-   Chrome and an <option> cannot be hovered for more.
- *
- * Difficulty is colour **here and nowhere else**. In the tables colour already
- * means a pipeline step and row shading already means the ground truth's
- * verdict; a third meaning loose on the page would make all three unreadable.
- * The hues are the board's own pens — red rule, amber, and plain ink for easy —
- * so even this local axis stays inside the family. Each option also carries the
- * word, so the colour is reinforcement and never the only carrier. */
+/* A listbox, not a <select>: styling <option> is unreliable outside Chrome and
+ * an <option> cannot carry a hover detail. Difficulty is colour here and
+ * nowhere else — colour elsewhere already means a pipeline step or a
+ * ground-truth verdict — and each option also carries the word, so colour is
+ * reinforcement, never the only carrier. */
 .question-picker {
   background: var(--card);
   border: 1px solid var(--ink);
@@ -324,7 +252,7 @@ select { font: inherit; color: inherit; }
   font: inherit; font-family: var(--mono); font-size: .78rem;
   width: 100%; max-width: 26rem;
   padding: .3rem .45rem;
-  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border: 1px solid var(--rule); background: var(--plate); color: var(--ink);
 }
 .q-legend {
   display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
@@ -332,11 +260,11 @@ select { font: inherit; color: inherit; }
 }
 .q-legend-note { font-size: .74rem; color: var(--ink-soft); }
 .q-chip {
-  font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
+  font: 700 .6rem/1.5 var(--sans); letter-spacing: .12em;
   text-transform: uppercase; padding: .1rem .4rem;
   border: 1px solid currentColor; border-radius: 2px;
 }
-.q-chip--hard { color: var(--rule-red); }
+.q-chip--hard { color: var(--alert); }
 .q-chip--medium { color: var(--ink-amber); }
 .q-chip--easy { color: var(--ink-soft); }
 
@@ -346,24 +274,23 @@ select { font: inherit; color: inherit; }
   position: relative;
   padding: .3rem .45rem;
   border-inline-start: 4px solid var(--ink-soft);
-  border-bottom: 1px solid var(--card-line);
+  border-bottom: 1px solid var(--rule-soft);
   cursor: pointer;
   font-size: .82rem;
 }
-.q-option--hard { border-inline-start-color: var(--rule-red); }
+.q-option--hard { border-inline-start-color: var(--alert); }
 .q-option--medium { border-inline-start-color: var(--ink-amber); }
 .q-option--easy { border-inline-start-color: var(--ink-soft); }
 .q-option:hover, .q-option:focus { background: var(--row-plain); outline: none; }
-.q-option:focus { box-shadow: inset 0 0 0 2px var(--rule-red); }
+.q-option:focus { box-shadow: inset 0 0 0 2px var(--alert); }
 .q-option-id { font-family: var(--mono); font-size: .74rem; }
 .q-option-en { color: var(--ink); flex: 1; }
 .q-option-added {
-  font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
+  font: 700 .6rem/1.5 var(--sans); letter-spacing: .12em;
   text-transform: uppercase; color: var(--ink-green);
 }
-/* Everything you need to decide whether this question is worth adding, without
-   leaving the picker: the question itself, what a right answer says, and the
-   evidence the ground truth stands on. */
+/* Everything needed to decide whether this question is worth adding, without
+   leaving the picker. */
 .q-option-detail {
   display: none; position: absolute; z-index: 30;
   top: 100%; inset-inline-start: 2rem;
@@ -378,20 +305,17 @@ select { font: inherit; color: inherit; }
 
 /* Questions you added, kept in their own list under a stated label. */
 .added-block { margin-top: 1.1rem; }
-.added-label { border-top: 1px dotted var(--line); padding-top: .6rem; }
+.added-label { border-top: 1px dotted var(--rule); padding-top: .6rem; }
 
 /* --- a question, restated above its own rows ------------------------------ */
-/* The table answers "where did each chunk rank". It cannot answer "ranked for
-   what, and what would a right answer have contained" — so both sit here,
-   directly above the rows, rather than a tab away in the ground truth. */
+/* The table answers "where did each chunk rank", not "ranked for what" — so
+   the question sits here, above the rows, rather than a tab away. */
 .question-head { margin: .5rem 0 .7rem; }
 .question-head .qh-fa { font-size: 1.02rem; margin-bottom: .15rem; }
 .question-head .qh-en { font-size: .82rem; color: var(--ink-soft); }
-/* Unscoped on purpose: the ground-truth cards label their fields with this too,
-   and scoping it to `.question-head` was why those labels rendered as body text
-   instead of eyebrows. */
+/* Unscoped on purpose: the ground-truth cards use this label too. */
 .qh-label {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: .55rem 0 .15rem;
 }
@@ -405,7 +329,7 @@ select { font: inherit; color: inherit; }
    is a set of questions, and the unit you reason about is one question. */
 .retrieval-question, .gen-question {
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 4px;
+  border: 1px solid var(--rule-soft); border-radius: 4px;
   box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   margin-bottom: .5rem;
   padding: .5rem .8rem .7rem;
@@ -434,28 +358,25 @@ select { font: inherit; color: inherit; }
   width: 100%; border-collapse: collapse;
   font-family: var(--mono); font-size: .74rem;
 }
-/* Every column is centred, header and cells together. The first build left the
-   headers ranged left while the numbers under them ranged right, so each label
-   sat over the wrong end of its own column. */
+/* Every column is centred, header and cells together, so a label never sits
+   over the wrong end of its own column. */
 .retrieval-table th {
   text-align: center; color: var(--ink-soft);
-  font: 600 .64rem/1.5 var(--body); letter-spacing: .08em; text-transform: uppercase;
+  font: 600 .64rem/1.5 var(--sans); letter-spacing: .08em; text-transform: uppercase;
   padding: .3rem .45rem; border-bottom: 1px solid var(--ink);
   white-space: nowrap;
 }
 .retrieval-table th[data-step="retrieval"] { color: var(--ink-green); }
 .retrieval-table th[data-step="generation"] { color: var(--ink-blue); }
-/* A sortable header looks pressable and says which way it points. The step inks
-   above still say which stage the column belongs to — the arrow is about your
-   click, the colour about the pipeline, and they never contend for the same mark.
-   A pseudo-element rather than text, so a header stays the string it was. */
+/* Arrow (your click) and step ink (the pipeline) never contend for the same
+   mark. A pseudo-element rather than text, so a header stays the string it was. */
 th.sort-col { cursor: pointer; user-select: none; }
 th.sort-col:hover { color: var(--ink); }
 th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
 th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
 th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .retrieval-table td {
-  padding: .32rem .45rem; border-bottom: 1px solid var(--card-line);
+  padding: .32rem .45rem; border-bottom: 1px solid var(--rule-soft);
   vertical-align: top;
   text-align: center;
 }
@@ -474,15 +395,13 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .retrieval-row:hover { outline: 1px solid var(--ink-soft); }
 
 /* --- the signature: a candidate's path through the ranking --------------- */
-/* Three cells, one per step that produces a rank — dense, BM25, and the RRF
-   fusion of the two. Bar height is how high the chunk stood at that step, so
-   "19th in dense, 1st in BM25, fused to 7th" arrives as a shape instead of
-   three numbers to subtract. The numbers are still in their own columns; this
-   is aria-hidden, so nothing is only available as a picture. */
+/* One bar per step that produces a rank — dense, BM25, RRF fusion — bar height
+   standing for how high the chunk placed. aria-hidden: the numbers are still
+   in their own columns, so nothing is only available as a picture. */
 .ladder {
   display: inline-flex; align-items: flex-end; gap: 2px;
   height: 1.35rem; width: 2.4rem;
-  border-bottom: 1px solid var(--line);   /* the floor, so a short bar reads as short */
+  border-bottom: 1px solid var(--rule);   /* the floor, so a short bar reads as short */
 }
 .ladder-step {
   flex: 1; height: var(--h, 4%); min-height: 2px;
@@ -492,15 +411,12 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .ladder-none { color: var(--ink-soft); }
 
 /* --- the chunk cell: a preview, and the whole thing on hover ------------- */
-/* The column has to stay narrow or seven columns of ranks become unreadable,
-   but 60 characters cannot say whether the retrieval was right. So the full
-   text is always in the DOM and revealed on hover — and on keyboard focus,
-   because a reveal only a mouse can open is one half the readers never get. */
+/* Stays narrow (seven rank columns need it) but 60 characters cannot say
+   whether the retrieval was right, so the full text is always in the DOM and
+   revealed on hover and on keyboard focus. */
 .chunk-cell { position: relative; width: 40%; }
-/* A summary row, named in the index ink because that is the step that wrote it.
-   This is the step axis, not the gold axis: the row's white-or-gray background
-   still says whether the ground truth considers it relevant, and the two answer
-   different questions about the same row. */
+/* Step axis, not the gold axis: the row's white-or-gray background is a
+   separate question — whether the ground truth considers it relevant. */
 .layer-badge {
   display: inline-block; margin-bottom: .2rem;
   font: 600 .64rem/1.5 var(--mono);
@@ -536,8 +452,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 }
 .no-evidence {
   display: block; margin-top: .55rem; padding-top: .45rem;
-  border-top: 1px dotted var(--line);
-  font-family: var(--body); font-size: .74rem; color: var(--ink-soft);
+  border-top: 1px dotted var(--rule);
+  font-family: var(--sans); font-size: .74rem; color: var(--ink-soft);
 }
 
 /* --- generation: the ideal answer beside the written one ----------------- */
@@ -545,9 +461,9 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
   gap: .7rem; margin: .6rem 0 .5rem;
 }
-.gen-answer { padding: .6rem .75rem; border: 1px solid var(--card-line); }
+.gen-answer { padding: .6rem .75rem; border: 1px solid var(--rule-soft); }
 .gen-answer h4 {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 .35rem;
 }
@@ -560,17 +476,17 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .gen-metrics {
   display: flex; flex-wrap: wrap; gap: .35rem 1.3rem;
   font-family: var(--mono); font-size: .76rem;
-  padding-top: .45rem; border-top: 1px dotted var(--line);
+  padding-top: .45rem; border-top: 1px dotted var(--rule);
 }
 .gen-metric { color: var(--ink-soft); }
 .gen-metric b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .gen-ragas {
-  background: var(--card); border: 1px solid var(--card-line);
+  background: var(--card); border: 1px solid var(--rule-soft);
   border-left: 3px solid var(--ink-blue);
   padding: .6rem .8rem; margin-bottom: .8rem;
 }
 .gen-ragas h4 {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 .3rem;
 }
@@ -585,24 +501,24 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .inspector-why {
   font: 700 .6rem/1 var(--mono);
   background: transparent; color: var(--ink-soft);
-  border: 1px solid var(--line); border-radius: 999px; padding: .12em .34em;
+  border: 1px solid var(--rule); border-radius: 999px; padding: .12em .34em;
   margin-left: .35em;
 }
-.inspector-why:hover { border-color: var(--rule-red); color: var(--rule-red); }
+.inspector-why:hover { border-color: var(--alert); color: var(--alert); }
 .inspector-why-text {
   /* Inside the metrics row this is a flex item; `order` sends it to the end so
      opening one explainer cannot push the scores beside it out of line. */
   display: block; flex-basis: 100%; order: 99;
-  font-family: var(--body); font-size: .78rem; color: var(--ink-soft);
+  font-family: var(--sans); font-size: .78rem; color: var(--ink-soft);
   margin: .35rem 0 .1rem; padding-left: .7rem;
-  border-left: 2px solid var(--rule-red);
+  border-left: 2px solid var(--alert);
   max-width: 52rem;
 }
 
 /* --- the query panel's own answer box ----------------------------------- */
 .inspector-answer {
   margin-top: .8rem; padding: .6rem .8rem;
-  background: var(--card); border: 1px solid var(--card-line);
+  background: var(--card); border: 1px solid var(--rule-soft);
   border-left: 3px solid var(--ink-blue);
   font-family: var(--farsi); min-height: 1.2em;
 }
@@ -614,13 +530,10 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   .inspector-view { padding: .8rem .7rem 3rem; }
   .chunk-cell { width: auto; min-width: 11rem; }
   .retrieval-table { font-size: .68rem; }
-  /* Nine columns do not fit a phone, so the table scrolls inside its own box
-     rather than dragging the page sideways. The wrapper is only a scroller here:
-     on a wide screen `overflow-x` would also clip the reveal, which hangs below
-     its row. */
+  /* Scrolls the table in its own box instead of the page; scoped to this
+     breakpoint because on a wide screen it would clip the reveal below. */
   .table-scroll { overflow-x: auto; }
-  /* And the reveal stops being a popover, because there is nothing to hover
-     with. Tapping the preview focuses it and the full text opens in place. */
+  /* No popover: nothing to hover with. Tapping focuses it, opening in place. */
   .chunk-reveal {
     position: static; width: auto; max-width: none; max-height: none;
     margin-top: .4rem; box-shadow: none;
@@ -631,17 +544,14 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   @keyframes reveal { from { opacity: 0; transform: translateY(-2px); } }
 }
 
-/* The agent's ladder: which node ran, on which hop, and what it decided. A
-   table rather than a paragraph because the interesting reading is vertical —
-   the same node appearing three times is a loop that never settled, and that
-   has to be visible without counting words. The agent ink labels it, the same
-   ink :9002 uses for the scope that produced it. */
+/* A table, not a paragraph: the same node appearing three times is a loop that
+   never settled, and that reading is vertical. Agent ink, matching :9002. */
 .agent-ladder { border-left: 3px solid var(--step-agent); padding-left: .6rem; }
 .agent-ladder h4 { margin: .2rem 0 .4rem; color: var(--step-agent); font-size: .8rem;
   letter-spacing: .04em; text-transform: uppercase; }
 .agent-ladder table { border-collapse: collapse; width: 100%; }
 .agent-ladder th { text-align: left; color: var(--step-agent); font-weight: 600; }
 .agent-ladder td, .agent-ladder th { padding: .15rem .5rem .15rem 0;
-  border-bottom: 1px solid var(--line); vertical-align: top; }
+  border-bottom: 1px solid var(--rule); vertical-align: top; }
 .agent-ladder td.node { color: var(--step-agent); font-weight: 600; }
 .agent-ladder td.detail { color: var(--ink-soft); }

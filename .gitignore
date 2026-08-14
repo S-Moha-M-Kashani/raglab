@@ -2,10 +2,6 @@ __pycache__/
 .venv/
 *.pyc
 
-# Generated local Claude worktrees contain machine-specific gitdir pointers;
-# never stage them as embedded repositories.
-.claude/worktrees/
-
 # One JSON file per eval run — the lab's only durable artifact besides the
 # ledger. The index, the retrieved contexts and the answers live in process
 # memory and are discarded with it. Reproducible from the fixtures,
@@ -17,7 +13,7 @@ __pycache__/
 # project has already lost to a wiped scratch directory.
 
 # Datasets imported through the panel. The four bundled samples in
-# docs/groundtruth_datasets/ are part of the repository — they are reference
+# fixtures/groundtruth_datasets/ are part of the repository — they are reference
 # points, and the argument for a finding being general rather than true of Farsi
 # diaries. A corpus somebody uploaded is their material, not this repository's.
 .datasets/
@@ -26,3 +22,5 @@ __pycache__/
 *.db
 *.db-journal
 *.db-wal
+.claude
+.docs

@@ -1,41 +1,12 @@
-"""Embedders for the lab, behind the production `Embedder` protocol.
-
-`ascii-hash` is the embedder the brain ships with today. It is here as a
-*baseline*, and it is expected to score near zero on this corpus: its tokeniser
-is `[a-z0-9]+`, so a Farsi sentence contains no tokens at all and every vector
-is the zero vector. That is the whole point of measuring it — the lab should
-show, in numbers, that shipping diary memory on the current default would
-retrieve nothing.
-
-`token-hash` and `char-hash` are offline, dependency-free, and Unicode-aware, so
-CI can measure real retrieval without downloading a model. `fastembed` is the
-honest ceiling: a multilingual transformer (Persian is in its training mix,
-unlike bge-small-en, which the brain hardwires today).
-
-**Which languages an option covers is the first fact about it**, so every entry
-below carries that as text the panel shows next to the dropdown. On a Farsi diary
-this is not a footnote: most of the famous embedders — bge-small-en,
-all-MiniLM-L6 — are English-only models that would produce a full set of
-plausible-looking numbers measuring nothing at all. **The catalogue offers only
-models that have embedded a sentence on this machine** (checked 2026-08-02):
-"worth trying, nobody measured it" had rotted into half-fetched downloads and
-models no backend here serves, so NA now means one thing — *this installation*
-cannot load it — and availability is *verified* against what fastembed actually
-serves instead of guessed.
-
-**Queries and passages are embedded separately** because the E5 family was
-trained that way ("query: " / "passage: "). Omitting the prefixes is a silent
-accuracy loss, which is exactly the kind of loss this lab exists to prevent, so
-the prefixes belong to the model entry and retrieval goes through
-`query_vectors()` rather than calling `embed()` on a question.
+"""Embedders behind the production `Embedder` protocol: offline hash baselines
+plus two backends (fastembed, sentence-transformers) that load real models.
+Queries and passages embed separately (`query_vectors`) since E5-style models expect distinct `query:`/`passage:` prefixes.
 """
 import hashlib
 import re
 from dataclasses import dataclass
 
 import numpy as np
-
-import numpy as np  # noqa: F811  (already imported above; kept beside its use)
 
 from . import textnorm
 
@@ -50,11 +21,8 @@ def _normalize(vectors: np.ndarray) -> np.ndarray:
 
 
 class HashEmbedder:
-    """The embedder the brain used to ship, kept **verbatim** as the lab's
-    baseline. It moved here when production adopted a real encoder: the lab has
-    to be able to measure what was shipped, and every run in `.runs/` scored
-    against this exact tokeniser — `[a-z0-9]+`, which finds no tokens at all in
-    a Farsi sentence and embeds it as the zero vector."""
+    """Kept verbatim as the lab's baseline. Tokeniser `[a-z0-9]+` finds no
+    tokens in Farsi, so every vector is the zero vector."""
 
     def embed(self, texts: list[str]) -> np.ndarray:
         out = np.zeros((len(texts), ASCII_DIM), dtype=np.float32)
@@ -69,20 +37,14 @@ CHAR_DIM = 1024
 DEFAULT_FASTEMBED = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
 DEFAULT_LOCAL = 'heydariAI/persian-embeddings'
 
-# Which kind serves a model, and which model that kind loads when nothing is
-# pinned — the same rule as '' meaning RAGLAB_MODEL for the chat roles. The
-# openai backend and its two API models left 2026-08-02: a backend whose whole
-# catalogue is gone stays selectable and would build an embedder with no model
-# and dim 0, worse than the API bill it was there to offer.
+# '' means "this backend's default", the same rule '' means RAGLAB_MODEL for chat roles.
 BACKENDS = ('fastembed', 'sentence-transformers')
 BACKEND_DEFAULTS = {
     'fastembed': DEFAULT_FASTEMBED,
     'sentence-transformers': DEFAULT_LOCAL,
 }
 
-# The vocabulary the panel says language coverage in. Kept as constants because
-# the words matter: "any script" means the embedder is not *blind* to Farsi, not
-# that it understands it — both hash embedders are lexical.
+# "any script" means not blind to Farsi, not that it understands it — both hash embedders are lexical.
 LATIN_ONLY = 'Latin script only (a–z, 0–9)'
 ANY_SCRIPT = 'any script, lexical only (no meaning)'
 ENGLISH_ONLY = 'English only'
@@ -97,8 +59,7 @@ def _bucket(token: str, dim: int) -> int:
 
 
 class TokenHashEmbedder:
-    """Hashed bag of normalised Persian/Latin words with sub-linear term
-    frequency. Lexical, but at least it sees the language."""
+    """Hashed bag of normalised words with sub-linear term frequency. Lexical, but at least it sees the language."""
     dim = TOKEN_DIM
     name = 'token-hash'
 
@@ -115,9 +76,7 @@ class TokenHashEmbedder:
 
 
 class CharHashEmbedder:
-    """Hashed character 4-grams. Persian inflects by affix (میخواستم /
-    نمیخوام / بخوام), which whitespace tokens treat as three unrelated words;
-    n-grams recover the shared stem, so this is the strongest offline option."""
+    """Hashed character n-grams; recovers shared stems across Persian affixes that whitespace tokens treat as unrelated words."""
     dim = CHAR_DIM
     name = 'char-hash'
 
@@ -133,12 +92,7 @@ class CharHashEmbedder:
 
 
 class FastEmbedMultilingual:
-    """Real sentence embeddings. Wraps fastembed directly rather than the
-    brain's FastEmbedEmbedder default, because that default is bge-small-**en**
-    — an English-only model scored against a Farsi corpus.
-
-    `factory` exists so the prefix behaviour is testable without downloading a
-    model; production leaves it alone."""
+    """Wraps fastembed directly. `factory` allows testing without a real download."""
     name = 'fastembed'
 
     def __init__(self, model_name: str, batch_size: int = 64,
@@ -148,9 +102,7 @@ class FastEmbedMultilingual:
         self.batch_size = batch_size
         self.query_prefix = query_prefix
         self.passage_prefix = passage_prefix
-        # The model is part of the identity: two different transformers are two
-        # different representations, and anything caching by embedder name has to
-        # be able to tell them apart.
+        # Model name is part of identity, so a cache keyed by embedder name distinguishes checkpoints.
         self.name = f'fastembed:{model_name}'
         self.dim = len(next(iter(self.model.embed(['probe']))))
 
@@ -162,11 +114,9 @@ class FastEmbedMultilingual:
         return _normalize(vectors)
 
     def embed(self, texts: list[str]) -> np.ndarray:
-        """The document side. Everything that gets indexed comes through here."""
         return self._vectors(list(texts), self.passage_prefix)
 
     def embed_queries(self, texts: list[str]) -> np.ndarray:
-        """The query side. Same model, the prefix it was trained to expect."""
         return self._vectors(list(texts), self.query_prefix)
 
 
@@ -181,17 +131,9 @@ def _sentence_transformer(model_name: str):
 
 
 class SentenceTransformerEmbedder:
-    """Any HuggingFace checkpoint, through sentence-transformers.
-
-    This is the backend that reaches the models fastembed does not serve — the
-    Persian-tuned encoders — which on a Farsi diary are the ones worth
-    measuring. The model's own `modules.json` decides pooling, so a checkpoint
-    that ships an ST configuration is used the way its authors intended rather
-    than mean-pooled by us and quietly mis-scored.
-
-    `factory` exists so the prefix behaviour is testable without a 2 GB download;
-    production leaves it alone.
-    """
+    """Any HuggingFace checkpoint, through sentence-transformers. Pooling comes
+    from the model's own config rather than being guessed. `factory` allows
+    testing without a real download."""
     name = 'sentence-transformers'
 
     def __init__(self, model_name: str, batch_size: int = 32,
@@ -201,12 +143,10 @@ class SentenceTransformerEmbedder:
         self.batch_size = batch_size
         self.query_prefix = query_prefix
         self.passage_prefix = passage_prefix
-        # Two different checkpoints are two different representations, so the
-        # model is part of the identity anything caching by name sees.
+        # Model name is part of identity, so a cache keyed by embedder name distinguishes checkpoints.
         self.name = f'st:{model_name}'
-        # Renamed in sentence-transformers 5; the lab floor is 3, so ask for the
-        # new name and fall back rather than emitting a deprecation warning on
-        # every build (or breaking on the version that drops the old one).
+        # get_embedding_dimension replaced get_sentence_embedding_dimension in
+        # sentence-transformers 5; fall back for the lab's floor version (3).
         dimension = (getattr(self.model, 'get_embedding_dimension', None)
                      or self.model.get_sentence_embedding_dimension)
         self.dim = int(dimension())
@@ -216,8 +156,6 @@ class SentenceTransformerEmbedder:
         vectors = self.model.encode(payload, batch_size=self.batch_size,
                                     show_progress_bar=False,
                                     convert_to_numpy=True)
-        # Normalised here rather than trusting the flag: cosine similarity in
-        # Cosine similarity is only cosine if the vectors are unit length.
         return _normalize(np.asarray(vectors, dtype=np.float32))
 
     def embed(self, texts: list[str]) -> np.ndarray:
@@ -228,11 +166,7 @@ class SentenceTransformerEmbedder:
 
 
 def query_vectors(embedder, texts: list[str]) -> np.ndarray:
-    """Embed questions as questions when the model distinguishes them.
-
-    Asked through a helper rather than a method on the protocol so every hash
-    embedder — and the brain's own — keeps working untouched: an embedder with no
-    query side is simply symmetric."""
+    """Uses `embed_queries` when the embedder defines an asymmetric query side, else falls back to `embed`."""
     asymmetric = getattr(embedder, 'embed_queries', None)
     if callable(asymmetric):
         return asymmetric(list(texts))
@@ -290,11 +224,8 @@ _HINTS = {hint.kind: hint for hint in EMBEDDER_HINTS}
 
 @dataclass(frozen=True)
 class EmbedModel:
-    """A concrete embedding model, and the backend that can load it.
-
-    `backend` is not decoration: it decides what picking this model costs (an ONNX
-    download, a 2 GB checkpoint, or an API bill) and it is what makes availability
-    checkable — one probe per backend instead of one list for all of them."""
+    """A concrete embedding model and the backend that loads it. `backend`
+    decides both the cost of picking it and how availability is checked."""
     id: str
     label: str
     languages: str
@@ -303,9 +234,8 @@ class EmbedModel:
     dim: int
     note: str
     backend: str = 'fastembed'
-    # A one-word standing shown in the option itself. The reason it is not left to
-    # the explainer: which model to reach for is the question being asked *while*
-    # the dropdown is open, and nobody opens an explainer to find out.
+    # Shown directly in the dropdown rather than behind the explainer, since
+    # that is the question being asked while it is open.
     tag: str = ''
     query_prefix: str = ''
     passage_prefix: str = ''
@@ -319,23 +249,10 @@ class EmbedModel:
                 'passage_prefix': self.passage_prefix}
 
 
-# Deliberately short, and deliberately including the two English-only models: the
-# lab has to be able to *measure* the choice the brain ships with, and a reader
-# comparing rows needs to see why that row scored nothing.
-#
-# Every entry embedded a Farsi sentence on this machine, through the backend it
-# names (checked 2026-08-02). Dropped in that audit: Qwen3-Embedding-8B (three of
-# four shards were incomplete downloads), BAAI/bge-m3 (this fastembed serves
-# neither it nor e5-small), both OpenAI API models with their backend, and
-# e5-large / mpnet-base-v2 / jina-embeddings-v3, which nothing here ever loaded.
+# Includes the two English-only baselines on purpose, so the brain's shipped
+# choice can be measured against a real Farsi encoder.
 EMBED_MODELS = (
-    # The lab default. Persian-tuned rather than Persian-capable: an XLM-RoBERTa
-    # fine-tuned on Persian, which is a different bet from a multilingual model
-    # that merely includes Farsi. Its own card recommends sentence-transformers
-    # first, and ships modules.json + 1_Pooling, so ST applies the mean pooling
-    # the authors trained with instead of us guessing one. 1024 dims and a
-    # 514-position encoder, so a whole-session chunk gets truncated — worth
-    # remembering when reading a session-chunker score.
+    # ~512-token context, so a long chunk truncates.
     EmbedModel(DEFAULT_LOCAL, 'persian-embeddings (heydariAI)', FARSI_TUNED,
                True, 'open', 1024,
                'the lab default: fine-tuned on Persian specifically rather than '
@@ -380,11 +297,8 @@ def fastembed_available() -> bool:
 
 
 def fastembed_models() -> frozenset:
-    """Model ids this installation of fastembed can actually serve.
-
-    Verified, never guessed: with fastembed missing (or its API changed) the
-    answer is the empty set, which shows every model as NA rather than promising
-    a download that will fail halfway through a sweep."""
+    """Model ids this installation of fastembed can serve; the empty set
+    (never a guess) if fastembed is missing or its API changed."""
     try:
         from fastembed import TextEmbedding
         return frozenset(entry['model']
@@ -395,8 +309,7 @@ def fastembed_models() -> frozenset:
 
 
 def sentence_transformers_available() -> bool:
-    """Whether the local-embeddings extra is installed. Import-checked, not
-    guessed: without it every HuggingFace checkpoint is NA."""
+    """Import-checked: without the extra, every HuggingFace checkpoint is NA."""
     try:
         import sentence_transformers  # noqa: F401
     except Exception:
@@ -404,28 +317,24 @@ def sentence_transformers_available() -> bool:
     return True
 
 
-def backend_availability(settings=None) -> dict:
+def backend_availability() -> dict:
     """Which of the two model backends can be used right now."""
     return {'fastembed': fastembed_available(),
             'sentence-transformers': sentence_transformers_available()}
 
 
 def embedder_hints(settings=None) -> list[dict]:
-    """One hint per embedder kind, in registry order. The hash embedders are
-    always available; the two model backends answer for themselves, so a kind
-    that cannot run says NA instead of failing when a run starts."""
-    live = backend_availability(settings)
+    """One hint per embedder kind. Hash kinds are always available; the two
+    model backends answer for themselves."""
+    live = backend_availability()
     return [hint.as_dict(live.get(hint.kind, True)) for hint in EMBEDDER_HINTS]
 
 
 def embed_model_catalogue(settings=None) -> list[dict]:
-    """The embedding-model dropdown: the lab default first, then every candidate
-    with its language coverage, licence, backend, and whether it can be loaded
-    now. Availability is per backend — a fastembed list cannot answer for a
-    HuggingFace checkpoint or for an API key."""
+    """The embedding-model dropdown, each entry's availability checked against its own backend."""
     default_id = getattr(settings, 'fastembed_model', None) or DEFAULT_FASTEMBED
     served = fastembed_models()
-    live = backend_availability(settings)
+    live = backend_availability()
     known = list(EMBED_MODELS)
     if default_id not in _MODELS:
         # An id set by RAGLAB_FASTEMBED_MODEL is by definition one the user wants.
@@ -437,14 +346,12 @@ def embed_model_catalogue(settings=None) -> list[dict]:
     def usable(model: EmbedModel) -> bool:
         if not live.get(model.backend):
             return False
-        # fastembed is the one backend that also publishes *which* models it
-        # serves, so that list is honoured on top of the import check.
+        # fastembed also publishes which models it serves; honour that on top of the import check.
         return model.id in served if model.backend == 'fastembed' else True
 
     entries = [model.as_dict(usable(model)) for model in known]
     entries.sort(key=lambda entry: not entry['available'])
-    # '' pins nothing: each backend loads its own default, so switching backend
-    # switches model without a second edit.
+    # '' pins nothing: switching backend switches model without a second edit.
     return [{'id': '', 'label': 'the backend\'s own default',
              'languages': BY_MODEL, 'farsi': True, 'source': 'default',
              'dim': 0, 'available': True, 'backend': '', 'tag': '',
@@ -459,9 +366,7 @@ def _short(model_id: str) -> str:
 
 
 def resolve_model(kind: str, settings=None, model: str = '') -> str:
-    """The model a kind will actually load: what was pinned, else that backend's
-    own default. Kept in one place so a run's notes and the embedder it describes
-    can never name different models."""
+    """The model a kind will load: what was pinned, else that backend's own default."""
     if kind not in BACKENDS:
         return ''
     if model:
@@ -473,8 +378,7 @@ def resolve_model(kind: str, settings=None, model: str = '') -> str:
 
 
 def language_note(kind: str, model: str = '') -> str:
-    """One line for a run's notes. A leaderboard row whose embedder could not
-    read the corpus is not a result, and nothing else on the row says so."""
+    """One line for a run's notes, naming what the embedder can actually read."""
     hint = _HINTS.get(kind)
     if kind in BACKENDS and model:
         entry = _MODELS.get(model)
@@ -495,8 +399,6 @@ def make_embedder(kind: str, settings=None, model: str = ''):
     if kind == 'char-hash':
         return CharHashEmbedder()
     if kind in BACKENDS:
-        # '' means "this backend's default", exactly as '' means "follow
-        # RAGLAB_MODEL" for the chat roles: the lab pins nothing of its own.
         name = resolve_model(kind, settings, model)
         entry = _MODELS.get(name)
         prefixes = {'query_prefix': entry.query_prefix if entry else '',

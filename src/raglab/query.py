@@ -1,16 +1,6 @@
 """Query understanding: Farsi time expressions, query expansion, HyDE.
-
-A diary is queried in relative time. Nobody asks "what happened between
-2025-11-22 and 2025-12-21"; they ask «آذر چی شد» or «پارسال پاییز حالم چطور
-بود». Those words are the most selective filter available — the corpus contains
-a year of near-identical complaints, and a date range cuts the candidate pool by
-90% before ranking even starts. Resolving them is therefore not a nicety; it is
-the difference between a temporal question being answerable and not.
-
-Persian calendar months are mapped to their Gregorian windows directly rather
-than through a Jalali conversion library, because the mapping only drifts by a
-day across the years this corpus spans and a dependency-free lab is worth more
-than that day.
+Persian calendar months map directly to Gregorian windows (not via a Jalali
+library) since the drift is under a day across the years this corpus spans.
 """
 import re
 from dataclasses import dataclass
@@ -37,11 +27,7 @@ SEASONS = {
 
 
 def _searchable(names: dict) -> dict:
-    """Match on normalised text but report the properly spelled name.
-
-    Matching has to happen after normalisation — a question typed «اذر» or
-    «پائیز» must still resolve — but the label goes back to the panel, and
-    showing the folded spelling there looks like a bug."""
+    """Matches on normalised text, but keeps the properly spelled name for display."""
     out: dict = {}
     for name, window in names.items():
         out.setdefault(textnorm.normalize(name), (name, window))
@@ -52,9 +38,7 @@ _MONTHS = _searchable(JALALI_MONTHS)
 _SEASONS = _searchable(SEASONS)
 LAST_YEAR = ('پارسال', 'پارسال', 'سال پیش', 'سال گذشته', 'سال قبل')
 
-# Paraphrases the diarist and his questions genuinely alternate between. Used by
-# deterministic multi-query expansion: cheap recall for lexical retrieval, which
-# otherwise misses «همسرم» in a corpus that only ever writes «پریا».
+# Paraphrases the diarist alternates between; used for deterministic multi-query expansion.
 SYNONYMS = {
     'همسرم': ('پریا',), 'زنم': ('پریا',), 'پریا': ('همسرم',),
     'مادرم': ('مامان',), 'مامان': ('مادرم',), 'پدرم': ('بابا',),
@@ -92,8 +76,7 @@ def _to_iso(value: int) -> str:
 
 def _window(anchor: date, start: tuple[int, int], end: tuple[int, int],
             wrap_year: int | None = None) -> tuple[date, date]:
-    """Build the [start, end] window whose start month/day precedes `anchor`,
-    handling windows that cross new year (دی, زمستان)."""
+    """The [start, end] window whose start precedes `anchor`, handling windows that cross new year (دی, زمستان)."""
     year = wrap_year if wrap_year is not None else anchor.year
     first = date(year, *start)
     last_year = year + 1 if (end[0], end[1]) < (start[0], start[1]) else year
@@ -105,9 +88,8 @@ def _window(anchor: date, start: tuple[int, int], end: tuple[int, int],
 
 
 def resolve_time_scope(question: str, query_date: str) -> TimeScope | None:
-    """Extract a date range from Farsi time language, or None when the question
-    is not time-scoped. Returns the most recent matching window at or before
-    `query_date` — «آذر» means the آذر that has already happened."""
+    """A date range from Farsi time language, or None when not time-scoped.
+    Returns the most recent matching window at or before `query_date`."""
     text = textnorm.normalize(question)
     anchor = date(*(int(p) for p in query_date.split('-')))  # type: ignore[arg-type]
     words = set(textnorm.tokens(text, drop_stopwords=False))
@@ -165,26 +147,17 @@ def resolve_time_scope(question: str, query_date: str) -> TimeScope | None:
 
 
 def where_clause(scope: TimeScope | None) -> dict | None:
-    """Store filter for a time scope, in the operator dialect `store.matches`
-    implements.
-
-    The date test is an *overlap* test rather than containment, so a chunk whose
-    span straddles the edge of the window is kept: a scope is a question about a
-    period, not a claim that the evidence sits entirely inside it."""
+    """Store filter for a time scope; delegates to `layer_clause`."""
     return layer_clause(scope)
 
 
 def layer_clause(scope: TimeScope | None,
                  layers: tuple[str, ...] | None = None,
                  levels: tuple[int, ...] | None = None) -> dict | None:
-    """The time scope, and — once an index holds summaries — which layers and
-    levels the search may see.
-
-    One clause rather than two, because the store takes one `where`; kept in
-    lockstep with `pipeline._mask`, which is the same restriction expressed
-    over the BM25 side. If the two disagree, hybrid fusion silently compares
-    two different candidate pools.
-    """
+    """The time scope plus, once an index holds summaries, which layers and
+    levels the search may see — kept in lockstep with `pipeline._allowed`, the
+    same restriction over the BM25 side; if the two disagree, hybrid fusion
+    silently compares two different candidate pools."""
     clauses: list[dict] = []
     if scope:
         clauses.append({'span_from': {'$lte': scope.to_int}})
@@ -192,9 +165,7 @@ def layer_clause(scope: TimeScope | None,
     if layers is not None:
         clauses.append({'layer': {'$in': list(layers)}})
     if levels:
-        # A level filter is about the summaries. Under `mixed` the leaves are
-        # still in the pool and are level 0, so they are exempted explicitly —
-        # `pipeline._mask` makes the same exemption, and the two must agree.
+        # Leaves (level 0) are exempted under 'mixed' — pipeline._allowed makes the same exemption.
         chosen = {'level': {'$in': list(levels)}}
         clauses.append(chosen if layers == ('summary',)
                        else {'$or': [{'layer': {'$eq': ''}}, chosen]})
@@ -210,8 +181,7 @@ def keyword_query(question: str) -> str:
 
 
 def expand(question: str) -> list[str]:
-    """Deterministic multi-query expansion: the question, its keyword form, and
-    one synonym-substituted variant. No LLM, so it can always be on."""
+    """Deterministic multi-query expansion (question, keyword form, one synonym variant); no LLM, so always on."""
     variants = [question]
     keywords = keyword_query(question)
     if keywords and keywords != question:
@@ -231,10 +201,7 @@ HYDE_PROMPT = (
 
 
 def hyde(llm, model: str, question: str) -> str:
-    """Hypothetical Document Embeddings: search with a fake diary entry instead
-    of the question, so the query vector lives in the same register as the
-    corpus. Questions and diary entries word things very differently, and that
-    mismatch is what dense retrieval is worst at."""
+    """Hypothetical Document Embeddings: searches with a fake diary entry so the query vector shares the corpus's register."""
     try:
         turn = lab_chat(llm, [{'role': 'system', 'content': HYDE_PROMPT},
                               {'role': 'user', 'content': question}], model)

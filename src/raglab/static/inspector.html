@@ -4,6 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RAG Lab · Inspector</title>
+  <!-- Design tokens shared with the panel on :9002; before inspector.css so
+       its overrides still win. -->
+  <link rel="stylesheet" href="/tokens.css">
   <link rel="stylesheet" href="/inspector.css">
 </head>
 <body>
@@ -132,6 +135,8 @@
        clicking a header has to mean the same thing on both. Before inspector.js,
        which calls into it as it builds each table. -->
   <script src="/sorttable.js"></script>
+  <!-- Shared utilities, before inspector.js, which calls into it. -->
+  <script src="/lab.js"></script>
   <script src="/inspector.js"></script>
 </body>
 </html>

@@ -2,25 +2,20 @@
 from raglab import baseline
 
 
-# This is a unit test.
 def test_the_preset_is_a_dated_snapshot_and_says_so():
-    """The button claims to be the real system. It used to import
-    lodestar_brain's own constants, so it could not drift; frozen, it can — so
-    the one thing it must never do is present itself as current. The date and the
-    commit are part of the value, not a comment."""
+    """The date and commit are part of the served value, not a comment — the
+    snapshot must say it is frozen, since it can no longer prove it by
+    importing the source it mirrors."""
     assert baseline.SNAPSHOT_DATE == '2026-08-11'
     assert len(baseline.SNAPSHOT_COMMIT) >= 7
     assert baseline.SNAPSHOT_DATE in baseline.LABEL
     assert 'shipped assistant' in baseline.LABEL
 
 
-# This is a unit test.
 def test_the_preset_mirrors_what_lodestar_shipped():
-    """Two honest differences are asserted rather than smoothed over, because
-    the label says "the real system" and not "the best one we found". Lodestar
-    splits with a recursive 500/100 splitter, so the mirror is fixed-overlap at
-    those sizes — not semantic-drift, which the sweep preferred but the brain
-    does not ship. And it prepends no situating header, so contextual is off."""
+    """Two honest differences from the sweep's own winner: fixed-overlap
+    500/100 rather than semantic-drift, and no contextual header — the label
+    says "the real system", not "the best one we found"."""
     preset = baseline.production_config({
         'index': {'chunker': 'semantic-drift', 'chunk_chars': 900,
                   'overlap': 0, 'contextual': True, 'embedder': 'hash',
@@ -46,12 +41,9 @@ def test_the_preset_mirrors_what_lodestar_shipped():
     assert preset['label'] == baseline.LABEL
 
 
-# This is a unit test.
 def test_every_field_of_the_default_config_survives():
-    """Built over the defaults so every field is present: the panel fills its
-    whole form from this, and a knob Lodestar has no opinion on (the recency
-    half-life, which its lexical reranker never reads) should read as the lab
-    default rather than blank."""
+    """Built over the defaults, so a knob the snapshot has no opinion on (the
+    recency half-life) reads as the lab default rather than blank."""
     preset = baseline.production_config({
         'index': {}, 'retrieval': {'agentic_weights': ()},
         'generation': {}, 'run': {'limit': 5, 'half_life_days': 90},
@@ -59,11 +51,8 @@ def test_every_field_of_the_default_config_survives():
     assert preset['run'] == {'limit': 5, 'half_life_days': 90}
 
 
-# This is a unit test.
 def test_agentic_weights_are_served_as_a_list():
-    """A list, not the dataclass's tuple: this dict is served as JSON, where a
-    tuple arrives as a list anyway, and "what the panel receives" should equal
-    what this module holds rather than merely resemble it."""
+    """A list, not the dataclass's tuple, since this dict is served as JSON."""
     preset = baseline.production_config(
         {'index': {}, 'retrieval': {'agentic_weights': (0.5, 0.5)},
          'generation': {}, 'run': {}})
@@ -71,12 +60,9 @@ def test_agentic_weights_are_served_as_a_list():
     assert isinstance(preset['retrieval']['agentic_weights'], list)
 
 
-# This is a unit test.
 def test_the_snapshot_does_not_mutate_the_defaults_it_was_given():
-    """`LabConfig().to_dict()` is a fresh dict per call today, but the preset is
-    built once per process and served on every /api/options — writing through to
-    a caller's dict would make the lab's own defaults drift into the shipped
-    preset's values the first time anybody looked at the panel."""
+    """The preset is built once per process and served on every /api/options —
+    writing through to the caller's dict would drift the lab's own defaults."""
     defaults = {'index': {'chunker': 'semantic-drift'},
                 'retrieval': {'agentic_weights': (1,), 'k': 4},
                 'generation': {'answerer': 'extractive'}, 'run': {}}

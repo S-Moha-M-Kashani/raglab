@@ -1,33 +1,6 @@
-"""Sweep candidate architectures and rank them on the four deciding metrics.
-
-    uv run --extra local-embeddings raglab-sweep            # the candidate sweep
-    uv run --extra local-embeddings raglab-sweep --final A  # one candidate, all 112
-
-The extra is what puts sentence-transformers in reach. RAGAS and its pins are
-ordinary locked dependencies and need nothing asked for.
-
-Why this exists rather than clicking the panel: the panel runs one job at a time
-and a judged sweep is a couple of hours of model calls. This drives the same
-`evaluate.run_eval`, writes the same run files into `.runs/`, and therefore lands
-in the same leaderboard — it is the panel's runner without the panel.
-
-**Every candidate changes exactly one thing against the baseline.** A sweep whose
-rows differ in three knobs each cannot attribute a win to any of them, which is
-the failure that makes most tuning folklore rather than measurement.
-
-To run it on models on this machine instead of a paid API — which is the only way
-the expensive candidates get measured at all, since F's relevance gate is *k* LLM
-calls per question:
-
-    RAGLAB_LLM=ollama uv run raglab-sweep --workers 2
-
-`RAGLAB_LLM` is enough: the answerer/judge pins default per provider (`PAIRINGS`),
-because a slug only means something to the backend that serves it. Override either
-one with `RAGLAB_SWEEP_ANSWER_MODEL` / `RAGLAB_SWEEP_JUDGE_MODEL`.
-
-Screen the judge first (`uv run raglab-judgescreen`). A judge that answers the
-same way to every claim scores every candidate identically, and the sweep cannot
-tell you that — its rows would simply look tied.
+"""Sweep candidate architectures and rank them on the four deciding metrics; drives `evaluate.run_eval` and writes to the same `.runs/` as the panel.
+Every candidate changes exactly one thing against the baseline, so a win can be attributed to it; `RAGLAB_LLM` picks the answerer/judge pair too (`PAIRINGS`).
+Screen the judge first (`uv run raglab-judgescreen`) — an unscreened judge can score every candidate identically and tied, silently.
 """
 import argparse
 import json
@@ -42,52 +15,28 @@ from .config import (BALANCES, GenerationConfig, IndexConfig, LabConfig,
 from .evaluate import run_eval
 from .index import IndexRegistry
 
-# The corpus is a Farsi diary, so the embedder is Persian-tuned. Held fixed
-# across every candidate: it is the one choice that decides whether anything
-# else is measurable at all, and varying it alongside the knobs would make each
-# row differ in two things.
+# Held fixed across every candidate: varying it alongside the knobs would make
+# each row differ in two things.
 EMBEDDER = 'sentence-transformers'
 EMBED_MODEL = 'heydariAI/persian-embeddings'
 
-# The answerer and the judge are deliberately different models. A model grading
-# its own output is not evidence, and RAGAS's four judged metrics are the whole
-# basis of the ranking here.
-#
-# One pairing per provider, because a model slug only means something to the
-# backend that serves it: `openai/gpt-5-nano` is not a thing Ollama can load, and
-# a default that crosses the two would trip `models.provider_problems` on every
-# local run. The local pair is a small fast model answering and a bigger one
-# judging — the right way round, since the judge is the expensive side (~12 calls
-# per question against the answerer's 1) and the side the whole ranking rests on.
+# The answerer and the judge are deliberately different models — a model grading
+# its own output is not evidence. One pairing per provider, since a slug only
+# means something to the backend that serves it.
 PAIRINGS = {'openrouter': {'answerer': 'openai/gpt-5-nano',
                            'judge': 'openai/gpt-5-mini'},
-            # Measured, and it decided this pairing: `deepseek-r1:8b` is the more
-            # independent judge but it is a *reasoning* model — ~2065 output
-            # tokens per verdict against gemma's ~534, so 67s per call against
-            # 8.7s, which is 8.9 hours per candidate against 1.2. At that price
-            # the sweep does not finish, and a sweep that does not finish ranks
-            # nothing. The cost of this choice is stated rather than hidden: the
-            # answerer and the judge are the same family, so their agreement is
-            # weaker evidence than two unrelated models would give, and that
-            # belongs on the row (`report['judge']` carries both).
             'ollama': {'answerer': '4skl/gemma4-e2b-mtp',
                        'judge': 'gemma4:e2b'},
-            # Two different aliases of one family, because judged_settings
-            # refuses a model grading its own output. Codex is deliberately
-            # absent: one alias has been verified on this installation, so
-            # there is no honest pair, and a sweep there must name both models
-            # by hand rather than be handed a guess.
+            # Codex is deliberately absent: only one alias is verified here, so
+            # there is no honest pair — a sweep there must name both by hand.
             'claude': {'answerer': 'sonnet',
                        'judge': 'opus'},
             'fake': {'answerer': 'openai/gpt-5-nano',
                      'judge': 'openai/gpt-5-mini'}}
 
-# Which provider the pins default to is read at import, so the env that chooses
-# the backend also chooses the pairing. Still individually overridable, because a
-# screened judge is a per-machine fact. No fallback to another backend's pins:
-# that used to hand a CLI backend `openai/gpt-5-nano`, a slug it has never heard
-# of, and a run labelled with a model that could not have produced it is the one
-# artefact this lab must never make.
+# Read at import so the env that chooses the backend also chooses the pairing,
+# individually overridable. No fallback to another backend's pins: that would
+# hand a CLI backend a slug it has never heard of.
 _PROVIDER = os.environ.get('RAGLAB_LLM', '') or 'openrouter'
 _PAIR = PAIRINGS.get(_PROVIDER, {})
 ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL',
@@ -95,19 +44,15 @@ ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL',
 JUDGE_MODEL = os.environ.get('RAGLAB_SWEEP_JUDGE_MODEL', _PAIR.get('judge', ''))
 
 # Every candidate is measured on the same 30 questions — 10 easy, 10 medium, 10
-# hard. The full 112 stay available for a final run, but a candidate sweep pays
-# the judged cost per row, and a sample skewed toward medium (57 of the 112, so
-# about half of any stride) measures the medium pipeline and reports it as the
-# pipeline. 30 divides by three, so this sample needs no remainder rule at all.
+# hard — rather than the full 112, since a candidate sweep pays the judged cost
+# per row and a skewed sample would measure one band's pipeline as the pipeline.
 SWEEP_LIMIT = 30
 SWEEP_BALANCE = 'difficulty'
 
 BASE = LabConfig(
     index=IndexConfig(embedder=EMBEDDER, embed_model=EMBED_MODEL),
     retrieval=RetrievalConfig(),
-    # Judged faithfulness and answer relevancy score a *response*, so the sweep
-    # has to generate one: with answerer='none' all four deciding metrics are
-    # undefined and nothing can be ranked.
+    # answerer='llm': the four deciding metrics all need a generated response.
     generation=GenerationConfig(answerer='llm', model=ANSWER_MODEL,
                                 ragas_model=JUDGE_MODEL),
     label='A baseline')
@@ -127,32 +72,17 @@ def candidates() -> list[LabConfig]:
             cfg = replace(cfg, agent=replace(cfg.agent, **agent))
         out.append(replace(cfg, label=label))
 
-    # k moves precision and recall in opposite directions; both are deciding
-    # metrics, so this is the one knob whose optimum the four cannot agree on.
     variant('C tighter context k=5', retrieval={'k': 5})
     variant('D wider context k=12', retrieval={'k': 12})
-    # A gate is the only way an answer can be refused, and refusing instead of
-    # inventing is what faithfulness rewards.
     variant('F llm relevance gate', retrieval={'grader': 'llm',
                                                'grade_threshold': 0.4,
                                                'grader_model': ANSWER_MODEL})
-    # One chunker alternative: whole sessions, maximum fidelity per hit.
     variant('H session chunks', index={'chunker': 'session'})
-    # The agent's 2x2, and the reason it is three rows rather than one: I and J
-    # each hand exactly one stage to a bounded loop, which is this function's
-    # rule, and K is the interaction term — it changes two things at once and is
-    # readable *only* beside them. Run K without I and J and there is nothing to
-    # attribute its number to. See docs/plans/2026-08-13-rag-agent-design.md.
-    #
-    # The planner and the critic run on ANSWER_MODEL, held fixed like every other
-    # model in this sweep. That the critic checks a draft written by the same
-    # model is the mechanism, not a lapse in the rule that a model must not grade
-    # its own output: that rule is about what *ranks the row*, and the row is
-    # still ranked by JUDGE_MODEL through RAGAS. What it does mean is that a
-    # self-critic is a weak check by construction — the judge screen has already
-    # measured two local models approving everything put to them — so a critic on
-    # an independent model is the obvious next candidate rather than a variant
-    # this row can stand in for.
+    # I and J each hand exactly one stage to a bounded loop; K is the interaction
+    # term, changing both at once, and is readable only beside them — see
+    # docs/plans/2026-08-13-rag-agent-design.md. The planner and critic run on
+    # ANSWER_MODEL, held fixed like every other model here; the row is still
+    # ranked by JUDGE_MODEL, so this is not the answerer grading its own output.
     variant('I agentic retrieval', agent={'scope': 'retrieve', 'max_hops': 3,
                                          'plan_model': ANSWER_MODEL})
     variant('J self-critiquing generation',
@@ -181,21 +111,12 @@ def line(label: str, result) -> str:
 
 
 def judged_settings():
-    """Settings, or exit — every run here is ranked on judged metrics.
-
-    With no backend the LLM stages fall back to the offline fake provider, which
-    answers and judges without failing. That produces a leaderboard of confident
-    meaningless numbers, so both entry points refuse rather than measure.
-
-    The test is whether a *real model* can be reached, not whether a credential
-    exists: a judge served by Ollama on this machine needs no key, and the guard
-    used to send anyone without one away from a run they could have made."""
+    """Settings, or exit — every run here is ranked on judged metrics, and with
+    no backend the fake provider would answer and judge without failing. Refuses
+    on whether a *real model* can be reached, not on whether a credential exists:
+    a judge served by Ollama needs no key."""
     settings = load_lab_settings()
     if not settings.llm_ready:
-        # Every way out, not the two that existed when this was written. A hint
-        # listing some of them is worse than one listing none, because a reader
-        # takes it for the whole set — and the two that need no key are the ones
-        # a reader is least likely to already know about.
         sys.exit('no LLM backend: the four deciding metrics are judged, so there '
                  'is nothing to rank without one. Four ways out: '
                  'RAGLAB_LLM=claude and RAGLAB_LLM=codex run a CLI already '
@@ -219,20 +140,11 @@ def judged_settings():
 
 
 def capped_workers(workers: int, settings) -> int:
-    """How many questions may be answered at once, on this backend.
-
-    On a CLI backend every LLM call in the answering phase — HyDE, the reranker,
-    the gate, the answerer, the key-facts judge — is a whole process, and the
-    default here is six questions in parallel. `ragas_eval.JUDGE_LOAD` already
-    caps the *judging* phase at three for exactly that reason, and the argument
-    it was capped on ("the lab has no measurement of what this laptop does with
-    more than three of these processes") is a statement about the machine, not
-    about which phase is running. So the same table caps both, rather than a
-    second number invented here to disagree with it.
-
-    Never *raises* what was asked for: a lower `--workers` is a deliberate choice
-    about someone's machine, and the cap exists to stop an unmeasured default,
-    not to overrule a measured one."""
+    """How many questions may be answered at once, on this backend. On a CLI
+    backend every LLM call in the answering phase is a whole process, so this
+    reads the same cap `ragas_eval.JUDGE_LOAD` uses for the judging phase rather
+    than inventing a second number. Never raises what was asked for — only lowers
+    an unmeasured default, never overrules a deliberately lower one."""
     if settings.provider not in clichat.CLIS:
         return workers
     return min(workers, ragas_eval.judge_load(settings)['max_workers'])
@@ -243,12 +155,8 @@ BAR_WIDTH = 28
 
 def bar(label: str, stage: str, fraction: float, detail: str,
         started: float) -> str:
-    """One line, rewritten in place: where this candidate is and how long it has
-    been there.
-
-    Elapsed is on it because the fraction alone cannot tell a slow phase from a
-    stuck one — on a local judge a single call is a minute, so a bar that has not
-    moved for two is normal and one that has not moved for twenty is not."""
+    """One line, rewritten in place. Elapsed time is shown because the fraction
+    alone cannot tell a slow phase from a stuck one."""
     filled = int(round(BAR_WIDTH * min(1.0, max(0.0, fraction))))
     mins, secs = divmod(int(time.time() - started), 60)
     tail = f' · {detail}' if detail else ''
@@ -257,11 +165,8 @@ def bar(label: str, stage: str, fraction: float, detail: str,
 
 
 def live(label: str, started: float, stream=sys.stdout):
-    """A progress callback that rewrites one terminal line.
-
-    Padded to a fixed width and flushed per update: without the padding a short
-    detail leaves the tail of a longer one behind it, which reads as a stale
-    number rather than as a redraw artefact."""
+    """A progress callback that rewrites one terminal line, padded to a fixed
+    width so a short detail does not leave the tail of a longer one behind it."""
     def report(stage: str, fraction: float, detail: str = '') -> None:
         stream.write(f'{bar(label, stage, fraction, detail, started):<118}')
         stream.flush()
@@ -284,9 +189,6 @@ def sweep(limit: int, workers: int, only: list[str] | None = None,
     if workers != asked:
         print(f'  (asked for {asked}; a call here is a process, and this backend '
               f'is capped at {workers} by ragas_eval.JUDGE_LOAD)')
-    # What this is going to cost, before it starts rather than after. Context
-    # precision is one judge call per retrieved chunk, so k moves this more than
-    # anything else on the row.
     per_row = ragas_eval.expected_judge_calls(limit, BASE.retrieval.k)
     print(f'~{per_row} judge calls per candidate, ~{per_row * len(picked)} in '
           f'total — an estimate: RAGAS retries malformed output\n')
@@ -310,9 +212,8 @@ def sweep(limit: int, workers: int, only: list[str] | None = None,
           f'({", ".join(ragas_eval.DECISION_METRICS)}) ===')
     for value, label, result in ranked:
         print('   ' + line(label, result))
-    # A sorted list is read as a result. Whether the top row actually beat the one
-    # below it is a different question, and it has to be answered here rather than
-    # left to whoever reads the ordering.
+    # A sorted list reads as a result; whether the top row actually beat the one
+    # below it has to be answered here, not left to whoever reads the ordering.
     for note in ranking_verdict([replace_label(result, label)
                                  for _, label, result in ranked]):
         print(note)
@@ -320,10 +221,9 @@ def sweep(limit: int, workers: int, only: list[str] | None = None,
 
 
 def replace_label(result, label: str) -> dict:
-    """A leaderboard row from a run, carrying the candidate's letter.
-
-    `brief()` drops the question ids (they would swamp a rendered row) but the
-    comparability grouping needs them, so they are put back from `selection`."""
+    """A leaderboard row from a run, carrying the candidate's letter. `brief()`
+    drops the question ids for rendering; they are put back from `selection`
+    because the comparability grouping needs them."""
     row = result.brief()
     row['label'] = label
     row['selection'] = dict(result.selection)
@@ -332,14 +232,8 @@ def replace_label(result, label: str) -> dict:
 
 
 def ranking_verdict(rows: list[dict]) -> list[str]:
-    """Whether the ordering above is a result, in words.
-
-    Measured, and the reason this function exists: F scored 0.7375 against A's
-    0.7222 on identical questions, and printing F at the top of a list headed
-    "ranked by the decision score" reads as a win. The combined error was 0.0477 —
-    three times the lead. `leaderboard` already refused to call that; the sweep
-    that produced the rows has to refuse in the same terms, or the first thing
-    anyone reads is the conclusion the analysis rejects."""
+    """Whether the ordering above is a result, in words — using the same refusal
+    terms as `leaderboard`, so a printed ranking cannot claim more than it measured."""
     out = []
     for found in leaderboard.group(rows):
         call = leaderboard.verdict(found)
@@ -367,11 +261,8 @@ def ranking_verdict(rows: list[dict]) -> list[str]:
 
 def final(limit: int | None, workers: int, label: str,
           balance: str = SWEEP_BALANCE) -> None:
-    """Re-run one candidate over the whole question set.
-
-    The winner is decided on a subset for cost; the number that goes in the
-    document is measured on everything, because a per-type breakdown over two
-    habit questions is not a breakdown."""
+    """Re-run one candidate over the whole question set: the winner is decided
+    on a subset for cost, but a per-type breakdown over two questions isn't one."""
     settings = judged_settings()
     diary = corpus.load_diary()
     ground_truth = corpus.load_ground_truth()

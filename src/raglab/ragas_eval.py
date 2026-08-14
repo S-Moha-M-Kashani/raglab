@@ -1,22 +1,8 @@
-"""RAGAS bridge.
+"""RAGAS bridge: offline metrics (string similarity, no model) and llm metrics
+(Faithfulness, ResponseRelevancy, FactualCorrectness, the LLM context pair).
 
-Two tiers, because they cost different things and answer different questions:
-
-**offline** — `NonLLMContextPrecisionWithReference` and `NonLLMContextRecall`
-score the retrieved context against the ground truth's verbatim evidence quotes
-using string similarity. No model, no key, no variance. These are the RAGAS
-numbers to compare configurations on.
-
-**llm** — `Faithfulness` (is the answer supported by the context?),
-`ResponseRelevancy`, `FactualCorrectness` and the LLM context metrics. These
-judge generation, which no deterministic metric can, and they need a model.
-OpenRouter serves the chat model; it serves no embeddings, so the lab's own
-embedder is wrapped for the one metric that needs vectors instead of silently
-falling back to an OpenAI embedding call the user never asked to pay for.
-
-RAGAS is an optional dependency of the lab, not of the brain. Everything here is
-imported lazily and every failure is reported as a note rather than raised — a
-missing wheel must not take the panel down.
+RAGAS is an optional dependency of the lab. Everything here is imported lazily
+and every failure is reported as a note rather than raised.
 """
 import os
 from dataclasses import dataclass
@@ -25,12 +11,9 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 from .metrics import Measure
 
-# RAGAS posts a usage event per evaluate() call. When that endpoint is
-# unreachable the request does not fail fast — it blocks for ~150 seconds, per
-# call, regardless of how many samples are being scored. That single line was
-# 98% of a run's wall clock: 150s of waiting around 0.1s of measurement. Set
-# before any ragas import; every ragas import in this module is lazy, so this
-# module-level line always wins.
+# RAGAS posts a usage event per evaluate() call and blocks for minutes when that
+# endpoint is unreachable. Must be set before any ragas import; every ragas
+# import in this module is lazy, so this module-level line always wins.
 os.environ.setdefault('RAGAS_DO_NOT_TRACK', 'true')
 
 OFFLINE_METRICS = ('non_llm_context_precision_with_reference',
@@ -38,48 +21,26 @@ OFFLINE_METRICS = ('non_llm_context_precision_with_reference',
 LLM_METRICS = ('faithfulness', 'answer_relevancy', 'factual_correctness(mode=f1)',
                'llm_context_precision_with_reference', 'context_recall')
 
-# The four that get a vote. Everything else the lab measures is still computed,
-# still reported and still worth reading — it simply does not choose the
-# architecture, because a metric only earns a vote if it grades something the
-# others do not.
-#
-# Between them these four cover both ways a RAG pipeline fails, in both
-# directions:
-#
+# The four that get a vote — the rest is still computed and reported, but a
+# metric only earns a vote if it grades something the others do not:
 #   context precision   was what came back relevant, and ranked well?
 #   context recall       did retrieval get everything the answer needed?
 #   faithfulness         did the answer stay inside what was retrieved?
 #   answer relevancy     did it actually address the question asked?
-#
-# What is deliberately excluded and why: `factual_correctness` scores against
-# the reference *answer*, so it grades the fixture's phrasing as much as the
-# pipeline; the offline pair are whole-string similarity, so they penalise large
-# chunks regardless of whether the answer is inside them (measured: switching to
-# multi-turn semantic segments halved them while *raising* quote recall), which
-# makes them unusable for ranking across chunkers; and our own deterministic
-# metrics grade retrieval almost exclusively, so ranking on them picks a config
-# that finds the evidence and then says nothing useful about it. Those stay as
-# the numbers to *debug* with — they never vary between runs, which is exactly
-# what a judged score cannot promise.
+# Excluded: `factual_correctness` grades the fixture's phrasing as much as the
+# pipeline; the offline pair are whole-string similarity, unusable for ranking
+# across chunkers; our own deterministic metrics grade retrieval almost
+# exclusively. Those stay as numbers to debug with — they never vary between
+# runs, which a judged score cannot promise.
 DECISION_METRICS = ('faithfulness', 'answer_relevancy',
                     'llm_context_precision_with_reference', 'context_recall')
 
-# How hard RAGAS is allowed to push the judge, per backend.
-#
-# RAGAS defaults to 16 concurrent requests and the lab used to accept that. A
-# remote API absorbs it; one model on a laptop serves two or three at a time, so
-# the sixteenth request waits behind the queue and trips the client timeout.
-# Measured on gemma4:e2b judging candidate A: a single call took ~8s, calls under
-# load reached 80–92s, and the run came back with one of its four deciding
-# metrics — the other three were `Exception raised in Job[20]: TimeoutError()`.
-# Concurrency and timeout cannot change *what* a judge scores, only whether the
-# score arrives, which is why these are tuned per backend and not per candidate.
-#
-# A CLI backend is throttled for a different reason than a local daemon: each
-# call is a whole process rather than a socket, so sixteen concurrent judge
-# calls is a machine that stops responding rather than a queue behind one model.
-# Same numbers, different bottleneck — and either way, concurrency and timeout
-# change only whether a score arrives, never what it is.
+# How hard RAGAS is allowed to push the judge, per backend. RAGAS defaults to 16
+# concurrent requests; a local model serves far fewer at once, so the tail waits
+# behind the queue and trips the client timeout. Concurrency and timeout cannot
+# change *what* a judge scores, only whether the score arrives. A CLI backend is
+# throttled for a different reason than a local daemon — each call is a whole
+# process rather than a socket — but the same limit applies.
 JUDGE_LOAD = {'openrouter': {'max_workers': 16, 'timeout': 180},
               'ollama': {'max_workers': 3, 'timeout': 600},
               'claude': {'max_workers': 3, 'timeout': 600},
@@ -93,46 +54,27 @@ def judge_load(settings) -> dict:
                           JUDGE_LOAD['openrouter'])
 
 
-# How many judge calls one sample costs, per metric. Measured against the prompts
-# RAGAS actually sends, not guessed from the metric count:
-#
-#   faithfulness       2      decompose the answer into atomic statements, then
-#                             one NLI pass ruling on all of them together
-#   answer_relevancy   1      generate questions the answer would answer
-#   context_recall     1      classify each reference sentence in one pass
-#   factual_correctness 2     decompose claims both ways
-#
-# and context precision is the one that scales: **one verdict per retrieved
-# chunk**, so it is k calls, and k is therefore what drives the bill. At k=8 it
-# is 8 of the 12 deciding calls per question. Worth knowing before starting a run
-# on a laptop model, which is exactly why the estimate is displayed.
+# Judge calls per sample, per metric — measured against the prompts RAGAS
+# actually sends. Context precision is not listed here: it is one verdict per
+# retrieved chunk, so it scales with k instead (see expected_judge_calls).
 CALLS_PER_SAMPLE = {'faithfulness': 2, 'answer_relevancy': 1,
                     'context_recall': 1, 'factual_correctness': 2}
 
 
 def expected_judge_calls(n_samples: int, k: int,
                          include_factual: bool = True) -> int:
-    """Roughly how many judge calls a judged run will make.
-
-    An estimate and displayed as one: RAGAS retries malformed output, and
-    faithfulness's statement count varies with the answer, so the true figure is
-    this ± the judge's schema adherence. It exists so a two-hour run says it is a
-    two-hour run at the start rather than at the end."""
+    """Roughly how many judge calls a judged run will make — an estimate, since
+    RAGAS retries malformed output, so the true figure is this ± retries."""
     per_sample = sum(count for name, count in CALLS_PER_SAMPLE.items()
                      if include_factual or name != 'factual_correctness')
     return max(0, n_samples) * (per_sample + max(0, k))
 
 
 class JudgeWatch(BaseCallbackHandler):
-    """Counts judge calls as they land, so the judged phase can report progress.
-
-    RAGAS scores a whole batch behind one `evaluate()` call, and with a local
-    judge that batch is most of the run's wall clock. Without a per-call hook the
-    bar sits at a single number for hours, which is indistinguishable from a hang
-    — the same failure the per-question reporting in `run_eval` exists to avoid.
-
-    A LangChain handler rather than RAGAS's own `_pbar`, because that one is
-    private API and a progress bar must not be able to break a run."""
+    """Counts judge calls as they land, so a batch scored behind one `evaluate()`
+    call still reports progress. A LangChain handler rather than RAGAS's own
+    `_pbar`, which is private API — a progress bar must not be able to break a
+    run."""
 
     def __init__(self, total: int, progress=None,
                  base: float = 0.92, span: float = 0.07):
@@ -143,9 +85,7 @@ class JudgeWatch(BaseCallbackHandler):
         self.calls = 0
 
     def fraction(self) -> float:
-        # Clamped, because the estimate can be exceeded: a judge that retries
-        # spends real calls, and a bar reading 130% would say the estimate was a
-        # promise.
+        # Clamped: a retrying judge can exceed the estimate.
         return self.base + self.span * min(1.0, self.calls / self.total)
 
     def detail(self) -> str:
@@ -160,24 +100,13 @@ class JudgeWatch(BaseCallbackHandler):
         self._tick()
 
     def on_llm_error(self, error, **kwargs) -> None:
-        # A failed call is time spent, so it counts. Hiding it would make the bar
-        # stall exactly when something is going wrong.
+        # A failed call is still time spent, so it counts too.
         self._tick()
 
 
 def decision_score(metrics: dict) -> float | None:
-    """The one number the architecture is chosen by: the unweighted mean of the
-    four deciding metrics, or None unless every one of them is present.
-
-    Unweighted because any weighting would be a claim about their relative
-    importance that this fixture cannot support, and a hidden thumb on the scale
-    is how a sweep ends up confirming whatever its author already believed.
-
-    None rather than a partial mean because a mean over whichever metrics
-    happened to succeed is not comparable between runs: an offline run would
-    score on nothing, a half-failed judged run on two, and the shorter list
-    would win for being easier.
-    """
+    """The unweighted mean of the four deciding metrics, or None unless every one
+    of them is present — a partial mean would let the run that measured least win."""
     values = []
     for name in DECISION_METRICS:
         value = metrics.get(name)
@@ -188,19 +117,12 @@ def decision_score(metrics: dict) -> float | None:
 
 
 def decision_spread(rows: list[dict]) -> dict:
-    """The deciding score's mean and standard error over per-question composites.
-
-    A leaderboard of means alone cannot say whether it ranked anything. These
-    candidates land within ~0.01 of each other, and on a couple of dozen
-    questions that gap is smaller than the error on either number — which is a
-    fact about the experiment, not an opinion about it, so the score carries it.
+    """Mean and standard error of the deciding score over per-question composites.
 
     Per question first, then across questions: the four metrics score the same
-    answers and move together, so pooling four separate standard errors as if
-    they were independent would understate the spread. A question missing any of
-    the four has no composite and is not a sample — the same rule
-    `decision_score` applies to the run as a whole.
-    """
+    answers and move together, so pooling four separate standard errors would
+    understate the spread. A question missing any of the four has no composite,
+    the same rule `decision_score` applies to the run as a whole."""
     composites = [value for value in (decision_score(row) for row in rows)
                   if value is not None]
     n = len(composites)
@@ -218,11 +140,7 @@ def decision_spread(rows: list[dict]) -> dict:
 INSTALL_HINT = 'uv sync  (these are locked dependencies now: ' \
     "ragas==0.4.*, langchain-community<0.4, langchain-openai<1, rapidfuzz)"
 
-# These are RAGAS's metrics, under RAGAS's names, so the panel says whose
-# definition it is showing and which class produced the number — including, for
-# the five judged ones, that a model produced it and therefore that the number
-# moves when the model does. Same shape as metrics.MEASURES so the dashboard has
-# one idea of what a score is.
+# RAGAS's metrics, under RAGAS's names, in the same shape as metrics.MEASURES.
 JUDGED = ', scored by the RAGAS judge model — a model\'s verdict, so it varies'
 NO_JUDGE = ' — string distance via rapidfuzz, no model involved'
 
@@ -353,11 +271,8 @@ def availability(settings) -> Availability:
         notes.append('rapidfuzz is missing — the offline (non-LLM) RAGAS metrics '
                      'cannot run without it')
     llm_ready = False
-    # `llm_ready` asks whether a *real* judge can be reached, which is not the
-    # same question as whether an OpenRouter key exists: a model served by Ollama
-    # on this machine judges perfectly well and needs no key at all. What must
-    # stay disqualified is the fake provider, which grades every answer without
-    # ever failing and would fill the leaderboard with confident noise.
+    # Asks whether a real judge can be reached, not whether a key exists: a local
+    # Ollama model judges fine with none. The fake provider must stay disqualified.
     if not settings.llm_ready:
         notes.append('no LLM backend for judging — set OPENROUTER_API_KEY, or '
                      'RAGLAB_LLM=ollama to judge on a local model')
@@ -395,7 +310,7 @@ class _LabEmbeddings:
 def _samples(pairs, ragas_mod, include_answers: bool,
              reference_texts: dict | None = None):
     """(question, outcome) → RAGAS samples, skipping what cannot be scored."""
-    SingleTurnSample = ragas_mod.SingleTurnSample
+    sample_cls = ragas_mod.SingleTurnSample
     samples, skipped = [], 0
     for question, outcome in pairs:
         contexts = [c.text for c in outcome.contexts]
@@ -415,7 +330,7 @@ def _samples(pairs, ragas_mod, include_answers: bool,
                 skipped += 1
                 continue
             payload['response'] = outcome.answer
-        samples.append(SingleTurnSample(**payload))
+        samples.append(sample_cls(**payload))
     return samples, skipped
 
 
@@ -423,22 +338,14 @@ def run(pairs, settings, embedder, mode: str = 'offline',
         sample_limit: int | None = None,
         reference_texts: dict | None = None,
         judge_model: str = '', progress=None, k: int = 0) -> dict:
-    """Score a run with RAGAS. `pairs` is [(ground-truth question, Outcome)].
-
-    `judge_model` is the model RAGAS judges with — separate from the answerer on
-    purpose, since a model grading its own output is not evidence.
-
-    `progress(stage, fraction, detail)` is called as each judge call lands, and
-    `k` is only there to estimate how many of those to expect — context precision
-    is one call per retrieved chunk.
-
-    Returns means per metric plus notes; never raises."""
+    """Score a run with RAGAS. `pairs` is [(ground-truth question, Outcome)];
+    `judge_model` is separate from the answerer, since a model grading its own
+    output is not evidence. `k` estimates judge calls (context precision is one
+    per retrieved chunk). Returns means per metric plus notes; never raises."""
     import warnings
 
-    # `decision` starts as None and stays None on every path that cannot measure
-    # all four — a missing key, a failed import, an offline run. A leaderboard
-    # that ranked on a partially-measured composite would put the run that
-    # measured least at the top.
+    # `decision` stays None on every path that cannot measure all four, so a
+    # partially-measured composite never outranks a fully-measured one.
     report: dict = {'mode': mode, 'metrics': {}, 'n_samples': 0, 'skipped': 0,
                     'decision': None,
                     'decision_spread': decision_spread([]),
@@ -478,10 +385,9 @@ def run(pairs, settings, embedder, mode: str = 'offline',
         if mode == 'llm':
             try:
                 metrics += _llm_metrics(settings, embedder, judge_model)
-                # Which backend served the judge, on the row itself. A decision
-                # score is only comparable within one judge, so two rows scored
-                # by different models are two different measurements — and the
-                # model slug alone does not say whether it ran locally.
+                # Backend and model both, since the slug alone doesn't say
+                # whether it ran locally, and a decision score is comparable
+                # only within one judge.
                 report['judge'] = {
                     'provider': getattr(settings, 'provider', ''),
                     'model': judge_model or settings.llm_model}
@@ -506,9 +412,6 @@ def run(pairs, settings, embedder, mode: str = 'offline',
             return report
 
     if watch:
-        # What it actually cost, beside what it was estimated to cost. The gap is
-        # the judge's retry rate, which is the one part of the estimate no
-        # arithmetic can predict — and the lab does not otherwise meter calls.
         report['judge_calls'] = watch.calls
     report['n_samples'] = len(samples)
     report['metrics'] = _means(result)
@@ -523,11 +426,6 @@ def run(pairs, settings, embedder, mode: str = 'offline',
             + ', '.join(absent)
             + ' — only a judged run with an answerer can be ranked')
     if mode == 'offline':
-        # Measured, not hypothetical: switching from 500-char packing to
-        # multi-turn semantic segments *raised* quote recall while these scores
-        # fell by half, purely because the retrieved strings got longer. They
-        # compare whole strings, so they are only comparable between configs with
-        # similar chunk sizes.
         report['notes'].append(
             'offline RAGAS context metrics are whole-string similarity, so they '
             'penalise longer chunks regardless of whether the answer is in them '
@@ -546,11 +444,8 @@ def _llm_metrics(settings, embedder, judge_model: str = ''):
 
     from .llm import judge_llm
 
-    # Built through the lab's own seam rather than a ChatOpenAI here. This module
-    # used to name the class, the OpenRouter key and the base URL itself, which
-    # meant the judge was the one stage that could not follow RAGLAB_LLM: with
-    # the answerer running locally, the row's judge was still going out to a
-    # paid API, and nothing on the row said so.
+    # Through the lab's own seam so the judge follows RAGLAB_LLM like every
+    # other stage, rather than always going out to a paid API.
     judge = LangchainLLMWrapper(judge_llm(settings, judge_model))
     vectors = LangchainEmbeddingsWrapper(_LabEmbeddings(embedder))
     return [Faithfulness(llm=judge),

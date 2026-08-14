@@ -1,49 +1,23 @@
-"""The OpenRouter key, held for the life of this process and written nowhere.
+"""The OpenRouter key the panel can set, held only in this process's memory.
 
-The judged metrics are the four that choose the architecture, and reaching them
-used to mean editing `.env` and restarting the lab — two steps at exactly the
-moment you have discovered that the run you just watched could not be judged.
-The panel takes the key instead, and this module is where it sits.
-
-**In memory, and only in memory.** Nothing here opens a file, sets an
-environment variable or logs a string, and `test_credentials.py` reads this
-source to hold that. The three durable things this lab writes — a `.runs/` JSON
-file, a `raglab.db` row, the terminal — are the account of the work and are meant
-to be readable and shareable; a credential in any of them would be durable in
-exactly the way a credential must not be. What survives a restart is therefore
-nothing, which is the honest cost of the convenience: the environment variable
-stays the way to start a lab that already has a key.
-
-**The panel's key wins over the environment's, and clearing gives it back.**
-"Clear" means "forget what I typed", never "unset the key" — a lab started with
-`OPENROUTER_API_KEY` in its shell must end up exactly as it started.
-
-**What is reported is set-ness, a masked tail, and where it came from** — never
-the key. The tail answers the only question a panel has to be able to answer
-about a credential ("is this the one I meant?"), and where it came from decides
-who can remove it.
+Nothing here writes the key to a file, an environment variable, or a log —
+`test_credentials.py` reads this module's source to hold that.
 """
 from dataclasses import replace
 
 from . import models
 from .config import LabSettings
 
-# The shortest thing that could be an OpenRouter key. Not a pattern: keys are
-# issued by someone else and their shape is not ours to legislate — a lab
-# pointed at a compatible proxy through OPENROUTER_BASE_URL may hold anything.
-# What is checked is what a *mistake* looks like: an empty box, a pasted
-# fragment, a value with whitespace in it from a copied shell line.
+# A length floor, not a pattern: keys are issued by someone else and a proxy
+# behind OPENROUTER_BASE_URL may accept a different shape, so this only catches
+# an empty box, a pasted fragment, or a copied shell line with whitespace in it.
 MIN_LENGTH = 20
 
 _key: str = ''
 
 
 def set_key(key: str) -> str:
-    """Hold `key` for the rest of this process. Returns its masked hint.
-
-    Raises `ValueError` with a sentence the panel can show. A key accepted
-    silently is a run that fails much later at its first model call, with an
-    error naming the model rather than the credential."""
+    """Hold `key` for this process and return its masked hint, or raise ValueError with a reason to show."""
     key = (key or '').strip()
     if not key:
         return _refuse('the key is empty')
@@ -56,11 +30,8 @@ def set_key(key: str) -> str:
                        'fragment')
     global _key
     _key = key
-    # The catalogue is verified against OpenRouter's own model list and cached
-    # per base url, and with no key that verification returns the empty set —
-    # "nothing is available". Left in place, entering a key would leave every
-    # remote model reading NA until the lab was restarted, which is the restart
-    # this whole feature exists to remove.
+    # The verified-model cache is keyed per base url and holds the empty set with
+    # no key; drop it so a newly-set key is reflected without restarting the lab.
     models.forget_live()
     return hint(_key)
 
@@ -70,8 +41,7 @@ def _refuse(reason: str) -> str:
 
 
 def clear() -> None:
-    """Forget the key this process was given. The environment's own key, if
-    there is one, is in force again immediately."""
+    """Forget the key this process was given; the environment's own key, if any, is in force again."""
     global _key
     _key = ''
     models.forget_live()
@@ -82,11 +52,7 @@ def held() -> bool:
 
 
 def apply(settings: LabSettings) -> LabSettings:
-    """`settings` as they are, or carrying the key the panel supplied.
-
-    Every route builds its run settings through here rather than reading the
-    boot settings directly, so a key entered a second ago is in force without a
-    restart — and so there is one place that decides which key wins."""
+    """`settings`, carrying the panel's key if one is held — the one place that decides which key wins."""
     if not _key:
         return settings
     return replace(settings, openrouter_api_key=_key)
@@ -101,8 +67,7 @@ def hint(key: str) -> str:
 
 
 def state(settings: LabSettings) -> dict:
-    """What the panel is told: whether a key is in force, a masked tail, and
-    which of the two ways in put it there."""
+    """Whether a key is in force, a masked tail, and which of the two ways in put it there — never the key."""
     if _key:
         return {'set': True, 'source': 'panel', 'hint': hint(_key)}
     if settings.openrouter_api_key:

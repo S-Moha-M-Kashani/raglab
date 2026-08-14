@@ -66,39 +66,32 @@ def client(monkeypatch, tmp_path):
 
 # --- the contract ----------------------------------------------------------
 
-# This is a unit test.
 def test_a_dataset_that_meets_the_contract_has_nothing_to_report():
     assert datasets.validate(_valid()) == []
 
 
-# This is a unit test.
 def test_a_quote_that_is_not_in_the_message_it_cites_is_refused():
-    """The rule that earns the validator's cost. Every lexical measurement in
-    this lab — quote recall, the Inspector's evidence spans, the offline RAGAS
-    context metrics — is computed against these quotes, so a dataset that
-    misquotes its own corpus does not score worse. It scores *confidently*,
-    about text the corpus never contained."""
+    """Every lexical measurement in this lab is computed against these
+    quotes, so a dataset that misquotes its own corpus scores *confidently*
+    about text the corpus never contained, not worse."""
     payload = _valid()
     payload['questions'][0]['evidence'][0]['quote'] = 'the roof was fixed in April'
     problems = datasets.validate(payload)
     assert any('verbatim' in problem for problem in problems), problems
 
 
-# This is a unit test.
 def test_evidence_pointing_at_a_session_that_is_not_there_is_refused():
     payload = _valid()
     payload['questions'][0]['evidence'][0]['session_id'] = 's-99'
     assert any('does not contain' in p for p in datasets.validate(payload))
 
 
-# This is a unit test.
 def test_a_message_index_outside_the_session_is_refused():
     payload = _valid()
     payload['questions'][0]['evidence'][0]['message_indices'] = [7]
     assert any('outside session' in p for p in datasets.validate(payload))
 
 
-# This is a unit test.
 def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
     """One problem per attempt is a slow loop over a 200-question corpus, and a
     message that does not name the question is not a message, it is a search."""
@@ -112,7 +105,6 @@ def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
     assert any(p.startswith('s-2:') for p in problems)
 
 
-# This is a unit test.
 def test_an_unanswerable_question_needs_no_evidence():
     """Abstention questions are the ones the corpus deliberately cannot answer:
     demanding evidence for them would make the failure mode the relevance gate
@@ -126,18 +118,16 @@ def test_an_unanswerable_question_needs_no_evidence():
 
 # --- the bundled samples ---------------------------------------------------
 
-# This is a configuration invariant.
 @pytest.mark.parametrize('name', BUNDLED)
 def test_every_bundled_dataset_meets_its_own_contract(name):
     """These four are reference points — the corpora a finding is checked
     against to tell "true of retrieval" from "true of Farsi diaries". A
     reference point nobody validated is a second unknown."""
     path = datasets.BUNDLED_DIR / f'{name}.json'
-    assert path.exists(), f'{name} is missing from docs/groundtruth_datasets/'
+    assert path.exists(), f'{name} is missing from fixtures/groundtruth_datasets/'
     assert datasets.validate(json.loads(path.read_text(encoding='utf-8'))) == []
 
 
-# This is a configuration invariant.
 def test_the_samples_cover_the_failure_modes_worth_measuring():
     """Between them the four have to offer more than one language, questions
     that need two sessions, and questions the corpus cannot answer — otherwise
@@ -154,7 +144,6 @@ def test_the_samples_cover_the_failure_modes_worth_measuring():
             f'{name} cannot measure whether a pipeline knows when to refuse')
 
 
-# This is a unit test.
 def test_the_catalogue_leads_with_the_built_in_corpus():
     """Every finding in docs/report is about it, and it is the default: a list
     ordered by whatever sorted first would put it in an arbitrary place."""
@@ -167,7 +156,6 @@ def test_the_catalogue_leads_with_the_built_in_corpus():
 
 # --- loading ---------------------------------------------------------------
 
-# This is a unit test.
 def test_a_loaded_dataset_arrives_in_the_shape_the_lab_speaks():
     """The contract says `question`; six modules and every stored run say
     `question_fa`. The loader is the one place that translates."""
@@ -185,7 +173,6 @@ def test_a_loaded_dataset_arrives_in_the_shape_the_lab_speaks():
     assert session['language'] == 'en'
 
 
-# This is a unit test.
 def test_an_unknown_dataset_says_what_there_is():
     with pytest.raises(ValueError) as raised:
         datasets.load('not-a-corpus')
@@ -194,7 +181,6 @@ def test_an_unknown_dataset_says_what_there_is():
 
 # --- the index cannot mix corpora ------------------------------------------
 
-# This is a unit test.
 def test_the_dataset_is_part_of_the_fingerprint():
     """The one bug this feature could plausibly introduce, and the most
     expensive to notice late: an index built over one corpus handed a question
@@ -205,20 +191,18 @@ def test_the_dataset_is_part_of_the_fingerprint():
             != IndexConfig(dataset='support-en').fingerprint())
 
 
-# This is a unit test.
 def test_the_built_in_corpus_keeps_the_fingerprints_already_recorded():
-    """`''` is fingerprinted exactly as it was before the field existed. Every
-    run in `.runs/` records a collection name; a new field in IndexConfig
-    otherwise renames them all, and a directory of rows would describe indexes
-    no rebuild can reproduce by name."""
-    # The literal is the value the field-less IndexConfig produced, read off the
-    # code as it stood before this commit (`git show <parent>:src/raglab/config.py`)
-    # rather than off the code it is checking.
+    """`''` is fingerprinted exactly as it was before the field existed —
+    every run in `.runs/` records a collection name, and a new field in
+    IndexConfig would otherwise rename them all."""
+    # The literal is the value the field-less IndexConfig produced, read off
+    # the code as it stood before this commit rather than off the code it
+    # is checking.
     assert IndexConfig().fingerprint() == '804444ae65db'
     assert IndexConfig(dataset='').collection() == 'raglab-804444ae65db'
 
 
-# This is an integration test: two corpora, one registry.
+# Two corpora, one registry.
 def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
     from raglab.config import LabSettings
     from raglab.index import IndexRegistry
@@ -236,7 +220,6 @@ def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
     assert 'espresso' in texts and 'Meridian' not in texts
 
 
-# This is an integration test.
 def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
     """The speaker tags and the contextual header are prepended to text that
     gets embedded, so writing them in Farsi over an English corpus adds a
@@ -253,7 +236,6 @@ def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
 
 # --- the service -----------------------------------------------------------
 
-# This is an integration test.
 def test_the_options_serve_the_catalogue(client):
     body = client.get('/api/options').json()
     ids = [d['id'] for d in body['datasets']]
@@ -264,7 +246,6 @@ def test_the_options_serve_the_catalogue(client):
     assert 'groundtruth-dataset-contract' in body['dataset_contract']
 
 
-# This is an integration test.
 def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
                                                             monkeypatch):
     """The half of the rule the fingerprint cannot enforce: the index comes from
@@ -289,7 +270,6 @@ def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
     assert saved['dataset'] == 'smoke-mini'
 
 
-# This is an integration test.
 def test_the_ledger_records_which_corpus_an_experiment_ran_on(client, tmp_path,
                                                               monkeypatch):
     from raglab import evaluate
@@ -302,7 +282,6 @@ def test_the_ledger_records_which_corpus_an_experiment_ran_on(client, tmp_path,
     assert row['dataset'] == 'smoke-mini'
 
 
-# This is an integration test.
 def test_a_dataset_is_imported_through_the_panel_and_becomes_selectable(client,
                                                                         tmp_path):
     added = client.post('/api/datasets', json=_valid())
@@ -317,7 +296,6 @@ def test_a_dataset_is_imported_through_the_panel_and_becomes_selectable(client,
     assert [q['id'] for q in body['questions']] == ['q-1']
 
 
-# This is an integration test.
 def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(client):
     payload = _valid()
     payload['questions'][0]['evidence'][0]['quote'] = 'never said this'
@@ -328,7 +306,6 @@ def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(client)
     assert 'verbatim' in detail and 'made-up' in detail
 
 
-# This is an integration test.
 def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(client):
     payload = _valid()
     payload['dataset']['id'] = datasets.BUILTIN
@@ -339,7 +316,6 @@ def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(client):
 
 # --- the leaderboard -------------------------------------------------------
 
-# This is a unit test.
 def test_the_leaderboard_never_ranks_across_corpora():
     """Two corpora are not two configurations of one measurement: the questions
     differ, so the means are not of the same thing."""
@@ -362,7 +338,6 @@ def test_the_leaderboard_never_ranks_across_corpora():
     assert 'support-en' in leaderboard.markdown(groups)
 
 
-# This is a unit test.
 def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
     """Not a guess: it is the only corpus there was. Treating the blank as
     unknown would quarantine every row already on the leaderboard."""
@@ -384,11 +359,10 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
 # document (`docs/groundtruth-dataset-contract.md`), and nothing on screen said
 # so.
 
-# This is a unit test.
 def test_the_import_control_describes_the_file_it_takes():
-    """Under the same `!` as every knob, and keyed to the control's own id, so
-    the panel's one explainer mechanism hangs it on the Import label without a
-    second mechanism for file inputs."""
+    """Keyed to the control's own id, so the panel's one explainer mechanism
+    hangs it on the Import label without a second mechanism for file
+    inputs."""
     from raglab import explain
     text = explain.topics()['run.dataset-file']
     for named in ('dataset', 'sessions', 'questions',      # the three keys
@@ -410,7 +384,6 @@ def test_the_import_control_describes_the_file_it_takes():
     assert 'docs/groundtruth-dataset-contract.md' in text
 
 
-# This is a unit test.
 def test_the_described_shape_is_the_shape_the_importer_enforces():
     """A description beside a checker is a description that can drift from it.
     Each top-level key the text names has to be one `validate` really refuses
@@ -424,25 +397,24 @@ def test_the_described_shape_is_the_shape_the_importer_enforces():
         assert datasets.validate(without), f'{key} is described as required'
 
 
-# This is a configuration invariant.
 def test_the_panel_renders_the_json_shape_as_a_shape():
     """This is the one help text with a structure in it, and a structure that
     arrives as one run-on paragraph is not one. Every other explainer is a
     single line, so preserving the newlines costs them nothing."""
     from raglab.server import STATIC
-    html = (STATIC / 'index.html').read_text(encoding='utf-8')
-    rule = html.split('p.explain {')[1].split('}')[0]
+    css = (STATIC / 'panel.css').read_text(encoding='utf-8')
+    rule = css.split('p.explain {')[1].split('}')[0]
     assert 'pre-wrap' in rule
 
 
-# This is a configuration invariant.
 def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
+    js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'id="dataset"' in html and 'id="dataset-file"' in html
-    assert '/api/datasets' in html
+    assert '/api/datasets' in js
     assert 'One table per dataset' in html
-    assert 'byDataset' in html, 'the leaderboard renders one table per corpus'
+    assert 'byDataset' in js, 'the leaderboard renders one table per corpus'
 
 
 def _finished(client, job_id: str) -> dict:

@@ -1,25 +1,9 @@
-"""The lab's LLM seam: LabSettings -> a LangChain chat model, plus the fake.
+"""LabSettings -> a LangChain chat model, chosen by `RAGLAB_LLM`, plus the offline fake.
 
-One function, chosen by `RAGLAB_LLM`. Adding a backend means adding a branch
-here, never editing a call site.
-
-Two backends serve a real model and differ only in *where it runs*: 'openrouter'
-pays a remote API, 'ollama' talks to a model on this machine. Both are built
-through `init_chat_model` as OpenAI-compatible endpoints, because Ollama serves
-an OpenAI-compatible /v1 — so a local model costs no new dependency, and it works
-under the `langchain-openai<1` that ragas 0.4 requires, which ChatOllama is not
-covered by. Since the two differ in nothing but the endpoint and the patience it
-deserves, `_endpoint` holds that difference and there is one construction site: a
-knob that applies to both cannot be added to one and forgotten on the other.
-
-A third kind arrived 2026-08-12 and is not an endpoint at all: `claude` and
-`codex` run a CLI on this machine as a subprocess (`clichat.py`). They still
-arrive through this one function, which is the whole point of it.
-
-Until 2026-08-11 this module translated LabSettings into lodestar_brain's
-Settings and called that project's factory, so there would be exactly one LLM
-path in one repository. With the lab standalone there is nothing to share with,
-and the translation step was the only thing the indirection bought.
+'openrouter' and 'ollama' both build through `init_chat_model` as OpenAI-compatible
+endpoints rather than ChatOllama, which the `langchain-openai<1` pin ragas 0.4
+requires does not cover; `claude`/`codex` run a CLI subprocess instead (`clichat.py`)
+but arrive through this same function.
 """
 from typing import Any, Optional, Sequence
 
@@ -31,53 +15,37 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from . import clichat
 
-# A remote API answers in seconds; a local model on a laptop does not. Measured
-# on gemma4:e2b judging this lab: a single call took ~8s, but under three
-# concurrent requests individual calls reached 80–92s — so the 90s that is
-# generous for OpenRouter is the exact reason a local judged run lost three of
-# its four deciding metrics to TimeoutError. Two constants rather than one
-# setting, because the right value is a property of *where the model runs*.
+# Separate constants because a local model under concurrent load is far slower
+# than a remote API — the right value is a property of where the model runs.
 REMOTE_TIMEOUT = 90
 LOCAL_TIMEOUT = 600
 
-# A CLI backend is a process spawn *and* an agent turn, and the process is what
-# `ragas_eval.JUDGE_LOAD` throttles rather than a rate limit. Local patience for
-# the same reason ollama gets it: the right value is a property of where the
-# model runs.
+# A CLI call is a process spawn, throttled by `ragas_eval.JUDGE_LOAD` rather
+# than a rate limit; it gets ollama's local patience for the same reason.
 CLI_TIMEOUT = 600
 
 
 def _endpoint(settings) -> tuple[str, str, int]:
-    """Where this backend's model lives, what to authenticate with, how long to
-    wait. Raises for anything else — no auto modes."""
+    """Base url, api key, and timeout for this backend; raises for anything else — no auto modes."""
     if settings.provider == 'openrouter':
-        # `or 'missing'`: init_chat_model refuses to build without a key, and a
-        # lab with no key must still start and serve the panel. The failure
-        # lands as a 401 at call time.
+        # `or 'missing'`: init_chat_model refuses to build with no key, and a
+        # lab with no key must still start; the failure lands as a 401 at call time.
         return (settings.openrouter_base_url,
                 settings.openrouter_api_key or 'missing', REMOTE_TIMEOUT)
     if settings.provider == 'ollama':
-        # Ollama authenticates nothing, but the client still demands a key, so a
-        # placeholder goes on the wire. Deliberately *not* the OpenRouter key:
-        # this request leaves for localhost, and a real credential must never be
-        # sent somewhere it was not issued for, however harmless the listener.
+        # A placeholder, deliberately not the OpenRouter key: this request goes
+        # to localhost, and a real credential must never be sent where it wasn't issued for.
         return settings.ollama_base_url, 'ollama', LOCAL_TIMEOUT
     raise ValueError(f'unknown RAGLAB_LLM {settings.provider!r}')
 
 
 def make_chat_model(settings, model: str = '') -> BaseChatModel:
-    """Build a model for the configured backend.
-
-    A provider is never inferred from model text: a local-looking slug must not
-    quietly redirect to a paid API, and a remote one must not quietly start a
-    daemon call.
-    """
+    """A model for the configured backend; the provider is never inferred from model text."""
     if settings.provider == 'fake':
         return FakeChat()
     if settings.provider in clichat.CLIS:
-        # Not an endpoint, so no base url and no key: the credential is the
-        # login this machine already has. See clichat.py for why each flag in
-        # the argv is load-bearing.
+        # Not an endpoint: no base url or key, since the credential is this
+        # machine's own CLI login. See clichat.py for why each argv flag matters.
         return clichat.CliChat(
             cli=settings.provider, model=model or settings.llm_model,
             effort=clichat.checked_effort(settings.provider,
@@ -89,41 +57,28 @@ def make_chat_model(settings, model: str = '') -> BaseChatModel:
 
 
 def lab_llm(settings):
-    """The lab's chat model, or the offline fake when nothing real is
-    configured — the lab must remain runnable with no network at all."""
+    """The lab's chat model, or the offline fake — the lab must stay runnable with no network at all."""
     return make_chat_model(settings)
 
 
 def judge_llm(settings, model: str = ''):
-    """The client RAGAS judges with.
+    """The client RAGAS judges with, built the same way so a local judge is possible.
 
-    Its own client rather than the one every other stage shares, because the
-    judge is the only stage whose model is *bound* at construction: RAGAS calls
-    it through its own wrapper and never forwards a per-request model, so
-    passing the judge slug here is the only way it reaches the wire. Building it
-    from the same seam is what makes a local judge possible at all."""
+    RAGAS binds the model at construction and never forwards one per request,
+    so passing the judge slug here is the only way it reaches the wire."""
     return make_chat_model(settings, model)
 
 
 def lab_chat(llm, messages: list[dict], model: str = '') -> BaseMessage:
-    """Every LLM-backed lab step calls the model through here.
+    """Every LLM-backed lab step calls the model through here; empty `model` means the client's own.
 
-    An empty `model` means "whatever the client was built with", which is the
-    lab's convention for per-role model settings (see models.ROLES); a non-empty
-    one is forwarded per request, so one client still serves every role without
-    being rebuilt. Passing model='' through to invoke() would put a null model in
-    the request instead, which is why this is a branch and not a default
-    argument.
-    """
+    A branch rather than a default argument: passing model='' through to
+    invoke() would put a null model on the wire instead of omitting it."""
     return llm.invoke(messages, model=model) if model else llm.invoke(messages)
 
 
 def _text(message) -> str:
-    """The text of a message, whether it arrived as an object or a plain dict.
-
-    The lab hands `lab_chat` OpenAI-shaped dicts, and LangChain hands this class
-    message objects, so the fake has to read both.
-    """
+    """Text of a message, whether it's a plain dict (ours) or a LangChain message object."""
     if isinstance(message, dict):
         return message.get('content', '') or ''
     content = getattr(message, 'content', '')
@@ -135,16 +90,10 @@ def _text(message) -> str:
 
 
 class FakeChat(BaseChatModel):
-    """Deterministic offline chat model for the suite.
+    """Deterministic offline chat model, selected via `RAGLAB_LLM=fake`; echoes the last user message.
 
-    Echoes the last user message back as 'FAKE: <text>'. `conftest.py` pins
-    `RAGLAB_LLM=fake` for the whole suite, so this is what every LLM-backed stage
-    runs on when nobody asked for a real model.
-
-    It is here rather than in the test tree because 'fake' is a *backend*,
-    selected through `RAGLAB_LLM` like any other. LangChain's own fakes report no
-    usage, which would leave the token-and-cost path untestable offline.
-    """
+    Lives here rather than in the test tree because 'fake' is a real backend;
+    LangChain's own fakes report no usage, leaving the token/cost path untested offline."""
 
     script: Optional[list[BaseMessage]] = None
 
@@ -159,8 +108,7 @@ class FakeChat(BaseChatModel):
                   run_manager: Optional[CallbackManagerForLLMRun] = None,
                   **kwargs: Any) -> ChatResult:
         message = self._next(messages)
-        # Four characters to the token: an estimate, and it only has to be
-        # non-zero and additive for the reporting to be exercised.
+        # A rough estimate; it only needs to be non-zero and additive to exercise reporting.
         if message.usage_metadata is None:
             spent_in = sum(len(_text(m)) for m in messages) // 4
             spent_out = len(_text(message)) // 4

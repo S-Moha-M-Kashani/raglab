@@ -15,7 +15,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from raglab import datasets, leaderboard
+from raglab import datasets
+from raglab.llm_tools import leaderboard
 from raglab.config import IndexConfig, LabConfig
 
 BUNDLED = ('support-en', 'meetings-de', 'research-multihop', 'smoke-mini')

@@ -4,7 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-from raglab import clichat, config, evaluate, models, ragas_eval, sweep
+from raglab import clichat, config, evaluate, models, ragas_eval
+from raglab.llm_tools import sweep
 from raglab.config import GenerationConfig, LabConfig, LabSettings
 
 from conftest import LAB_SETTINGS, OLLAMA_SETTINGS

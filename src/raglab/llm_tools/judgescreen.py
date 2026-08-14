@@ -10,13 +10,15 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import textnorm
+from .. import textnorm
 
-from . import corpus
-from .config import load_lab_settings
-from .llm import judge_llm
+from .. import corpus
+from ..config import ROOT, load_lab_settings
+from ..llm import judge_llm
 
-SCREENS_DIR = Path(__file__).resolve().parents[2] / '.screens'
+# Anchored to ROOT, not counted in `parents[n]` hops from this file: the hop
+# count broke the day the module moved into llm_tools/, pointing it at src/.
+SCREENS_DIR = ROOT / '.screens'
 
 # Shaped like RAGAS's NLIStatementOutput, so this screens the format RAGAS
 # actually asks for rather than a flatter one.

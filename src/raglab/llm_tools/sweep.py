@@ -9,11 +9,12 @@ import sys
 import time
 from dataclasses import replace
 
-from . import clichat, corpus, leaderboard, ragas_eval
-from .config import (BALANCES, GenerationConfig, IndexConfig, LabConfig,
+from . import leaderboard
+from .. import clichat, corpus, ragas_eval
+from ..config import (BALANCES, GenerationConfig, IndexConfig, LabConfig,
                      RetrievalConfig, RUNS_DIR, load_lab_settings)
-from .evaluate import run_eval
-from .index import IndexRegistry
+from ..evaluate import run_eval
+from ..index import IndexRegistry
 
 # Held fixed across every candidate: varying it alongside the knobs would make
 # each row differ in two things.

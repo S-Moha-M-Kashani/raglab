@@ -62,9 +62,9 @@ agent = ["langgraph>=1.0,<2"]
 raglab = "raglab.cli.serve:panel"
 raglab-inspector = "raglab.cli.serve:inspector"
 raglab-lab = "raglab.cli.lab:main"
-raglab-sweep = "raglab.sweep:main"
-raglab-judgescreen = "raglab.judgescreen:main"
-raglab-leaderboard = "raglab.leaderboard:main"
+raglab-sweep = "raglab.llm_tools.sweep:main"
+raglab-judgescreen = "raglab.llm_tools.judgescreen:main"
+raglab-leaderboard = "raglab.llm_tools.leaderboard:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]

@@ -1,5 +1,6 @@
 """The corpora this lab can measure against, and the contract a new one meets
-(`docs/groundtruth-dataset-contract.md`). `IndexConfig.dataset` lands in the
+(`validate()` here is the contract; `config.HELP['run.dataset-file']` states it
+for the panel). `IndexConfig.dataset` lands in the
 fingerprint, so an index built over one corpus can never be handed a question
 from another; `''` means the built-in diary, and is also the leaderboard's
 coarsest grouping key. `validate()` requires every evidence quote to be verbatim

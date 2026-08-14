@@ -383,7 +383,13 @@
 <div id="widget-window" class="widget-window" hidden>
   <div class="widget-head">
     <span>Lab helper</span>
-    <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
+    <span>
+      <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
+      <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
+    </span>
+  </div>
+  <div id="widget-config" class="widget-config" hidden>
+    <label>model <select id="widget-model"></select></label>
   </div>
   <div id="widget-log" class="widget-log"></div>
   <form id="widget-form" class="widget-form">

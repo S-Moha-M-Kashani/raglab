@@ -431,3 +431,17 @@ def test_the_widgets_script_talks_to_the_widget_route():
     assert 'escapeHtml' in js[js.index('widget'):], (
         'replies are model output rendered into the page — they go through '
         'the shared escaper like every other untrusted string')
+
+
+def test_the_widgets_settings_are_a_served_list_behind_one_gear():
+    """A gear in the header toggles one row with one select; the options come
+    from GET /api/widget, because neither panel keeps a model list of its
+    own, and the chosen value travels with every message."""
+    html = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    for element in ('widget-settings', 'widget-config', 'widget-model'):
+        assert f'id="{element}"' in html, element
+
+    js = (RAGLAB_DIR / 'static' / 'panel.js').read_text(encoding='utf-8')
+    widget_part = js[js.index('widget'):]
+    assert 'widget-model' in widget_part
+    assert 'model:' in widget_part, 'the choice must travel with the message'

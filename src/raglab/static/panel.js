@@ -1135,7 +1135,7 @@ async function widgetAsk(message) {
   widgetSay('you', message);
   $('widget-send').disabled = true;
   try {
-    const data = await api('/api/widget', { message });
+    const data = await api('/api/widget', { message, model: $('widget-model').value });
     widgetSay('bot', data.reply);
   } catch (error) {
     widgetSay('err', error.message);
@@ -1145,10 +1145,30 @@ async function widgetAsk(message) {
   }
 }
 
+// The model list is served, not kept here — fetched once, on the first open.
+let widgetModelsLoaded = false;
+async function widgetLoadModels() {
+  if (widgetModelsLoaded) return;
+  try {
+    const data = await api('/api/widget');
+    $('widget-model').innerHTML = data.models.map((m) =>
+      `<option value="${escapeHtml(m.value)}"${m.value === data.default ? ' selected' : ''}>`
+      + `${escapeHtml(m.label)}</option>`).join('');
+    widgetModelsLoaded = true;
+  } catch (error) {
+    widgetSay('err', error.message);
+  }
+}
+
 $('widget-launch').addEventListener('click', () => {
   const win = $('widget-window');
   win.hidden = !win.hidden;
-  if (!win.hidden) $('widget-input').focus();
+  if (!win.hidden) { widgetLoadModels(); $('widget-input').focus(); }
+});
+
+$('widget-settings').addEventListener('click', () => {
+  const row = $('widget-config');
+  row.hidden = !row.hidden;
 });
 
 $('widget-close').addEventListener('click', () => { $('widget-window').hidden = true; });

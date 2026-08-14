@@ -18,13 +18,35 @@ import re
 
 from langchain_core.tools import tool
 
+from .clichat import CliChat, checked_effort, cli_available
+from .settings import PROVIDER_MODELS
+
 # Read at build time, never at import: the suite runs offline, and a missing
 # variable must become a stated refusal rather than a KeyError at import.
+# These are the *OpenRouter path's* requirement — the whole point of a CLI
+# backend is that it needs no key at all.
 REQUIRED_ENV = ('OPENROUTER_API_KEY', 'LANGSMITH_API_KEY',
                 'LANGSMITH_ENDPOINT', 'LANGSMITH_PROJECT', 'LANGSMITH_TRACING')
 
-WIDGET_MODEL = 'openai/gpt-5-mini'
-OPENROUTER_URL = 'https://openrouter.ai/api/v1'
+# The widget's own catalogue: value -> (kind, label). The two OpenRouter
+# models run the tool loop; the two CLIs cannot (`CliChat` has no
+# `bind_tools`), answer in one call with the knowledge base inlined, and
+# their labels say so — an option states what it can do.
+WIDGET_MODELS = {
+    'openai/gpt-5-nano': ('openrouter', 'gpt-5-nano · OpenRouter, tools'),
+    'openai/gpt-5-mini': ('openrouter', 'gpt-5-mini · OpenRouter, tools'),
+    'claude': ('cli', 'claude · CLI, no key, no tools'),
+    'codex': ('cli', 'codex · CLI, no key, no tools'),
+}
+# The codex CLI: gpt-5.6-luna, the lightest draw on the membership, no key
+# involved. Among the OpenRouter pair the cheaper nano leads the list.
+DEFAULT_MODEL = 'codex'
+
+def _openrouter_url() -> str:
+    """`.env` already carries OPENROUTER_BASE_URL for the lab's own backend;
+    the widget reads the same variable rather than keeping a second copy."""
+    return (os.environ.get('OPENROUTER_BASE_URL', '').strip()
+            or 'https://openrouter.ai/api/v1')
 
 KNOWLEDGE_BASE = {
     'purpose': 'The RAG lab is a workbench for diary-memory retrieval: '
@@ -118,16 +140,17 @@ class WidgetUnavailable(RuntimeError):
     """The lab is up; its widget is not. The route answers this as a 502."""
 
 
-_AGENT = None
+# One cached agent per OpenRouter model — a CLI is a process per call and
+# caches nothing.
+_AGENTS: dict = {}
 
 
 def reset() -> None:
-    """Drop the cached agent so the next ask() rebuilds it (tests, key changes)."""
-    global _AGENT
-    _AGENT = None
+    """Drop the cached agents so the next ask() rebuilds (tests, key changes)."""
+    _AGENTS.clear()
 
 
-def _build_agent():
+def _build_agent(model: str):
     # `load_env` strips values, so a bare `KEY= ` line in .env lands here as
     # '' — an empty variable is a missing one, not a present one.
     for name in REQUIRED_ENV:
@@ -149,18 +172,46 @@ def _build_agent():
             'langgraph is not installed — launch with --extra agent') from error
     from langchain_openai import ChatOpenAI
 
-    llm = ChatOpenAI(model=WIDGET_MODEL, api_key=openrouter_api_key,
-                     base_url=OPENROUTER_URL)
+    llm = ChatOpenAI(model=model, api_key=openrouter_api_key,
+                     base_url=_openrouter_url())
     return create_react_agent(llm, tools=TOOLS, prompt=SYSTEM_PROMPT)
 
 
-def ask(message: str) -> str:
-    """One question in, one answer out. Builds the agent on first use."""
-    global _AGENT
-    if _AGENT is None:
-        _AGENT = _build_agent()
+def _cli_answer(cli: str, message: str) -> str:
+    """One CLI call, the knowledge base inlined: no tool loop exists here, so
+    a prompt that does not carry the facts is a CLI answering about a project
+    it has never seen."""
+    if not cli_available(cli):
+        raise WidgetUnavailable(
+            f'the {cli} command is not on this machine — install and log in, '
+            'or pick an OpenRouter model')
+    facts = '\n'.join(f'- {key}: {text}' for key, text in KNOWLEDGE_BASE.items())
+    system = ('You are the RAG lab panel\'s helper. Answer briefly from the '
+              'knowledge base below; say so when it has no answer rather '
+              'than inventing one.\n\nThe knowledge base, in full:\n' + facts)
+    effort = checked_effort(cli, os.environ.get('RAGLAB_CLI_EFFORT', '').strip()
+                            or 'low')
+    chat = CliChat(cli=cli, model=PROVIDER_MODELS[cli], effort=effort)
     try:
-        result = _AGENT.invoke(
+        return str(chat.invoke([('system', system), ('user', message)]).content)
+    except Exception as error:
+        raise WidgetUnavailable(f'the widget could not answer: {error}') from error
+
+
+def ask(message: str, model: str = '') -> str:
+    """One question in, one answer out. `model` picks from WIDGET_MODELS;
+    empty means the default. Agents build on first use, one per model."""
+    choice = model or DEFAULT_MODEL
+    kind, _ = WIDGET_MODELS.get(choice) or (None, None)
+    if kind is None:
+        raise ValueError(f'{choice!r} is not a widget model; expected one of '
+                         + ', '.join(repr(v) for v in WIDGET_MODELS))
+    if kind == 'cli':
+        return _cli_answer(choice, message)
+    if choice not in _AGENTS:
+        _AGENTS[choice] = _build_agent(choice)
+    try:
+        result = _AGENTS[choice].invoke(
             {'messages': [{'role': 'user', 'content': message}]},
             config={'recursion_limit': 12})
     except WidgetUnavailable:

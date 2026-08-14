@@ -4,7 +4,6 @@ import os
 import time
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -75,17 +74,41 @@ SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',
                'embedder': 'token-hash'}
 
 
+class _SmokeIndex:
+    """`.config` is a fresh `dict` on every access — a new copy each time, so
+    one consumer's `smoke_index.config['limit'] = 5` (or `{**smoke_index.config,
+    ...}`) cannot corrupt what the next test reads — to POST at
+    `/api/indexes` / `/api/evaluations`. `.index` is the built `LabIndex`
+    (`.index.cfg.fingerprint()`, `.index.stats.collection`) for tests that
+    call the registry directly instead of going through HTTP. No `.registry`:
+    `IndexRegistry.get` mutates its cached `LabIndex` in place
+    (`stats.reused = True`), so handing out the registry that built `.index`
+    alongside `.index` itself would let one test's reuse-checking build flip
+    `.index.stats.reused` for every test that reads it afterwards, for the
+    rest of the run. A test that needs registry-reuse semantics builds its
+    own registry locally, the way step 6's sequence test does."""
+
+    def __init__(self, index):
+        self.index = index
+
+    @property
+    def config(self) -> dict:
+        return dict(SMOKE_INDEX)
+
+
 @pytest.fixture(scope='session')
 def smoke_index():
-    """Built at most once per suite run (nothing here mutates it, so
-    session-scoped is safe): `.config` is the plain dict to POST at
-    `/api/indexes` / `/api/evaluations`, `.index` is the built `LabIndex`
-    (`.index.cfg.fingerprint()`, `.index.stats.collection`) for tests that
-    call the registry directly instead of going through HTTP."""
+    """Built at most once per suite run. The brief calls for module scope;
+    `scope='session'` is the stricter reading of that same bound, and safe
+    because nothing here mutates the built index in place (see `_SmokeIndex`
+    for why `.registry` is deliberately not part of the shape). Asserts the
+    build actually produced the five expected chunks, so a load-bearing
+    fixture nine later tasks depend on fails at setup rather than quietly
+    handing out a broken index."""
     from raglab.index import IndexRegistry as _Registry
-    reg = _Registry(LAB_SETTINGS)
-    built = reg.get(IndexConfig(**SMOKE_INDEX))
-    return SimpleNamespace(config=dict(SMOKE_INDEX), index=built, registry=reg)
+    built = _Registry(LAB_SETTINGS).get(IndexConfig(**SMOKE_INDEX))
+    assert built.stats.chunks == 5, 'the smoke set is five sessions'
+    return _SmokeIndex(built)
 
 
 def _finished(client, job_id: str, timeout: float = 30.0) -> dict:

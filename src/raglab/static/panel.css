@@ -379,6 +379,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
   padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--rule);
   font-size: 0.85em;
 }
+/* `display: flex` above beats the browser's own [hidden] rule, so the gear's
+   toggle needs this stated — same as .widget-window. */
+.widget-config[hidden] { display: none; }
 .widget-config label { display: flex; align-items: center; gap: 0.4rem; flex: 1; }
 .widget-config select { flex: 1; min-width: 0; }
 .widget-log {

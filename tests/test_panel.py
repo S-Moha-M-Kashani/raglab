@@ -445,3 +445,17 @@ def test_the_widgets_settings_are_a_served_list_behind_one_gear():
     widget_part = js[js.index('widget'):]
     assert 'widget-model' in widget_part
     assert 'model:' in widget_part, 'the choice must travel with the message'
+
+
+def test_everything_the_widget_toggles_can_actually_hide():
+    """The gear and the launcher flip the `hidden` attribute, but a rule
+    setting `display` beats the browser's own `[hidden] { display: none }` —
+    found live: the config row was `display: flex`, so pressing the gear
+    toggled an attribute the page never honoured. Every widget class that
+    sets display and is toggled must carry its own [hidden] rule."""
+    css = (RAGLAB_DIR / 'static' / 'panel.css').read_text(encoding='utf-8')
+    for toggled in ('.widget-window', '.widget-config'):
+        assert f'{toggled}[hidden]' in css, (
+            f'{toggled} sets display, so it needs its own [hidden] rule')
+        rule = css[css.index(f'{toggled}[hidden]'):]
+        assert 'display: none' in rule[:rule.index('}')]

@@ -201,3 +201,12 @@ def test_a_remote_slug_is_never_refused_on_the_strength_of_a_listing(monkeypatch
                         lambda settings: frozenset({'openai/gpt-5-nano'}))
     cfg = LabConfig(generation=GenerationConfig(ragas_model='openai/gpt-5-mini:floor'))
     assert models.provider_problems(cfg, keyed) == []
+
+
+def test_the_screens_directory_sits_at_the_repository_root():
+    """`.screens/` lives beside `.runs/`, at the root the `.gitignore` entry
+    names. The path was once counted in `parents[n]` hops from the module's own
+    file, so moving the module into `llm_tools/` silently pointed it at `src/`
+    — a screen written there is evidence nobody will find."""
+    from raglab.config import ROOT
+    assert judgescreen.SCREENS_DIR == ROOT / '.screens'

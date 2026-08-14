@@ -1,36 +1,6 @@
-"""The lab's third kind of backend: a CLI on this machine, run as a subprocess in place of an HTTP endpoint.
-
-`claude` and `codex` are agent CLIs this machine is already logged into, so the
-lab reaches a strong model with no API key and no new dependency. The price is
-a process spawn per call.
-
-Driven as a completion endpoint rather than as an agent — every flag below
-closes one specific way a row could otherwise be wrong:
-
-* `--system-prompt` **replaces** Claude Code's agent prompt, so the stage's own
-  prompt is the model's only instruction. Codex has no equivalent, so its
-  instructions go into the prompt body instead — the one place the two `CLIS`
-  rows differ in kind rather than in spelling.
-* `--tools ""` / `-s read-only`. A judge holding a Read tool could grade from
-  `.runs/` instead of the context it was handed, with no field on the row
-  saying so.
-* `--setting-sources ""` / `--ignore-rules` / an empty cwd. No CLAUDE.md, no
-  hooks, no project instruction files biasing the answer toward one already believed.
-* `--no-session-persistence` / `--ephemeral`. The lab already accounts for one
-  JSON run and one ledger row; a session transcript would be unaccounted for.
-* `--ignore-user-config`. Makes a codex call independent of
-  `~/.codex/config.toml`'s own reasoning-effort default.
-* **An allowlisted environment** (`_KEEP`, `_child_env`). None of the flags
-  above touch the environment, and both CLIs configure themselves from it — an
-  unlisted variable could remap which model actually answers.
-* **UTF-8 on the decode**, explicit rather than by the machine's locale — the
-  one backend whose transport is not HTTP+JSON, so the one that has to say
-  which encoding it is reading.
-
-**Nothing here falls back.** A non-zero exit, a timeout, an error envelope, or
-a reply with no text at all raises `CliError`. The empty reply is the one that
-had to be looked for: a tolerant parser would read it as "no opinion" and score
-every document 0.5 — a `grader='llm'` row measured ungated.
+"""The lab's third kind of backend: a CLI on this machine (`claude`/`codex`), run as a subprocess in place of an HTTP endpoint, reaching a strong model with no API key at the price of a process spawn per call.
+Driven as a completion endpoint rather than as an agent — every flag near its call site closes one specific way a row could otherwise be wrong; see `_KEEP`/`_child_env` and each `subprocess` call below.
+Nothing here falls back: a non-zero exit, a timeout, an error envelope or an empty reply all raise `CliError` rather than being read as "no opinion".
 """
 import json
 import os

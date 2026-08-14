@@ -1,17 +1,6 @@
-"""Sweep candidate architectures and rank them on the four deciding metrics.
-
-    uv run --extra local-embeddings raglab-sweep            # the candidate sweep
-    uv run --extra local-embeddings raglab-sweep --final A  # one candidate, all 112
-    RAGLAB_LLM=ollama uv run raglab-sweep --workers 2        # on a local model
-
-Drives the same `evaluate.run_eval` and writes to the same `.runs/` as the panel.
-**Every candidate changes exactly one thing against the baseline**, so a win can
-be attributed to it. `RAGLAB_LLM` picks the answerer/judge pair too (`PAIRINGS`),
-since a slug only means something to the backend that serves it; override either
-with `RAGLAB_SWEEP_ANSWER_MODEL` / `RAGLAB_SWEEP_JUDGE_MODEL`.
-
-Screen the judge first (`uv run raglab-judgescreen`) — a judge that answers the
-same way to every claim scores every candidate identically and tied, silently.
+"""Sweep candidate architectures and rank them on the four deciding metrics; drives `evaluate.run_eval` and writes to the same `.runs/` as the panel.
+Every candidate changes exactly one thing against the baseline, so a win can be attributed to it; `RAGLAB_LLM` picks the answerer/judge pair too (`PAIRINGS`).
+Screen the judge first (`uv run raglab-judgescreen`) — an unscreened judge can score every candidate identically and tied, silently.
 """
 import argparse
 import json

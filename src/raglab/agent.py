@@ -154,20 +154,7 @@ class State(TypedDict, total=False):
 
 def _shape(cfg: AgentConfig) -> tuple[tuple[str, ...],
                                       tuple[tuple[str, str], ...]]:
-    """This scope's nodes and the edges its routing functions can actually
-    take, returned as data for `graph_nodes`/`graph_edges` — read today only
-    by `tests/test_agent.py`. `_Loop.build_graph` does not read this table;
-    it hand-wires every edge itself, so this is a second, independent
-    encoding of the same shape rather than the one the compiled graph is
-    built from, and the two *can* disagree. One place they do: `rewrite=True`
-    (the default) makes `build_graph` declare `'retrieve'` as a possible
-    LangGraph path-map target from `assess` unconditionally — for the
-    framework's own graph introspection — but `after_assess` never actually
-    returns `'retrieve'` while rewriting is on, only `'rewrite'`, so that
-    edge is structurally unreachable and correctly absent here. Trust the
-    hand-wiring over this table if the two ever seem to disagree: the
-    hand-wiring is what has produced every measured result. Only `full`
-    carries the edge `('critique', 'retrieve')`."""
+    """This scope's nodes/edges as data for `graph_nodes`/`graph_edges`; `_Loop.build_graph` hand-wires its own edges rather than reading this table, and the two genuinely disagree on one declared-but-unreachable path-map entry (`rewrite=True`'s unconditional `'retrieve'` from `assess`) — so trust the hand-wiring, not this table, if they ever seem to disagree."""
     nodes: list[str] = []
     edges: list[tuple[str, str]] = []
     if owns_retrieval(cfg.scope):
@@ -218,13 +205,7 @@ def _guard(fn):
 
 
 class _Loop:
-    """One question's mutable loop state, plus the resources every node and
-    router needs — a small object so the six node methods and three routers
-    below read `self.x` rather than each closing over the same ten names
-    (`index`, `cfg`, `agent_cfg`, `question`, `query_date`, `llm`, `roles`,
-    `trace`, `best`, `visits`, `hop_traces`) the way they used to as nested
-    closures inside `run`. One instance per call to `run`, never reused
-    across questions."""
+    """One question's mutable loop state plus the resources every node and router needs, so they read `self.x` rather than each closing over the same names; one instance per call to `run`, never reused across questions."""
 
     def __init__(self, index, cfg: LabConfig, question: str, query_date: str,
                 llm, roles: Roles, trace: dict | None):

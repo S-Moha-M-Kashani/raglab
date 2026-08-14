@@ -70,12 +70,7 @@ def json_safe(value):
 def _row_shape(*, run_id: str, label: str, started_at: str, seconds: float,
               config: dict, dataset: str, summary: dict, ragas: dict,
               selection: dict, n_questions: int) -> dict:
-    """The row `RunResult.brief()` and `list_runs` both build — run id, label
-    and timing, the config and dataset, the summary and RAGAS scores, and
-    which questions and judge produced them. `selection` and `n_questions` are
-    taken as already computed, because the two callers disagree about what
-    belongs in each (`brief()` strips the question ids; `list_runs` keeps
-    them) — a difference this shape must not paper over."""
+    """The row `RunResult.brief()` and `list_runs` both build; `selection`/`n_questions` are taken pre-computed since the two callers disagree about what each strips (`brief()` drops question ids, `list_runs` keeps them)."""
     return {'run_id': run_id, 'label': label, 'started_at': started_at,
             'seconds': seconds, 'config': config, 'dataset': dataset,
             'summary': summary,
@@ -280,12 +275,7 @@ def _gold_trace_row(question: dict, trace: dict, index, norm_chunks: list) -> di
 
 @dataclass(frozen=True)
 class _RunSetup:
-    """What `run_retrieval` and `run_eval` both need before they loop over
-    questions — the same ~ten lines the two used to open with, built once by
-    `_prepare_run` instead of by hand in each. `started` is the clock reading
-    taken immediately after validation succeeds, before anything else runs —
-    `run_eval` derives its run id and `started_at` from it; `run_retrieval`
-    never captured a start time and does not read this field."""
+    """What `run_retrieval` and `run_eval` both need before their question loop, built once by `_prepare_run`; `started` is read right after validation and only `run_eval` derives its run id/started_at from it."""
     started: float
     report: Callable
     check_cancelled: Callable
@@ -303,20 +293,7 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                  limit: int | None, difficulty: list[str] | None, balance: str,
                  progress, cancelled, need_norm_chunks: bool,
                  recheck_after_index: bool) -> _RunSetup:
-    """The setup `run_retrieval` and `run_eval` both open with: validate the
-    config and the provider, build the progress reporter, get (or build) the
-    index, select the questions, resolve the query date, the LLM and the model
-    roles. `need_norm_chunks` and `recheck_after_index` are the two points
-    where the two openings actually differed rather than merely repeated one
-    another: `run_retrieval` always normalises the chunks (every row needs a
-    gold count) and checks cancellation once before the index build;
-    `run_eval` normalises them only for a traced run and checks cancellation
-    again right after the index build lands. `started` is read here, right
-    after validation and before the index build, because
-    `models.provider_problems` can be a network round trip against the
-    backend's `/api/tags` — `run_eval`'s run id and `started_at` must be
-    timestamped after that call resolves, not before it, or a slow or
-    unreachable backend would stretch the recorded start time backwards."""
+    """The setup `run_retrieval` and `run_eval` both open with; `need_norm_chunks`/`recheck_after_index` are the two points where the two callers differ. `started` is read here, right after validation and before the index build, because `models.provider_problems` can be a network round trip — `run_eval`'s run id and `started_at` must be timestamped after that call resolves, not before it, or a slow or unreachable backend would stretch the recorded start time backwards."""
     problems = cfg.validate() + models.provider_problems(cfg, settings)
     if problems:
         raise ValueError('; '.join(problems))

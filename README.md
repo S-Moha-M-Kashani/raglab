@@ -62,7 +62,9 @@ rather than repairing it, and names every problem it found.
 - `.runs/` — one JSON file per evaluation run. Git-ignored.
 - `databases/raglab.db` — one row per finished experiment. `RAGLAB_DB`
   overrides the path.
-- `.screens/` — judge screens. Committed, not git-ignored.
+- `.screens/` — one JSON file per judge screen, the evidence for which model
+  was allowed to grade the deciding metrics. Git-ignored, so keep it if you
+  care which judge produced a number.
 
 ## Background
 

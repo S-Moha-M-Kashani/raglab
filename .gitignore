@@ -7,10 +7,6 @@ __pycache__/
 # memory and are discarded with it. Reproducible from the fixtures,
 # machine-specific, appended to on every sweep.
 .runs/
-# `.screens/` is deliberately NOT ignored. A judge screen is the evidence for
-# which model was allowed to grade the four deciding metrics, so it is part of
-# the argument rather than an artifact of a machine — and the one thing this
-# project has already lost to a wiped scratch directory.
 
 # Datasets imported through the panel. The four bundled samples in
 # fixtures/groundtruth_datasets/ are part of the repository — they are reference
@@ -29,4 +25,7 @@ __pycache__/
 
 # Notes, plans and reports. Kept on this machine, not in the repository.
 docs/
+
+# One JSON file per judge screen — the evidence for which model was allowed to
+# grade the deciding metrics. Machine-local, like the runs it qualifies.
 .screens/

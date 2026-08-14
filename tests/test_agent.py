@@ -8,8 +8,6 @@ safety property under test there.
 
 Uses `token-hash`, not `ascii-hash`: the corpus is Farsi and ascii-hash embeds
 it to the zero vector."""
-import time
-
 import pytest
 
 from raglab import agent, config, explain, metrics, pipeline
@@ -20,6 +18,8 @@ from raglab.config import (AgentConfig, CRITICS, IndexConfig, LabConfig,
 from raglab.corpus import load_diary, load_ground_truth
 from raglab.index import IndexRegistry
 from raglab.llm import FakeChat
+
+from conftest import _finished
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
@@ -541,16 +541,6 @@ def client():
 
     from raglab.server import create_app
     return TestClient(create_app())
-
-
-def _finished(client, job_id: str, timeout: float = 60.0) -> dict:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] not in ('running', 'cancelling'):
-            return job
-        time.sleep(0.01)
-    raise AssertionError(f'job {job_id} still running after {timeout}s')
 
 
 def test_the_panel_offers_every_scope_and_says_which_can_run(client):

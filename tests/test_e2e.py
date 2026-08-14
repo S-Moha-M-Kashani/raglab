@@ -6,34 +6,18 @@ whole lab is rewritten as a direct call — see constraints.md.
 Smoke set (`fixtures/groundtruth_datasets/smoke-mini.json`, 5 sessions, 6
 questions) with `token-hash` (no model download) and the conftest-pinned
 `fake` provider, so this stays fast."""
-import time
-
-from fastapi.testclient import TestClient
-
 from raglab import evaluate
 from raglab.llm_tools import leaderboard
-from raglab.server import create_app
+
+from conftest import SMOKE_INDEX, _finished
 
 
-def _finished(client, job_id: str, timeout: float = 30.0) -> dict:
-    """Poll a job to its terminal state, the way both frontends do."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] not in ('running', 'cancelling'):
-            return job
-        time.sleep(0.01)
-    raise AssertionError(f'job {job_id} still running after {timeout}s')
-
-
-def test_the_lab_runs_one_experiment_end_to_end(tmp_path, monkeypatch):
+def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):
     # this is an end-to-end test
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')
-    client = TestClient(create_app())
 
-    index_cfg = {'dataset': 'smoke-mini', 'chunker': 'session',
-                'embedder': 'token-hash'}
+    index_cfg = dict(SMOKE_INDEX)
 
     # 1. build the index over the smoke set.
     built = client.post('/api/indexes', json={'index': index_cfg})

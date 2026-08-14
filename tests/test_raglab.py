@@ -9,6 +9,7 @@ onto other banners without one of their own."""
 import ast
 import json
 import os
+import threading
 from dataclasses import replace
 
 import pytest
@@ -16,12 +17,13 @@ import pytest
 from raglab import (baseline, config, corpus,
                     evaluate, explain, metrics, models, pipeline,
                     ragas_eval, retrieval)
+from raglab import index as index_module
 from raglab.llm_tools import sweep
 from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
                             LabConfig, LabSettings, RetrievalConfig)
 from raglab.index import IndexRegistry
 
-from conftest import LAB_SETTINGS, RAGLAB_DIR, _finished
+from conftest import LAB_SETTINGS, RAGLAB_DIR, _finished, drain_jobs
 
 
 # --- evaluation harness ----------------------------------------------------
@@ -566,6 +568,10 @@ def test_starting_work_creates_a_job_and_says_where_to_watch_it(client):
         assert res.headers['Location'] == f'/api/jobs/{job_id}'
         # And the url it points at is real.
         assert client.get(res.headers['Location']).status_code == 200
+        # Drained before the next iteration — the client is module-scoped and
+        # only one job runs at a time, so a leaked job here would hand the
+        # next post (or the next test) a spurious 409.
+        _finished(client, job_id)
 
 
 def test_evaluations_lists_and_fetches_the_same_resource(client):
@@ -622,24 +628,43 @@ def test_the_query_job_hands_its_reporter_to_the_index_build(monkeypatch):
     assert callable(seen.get('progress'))
 
 
-def test_a_second_job_is_refused_in_readable_english(client):
+def test_a_second_job_is_refused_in_readable_english(client, monkeypatch):
     """The refusal read 'a index job is still stopping' — wrong article, and
     'stopping' for a job that is running. A message describing the wrong state
-    sends the reader looking for a bug that is not there."""
-    first = client.post('/api/indexes', json={
-        'index': {'chunker': 'message', 'embedder': 'token-hash'}})
-    assert first.status_code == 202
-    second = client.post('/api/indexes', json={
-        'index': {'chunker': 'turn-pair', 'embedder': 'token-hash'}})
-    if second.status_code == 409:
+    sends the reader looking for a bug that is not there.
+
+    The race this pins used to be conditional on scheduling luck: the first
+    job could finish before the second post landed, and the test would pass
+    having exercised nothing. Held open on a `threading.Event`-blocked
+    chunker instead, so the first job is provably still running when the
+    second is posted."""
+    entered = threading.Event()
+    release = threading.Event()
+    original = index_module.chunk_session
+
+    def held(session, cfg, embedder):
+        entered.set()
+        release.wait(timeout=5)
+        return original(session, cfg, embedder)
+
+    monkeypatch.setattr(index_module, 'chunk_session', held)
+    try:
+        first = client.post('/api/indexes', json={
+            'index': {'chunker': 'message', 'embedder': 'token-hash'}})
+        assert first.status_code == 202
+        assert entered.wait(timeout=5), 'the first job never reached the chunker'
+
+        second = client.post('/api/indexes', json={
+            'index': {'chunker': 'turn-pair', 'embedder': 'token-hash'}})
+        assert second.status_code == 409
         detail = second.json()['detail']
         assert 'a index' not in detail
         assert 'an index job is already running' in detail
-    # Drained before returning, since the client is module-scoped: leaving a
-    # job running here would hand the next test a spurious 409.
-    for res in (first, second):
-        if res.status_code == 202:
-            _finished(client, res.json()['job_id'])
+    finally:
+        # Unblock the held job and drain it, since the client is module-scoped:
+        # leaving a job running here would hand the next test a spurious 409.
+        release.set()
+        drain_jobs(client)
 
 
 def test_jobs_index_lists_runs_with_their_config(client):

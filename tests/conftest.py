@@ -4,6 +4,7 @@ import os
 import time
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -66,6 +67,27 @@ def session(diary):
     return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
 
 
+# The smoke corpus (`fixtures/groundtruth_datasets/smoke-mini.json`, 5
+# sessions, 6 questions) with `token-hash`, which needs no model download —
+# every integration test that needs *an* index rather than specifically the
+# 167-session Farsi diary reaches for this instead of building the big one.
+SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',
+               'embedder': 'token-hash'}
+
+
+@pytest.fixture(scope='session')
+def smoke_index():
+    """Built at most once per suite run (nothing here mutates it, so
+    session-scoped is safe): `.config` is the plain dict to POST at
+    `/api/indexes` / `/api/evaluations`, `.index` is the built `LabIndex`
+    (`.index.cfg.fingerprint()`, `.index.stats.collection`) for tests that
+    call the registry directly instead of going through HTTP."""
+    from raglab.index import IndexRegistry as _Registry
+    reg = _Registry(LAB_SETTINGS)
+    built = reg.get(IndexConfig(**SMOKE_INDEX))
+    return SimpleNamespace(config=dict(SMOKE_INDEX), index=built, registry=reg)
+
+
 def _finished(client, job_id: str, timeout: float = 30.0) -> dict:
     """Poll a job to its terminal state, the way both frontends do."""
     deadline = time.time() + timeout
@@ -75,6 +97,17 @@ def _finished(client, job_id: str, timeout: float = 30.0) -> dict:
             return job
         time.sleep(0.01)
     raise AssertionError(f'job {job_id} still running after {timeout}s')
+
+
+def drain_jobs(client) -> None:
+    """Poll every job this client's app still has running to a terminal
+    state. The job table allows exactly one job at a time (`Jobs.start`'s
+    lock), so a test that starts one and does not wait for it leaves it
+    running for whichever test asks next — this is the `finally` (or
+    end-of-test) call that prevents that leak."""
+    for job in client.get('/api/jobs').json()['jobs']:
+        if job['state'] in ('running', 'cancelling'):
+            _finished(client, job['id'])
 
 
 @pytest.fixture(autouse=True, scope='session')

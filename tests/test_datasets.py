@@ -19,6 +19,8 @@ from raglab import datasets
 from raglab.llm_tools import leaderboard
 from raglab.config import IndexConfig, LabConfig
 
+from conftest import _finished
+
 BUNDLED = ('support-en', 'meetings-de', 'research-multihop', 'smoke-mini')
 
 
@@ -414,13 +416,3 @@ def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     assert '/api/datasets' in js
     assert 'One table per dataset' in html
     assert 'byDataset' in js, 'the leaderboard renders one table per corpus'
-
-
-def _finished(client, job_id: str) -> dict:
-    import time
-    for _ in range(600):
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] != 'running':
-            return job
-        time.sleep(0.05)
-    raise AssertionError('job never finished')

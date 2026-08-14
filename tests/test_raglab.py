@@ -543,6 +543,7 @@ def test_a_model_role_is_serialised_with_its_step():
 # `test_evaluations_lists_and_fetches_the_same_resource` moved to
 # tests/test_server.py's route-contract group (Step 3 of the test-plan).
 
+
 def test_starting_work_creates_a_job_and_says_where_to_watch_it(client):
     """202 rather than 200: the work has been accepted, not done — the response
     body is a receipt, not a result. `Location` points at the job so a caller

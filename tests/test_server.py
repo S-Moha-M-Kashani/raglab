@@ -1,13 +1,18 @@
 """The service — the lab's own FastAPI app, served at /api/options and the
 ad hoc query endpoint.
 
-Twelve of the tests that used to live here each hit `/api/options` once and
-asserted one slice of it; they are merged below into three grouped-assert
-tests (`test_options_describe_the_corpus_the_knobs_and_the_metrics`,
-`test_options_offer_models_embedders_and_datasets_per_backend`,
-`test_options_advertise_no_vector_database`) so the endpoint is exercised
-once per topic instead of once per field. Every assertion those twelve made
-still appears somewhere below — see the Step 3 report for the mapping."""
+`/api/options` is exercised by three grouped-assert tests, one per topic
+rather than one per field:
+`test_options_describe_the_corpus_the_knobs_and_the_metrics` (corpus counts,
+question types, knob help text, the metric definitions block, the
+steps/colour map, dependency rules), `test_options_offer_models_embedders_and_datasets_per_backend`
+(model roles, embedder hints and languages, the embed-model catalogue,
+provider modes, the dataset catalogue) and `test_options_advertise_no_vector_database`
+(the storage/capabilities claim, merged with the health check). The rest of
+the file is the query endpoint (a smoke-index round trip plus a direct
+`LabConfig.from_dict` unit test for its optional model fields), the ragas
+judge-model plumbing, and the route-contract group — two of those moved in
+from `test_raglab.py`."""
 import pytest
 
 from raglab import models, pipeline
@@ -232,19 +237,22 @@ def test_ad_hoc_query_returns_stages_and_contexts(client, smoke_index):
     # this is an integration test
     """The one kept round trip through `/api/queries`: the smoke set answers
     in milliseconds, so what this proves is the job's wiring, not a full
-    corpus build. (Farsi time-scope resolution — the specific claim the
-    original diary-backed version of this test made about `time_scope`'s
-    label — is a unit claim pinned directly in test_primitives.py; the smoke
-    set is English and has nothing for it to resolve, so what is checked
-    here is that the key still round-trips through the job result.)"""
+    corpus build. The Farsi time-scope label this test used to check against
+    the diary now has its own direct unit assertion in
+    `test_primitives.py::test_time_scopes_resolve_to_the_right_window` —
+    a cheaper home for it than an HTTP round trip. `resolve_time_scope`
+    matches only Farsi Jalali month/season/holiday names, and this question
+    is English, so `time_scope` is expected to be `None` here rather than
+    merely present — asserting the key merely exists would pass whether or
+    not resolution ever ran, which is not a real check."""
     body = _ask(client, {
         'question': 'What broke in the kitchen?',
-        'index': dict(smoke_index.config),
+        'index': smoke_index.config,
         'retrieval': {'k': 3},
         'generation': {'answerer': 'extractive'}})
     assert body['contexts'] and body['answer']
     assert 'retrieve_ms' in body['timings']
-    assert 'time_scope' in body
+    assert body['time_scope'] is None
 
 
 def test_lab_config_accepts_the_embed_model_and_per_task_model_fields():

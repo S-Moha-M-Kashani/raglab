@@ -309,6 +309,8 @@ def test_time_scopes_resolve_to_the_right_window(question, expect_from, expect_t
     scope = query.resolve_time_scope(question, '2026-07-28')
     assert scope is not None, question
     assert (scope.from_int, scope.to_int) == (expect_from, expect_to)
+    assert scope.label == {'آذر چه خبر بود؟': 'آذر', 'پارسال پاییز حالم چطور بود؟': 'پاییز پارسال',
+                           'نوروز چی شد؟': 'نوروز'}[question]
 
 
 def test_untimed_question_has_no_scope():

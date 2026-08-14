@@ -16,7 +16,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import (agent, credentials, datasets, embedding, evaluate, explain,
-               ledger, metrics, models, pipeline, ragas_eval, retrieval)
+               ledger, metrics, models, pipeline, ragas_eval, retrieval,
+               widget)
 from .config import (ANSWERERS, BALANCES, CHUNKERS, CRITICS, DEPENDENCIES,
                      DIFFICULTIES, EMBEDDERS, GRADERS, GRAPH_SOURCES,
                      HIERARCHIES, PRODUCTION_CONFIG, RERANKERS, RETRIEVERS,
@@ -574,6 +575,19 @@ def create_app() -> FastAPI:
         """Forget the key this panel supplied; never unsets the environment's own."""
         credentials.clear()
         return credentials.state(settings_now())
+
+    @app.post('/api/widget')
+    def widget_chat(payload: dict):
+        """The corner widget's one endpoint: a question in, the agent's reply
+        out. Synchronous, not a job — a chat turn is a request, not a run."""
+        message = (payload.get('message') or '').strip()
+        if not message:
+            raise HTTPException(400, 'message is empty')
+        try:
+            return {'reply': widget.ask(message)}
+        except widget.WidgetUnavailable as error:
+            # The lab is up; its widget is not — the /api/queries split.
+            raise HTTPException(502, str(error))
 
     @app.get('/api/health')
     def health():

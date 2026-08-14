@@ -404,3 +404,30 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it():
         # problem rather than the fix.
         if provider and provider != 'fake':
             assert provider in hint[0], provider
+
+
+# --- the LLM widget: a window in the corner, not a stage ----------------
+
+def test_the_widget_pops_up_from_the_lower_right_corner():
+    """The launcher and its window are fixed to the page's lower-right
+    corner; a widget that scrolls with the panel is a fourth card, not a
+    widget."""
+    html = (RAGLAB_DIR / 'static' / 'index.html').read_text(encoding='utf-8')
+    for element in ('widget-launch', 'widget-window', 'widget-log',
+                    'widget-input', 'widget-send'):
+        assert f'id="{element}"' in html, element
+
+    css = (RAGLAB_DIR / 'static' / 'panel.css').read_text(encoding='utf-8')
+    corner = css[css.index('.widget'):]
+    assert 'position: fixed' in corner
+    assert 'right:' in corner and 'bottom:' in corner
+    # The widget is not a pipeline stage, so it wears no step ink.
+    assert '--step-' not in corner
+
+
+def test_the_widgets_script_talks_to_the_widget_route():
+    js = (RAGLAB_DIR / 'static' / 'panel.js').read_text(encoding='utf-8')
+    assert "/api/widget" in js
+    assert 'escapeHtml' in js[js.index('widget'):], (
+        'replies are model output rendered into the page — they go through '
+        'the shared escaper like every other untrusted string')

@@ -1119,3 +1119,44 @@ window.showRun = async (runId) => {
 };
 
 boot();
+
+// --- the LLM widget: one module behind /api/widget, a window in the corner --
+// Replies are model output rendered into the page, so they pass through the
+// shared escapeHtml like every other untrusted string.
+
+function widgetSay(kind, text) {
+  const log = $('widget-log');
+  log.insertAdjacentHTML('beforeend',
+    `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function widgetAsk(message) {
+  widgetSay('you', message);
+  $('widget-send').disabled = true;
+  try {
+    const data = await api('/api/widget', { message });
+    widgetSay('bot', data.reply);
+  } catch (error) {
+    widgetSay('err', error.message);
+  } finally {
+    $('widget-send').disabled = false;
+    $('widget-input').focus();
+  }
+}
+
+$('widget-launch').addEventListener('click', () => {
+  const win = $('widget-window');
+  win.hidden = !win.hidden;
+  if (!win.hidden) $('widget-input').focus();
+});
+
+$('widget-close').addEventListener('click', () => { $('widget-window').hidden = true; });
+
+$('widget-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const message = $('widget-input').value.trim();
+  if (!message) return;
+  $('widget-input').value = '';
+  widgetAsk(message);
+});

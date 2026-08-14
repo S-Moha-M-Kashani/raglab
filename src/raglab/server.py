@@ -163,7 +163,6 @@ def _capabilities(live) -> dict:
 def _dataset_options() -> dict:
     return {
         'datasets': [found.as_dict() for found in datasets.catalogue()],
-        'dataset_contract': 'docs/groundtruth-dataset-contract.md',
     }
 
 

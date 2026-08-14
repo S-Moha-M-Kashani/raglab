@@ -53,9 +53,9 @@ notes, English research notes weighted to multi-hop, and a five-session smoke
 set.
 
 Bring your own with **Import a dataset** in the panel, or `POST
-/api/datasets`. One JSON file, contract in
-`docs/groundtruth-dataset-contract.md` — the lab refuses a file that does not
-match it rather than repairing it.
+/api/datasets`. One JSON file; the panel states the shape it expects behind the
+`!` beside the file picker. The lab refuses a file that does not match it
+rather than repairing it, and names every problem it found.
 
 ## What gets written where
 
@@ -68,6 +68,6 @@ match it rather than repairing it.
 
 This code lived at `brain/tests/raglab/` in the Lodestar repository until
 2026-08-11, where it decided that project's retrieval architecture. The
-measured argument, with run ids, is in `docs/rag-architecture.md`. Design
-history and the reasoning behind individual decisions are in `docs/` and
-`CLAUDE.md`.
+reasoning behind individual decisions is in `CLAUDE.md`. The measured argument
+with run ids, the design notes and the per-question walkthroughs are kept
+outside the repository.

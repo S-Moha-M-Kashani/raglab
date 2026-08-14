@@ -26,3 +26,6 @@ __pycache__/
 .docs
 .superpowers/
 .pytest_cache/
+
+# Notes, plans and reports. Kept on this machine, not in the repository.
+docs/

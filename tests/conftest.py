@@ -120,7 +120,8 @@ def _runs_dir_is_never_the_real_one(tmp_path_factory):
     `monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)` still wins.
     `config.RUNS_DIR` is left pointing at the real path on purpose: it is what
     the invariant test compares against."""
-    from raglab import evaluate, sweep
+    from raglab import evaluate
+    from raglab.llm_tools import sweep
     runs = tmp_path_factory.mktemp('raglab-runs')
     saved = {module: module.RUNS_DIR for module in (evaluate, sweep)}
     for module in saved:

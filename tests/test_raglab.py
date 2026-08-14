@@ -15,7 +15,8 @@ import pytest
 
 from raglab import (baseline, config, corpus,
                     evaluate, explain, metrics, models, pipeline,
-                    ragas_eval, retrieval, sweep)
+                    ragas_eval, retrieval)
+from raglab.llm_tools import sweep
 from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
                             LabConfig, LabSettings, RetrievalConfig)
 from raglab.index import IndexRegistry
@@ -1054,7 +1055,7 @@ def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():
     stop at. Read out of the source rather than triggered: `judged_settings`
     and `screen` answer with `sys.exit`, which would end the test itself."""
     for name in ('sweep.py', 'judgescreen.py'):
-        tree = ast.parse((RAGLAB_DIR / name).read_text(encoding='utf-8'))
+        tree = ast.parse((RAGLAB_DIR / 'llm_tools' / name).read_text(encoding='utf-8'))
         refusals = [node.args[0].value for node in ast.walk(tree)
                     if isinstance(node, ast.Call)
                     and getattr(node.func, 'attr', '') == 'exit'

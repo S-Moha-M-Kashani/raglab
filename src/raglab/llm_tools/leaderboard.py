@@ -7,8 +7,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import RUNS_DIR
-from .evaluate import list_runs
+from ..config import RUNS_DIR
+from ..evaluate import list_runs
 
 
 @dataclass

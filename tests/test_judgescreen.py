@@ -5,7 +5,8 @@ from dataclasses import replace
 
 import pytest
 
-from raglab import corpus, judgescreen, models, textnorm
+from raglab import corpus, models, textnorm
+from raglab.llm_tools import judgescreen
 from raglab.config import GenerationConfig, LabConfig
 
 from conftest import LAB_SETTINGS
@@ -135,7 +136,7 @@ def test_a_constant_judge_is_reported_as_degenerate_not_as_fifty_percent():
     """The field that decides. A model answering the same way every time is
     unusable at any accuracy, because it cannot separate two candidates — and on
     a balanced set it posts 0.5, which reads like a merely weak judge."""
-    from raglab.judgescreen import Call, score
+    from raglab.llm_tools.judgescreen import Call, score
     calls = [Call(item_id=f'i{i}', supported=i % 2 == 0, verdict=1, parsed=True,
                   seconds=1.0, prompt='p', reply='r') for i in range(8)]
     result = score(calls)
@@ -146,7 +147,7 @@ def test_a_constant_judge_is_reported_as_degenerate_not_as_fifty_percent():
 
 
 def test_a_judge_that_tracks_the_claim_is_not_flagged_degenerate():
-    from raglab.judgescreen import Call, score
+    from raglab.llm_tools.judgescreen import Call, score
     calls = [Call(item_id=f'i{i}', supported=i % 2 == 0,
                   verdict=int(i % 2 == 0), parsed=True, seconds=1.0,
                   prompt='p', reply='r') for i in range(8)]
@@ -158,7 +159,7 @@ def test_unparseable_replies_are_counted_separately_from_wrong_ones():
     """Two different problems with two different fixes: a prompt/format issue and
     a comprehension issue. Folding them together would send you tuning the wrong
     one."""
-    from raglab.judgescreen import Call, score
+    from raglab.llm_tools.judgescreen import Call, score
     calls = [Call(item_id='a', supported=True, verdict=1, parsed=True,
                   seconds=1.0, prompt='p', reply='r'),
              Call(item_id='b', supported=False, verdict=None, parsed=False,
@@ -183,7 +184,7 @@ def test_the_screen_keeps_every_prompt_and_reply_it_sent():
     nobody can check from a bare number."""
     from dataclasses import fields
 
-    from raglab.judgescreen import Call
+    from raglab.llm_tools.judgescreen import Call
     names = {f.name for f in fields(Call)}
     assert {'prompt', 'reply', 'verdict', 'parsed', 'seconds', 'usage'} <= names
 

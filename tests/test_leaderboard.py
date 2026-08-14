@@ -2,7 +2,8 @@
 question set and judge before ranking anything."""
 import json
 
-from raglab import evaluate, leaderboard, sweep
+from raglab import evaluate
+from raglab.llm_tools import leaderboard, sweep
 
 
 # --- the leaderboard, and what it refuses to rank together ------------------

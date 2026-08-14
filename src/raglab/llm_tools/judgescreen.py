@@ -10,11 +10,11 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import textnorm
+from .. import textnorm
 
-from . import corpus
-from .config import load_lab_settings
-from .llm import judge_llm
+from .. import corpus
+from ..config import load_lab_settings
+from ..llm import judge_llm
 
 SCREENS_DIR = Path(__file__).resolve().parents[2] / '.screens'
 

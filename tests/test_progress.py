@@ -3,7 +3,8 @@ from a hang, so every phase says where it is."""
 import threading
 import time
 
-from raglab import config, evaluate, explain, ragas_eval, sweep
+from raglab import config, evaluate, explain, ragas_eval
+from raglab.llm_tools import sweep
 from raglab.config import GenerationConfig, IndexConfig, LabConfig
 
 from conftest import LAB_SETTINGS

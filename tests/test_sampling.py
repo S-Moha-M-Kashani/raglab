@@ -2,7 +2,8 @@
 questions are a stated, deterministic, comparable choice."""
 import pytest
 
-from raglab import config, evaluate, sweep
+from raglab import config, evaluate
+from raglab.llm_tools import sweep
 from raglab.config import GenerationConfig, IndexConfig, LabConfig
 
 from conftest import LAB_SETTINGS

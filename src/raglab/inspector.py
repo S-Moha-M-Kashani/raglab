@@ -248,6 +248,7 @@ def create_inspector_app() -> FastAPI:
             raise HTTPException(404, f'unknown question id: {qid!r}')
         run_settings = settings_for_provider(settings,
                                              payload.get('provider') or '')
+        screen(cfg, run_settings)
         query_date = payload.get('query_date') or asked['meta']['query_date']
 
         def work(report):

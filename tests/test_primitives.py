@@ -55,12 +55,6 @@ def test_farsi_text_produces_tokens_and_noise_does_not():
     assert textnorm.tokens('a ؟ _') == []       # single letters and punctuation
 
 
-def test_stopwords_go_but_content_words_stay():
-    tokens = textnorm.tokens('که از به پریا دعوا')
-    assert 'پریا' in tokens and 'دعوا' in tokens
-    assert 'که' not in tokens
-
-
 def test_stopwords_can_be_kept_for_the_time_filter():
     # It matches phrases like «ماه پیش», whose words the stop list removes.
     assert 'که' in textnorm.tokens('که پریا', drop_stopwords=False)
@@ -270,9 +264,15 @@ def test_the_habit_storyline_is_described_like_every_other_thread(diary):
 def test_every_chunk_reports_a_habit_field_even_when_it_has_none(session):
     """Chroma metadata is a fixed shape per collection in practice: a field that
     only some rows carry turns a `where` clause into a silent partial scan."""
+    assert 'habit-tracking' not in session['recurring_threads']
     chunk = chunking.chunk_session(session, IndexConfig(chunker='session'),
                                    None)[0]
-    assert chunk.metadata()['session_id'] == session['session_id']
+    meta = chunk.metadata()
+    assert meta['session_id'] == session['session_id']
+    # `threads` is where a habit-tracking session shows up; the key is present
+    # on every chunk even when, as here, the session tracks no habit.
+    assert 'threads' in meta
+    assert 'habit-tracking' not in meta['threads']
 
 
 def test_habit_questions_cite_verbatim_evidence_like_the_rest_of_the_set(

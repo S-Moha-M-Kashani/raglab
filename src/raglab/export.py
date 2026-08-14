@@ -1,17 +1,5 @@
-"""Write a finished run out as one readable page per question — what the
-pipeline retrieved, said, and was graded on, argued in a way the leaderboard's
-single number cannot.
-
-**This module only reports what the run stored.** Retrieved sessions are the
-ids the run recorded, never re-run to reconstruct chunk text, which would
-document a different retrieval against a possibly rebuilt index. The four
-deciding RAGAS metrics are stored as run means, not per sample, and are labelled
-as such on every page — an unlabelled 0.77 beside one question would read as
-that question's faithfulness.
-
-"Answered correctly" is evidence-based, not judged, since no judged per-question
-grade is stored: an answerable question counts when the pipeline did not refuse
-and reached a gold session; an unanswerable one counts when it refused.
+"""Write a finished run out as one readable page per question — what the pipeline retrieved, said, and was graded on, argued in a way the leaderboard's single number cannot.
+This module only reports what the run stored; it never re-runs retrieval or re-derives a judged score, so every number on a page is checkable against the run file it came from.
 """
 from pathlib import Path
 
@@ -36,6 +24,7 @@ def _num(value, places: int = 4) -> str:
 
 
 def _numeric_mean(values: list) -> float | None:
+    # Unlike metrics._mean, this keeps NaN — isinstance(v, (int, float)) does not filter it out.
     kept = [float(v) for v in values if isinstance(v, (int, float))]
     return round(sum(kept) / len(kept), 4) if kept else None
 

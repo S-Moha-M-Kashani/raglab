@@ -1,17 +1,6 @@
-"""Screen a model before letting it judge — a held-out task with known answers.
-
-A supported claim is one sentence of a question's verified answer against its
-own evidence; its unsupported twin is the same sentence with one number changed
-to one the context never states. Two failure modes are scored separately because
-they are fixed differently: degeneracy (a constant predictor, caught by per-class
-accuracy) and schema adherence (RAGAS retries malformed JSON, so `parsed` is
-counted per call). See docs/decisions.md for why the context is dated and the
-claim is one sentence.
-
-    uv run raglab-judgescreen --models qwen3.5:2b gemma4:e2b
-
-The judge must be chosen by its score here **before** looking at the leaderboard
-it would produce — choosing the judge whose ranking you liked is judge-shopping.
+"""Screen a model before letting it judge, on a held-out task with known answers built by `_mutate_number` (see docs/decisions.md for why the context is dated and the claim is one sentence).
+Degeneracy and schema adherence are scored separately (`score`'s `degenerate`, and `parsed` since RAGAS retries malformed JSON) because the two are fixed differently.
+The judge must be chosen by its score here **before** looking at the leaderboard it would produce — that is judge-shopping.
 """
 import argparse
 import json

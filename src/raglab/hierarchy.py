@@ -72,6 +72,7 @@ def _knn_edges(vectors: np.ndarray, k: int) -> dict[tuple[int, int], float]:
     if vectors.shape[0] < 2:
         return edges
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    # Guards on < 1e-12, not == 0 like store.py/embedding.py: a tiny-but-nonzero norm is left unscaled rather than blown up.
     unit = vectors / np.where(norms < 1e-12, 1.0, norms)
     similarity = unit @ unit.T
     np.fill_diagonal(similarity, -2.0)

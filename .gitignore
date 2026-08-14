@@ -29,3 +29,4 @@ __pycache__/
 
 # Notes, plans and reports. Kept on this machine, not in the repository.
 docs/
+.screens/

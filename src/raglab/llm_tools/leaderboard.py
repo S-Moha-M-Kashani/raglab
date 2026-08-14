@@ -1,5 +1,5 @@
 """Build the leaderboard from `.runs/`, and refuse to rank rows that are not comparable — group first, rank second, since a decision score is comparable only against rows judged on the same questions by the same judge.
-`uv run raglab-leaderboard` prints it; `--write docs/rag-leaderboard.md` writes it.
+`uv run raglab-leaderboard` prints it; `--write <path>` writes it.
 Nothing here recomputes a score: it reads what the runs stored, so a number can always be checked against the run id on its row.
 """
 import argparse
@@ -7,8 +7,8 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .config import RUNS_DIR
-from .evaluate import list_runs
+from ..config import RUNS_DIR
+from ..evaluate import list_runs
 
 
 @dataclass

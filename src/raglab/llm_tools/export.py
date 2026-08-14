@@ -3,8 +3,8 @@ This module only reports what the run stored; it never re-runs retrieval or re-d
 """
 from pathlib import Path
 
-from . import metrics
-from .config import DIFFICULTIES
+from .. import metrics
+from ..config import DIFFICULTIES
 
 # In the order a reader wants them. `metrics.MEASURES` supplies each one's
 # definition, so this list holds no wording of its own.
@@ -175,7 +175,7 @@ def question_page(run: dict, question: dict, row: dict) -> str:
     body.append(['Answered from the right evidence', '`answered`',
                  'yes' if answered_correctly(row) else 'no',
                  '`(answerable ∧ ¬refused ∧ hit) ∨ (¬answerable ∧ refused)`',
-                 'raglab.export.answered_correctly (no model)'])
+                 'raglab.llm_tools.export.answered_correctly (no model)'])
     parts += [_table(['Grade', 'Key', 'Value', 'Formula', 'Computed by'], body), '']
 
     judged = (run.get('ragas') or {}).get('metrics') or {}

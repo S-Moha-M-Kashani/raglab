@@ -15,7 +15,8 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from raglab import datasets, leaderboard
+from raglab import datasets
+from raglab.llm_tools import leaderboard
 from raglab.config import IndexConfig, LabConfig
 
 BUNDLED = ('support-en', 'meetings-de', 'research-multihop', 'smoke-mini')
@@ -145,7 +146,7 @@ def test_the_samples_cover_the_failure_modes_worth_measuring():
 
 
 def test_the_catalogue_leads_with_the_built_in_corpus():
-    """Every finding in docs/report is about it, and it is the default: a list
+    """Every finding this lab has produced is about it, and it is the default: a list
     ordered by whatever sorted first would put it in an arbitrary place."""
     found = datasets.catalogue()
     assert found[0].id == datasets.BUILTIN
@@ -243,7 +244,6 @@ def test_the_options_serve_the_catalogue(client):
     assert set(BUNDLED) <= set(ids)
     assert body['defaults']['index']['dataset'] == ''
     assert body['help']['index.dataset']
-    assert 'groundtruth-dataset-contract' in body['dataset_contract']
 
 
 def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
@@ -356,8 +356,7 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
 # The importer refuses rather than repairs, so a corpus that does not meet the
 # contract is a list of problems and a second attempt. The panel can spend that
 # round trip or state the shape before a file is picked; there is a whole
-# document (`docs/groundtruth-dataset-contract.md`), and nothing on screen said
-# so.
+# contract nobody on that screen knew to read, and nothing on screen said so.
 
 def test_the_import_control_describes_the_file_it_takes():
     """Keyed to the control's own id, so the panel's one explainer mechanism
@@ -381,7 +380,7 @@ def test_the_import_control_describes_the_file_it_takes():
     # The rule that earns its cost is the one a reader must not discover from a
     # rejection, and the full contract is one line away.
     assert 'verbatim' in text
-    assert 'docs/groundtruth-dataset-contract.md' in text
+    assert 'fixtures/groundtruth_datasets/' in text
 
 
 def test_the_described_shape_is_the_shape_the_importer_enforces():

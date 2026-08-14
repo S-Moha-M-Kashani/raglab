@@ -1,4 +1,4 @@
-"""Screen a model before letting it judge, on a held-out task with known answers built by `_mutate_number` (see docs/decisions.md for why the context is dated and the claim is one sentence).
+"""Screen a model before letting it judge, on a held-out task with known answers built by `_mutate_number`: the context is dated and the claim is one sentence.
 Degeneracy and schema adherence are scored separately (`score`'s `degenerate`, and `parsed` since RAGAS retries malformed JSON) because the two are fixed differently.
 The judge must be chosen by its score here **before** looking at the leaderboard it would produce — that is judge-shopping.
 """
@@ -10,13 +10,15 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import textnorm
+from .. import textnorm
 
-from . import corpus
-from .config import load_lab_settings
-from .llm import judge_llm
+from .. import corpus
+from ..config import ROOT, load_lab_settings
+from ..llm import judge_llm
 
-SCREENS_DIR = Path(__file__).resolve().parents[2] / '.screens'
+# Anchored to ROOT, not counted in `parents[n]` hops from this file: the hop
+# count broke the day the module moved into llm_tools/, pointing it at src/.
+SCREENS_DIR = ROOT / '.screens'
 
 # Shaped like RAGAS's NLIStatementOutput, so this screens the format RAGAS
 # actually asks for rather than a flatter one.
@@ -94,7 +96,7 @@ def _mutate_number(claim: str, context: list[str]) -> str | None:
 
 def dated_context(sessions: dict, question: dict) -> list[str]:
     """The cited evidence messages, each carrying the date of its session — as
-    `IndexConfig.contextual` does for the real pipeline (see docs/decisions.md)."""
+    `IndexConfig.contextual` does for the real pipeline."""
     lines: list[str] = []
     for evidence in question.get('evidence', []):
         session = sessions.get(evidence['session_id'])

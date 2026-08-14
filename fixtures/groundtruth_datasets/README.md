@@ -19,7 +19,7 @@ fictional; none of it is anybody's data.
 
 ## What makes them trustworthy
 
-Every one satisfies `docs/groundtruth-dataset-contract.md`, and
+Every one satisfies the contract `datasets.validate()` enforces, and
 `tests/test_datasets.py` re-checks that on every run of the suite. The rule that
 matters is the last one: **each evidence quote appears verbatim in the message it
 cites.** Quote recall, the Inspector's green evidence spans and the offline RAGAS

@@ -1,6 +1,6 @@
 """Exporting a run for reading — one Markdown page per question plus an
 index, built only from what a finished run stored."""
-from raglab import export
+from raglab.llm_tools import export
 
 
 # --- exporting a run for reading ------------------------------------------

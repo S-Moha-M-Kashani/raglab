@@ -9,11 +9,12 @@ import sys
 import time
 from dataclasses import replace
 
-from . import clichat, corpus, leaderboard, ragas_eval
-from .config import (BALANCES, GenerationConfig, IndexConfig, LabConfig,
+from . import leaderboard
+from .. import clichat, corpus, ragas_eval
+from ..config import (BALANCES, GenerationConfig, IndexConfig, LabConfig,
                      RetrievalConfig, RUNS_DIR, load_lab_settings)
-from .evaluate import run_eval
-from .index import IndexRegistry
+from ..evaluate import run_eval
+from ..index import IndexRegistry
 
 # Held fixed across every candidate: varying it alongside the knobs would make
 # each row differ in two things.
@@ -79,8 +80,8 @@ def candidates() -> list[LabConfig]:
                                                'grader_model': ANSWER_MODEL})
     variant('H session chunks', index={'chunker': 'session'})
     # I and J each hand exactly one stage to a bounded loop; K is the interaction
-    # term, changing both at once, and is readable only beside them — see
-    # docs/plans/2026-08-13-rag-agent-design.md. The planner and critic run on
+    # term, changing both at once, and is readable only beside them.
+    # The planner and critic run on
     # ANSWER_MODEL, held fixed like every other model here; the row is still
     # ranked by JUDGE_MODEL, so this is not the answerer grading its own output.
     variant('I agentic retrieval', agent={'scope': 'retrieve', 'max_hops': 3,

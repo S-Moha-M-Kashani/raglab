@@ -310,7 +310,7 @@ def test_the_store_filter_and_the_bm25_mask_agree_about_layers(registry):
         cfg = RetrievalConfig(summary_scope=scope)
         layers, levels = pipeline.summary_filter(cfg)
         where = query_mod.layer_clause(None, layers, levels)
-        mask = pipeline._mask(grouped, None, layers, levels)
+        mask = pipeline._allowed(grouped, None, layers, levels)
         for i, chunk in enumerate(grouped.chunks):
             assert bool(mask[i]) == matches(chunk.metadata(), where), (
                 f'{scope}: {chunk.id} disagrees between the two halves')
@@ -406,7 +406,7 @@ def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
     edge *source* builds kNN edges rather than resolving transitively."""
     from pathlib import Path
     panel = (Path(__file__).resolve().parents[1] / 'src' / 'raglab' / 'static'
-             / 'index.html').read_text(encoding='utf-8')
+             / 'panel.js').read_text(encoding='utf-8')
     assert 'function dependencyState(' in panel, (
         'the panel must resolve chains, not just single rules')
     assert 'resolve(rule.field' in panel, 'the resolution has to be transitive'

@@ -2,10 +2,6 @@ __pycache__/
 .venv/
 *.pyc
 
-# Generated local Claude worktrees contain machine-specific gitdir pointers;
-# never stage them as embedded repositories.
-.claude/worktrees/
-
 # One JSON file per eval run — the lab's only durable artifact besides the
 # ledger. The index, the retrieved contexts and the answers live in process
 # memory and are discarded with it. Reproducible from the fixtures,

@@ -310,7 +310,7 @@ class _LabEmbeddings:
 def _samples(pairs, ragas_mod, include_answers: bool,
              reference_texts: dict | None = None):
     """(question, outcome) → RAGAS samples, skipping what cannot be scored."""
-    SingleTurnSample = ragas_mod.SingleTurnSample
+    sample_cls = ragas_mod.SingleTurnSample
     samples, skipped = [], 0
     for question, outcome in pairs:
         contexts = [c.text for c in outcome.contexts]
@@ -330,7 +330,7 @@ def _samples(pairs, ragas_mod, include_answers: bool,
                 skipped += 1
                 continue
             payload['response'] = outcome.answer
-        samples.append(SingleTurnSample(**payload))
+        samples.append(sample_cls(**payload))
     return samples, skipped
 
 

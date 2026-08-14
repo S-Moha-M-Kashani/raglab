@@ -1,39 +1,13 @@
-/* Shares its token system with the panel on :9002 — a colour meaning a
- * pipeline step (`/api/options` → steps) must not be invented separately on
- * either page. `--ink-amber/green/blue` alias the step tokens rather than
- * holding values of their own, so there is one place a step's colour is set. */
+/* Shares its token system with the panel on :9002, in tokens.css, linked
+ * before this file so these rules still win — a colour meaning a pipeline
+ * step (`/api/options` → steps) must not be invented separately on either
+ * page. `--ink-amber/green/blue/plum` alias the step tokens rather than
+ * holding values of their own, so there is one place a step's colour is set.
+ * Only this page's own tokens are declared here. */
 :root {
-  --display: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
-  --body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --mono: ui-monospace, "SF Mono", "IBM Plex Mono", "Menlo", monospace;
   /* Persian first, then the faces macOS and Windows actually ship. */
   --farsi: "Vazirmatn", "IRANSansX", "IRANSans", "Geeza Pro", "Tahoma",
            "Segoe UI", sans-serif;
-
-  --chassis: #101620;
-  --chassis-soft: #1c2734;
-  --chassis-ink: #c3cdda;
-  --chassis-ink-soft: #7d8b9c;
-
-  --paper: #edf0f3;
-  --card: #ffffff;
-  --card-line: #e8ecf1;
-  --line: #d3dae2;
-  --ink: #17202b;
-  --ink-soft: #5b6875;
-  --rule-red: #a33227;
-
-  --step-index: oklch(0.56 0.14 58);
-  --step-retrieval: oklch(0.49 0.11 168);
-  --step-generation: oklch(0.50 0.15 262);
-  /* Plum: the fourth step, a loop around the other three rather than a stage.
-     Same value :9002 uses, so the two pages agree on what plum means. */
-  --step-agent: oklch(0.48 0.16 318);
-  /* Lifted for the chassis: an ink tuned for porcelain reads too dark there. */
-  --step-index-lit: oklch(0.78 0.13 62);
-  --step-retrieval-lit: oklch(0.75 0.11 168);
-  --step-generation-lit: oklch(0.76 0.11 258);
-  --step-agent-lit: oklch(0.77 0.12 318);
 
   --ink-amber: var(--step-index);        /* index */
   --ink-green: var(--step-retrieval);    /* retrieval */
@@ -52,18 +26,10 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #151b24;
-    --card: #1e2733;
-    --card-line: #2c3745;
-    --line: #33404f;
-    --ink: #e3e9ef;
-    --ink-soft: #97a4b3;
-    --rule-red: #d98376;
-    /* The lit inks become the working inks: on this theme every surface is the
-       chassis, so a step reads at the weight the chassis needs. */
-    --step-index: var(--step-index-lit);
-    --step-retrieval: var(--step-retrieval-lit);
-    --step-generation: var(--step-generation-lit);
+    /* The shared tokens' own dark values live in tokens.css. `--step-agent`
+       is the one step ink tokens.css does not re-lit for dark mode — the
+       panel never did either, but this page's agent ladder wants it, so the
+       override stays here rather than in the shared file. */
     --step-agent: var(--step-agent-lit);
     /* Well below --card, not a shade beside it, so the row-verdict distinction
        still reads against the darker card. */
@@ -78,9 +44,9 @@
 
 body {
   margin: 0;
-  font-family: var(--body);
+  font-family: var(--sans);
   color: var(--ink);
-  background-color: var(--paper);
+  background-color: var(--plate);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -98,7 +64,7 @@ select { font: inherit; color: inherit; }
   color: var(--chassis-ink);
 }
 .inspector-header h1 {
-  font-family: var(--display);
+  font-family: var(--slab);
   font-size: 1.15rem;
   font-weight: 600;
   letter-spacing: -.01em;
@@ -135,7 +101,7 @@ select { font: inherit; color: inherit; }
    weight, so the bar doubles as a diagram of where you are in the pipeline. */
 .inspector-tabs { display: flex; gap: 1.4rem; }
 .inspector-tab {
-  font: 700 .68rem/1.4 var(--body);
+  font: 700 .68rem/1.4 var(--sans);
   letter-spacing: .13em;
   text-transform: uppercase;
   background: transparent;
@@ -161,8 +127,8 @@ select { font: inherit; color: inherit; }
   font-size: .74rem;
   color: var(--ink-soft);
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 0 4px 4px 0;
-  border-left: 3px solid var(--line);
+  border: 1px solid var(--rule-soft); border-radius: 0 4px 4px 0;
+  border-left: 3px solid var(--rule);
   padding: .45rem .7rem;
   margin-bottom: .9rem;
   min-height: 1.1em;
@@ -177,13 +143,13 @@ select { font: inherit; color: inherit; }
   font-family: var(--mono); font-size: .78rem;
 }
 .inspector-controls button {
-  font: 600 .78rem/1.4 var(--body);
+  font: 600 .78rem/1.4 var(--sans);
   background: var(--card); color: var(--ink);
-  border: 1px solid var(--line); border-radius: 3px; padding: .38rem .8rem;
+  border: 1px solid var(--rule); border-radius: 3px; padding: .38rem .8rem;
 }
 .inspector-controls button:hover { background: var(--chassis); color: #fff;
                                      border-color: var(--chassis); }
-.inspector-controls select { border: 1px solid var(--line); background: var(--card);
+.inspector-controls select { border: 1px solid var(--rule); background: var(--card);
                              padding: .25rem .35rem; max-width: 22rem; }
 
 /* --- Farsi, wherever it appears ------------------------------------------- */
@@ -197,7 +163,7 @@ select { font: inherit; color: inherit; }
    Farsi question at the right edge and its English at the left. */
 .gt-row {
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 4px;
+  border: 1px solid var(--rule-soft); border-radius: 4px;
   box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   border-left: 3px solid var(--ink);
   padding: .65rem .85rem;
@@ -220,7 +186,7 @@ select { font: inherit; color: inherit; }
 /* --- chunks: a session is a page of the diary ----------------------------- */
 .chunk-session {
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 4px;
+  border: 1px solid var(--rule-soft); border-radius: 4px;
   box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   border-left: 3px solid var(--ink-amber);
   margin-bottom: .4rem;
@@ -230,13 +196,13 @@ select { font: inherit; color: inherit; }
   font-family: var(--mono); font-size: .78rem; cursor: pointer;
 }
 .chunk-line {
-  border-top: 1px dotted var(--line);
+  border-top: 1px dotted var(--rule);
   padding: .5rem 0 .45rem;
   max-width: 58rem;
 }
 .chunk-line > div:last-child { font-size: .88rem; }
 .chunk-no {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-amber);
   margin-bottom: .15rem;
 }
@@ -246,15 +212,15 @@ select { font: inherit; color: inherit; }
    the index ink since both halves — leaves and summaries — are index-stage. */
 .mode-toggle {
   display: inline-flex; margin: 0 0 .6rem;
-  border: 1px solid var(--card-line); border-radius: 3px; overflow: hidden;
+  border: 1px solid var(--rule-soft); border-radius: 3px; overflow: hidden;
 }
 .mode-toggle button {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase;
   background: var(--card); color: var(--ink-soft);
   border: 0; padding: .3rem .7rem; cursor: pointer;
 }
-.mode-toggle button + button { border-left: 1px solid var(--card-line); }
+.mode-toggle button + button { border-left: 1px solid var(--rule-soft); }
 .mode-toggle button:hover { color: var(--ink); }
 .mode-toggle button[aria-pressed="true"] {
   background: var(--step-index); color: #fff;
@@ -286,7 +252,7 @@ select { font: inherit; color: inherit; }
   font: inherit; font-family: var(--mono); font-size: .78rem;
   width: 100%; max-width: 26rem;
   padding: .3rem .45rem;
-  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  border: 1px solid var(--rule); background: var(--plate); color: var(--ink);
 }
 .q-legend {
   display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
@@ -294,11 +260,11 @@ select { font: inherit; color: inherit; }
 }
 .q-legend-note { font-size: .74rem; color: var(--ink-soft); }
 .q-chip {
-  font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
+  font: 700 .6rem/1.5 var(--sans); letter-spacing: .12em;
   text-transform: uppercase; padding: .1rem .4rem;
   border: 1px solid currentColor; border-radius: 2px;
 }
-.q-chip--hard { color: var(--rule-red); }
+.q-chip--hard { color: var(--alert); }
 .q-chip--medium { color: var(--ink-amber); }
 .q-chip--easy { color: var(--ink-soft); }
 
@@ -308,19 +274,19 @@ select { font: inherit; color: inherit; }
   position: relative;
   padding: .3rem .45rem;
   border-inline-start: 4px solid var(--ink-soft);
-  border-bottom: 1px solid var(--card-line);
+  border-bottom: 1px solid var(--rule-soft);
   cursor: pointer;
   font-size: .82rem;
 }
-.q-option--hard { border-inline-start-color: var(--rule-red); }
+.q-option--hard { border-inline-start-color: var(--alert); }
 .q-option--medium { border-inline-start-color: var(--ink-amber); }
 .q-option--easy { border-inline-start-color: var(--ink-soft); }
 .q-option:hover, .q-option:focus { background: var(--row-plain); outline: none; }
-.q-option:focus { box-shadow: inset 0 0 0 2px var(--rule-red); }
+.q-option:focus { box-shadow: inset 0 0 0 2px var(--alert); }
 .q-option-id { font-family: var(--mono); font-size: .74rem; }
 .q-option-en { color: var(--ink); flex: 1; }
 .q-option-added {
-  font: 700 .6rem/1.5 var(--body); letter-spacing: .12em;
+  font: 700 .6rem/1.5 var(--sans); letter-spacing: .12em;
   text-transform: uppercase; color: var(--ink-green);
 }
 /* Everything needed to decide whether this question is worth adding, without
@@ -339,7 +305,7 @@ select { font: inherit; color: inherit; }
 
 /* Questions you added, kept in their own list under a stated label. */
 .added-block { margin-top: 1.1rem; }
-.added-label { border-top: 1px dotted var(--line); padding-top: .6rem; }
+.added-label { border-top: 1px dotted var(--rule); padding-top: .6rem; }
 
 /* --- a question, restated above its own rows ------------------------------ */
 /* The table answers "where did each chunk rank", not "ranked for what" — so
@@ -349,7 +315,7 @@ select { font: inherit; color: inherit; }
 .question-head .qh-en { font-size: .82rem; color: var(--ink-soft); }
 /* Unscoped on purpose: the ground-truth cards use this label too. */
 .qh-label {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: .55rem 0 .15rem;
 }
@@ -363,7 +329,7 @@ select { font: inherit; color: inherit; }
    is a set of questions, and the unit you reason about is one question. */
 .retrieval-question, .gen-question {
   background: var(--card);
-  border: 1px solid var(--card-line); border-radius: 4px;
+  border: 1px solid var(--rule-soft); border-radius: 4px;
   box-shadow: 0 1px 2px rgb(16 22 32 / .05);
   margin-bottom: .5rem;
   padding: .5rem .8rem .7rem;
@@ -396,7 +362,7 @@ select { font: inherit; color: inherit; }
    over the wrong end of its own column. */
 .retrieval-table th {
   text-align: center; color: var(--ink-soft);
-  font: 600 .64rem/1.5 var(--body); letter-spacing: .08em; text-transform: uppercase;
+  font: 600 .64rem/1.5 var(--sans); letter-spacing: .08em; text-transform: uppercase;
   padding: .3rem .45rem; border-bottom: 1px solid var(--ink);
   white-space: nowrap;
 }
@@ -410,7 +376,7 @@ th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-o
 th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
 th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .retrieval-table td {
-  padding: .32rem .45rem; border-bottom: 1px solid var(--card-line);
+  padding: .32rem .45rem; border-bottom: 1px solid var(--rule-soft);
   vertical-align: top;
   text-align: center;
 }
@@ -435,7 +401,7 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .ladder {
   display: inline-flex; align-items: flex-end; gap: 2px;
   height: 1.35rem; width: 2.4rem;
-  border-bottom: 1px solid var(--line);   /* the floor, so a short bar reads as short */
+  border-bottom: 1px solid var(--rule);   /* the floor, so a short bar reads as short */
 }
 .ladder-step {
   flex: 1; height: var(--h, 4%); min-height: 2px;
@@ -486,8 +452,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 }
 .no-evidence {
   display: block; margin-top: .55rem; padding-top: .45rem;
-  border-top: 1px dotted var(--line);
-  font-family: var(--body); font-size: .74rem; color: var(--ink-soft);
+  border-top: 1px dotted var(--rule);
+  font-family: var(--sans); font-size: .74rem; color: var(--ink-soft);
 }
 
 /* --- generation: the ideal answer beside the written one ----------------- */
@@ -495,9 +461,9 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
   gap: .7rem; margin: .6rem 0 .5rem;
 }
-.gen-answer { padding: .6rem .75rem; border: 1px solid var(--card-line); }
+.gen-answer { padding: .6rem .75rem; border: 1px solid var(--rule-soft); }
 .gen-answer h4 {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 .35rem;
 }
@@ -510,17 +476,17 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .gen-metrics {
   display: flex; flex-wrap: wrap; gap: .35rem 1.3rem;
   font-family: var(--mono); font-size: .76rem;
-  padding-top: .45rem; border-top: 1px dotted var(--line);
+  padding-top: .45rem; border-top: 1px dotted var(--rule);
 }
 .gen-metric { color: var(--ink-soft); }
 .gen-metric b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .gen-ragas {
-  background: var(--card); border: 1px solid var(--card-line);
+  background: var(--card); border: 1px solid var(--rule-soft);
   border-left: 3px solid var(--ink-blue);
   padding: .6rem .8rem; margin-bottom: .8rem;
 }
 .gen-ragas h4 {
-  font: 700 .64rem/1.5 var(--body); letter-spacing: .13em;
+  font: 700 .64rem/1.5 var(--sans); letter-spacing: .13em;
   text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 .3rem;
 }
@@ -535,24 +501,24 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .inspector-why {
   font: 700 .6rem/1 var(--mono);
   background: transparent; color: var(--ink-soft);
-  border: 1px solid var(--line); border-radius: 999px; padding: .12em .34em;
+  border: 1px solid var(--rule); border-radius: 999px; padding: .12em .34em;
   margin-left: .35em;
 }
-.inspector-why:hover { border-color: var(--rule-red); color: var(--rule-red); }
+.inspector-why:hover { border-color: var(--alert); color: var(--alert); }
 .inspector-why-text {
   /* Inside the metrics row this is a flex item; `order` sends it to the end so
      opening one explainer cannot push the scores beside it out of line. */
   display: block; flex-basis: 100%; order: 99;
-  font-family: var(--body); font-size: .78rem; color: var(--ink-soft);
+  font-family: var(--sans); font-size: .78rem; color: var(--ink-soft);
   margin: .35rem 0 .1rem; padding-left: .7rem;
-  border-left: 2px solid var(--rule-red);
+  border-left: 2px solid var(--alert);
   max-width: 52rem;
 }
 
 /* --- the query panel's own answer box ----------------------------------- */
 .inspector-answer {
   margin-top: .8rem; padding: .6rem .8rem;
-  background: var(--card); border: 1px solid var(--card-line);
+  background: var(--card); border: 1px solid var(--rule-soft);
   border-left: 3px solid var(--ink-blue);
   font-family: var(--farsi); min-height: 1.2em;
 }
@@ -586,6 +552,6 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .agent-ladder table { border-collapse: collapse; width: 100%; }
 .agent-ladder th { text-align: left; color: var(--step-agent); font-weight: 600; }
 .agent-ladder td, .agent-ladder th { padding: .15rem .5rem .15rem 0;
-  border-bottom: 1px solid var(--line); vertical-align: top; }
+  border-bottom: 1px solid var(--rule); vertical-align: top; }
 .agent-ladder td.node { color: var(--step-agent); font-weight: 600; }
 .agent-ladder td.detail { color: var(--ink-soft); }

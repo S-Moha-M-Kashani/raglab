@@ -260,6 +260,19 @@ def test_trace_job_marks_gold(monkeypatch):
     assert cands and all('gold' in c for c in cands)
 
 
+# An invalid config must refuse synchronously, the same as /api/questions,
+# rather than accept the job and fail it with state='error'.
+def test_trace_rejects_an_unknown_reranker(monkeypatch):
+    client = _client(monkeypatch)
+    gt_q = client.get('/api/groundtruth').json()['questions'][0]
+    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+               'retrieval': {'reranker': 'nope'},
+               'question_id': gt_q['id']}
+    res = client.post('/api/trace', json=payload)
+    assert res.status_code == 400
+    assert 'unknown reranker' in res.json()['detail']
+
+
 # The served shell exposes its test-stable hooks.
 def test_inspector_page_exposes_the_three_views(monkeypatch):
     client = _client(monkeypatch)

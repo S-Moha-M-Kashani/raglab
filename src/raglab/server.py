@@ -24,7 +24,8 @@ from .config import (ANSWERERS, BALANCES, CHUNKERS, CRITICS, DEPENDENCIES,
                      LabConfig, load_lab_settings, settings_for_provider)
 from .corpus import load_diary, load_ground_truth
 from . import hierarchy
-from .index import IndexRegistry, _lab_llm
+from .index import IndexRegistry
+from .llm import lab_llm
 from .present import chunks_by_session, mark_gold, summary_rows
 from .serving import (_accepted, cancel_checker, ground_truth_for, screen,
                       scaled_progress)
@@ -42,6 +43,128 @@ def _relative(path: Path) -> str:
         return str(path.relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def _with_backend(cfg: LabConfig, run_settings) -> dict:
+    """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
+    return cfg.to_dict() | {'provider': run_settings.provider}
+
+
+def _catalogue_vocab() -> dict:
+    """The closed vocabularies for the three pipeline stages: chunker/embedder, retriever/reranker, grader/answerer."""
+    return {
+        'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
+        'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
+        'graders': list(GRADERS), 'answerers': list(ANSWERERS),
+    }
+
+
+def _hierarchy_options() -> dict:
+    """The summary hierarchy: grouping, graph edges, summariser, and what retrieval may do with the rows written."""
+    return {
+        'hierarchies': list(HIERARCHIES),
+        'graph_sources': list(GRAPH_SOURCES),
+        'summarizers': list(SUMMARIZERS),
+        'summary_scopes': list(SUMMARY_SCOPES),
+        # Verified by import, never guessed, so NA keeps meaning one thing:
+        # this installation cannot load it.
+        'hierarchy_support': hierarchy.available(),
+    }
+
+
+def _agent_options() -> dict:
+    return {
+        'scopes': list(SCOPES),
+        'critics': list(CRITICS),
+        'agent_support': agent.available(),
+    }
+
+
+def _question_vocab() -> dict:
+    return {
+        'question_types': list(metrics.TYPES),
+        'difficulties': list(DIFFICULTIES),
+        # The sample is part of the measurement: two rows on different
+        # samples are not two results of the same one.
+        'balances': list(BALANCES),
+    }
+
+
+def _config_defaults() -> dict:
+    return {
+        # Served rather than duplicated per panel, so both grey out the same
+        # knobs for the same stated reason.
+        'dependencies': DEPENDENCIES,
+        'defaults': LabConfig().to_dict(),
+        # The shipped Assistant's own settings, for the panel's preset —
+        # served rather than copied into the frontend, which would drift.
+        'production': PRODUCTION_CONFIG,
+    }
+
+
+def _step_list() -> dict:
+    return {'steps': [{'key': step.key, 'short': step.short, 'label': step.label,
+                       'note': step.note} for step in STEPS]}
+
+
+def _model_catalogues(live) -> dict:
+    return {
+        'embedder_hints': embedding.embedder_hints(live),
+        'embed_models': embedding.embed_model_catalogue(live),
+        'models': models.catalogue(live),
+        'model_roles': [role.as_dict() for role in models.ROLES],
+        'modes': models.mode_catalogue(live),
+    }
+
+
+def _metric_help() -> dict:
+    # Label, step, formula and library per metric, so a name cannot
+    # drift from its definition.
+    return {'metrics': explain.measures(), 'help': explain.topics()}
+
+
+def _corpus_summary(diary: dict, ground_truth: dict) -> dict:
+    return {'corpus': {
+        'sessions': len(diary['sessions']),
+        'messages': sum(len(s['messages']) for s in diary['sessions']),
+        'from': diary['meta']['period']['from'],
+        'to': diary['meta']['period']['to'],
+        'threads': len(diary['threads']),
+        'habits': len(diary.get('habits', {})),
+        'questions': len(ground_truth['questions']),
+        'query_date': ground_truth['meta'].get('query_date'),
+    }}
+
+
+def _capabilities(live) -> dict:
+    return {'capabilities': {
+        'fastembed': embedding.fastembed_available(),
+        'sentence_transformers': embedding.sentence_transformers_available(),
+        'cross_encoder': retrieval.cross_encoder_available(
+            live.cross_encoder_model),
+        'cross_encoder_model': live.cross_encoder_model,
+        'fastembed_model': live.fastembed_model,
+        # 'a real model is reachable', not 'a key exists' — under
+        # RAGLAB_LLM=ollama every stage runs locally with no key.
+        'llm': live.llm_ready,
+        'llm_provider': live.provider,
+        'llm_model': live.llm_model,
+        'ollama_base_url': live.ollama_base_url,
+        'ragas': ragas_eval.availability(live).as_dict(),
+        'openrouter_key': credentials.state(live),
+        # Stated positively, since the index is thrown away with the
+        # process rather than merely "no service named".
+        'storage': {'index': 'memory',
+                    'runs': str(RUNS_DIR.relative_to(ROOT)),
+                    'experiments': _relative(ledger.db_path())},
+    }}
+
+
+def _dataset_options() -> dict:
+    return {
+        'datasets': [found.as_dict() for found in datasets.catalogue()],
+        'dataset_contract': 'docs/groundtruth-dataset-contract.md',
+    }
 
 
 class Jobs:
@@ -185,92 +308,41 @@ def create_app() -> FastAPI:
 
     @app.get('/sorttable.js')
     def sorttable():
-        """The column sorter, shared with the Inspector — the only static file served outside the one page."""
+        """The column sorter, shared with the Inspector — one of three static files served outside the one page."""
         return FileResponse(STATIC / 'sorttable.js',
+                            media_type='application/javascript')
+
+    @app.get('/tokens.css')
+    def tokens_css():
+        """The design tokens shared with the Inspector, so a colour cannot drift apart on either page."""
+        return FileResponse(STATIC / 'tokens.css', media_type='text/css')
+
+    @app.get('/lab.js')
+    def lab_js():
+        """The utilities shared with the Inspector, so a name like escapeHtml has one behaviour, not two."""
+        return FileResponse(STATIC / 'lab.js',
+                            media_type='application/javascript')
+
+    @app.get('/panel.css')
+    def panel_css():
+        """The panel's style, extracted from index.html's <style> block."""
+        return FileResponse(STATIC / 'panel.css', media_type='text/css')
+
+    @app.get('/panel.js')
+    def panel_js():
+        """The panel's script, extracted from index.html's <script> block."""
+        return FileResponse(STATIC / 'panel.js',
                             media_type='application/javascript')
 
     @app.get('/api/options')
     def options():
         """Everything the panel needs to render itself, including what is actually installed."""
         live = settings_now()
-        return {
-            'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
-            'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
-            'graders': list(GRADERS), 'answerers': list(ANSWERERS),
-            # The summary hierarchy: grouping, graph edges, summariser, and what
-            # retrieval may do with the rows written.
-            'hierarchies': list(HIERARCHIES),
-            'graph_sources': list(GRAPH_SOURCES),
-            'summarizers': list(SUMMARIZERS),
-            'summary_scopes': list(SUMMARY_SCOPES),
-            # Verified by import, never guessed, so NA keeps meaning one thing:
-            # this installation cannot load it.
-            'hierarchy_support': hierarchy.available(),
-            'scopes': list(SCOPES),
-            'critics': list(CRITICS),
-            'agent_support': agent.available(),
-            'question_types': list(metrics.TYPES),
-            'difficulties': list(DIFFICULTIES),
-            # The sample is part of the measurement: two rows on different
-            # samples are not two results of the same one.
-            'balances': list(BALANCES),
-            # Served rather than duplicated per panel, so both grey out the same
-            # knobs for the same stated reason.
-            'dependencies': DEPENDENCIES,
-            'defaults': LabConfig().to_dict(),
-            # The shipped Assistant's own settings, for the panel's preset —
-            # served rather than copied into the frontend, which would drift.
-            'production': PRODUCTION_CONFIG,
-            'steps': [{'key': step.key, 'short': step.short, 'label': step.label,
-                       'note': step.note} for step in STEPS],
-            'embedder_hints': embedding.embedder_hints(live),
-            'embed_models': embedding.embed_model_catalogue(live),
-            'models': models.catalogue(live),
-            'model_roles': [role.as_dict() for role in models.ROLES],
-            'modes': models.mode_catalogue(live),
-            # Label, step, formula and library per metric, so a name cannot
-            # drift from its definition.
-            'metrics': explain.measures(),
-            'help': explain.topics(),
-            'corpus': {
-                'sessions': len(diary['sessions']),
-                'messages': sum(len(s['messages']) for s in diary['sessions']),
-                'from': diary['meta']['period']['from'],
-                'to': diary['meta']['period']['to'],
-                'threads': len(diary['threads']),
-                'habits': len(diary.get('habits', {})),
-                'questions': len(ground_truth['questions']),
-                'query_date': ground_truth['meta'].get('query_date'),
-            },
-            'capabilities': {
-                'fastembed': embedding.fastembed_available(),
-                'sentence_transformers': embedding.sentence_transformers_available(),
-                'cross_encoder': retrieval.cross_encoder_available(
-                    live.cross_encoder_model),
-                'cross_encoder_model': live.cross_encoder_model,
-                'fastembed_model': live.fastembed_model,
-                # 'a real model is reachable', not 'a key exists' — under
-                # RAGLAB_LLM=ollama every stage runs locally with no key.
-                'llm': live.llm_ready,
-                'llm_provider': live.provider,
-                'llm_model': live.llm_model,
-                'ollama_base_url': live.ollama_base_url,
-                'ragas': ragas_eval.availability(live).as_dict(),
-                'openrouter_key': credentials.state(live),
-                # Stated positively, since the index is thrown away with the
-                # process rather than merely "no service named".
-                'storage': {'index': 'memory',
-                            'runs': str(RUNS_DIR.relative_to(ROOT)),
-                            'experiments': _relative(ledger.db_path())},
-            },
-            'datasets': [found.as_dict() for found in datasets.catalogue()],
-            'dataset_contract': 'docs/groundtruth-dataset-contract.md',
-            'indexes': registry.known(),
-        }
-
-    def _with_backend(cfg: LabConfig, run_settings) -> dict:
-        """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
-        return cfg.to_dict() | {'provider': run_settings.provider}
+        return (_catalogue_vocab() | _hierarchy_options() | _agent_options()
+                | _question_vocab() | _config_defaults() | _step_list()
+                | _model_catalogues(live) | _metric_help()
+                | _corpus_summary(diary, ground_truth) | _capabilities(live)
+                | _dataset_options() | {'indexes': registry.known()})
 
     @app.post('/api/indexes')
     def build_index(payload: dict):
@@ -425,7 +497,7 @@ def create_app() -> FastAPI:
             # The implicit build is the long silent part — hand it the front of
             # the bar, or it all happens on 'starting 0%'.
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
-            llm = _lab_llm(run_settings)
+            llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
             report('retrieving', 0.75, question[:80])
             # Traced rather than plain `retrieve`, for the per-step ranks the

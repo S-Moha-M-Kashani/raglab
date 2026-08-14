@@ -1,18 +1,6 @@
-"""Build the leaderboard from `.runs/`, and refuse to rank rows that are not
-comparable.
-
-    uv run raglab-leaderboard              # print it
-    uv run raglab-leaderboard --write docs/rag-leaderboard.md
-
-**Group first, rank second.** A decision score is a mean over questions judged by
-a model, so it is comparable only against rows that scored the same questions
-with the same judge — never across groups. Each group states its sample and its
-judge in its own heading, and `verdict()` calls a group a tie when the lead is
-inside the combined error rather than crediting a bare ranking. A group with no
-measured error returns 'unknown' rather than a winner.
-
-Nothing here recomputes a score: it reads what the runs stored, so a number on
-the leaderboard can always be checked against the run id on its row.
+"""Build the leaderboard from `.runs/`, and refuse to rank rows that are not comparable — group first, rank second, since a decision score is comparable only against rows judged on the same questions by the same judge.
+`uv run raglab-leaderboard` prints it; `--write docs/rag-leaderboard.md` writes it.
+Nothing here recomputes a score: it reads what the runs stored, so a number can always be checked against the run id on its row.
 """
 import argparse
 import json

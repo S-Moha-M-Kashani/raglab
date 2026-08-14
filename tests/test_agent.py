@@ -643,24 +643,27 @@ def _static(name: str) -> str:
 
 
 def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
-    """One ink per step, defined once per page with the same value. The lab and
-    the Inspector are one instrument in two windows, so a step whose colour
-    exists on one page only is a legend that lies on the other."""
-    panel, sheet = _static('index.html'), _static('inspector.css')
-    for page in (panel, sheet):
-        assert '--step-agent:' in page
-        assert '--step-agent-lit:' in page
-    # The same value on both pages, not merely a token of the same name.
+    """One ink per step, defined once — in the shared tokens.css both pages
+    link before their own stylesheet — with the same value both pages read.
+    The lab and the Inspector are one instrument in two windows, so a step
+    whose colour exists on one page only is a legend that lies on the other."""
+    tokens = _static('tokens.css')
+    assert '--step-agent:' in tokens
+    assert '--step-agent-lit:' in tokens
+    # The one value both pages read, not merely a token of the same name.
     ink = 'oklch(0.48 0.16 318)'
-    assert ink in panel and ink in sheet
-    assert 'data-step="agent"' in panel
+    assert ink in tokens
+    css, sheet = _static('panel.css'), _static('inspector.css')
+    for page in (css, sheet):
+        assert 'var(--step-agent)' in page
+    assert 'data-step="agent"' in _static('index.html')
 
 
 def test_the_panel_has_a_control_for_every_agent_knob():
     """`explain.missing()` stops a knob shipping unexplained; this stops one
     shipping unreachable. A field with no control is a field the panel
     silently posts at its default, which is how a preset comes to lie."""
-    panel = _static('index.html')
+    panel, js = _static('index.html'), _static('panel.js')
     models = {role.field for role in models_mod.ROLES}
     for name in AgentConfig.__dataclass_fields__:
         if f'agent.{name}' in models:
@@ -668,7 +671,7 @@ def test_the_panel_has_a_control_for_every_agent_knob():
             # is the column the agent's group renders into.
             assert 'id="modelRoles-agent"' in panel
             continue
-        assert f"$('{name}')" in panel, name
+        assert f"$('{name}')" in js, name
         assert f'id="{name}"' in panel, name
 
 
@@ -708,7 +711,7 @@ def test_the_panel_merges_a_remembered_config_over_the_served_groups():
     not come up with blank agent controls — a blank number input reads as 0,
     and validation then refuses `max_hops` for a knob nobody touched. So the
     group list comes from the served defaults, never hard-coded in the page."""
-    panel = _static('index.html')
+    panel = _static('panel.js')
     assert 'for (const group of Object.keys(defaults))' in panel
     assert "for (const group of ['index', 'retrieval', 'generation']) {\n    merged" \
         not in panel, 'the hard-coded group list is back in startingConfig'
@@ -719,6 +722,6 @@ def test_the_models_column_stays_the_right_hand_one_whatever_the_step_count():
     would put the *models* card on a second row — breaking the rule that
     every model lives in the one right-hand column. Pinned rather than left
     to arithmetic."""
-    panel = _static('index.html')
+    panel = _static('panel.css')
     assert '.bench > .rag-models { grid-column: -2 / -1; }' in panel
     assert 'repeat(4, minmax(0, 1fr)) minmax(0, 300px)' in panel

@@ -1,24 +1,25 @@
 # RAG lab
 
-A retrieval workbench. Build an index over a year of synthetic Farsi diary chat,
-retrieve against ground-truth questions, score what comes back, and keep the
-account of every experiment — so a retrieval choice can be made by measurement
-instead of by taste.
+A retrieval workbench. Build an index over synthetic diary chat, retrieve
+against ground-truth questions, score what comes back, and keep the account of
+every experiment, so a retrieval choice can be made by measurement instead of
+by taste. The default corpus is `fixtures/diary_year_fa.json`, a year of
+synthetic colloquial Farsi diary chat with ground-truth questions and cited
+evidence.
+
+## Quick start
 
 ```sh
 uv run --extra local-embeddings raglab      # the panel on :9002
+uv run raglab-inspector                     # the read-only Inspector on :9003
 ```
 
-The extra is not optional in practice: the default embedder is a
-sentence-transformers checkpoint, and without it the service starts happily and
-then fails on the first index build. The embedding model (~2.2 GB) downloads on
-first retrieval, not at boot, so `/api/health` keeps answering while it does.
+The extra is required because the default embedder is a sentence-transformers
+checkpoint. Without it the service starts fine and then fails on the first
+index build. The ~2.2 GB model downloads on first index build, not at boot.
 
-Add `--extra agent` for the agent scopes (`AgentConfig.scope` — a bounded
-LangGraph loop around retrieval, generation, or both). It is separate because
-the lab must start without it: a scope this installation cannot run is reported
-NA in the panel and **refused** by validation, never quietly served by the fixed
-pipeline.
+Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
+`leiden` hierarchy grouping.
 
 | Command | What it does |
 | --- | --- |
@@ -29,115 +30,44 @@ pipeline.
 | `uv run raglab-leaderboard` | rank the runs in `.runs/`, refusing to rank the incomparable |
 | `uv run pytest` | the suite |
 
-## What is durable and what is not
-
-**An experiment's material is not a record.** The index, the retrieved contexts
-and the generated answers exist to produce one number and are discarded with the
-process — so there is **no vector database here, deliberately**: nothing to start
-first, and nothing a later run can inherit from an earlier one by accident.
-
-What is written down is the account of the work:
-
-- `.runs/` — one JSON file per evaluation run. Git-ignored: ~130 KB each,
-  machine-specific, and reproducible from the fixtures.
-- `databases/raglab.db` — one row per finished experiment, build and retrieval
-  included, so "what have I already tried?" outlives the process that tried it.
-  `RAGLAB_DB` overrides the path.
-- `.screens/` — judge screens, deliberately **not** git-ignored. Which model was
-  allowed to grade the four deciding metrics is part of the argument, not an
-  artifact of a machine.
-
-Nothing backs any of this up. The ledger is the only thing that would be missed.
-
-## The corpora
-
-`fixtures/diary_year_fa.json` is the built-in one and the corpus every finding in
-`docs/` is about. Four more ship in `fixtures/groundtruth_datasets/` — English
-support tickets, German meeting notes, English research notes weighted to
-multi-hop, and a five-session smoke set — so a result can be checked against a
-different language, domain and question shape before it is called a fact about
-retrieval rather than about Farsi diaries.
-
-Bring your own with **Import a dataset** in the panel, or `POST /api/datasets`.
-One JSON file, the shape in `docs/groundtruth-dataset-contract.md`, and the lab
-refuses it rather than repairing it — including when an evidence quote is not
-verbatim in the message it cites, which is what every lexical score in this lab is
-measured against. Imports land in `.datasets/` and are git-ignored; the dataset is
-part of the index config, so it rides in the fingerprint and the leaderboard
-groups by it before anything else.
-
-## The built-in corpus
-
-`fixtures/diary_year_fa.json` — 167 sessions of synthetic colloquial Farsi diary
-chat over one year (2025-08-02 → 2026-07-27), 18 recurring storylines, 5 tracked
-habits, with ground-truth questions and cited evidence beside it. Colloquial on
-purpose: Arabic ي/ك mixed with Persian ی/ک, half-spaces present or missing,
-Persian and ASCII digits. Two texts a reader would call identical have to
-tokenise identically or every lexical score silently under-counts, which is what
-`textnorm.py` is for.
-
-## Where this came from
-
-This code lived at `brain/tests/raglab/` in the Lodestar repository until
-2026-08-11, where it decided that project's retrieval architecture.
-`docs/rag-architecture.md` is the measured argument with run ids;
-`docs/rag-test/` walks the winning configuration question by question.
-
-It still measures against what Lodestar shipped, but that configuration is now a
-dated snapshot in `src/raglab/baseline.py` rather than a live import — **if
-Lodestar's retrieval changes, this repository will not notice.** The same applies
-to `textnorm.py`, which is a vendored copy. Both carry the commit they came from.
-
-The snapshot was checked rather than assumed: on 2026-08-11 both labs were run
-side by side and their `/api/options` compared, and the preset came back
-value-for-value identical across all four groups, as did the model roles, model
-lists, modes, embedders, chunkers and metrics. The only intended differences were
-the label — which now carries its own date — and the two storage paths.
-
-Two things were lost in the move and are worth knowing about:
-
-- The board's own lab view is gone. There was a second frontend over this API
-  inside Lodestar, and eight tests existed to pin that the two could not
-  disagree; each now covers the one panel that remains.
-- The ports below are a hand-maintained copy. Nothing here can detect a change on
-  Lodestar's side.
-
-## Ports
-
-`:9002` the panel, `:9003` the Inspector. `tests/test_ports.py` holds the list of
-ports Lodestar's stack owns on this machine and asserts these two avoid them.
-
 ## Configuration
 
-Every variable the lab reads is in `.env.example`, commented out, and
-`tests/test_config.py` asserts that list is complete in both directions — a
-variable missing from it is undiscoverable, and one lingering after the code
-stopped reading it is a lie. A repo-root `.env` is read without overriding what
-is already in the environment.
+`RAGLAB_LLM` picks the chat backend:
 
-The OpenRouter key can also be typed into the panel, which holds it for the life
-of the process and writes it nowhere — not to a run file, not to the ledger, not
-to the browser. `OPENROUTER_API_KEY` in the environment is still how a lab
-*starts* with one.
+- `ollama` (default) — a local model; a judged run can make hundreds of calls,
+  so the default must never silently spend credit.
+- `openrouter` — a remote model; needs `OPENROUTER_API_KEY`, or type the key
+  into the panel.
+- `claude` / `codex` — drives a CLI already installed on this machine, no API
+  key needed.
+- `fake` — offline, answers and judges without ever failing; for tests only.
 
-The chat backend is `RAGLAB_LLM`: `ollama` (the default — a judged run can make
-hundreds of calls, so a default must never silently spend credit), `openrouter`,
-`claude`, `codex`, or `fake`. An unknown value raises; there is no auto mode
-anywhere in this project.
+Everything else the lab reads is in `.env.example`, commented out and kept
+complete by `tests/test_config.py`.
 
-Two more backends run a CLI already installed on this machine, so they need no
-API key at all:
+## Datasets
 
-```bash
-RAGLAB_LLM=claude uv run --extra local-embeddings raglab
-RAGLAB_LLM=codex  uv run --extra local-embeddings raglab
-```
+The built-in corpus is the Farsi diary. Four more ship as controls in
+`fixtures/groundtruth_datasets/`: English support tickets, German meeting
+notes, English research notes weighted to multi-hop, and a five-session smoke
+set.
 
-The price is a process spawn per call, measured at `effort=low`: on a short
-grade probe claude cost 3.9 s and codex 8.2 s, and on the prompts the lab
-actually sends claude cost 5.6 s for its own grade prompt and ~7.4 s per
-call-slot across a judged run. A judged run is hundreds of calls, so read the
-larger figures rather than the probe.
+Bring your own with **Import a dataset** in the panel, or `POST
+/api/datasets`. One JSON file, contract in
+`docs/groundtruth-dataset-contract.md` — the lab refuses a file that does not
+match it rather than repairing it.
 
-Or pick **Claude (CLI)** / **Codex (CLI)** from *Models · Backend* in the panel,
-which also applies the full-pipeline preset for that backend.
+## What gets written where
+
+- `.runs/` — one JSON file per evaluation run. Git-ignored.
+- `databases/raglab.db` — one row per finished experiment. `RAGLAB_DB`
+  overrides the path.
+- `.screens/` — judge screens. Committed, not git-ignored.
+
+## Background
+
+This code lived at `brain/tests/raglab/` in the Lodestar repository until
+2026-08-11, where it decided that project's retrieval architecture. The
+measured argument, with run ids, is in `docs/rag-architecture.md`. Design
+history and the reasoning behind individual decisions are in `docs/` and
+`CLAUDE.md`.

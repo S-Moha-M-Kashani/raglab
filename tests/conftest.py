@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import raglab
-from raglab import corpus
+from raglab import corpus, models
 from raglab.config import IndexConfig, LabSettings
 from raglab.index import IndexRegistry
 
@@ -185,3 +185,56 @@ def _runs_dir_is_never_the_real_one(tmp_path_factory):
     yield
     for module, original in saved.items():
         module.RUNS_DIR = original
+
+
+@pytest.fixture(autouse=True, scope='session')
+def _no_test_reads_the_developers_real_key():
+    """`settings.load_env_file` uses `os.environ.setdefault`, so a real
+    `OPENROUTER_API_KEY` sitting in a developer's `.env` leaks into the
+    process the first time anything calls `load_lab_settings` — and stays
+    there, because nothing unsets it. The `RAGLAB_LLM=fake` pin above does not
+    close this: `models.openrouter_ids` short-circuits on the *key*, not the
+    provider, so a route that only builds a model catalogue (`/api/options`
+    and friends) reaches the network under `fake` too.
+
+    This has to be session-scoped, not per test, and that is not a style
+    choice: `client` (above) is a *module*-scoped fixture, and pytest always
+    finishes instantiating a broader-scoped fixture before a narrower one for
+    the same test, regardless of declaration order — so a function-scoped
+    `monkeypatch.setenv` here would still run *after* the first test in each
+    module had already called `create_app()` → `load_lab_settings()` with the
+    real key sitting in `os.environ`, protecting nothing. Measured: with the
+    pin at function scope, `test_server.py`, `test_panel.py` and
+    `test_raglab.py` each still made a real `httpx.get` to
+    `https://openrouter.ai/api/v1/models` carrying the `.env` key, because
+    their module-scoped `client` had already baked it into `boot_settings`
+    before the per-test fixture ever ran. Session scope closes that: it is
+    set before *any* fixture of any narrower scope, in any module, ever runs.
+    `test_credentials.py` still proves the panel's key wins over the
+    environment's: that file drives `credentials.set_key` and passes its own
+    explicit env dicts to `load_lab_settings`, neither of which this fixture
+    touches, so its premise (a *typed* key beats an *environment* key)
+    survives an environment pinned to no key at all."""
+    saved = os.environ.get('OPENROUTER_API_KEY')
+    os.environ['OPENROUTER_API_KEY'] = ''
+    yield
+    if saved is None:
+        os.environ.pop('OPENROUTER_API_KEY', None)
+    else:
+        os.environ['OPENROUTER_API_KEY'] = saved
+
+
+@pytest.fixture(autouse=True)
+def _models_live_cache_never_survives_between_tests():
+    """`models._LIVE` caches availability per base url and, before this fix,
+    was never reset suite-wide — so the *first* test in the whole run to hit
+    a catalogue-building route (`/api/options` and friends) paid for one real
+    probe of `http://localhost:11434/api/tags` (the `ollama` mode's own
+    catalogue entry, built regardless of which backend is actually active)
+    and every test after it, in every file, silently read that one test's
+    cached answer instead of asking again. Function-scoped, cleared before
+    and after, so which test happens to run first can no longer change what
+    any other test observes."""
+    models._LIVE.clear()
+    yield
+    models._LIVE.clear()

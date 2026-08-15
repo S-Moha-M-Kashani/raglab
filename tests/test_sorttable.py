@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
                     reason='node is absent; the sorter is a browser file and '
                            'its ordering suite is written in JavaScript')
 def test_the_column_sorter_orders_correctly():
+    # this is an integration test
     result = subprocess.run(['node', '--test', 'tests/sorttable.test.js'],
                             cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr

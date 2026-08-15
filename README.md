@@ -43,7 +43,7 @@ Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
 - `fake` — offline, answers and judges without ever failing; for tests only.
 
 Everything else the lab reads is in `.env.example`, commented out and kept
-complete by `tests/test_config.py`.
+complete by `tests/test_conventions.py`.
 
 ## Datasets
 

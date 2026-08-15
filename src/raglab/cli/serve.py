@@ -2,7 +2,7 @@
 
 The numbers live here rather than on a command line because there is no longer a
 package.json to hold them and no Node test to read them back out of one. One
-module owns them, `tests/test_ports.py` asserts them, and `lab.py` imports rather
+module owns them, `tests/test_conventions.py` asserts them, and `lab.py` imports rather
 than repeats them.
 """
 import uvicorn
@@ -12,7 +12,7 @@ INSPECTOR_PORT = 9003
 
 # Lodestar's allocation on this machine, copied on 2026-08-11 when the lab moved
 # out. Copied, not read: that repository is no longer a dependency, so nothing
-# here can notice if these change. See test_ports.py for what that costs.
+# here can notice if these change. See tests/test_conventions.py for what that costs.
 RESERVED = {
     3000: 'the Lodestar board',
     3001: 'the Lodestar test board',

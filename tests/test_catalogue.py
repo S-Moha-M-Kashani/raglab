@@ -145,7 +145,7 @@ def test_the_key_facts_judge_uses_the_judge_model():
 
 def test_the_explainers_cover_the_model_roles_too():
     # this is a convention test
-    """`explain.missing() == []` (test_raglab.py) is the completeness gate;
+    """`explain.missing() == []` (tests/test_conventions.py) is the completeness gate;
     this pins the content it is gating for the six chat-model roles."""
     topics = explain.topics()
     for role in models.ROLES:

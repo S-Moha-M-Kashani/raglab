@@ -47,8 +47,9 @@ def test_the_tree_walk_finds_a_plausible_number_of_files():
     """Every guard below is a `for path in _PY_FILES` loop, so a walk that
     silently matches nothing — wrong root, wrong glob, an exclusion that eats
     everything — makes every one of them pass vacuously. src/ holds 40
-    modules and tests/ holds 27+ at the time of writing; anything under 50
-    means the walk found the wrong place."""
+    modules and tests/ holds 25 at the time of writing (40 + 25 = 65, the
+    count this assertion checks); anything under 50 means the walk found
+    the wrong place."""
     assert len(_PY_FILES) > 50, (
         f'tree walk only found {len(_PY_FILES)} files — check the glob')
 

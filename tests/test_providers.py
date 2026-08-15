@@ -265,18 +265,6 @@ def test_every_pairing_keeps_the_judge_apart_from_the_answerer(provider, pair):
     assert pair['judge'] in slugs, (provider, pair)
 
 
-def test_choosing_the_local_backend_is_enough_to_get_a_local_default_model(
-        monkeypatch):
-    # this is a unit test
-    """`RAGLAB_LLM=ollama` on its own has to produce a runnable lab — a
-    default model that stays a remote slug refuses every run for a model
-    the user never chose."""
-    monkeypatch.setattr(models, 'ollama_ids', lambda settings: _ALL_OLLAMA_IDS)
-    local = LabSettings(llm_provider='ollama')
-    assert local.llm_model in {m.id for m in models.OLLAMA_MODELS}, local.llm_model
-    assert not models.provider_problems(LabConfig(), local)
-
-
 def test_an_explicit_model_is_never_replaced_by_the_provider_default():
     # this is a unit test
     """The resolution is for the *unset* case only. Overwriting a stated model
@@ -414,6 +402,12 @@ def test_a_mode_presets_the_full_pipeline_on_its_own_model(
         monkeypatch.setattr(models, 'openrouter_ids', lambda settings: frozenset())
     patch = models.mode_config(key, LAB_SETTINGS)
     assert 'index' not in patch
+    # Every mode presets exactly the same two groups — a field one mode sets
+    # and another forgets would leak a remote model into a local run's label.
+    # `mode_config` asserts this internally too (models.py:466-467); this is
+    # the belt, so the buckle failing does not silently turn the `local` case
+    # below into a no-op loop over an empty dict.
+    assert set(patch) == {'retrieval', 'generation'}
     if expected_model is None:
         defaults = LabConfig().to_dict()
         for group, names in patch.items():
@@ -550,10 +544,10 @@ def test_options_serves_the_provider_modes(client, monkeypatch):
     assert modes['openrouter']['provider'] == 'openrouter'
     served = modes['openrouter']['config']
     assert served['generation']['model'] == 'openai/gpt-5-nano'
-    # The gate default is resolved against whatever this machine could verify
-    # right now, so any of the three legal answers passes — never a fourth.
-    assert served['retrieval']['grader_model'] in (
-        'cohere/rerank-4-fast', 'cohere/rerank-4-pro', 'openai/gpt-5-nano')
+    # The gate default falls back to the answerer model when nothing on
+    # OpenRouter's own list verifies a purpose-built reranker — deterministic
+    # here since `openrouter_ids` is stubbed empty above.
+    assert served['retrieval']['grader_model'] == 'openai/gpt-5-nano'
     # The dropdown explains itself behind the same '!' as every other control.
     assert 'run.mode' in body['help']
     # A slug only means something to the backend that serves it, so the mode

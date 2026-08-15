@@ -337,15 +337,21 @@ def test_a_prefixed_wrapper_marks_queries_and_passages_apart(
     # this is a unit test
     """Declaring a prefix is worthless if the wrapper that actually calls the
     model does not apply it — both backends' classes must mark queries and
-    passages apart identically."""
+    passages apart identically, and the vectors that come back must still be
+    the width the model actually reports (SentenceTransformerEmbedder reads
+    that off `get_embedding_dimension`/`get_sentence_embedding_dimension`,
+    whichever the installed version carries, and `_normalize` must not change
+    it)."""
     fake = fake_factory()
     wrapper = getattr(embedding, wrapper_name)
     embedder = wrapper(model_id, query_prefix='query: ', passage_prefix='passage: ',
                        factory=lambda name: fake)
-    embedder.embed(['امروز جلسه داشتم'])
-    embedder.embed_queries(['جلسه کی بود؟'])
-    assert 'passage: امروز جلسه داشتم' in fake.seen
-    assert 'query: جلسه کی بود؟' in fake.seen
+    fake.seen.clear()                      # drop anything the constructor's own probe encoded
+    passages = embedder.embed(['امروز جلسه داشتم'])
+    queries = embedder.embed_queries(['جلسه کی بود؟'])
+    assert fake.seen == ['passage: امروز جلسه داشتم', 'query: جلسه کی بود؟']
+    assert embedder.dim == fake.dim == passages.shape[1] == queries.shape[1]
+    assert model_id in embedder.name
     if kind == 'sentence-transformers':
         # And make_embedder must resolve that same prefix from the catalogue
         # on its own, not merely support a caller who passes it explicitly —

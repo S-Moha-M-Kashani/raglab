@@ -604,12 +604,16 @@ def test_starting_work_creates_a_job_and_says_where_to_watch_it(client,
 
     The spy is here rather than in a second TestClient: if the query job does
     not pass its reporter down to the registry, the bar sits on 'starting 0%'
-    for the whole implicit build."""
+    for the whole implicit build. Recorded per route, not into one slot — a
+    single slot the other two legs also write to would still hold a callable
+    if the query route stopped building an index at all, which is exactly the
+    case the second app used to isolate."""
     seen = {}
     original = IndexRegistry.get
+    building = {}
 
     def spy(self, cfg, progress=None, force=False):
-        seen['progress'] = progress
+        seen[building['path']] = progress
         return original(self, cfg, progress=progress, force=force)
 
     monkeypatch.setattr(IndexRegistry, 'get', spy)
@@ -623,6 +627,9 @@ def test_starting_work_creates_a_job_and_says_where_to_watch_it(client,
                               'retrieval': {'retriever': 'dense', 'k': 2},
                               'generation': {'answerer': 'none'},
                               'question': 'What broke in the kitchen?'})):
+        # Safe to key on: one job runs at a time and each is drained below
+        # before the next is posted.
+        building['path'] = path
         res = client.post(path, json=payload)
         assert res.status_code == 202, f'{path} -> {res.status_code}'
         job_id = res.json()['job_id']
@@ -639,7 +646,8 @@ def test_starting_work_creates_a_job_and_says_where_to_watch_it(client,
     # `job` is the last leg, the query: the one whose result is every stage.
     assert job['kind'] == 'query'
     assert 'contexts' in job['result'] and 'diagnostics' in job['result']
-    assert callable(seen.get('progress'))
+    assert callable(seen.get('/api/queries')), \
+        'the query job built its index without handing down its reporter'
     # The preconditions still refuse synchronously, and still say which one:
     # a bad payload is a 400 the panel shows at once, never a job that dies.
     assert client.post('/api/queries', json={}).status_code == 400
@@ -698,6 +706,13 @@ def test_the_index_job_reports_every_row_it_wrote_and_lists_what_it_ran(client):
     summaries have to sum back to it — while a flat build says "none" with an
     empty list rather than by leaving the key out, since "no hierarchy" and
     "a hierarchy that found nothing" are different facts."""
+    # `louvain` rather than `metadata`, which groups by the storylines a
+    # corpus declares and smoke-mini declares none of, so it would write no
+    # summary at all. Over five densely-connected chunks louvain returns a
+    # single community of five — above the default `min_group=3`, so the
+    # build is guaranteed a group — and it is deterministic since the
+    # 2026-08-13 IDF tie-break fix. It also needs no scikit-learn import,
+    # which is what makes it ~6× faster here than `kmeans`.
     posted = client.post('/api/indexes', json={
         'index': {**SMOKE_INDEX, 'hierarchy': 'louvain',
                   'summarizer': 'centroid'}})
@@ -862,6 +877,11 @@ def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something
     drift = state(LabConfig(index=IndexConfig(chunker='semantic-drift')))
     assert drift['index.chunk_chars']['enabled']
     assert not drift['index.overlap']['enabled']
+    # Both directions, because only one of them is a *disabled* control: a
+    # rule that emptied `index.overlap`'s owner list would grey the knob out
+    # for every chunker, including the one whose whole point is the overlap.
+    assert state(LabConfig(index=IndexConfig(chunker='fixed-overlap'))
+                 )['index.overlap']['enabled']
 
     per_message = state(LabConfig(index=IndexConfig(chunker='message')))
     assert not per_message['index.chunk_chars']['enabled']
@@ -941,9 +961,12 @@ def test_a_gate_whose_model_call_fails_does_not_silently_pass_everything():
             raise ConnectionError('the model daemon is not running')
 
     with pytest.raises(retrieval.GradeUnavailable) as caught:
-        retrieval.llm_scores(Unreachable(), 'grader/model', 'q', ['a', 'b', 'c'])
+        # A model name with no 'grade' in it, so the stage assertion below
+        # stands on its own rather than being entailed by the model name the
+        # message interpolates.
+        retrieval.llm_scores(Unreachable(), 'qwen3.5:2b', 'q', ['a', 'b', 'c'])
     assert 'grade' in str(caught.value).lower()
-    assert 'grader/model' in str(caught.value)
+    assert 'qwen3.5:2b' in str(caught.value)
     assert 'not running' in str(caught.value)
 
     # Unchanged: a reply that arrives but cannot be parsed is still no opinion.

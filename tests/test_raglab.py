@@ -23,7 +23,7 @@ from raglab import (baseline, config, corpus, datasets, evaluate, explain,
 from raglab import index as index_module
 from raglab.llm_tools import sweep
 from raglab.config import (GenerationConfig, IndexConfig, LabConfig,
-                           LabSettings, RetrievalConfig)
+                           RetrievalConfig)
 from raglab.index import IndexRegistry
 
 from conftest import (LAB_SETTINGS, RAGLAB_DIR, SMOKE_INDEX, _finished,
@@ -144,25 +144,6 @@ def test_config_round_trips_through_the_panel_payload():
     assert cfg.index.chunker == 'session' and cfg.retrieval.k == 3
     assert cfg.validate() == []
     assert LabConfig.from_dict(cfg.to_dict()).to_dict() == cfg.to_dict()
-
-
-def test_the_lab_names_no_vector_database_at_all():
-    # this is a convention test
-    """A database the lab cannot name is one it cannot be pointed at by a
-    typo, an old shell, or a copied command."""
-    settings = LabSettings()
-    assert [f for f in vars(settings) if 'chroma' in f or 'database' in f] == []
-    with pytest.raises(TypeError):
-        LabSettings(chroma_database='lodestar')
-
-
-def test_the_lab_ignores_a_leftover_chroma_environment(monkeypatch):
-    # this is a convention test
-    """The board's Chroma stack runs whenever a board does, and a shell that
-    ran the old lab commands still exports these; neither may reach the lab."""
-    monkeypatch.setenv('RAGLAB_CHROMA_DATABASE', 'lodestar')
-    monkeypatch.setenv('BRAIN_CHROMA_URL', 'http://localhost:8001')
-    assert 'lodestar' not in repr(config.load_lab_settings())
 
 
 # --- RAGAS bridge ----------------------------------------------------------
@@ -539,15 +520,6 @@ def test_the_registries_line_up():
     # own pin out of the suite silently rather than failing.
     pinned = set(PINNED) | set(FORBIDDEN) | set(PINNED_STEPS)
     assert pinned <= defined | ragas_defined, pinned - (defined | ragas_defined)
-
-
-@pytest.mark.parametrize('gate', ['missing', 'missing_metrics'])
-def test_nothing_ships_without_an_explainer(gate):
-    # this is a convention test
-    """The two gates that stop a knob or a metric shipping as a bare word or
-    a bare number: a config field with no help text, and a key a run can
-    report with nothing defining it."""
-    assert getattr(explain, gate)() == []
 
 
 # ---------------------------------------------------------------------------

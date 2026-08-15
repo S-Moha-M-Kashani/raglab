@@ -33,11 +33,13 @@ def _ask(client, payload: dict) -> dict:
 
 
 def test_a_build_starts_without_any_service_running(client):
-    """With the index in process memory there is nothing that can be down,
-    so the gate that could refuse a build is gone rather than passing."""
-    from raglab import server as lab_server
-
-    assert not hasattr(lab_server, 'require_chroma')
+    # this is an integration test
+    """With the index in process memory there is nothing that can be down to
+    refuse a build. The structural half of this claim — that the app exposes
+    no vector-store gate at all — is a static, no-server-needed check and
+    moved to tests/test_conventions.py
+    (test_a_build_exposes_no_vector_store_gate); this half needs the real
+    `client` fixture and a real build, so it stays here."""
     body = client.post('/api/indexes', json={
         'index': {'chunker': 'session', 'embedder': 'ascii-hash',
                   'layers': ['session']}}).json()

@@ -10,7 +10,7 @@ from raglab import corpus, datasets, pipeline, query, store
 from raglab.config import GenerationConfig, IndexConfig, RetrievalConfig
 from raglab.index import IndexRegistry
 
-from conftest import LAB_SETTINGS, RAGLAB_DIR, SMOKE_INDEX
+from conftest import LAB_SETTINGS, SMOKE_INDEX
 
 
 # --- the ephemeral vector store --------------------------------------------
@@ -119,22 +119,6 @@ def test_memory_store_get_returns_requested_ids_in_order_and_skips_missing_ones(
 
     partial = vectors.get(ids=['a', 'missing'], include=['embeddings'])
     assert partial['ids'] == ['a']
-
-
-# The lab must never grow a vector-database dependency.
-def test_no_lab_module_imports_a_vector_database_client():
-    # this is a convention test
-    """chromadb is production's dependency, not the lab's. One import line
-    would bring the persistence back, and it would look harmless."""
-    offenders = []
-    for path in sorted(RAGLAB_DIR.glob('*.py')):
-        for line in path.read_text(encoding='utf-8').splitlines():
-            stripped = line.strip()
-            if not stripped.startswith(('import ', 'from ')):
-                continue
-            if 'chromadb' in stripped or 'ChatStore' in stripped:
-                offenders.append(f'{path.name}: {stripped}')
-    assert offenders == []
 
 
 def test_building_an_index_opens_no_socket(monkeypatch):

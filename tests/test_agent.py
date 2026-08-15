@@ -627,33 +627,96 @@ def test_a_scope_the_backend_cannot_run_is_a_400_on_both_run_routes(
 
 # --- the two pages ---------------------------------------------------------
 
-def _static(name: str) -> str:
-    from raglab.server import STATIC
-    return (STATIC / name).read_text(encoding='utf-8')
+@pytest.fixture(scope='module')
+def agent_page_texts(client):
+    """Every named text the convention table below checks, fetched the one
+    way a browser actually reaches it (`client.get`) rather than a second
+    disk read of the same file. The Inspector's half comes from its own
+    `TestClient`, since :9002 and :9003 are separate services serving
+    separate copies of `tokens.css`/`panel.css`'s counterpart."""
+    from fastapi.testclient import TestClient
+
+    from raglab import inspector as inspector_mod
+
+    insp = TestClient(inspector_mod.create_inspector_app())
+    return {
+        'tokens.css': client.get('/tokens.css').text,
+        'index.html': client.get('/').text,
+        'panel.css': client.get('/panel.css').text,
+        'panel.js': client.get('/panel.js').text,
+        'inspector.css': insp.get('/inspector.css').text,
+        'inspector.js': insp.get('/inspector.js').text,
+    }
 
 
-def test_both_pages_define_the_fourth_ink_and_neither_invents_it():
-    """One ink per step, defined once — in the shared tokens.css both pages
-    link before their own stylesheet — with the same value both pages read.
-    The lab and the Inspector are one instrument in two windows, so a step
-    whose colour exists on one page only is a legend that lies on the other."""
-    tokens = _static('tokens.css')
-    assert '--step-agent:' in tokens
-    assert '--step-agent-lit:' in tokens
-    # The one value both pages read, not merely a token of the same name.
-    ink = 'oklch(0.48 0.16 318)'
-    assert ink in tokens
-    css, sheet = _static('panel.css'), _static('inspector.css')
-    for page in (css, sheet):
-        assert 'var(--step-agent)' in page
-    assert 'data-step="agent"' in _static('index.html')
+# (file, must_contain, must_not_contain, reason) — one row per retired
+# single-substring pin test, each carrying the one line that used to be its
+# docstring so a failure names the rule rather than printing a bare
+# "assert 'x' in text".
+AGENT_PAGE_CONVENTIONS = [
+    ('tokens.css', '--step-agent:', None,
+     'the fourth step ink must be defined in the one tokens sheet both pages '
+     'share, or a step whose colour exists on one page only is a legend that '
+     'lies on the other'),
+    ('tokens.css', '--step-agent-lit:', None,
+     'the lit variant for dark surfaces must be defined beside the base ink'),
+    ('tokens.css', 'oklch(0.48 0.16 318)', None,
+     'both pages must read the one same ink value, not two tokens of the '
+     'same name that happen to differ'),
+    ('panel.css', 'var(--step-agent)', None,
+     'the panel must actually use the agent ink somewhere, not just define it'),
+    ('inspector.css', 'var(--step-agent)', None,
+     'the Inspector must actually use the agent ink too'),
+    ('index.html', 'data-step="agent"', None,
+     'the agent card must be tagged with its step so the ink and the stage '
+     'cannot disagree'),
+    ('inspector.js', 'function agentLadder', None,
+     'the ladder is what makes an agent row readable, and it must exist'),
+    ('inspector.js', 'trace.agent', None,
+     'the ladder must read the trace the run actually produced'),
+    ('inspector.css', 'agent-ladder', None,
+     'the ladder needs its own style hook'),
+    ('panel.js', 'for (const group of Object.keys(defaults))', None,
+     'the group list must come from the served defaults, never hard-coded — '
+     'a browser holding a config from before the agent group existed must '
+     'not come up with blank agent controls'),
+    ('panel.js', None,
+     "for (const group of ['index', 'retrieval', 'generation']) {\n    merged",
+     'the hard-coded group list must not come back to startingConfig'),
+    ('panel.css', '.bench > .rag-models { grid-column: -2 / -1; }', None,
+     'every model must stay in the one right-hand column, pinned rather than '
+     'left to the grid\'s own auto-placement'),
+    ('panel.css', 'repeat(4, minmax(0, 1fr)) minmax(0, 300px)', None,
+     "a four-slot grid's auto-placement fills a row before wrapping, which "
+     'would put the models card on a second row'),
+]
 
 
-def test_the_panel_has_a_control_for_every_agent_knob():
+@pytest.mark.parametrize('file, must_contain, must_not_contain, reason',
+                         AGENT_PAGE_CONVENTIONS)
+def test_the_served_pages_keep_their_agent_conventions(
+        agent_page_texts, file, must_contain, must_not_contain, reason):
+    # this is a convention test
+    """Three of the five agent-frontend pin tests, folded into one table:
+    the fourth step ink both pages must share, and the Inspector's ladder.
+    Each row is a claim a served asset makes about itself, and the reason
+    string is what a failure prints instead of a bare `assert 'x' in text`."""
+    text = agent_page_texts[file]
+    if must_contain is not None:
+        assert must_contain in text, reason
+    if must_not_contain is not None:
+        assert must_not_contain not in text, reason
+
+
+def test_the_panel_has_a_control_for_every_agent_knob(client):
+    # this is a convention test
     """`explain.missing()` stops a knob shipping unexplained; this stops one
     shipping unreachable. A field with no control is a field the panel
-    silently posts at its default, which is how a preset comes to lie."""
-    panel, js = _static('index.html'), _static('panel.js')
+    silently posts at its default, which is how a preset comes to lie. Kept
+    as its own test rather than a table row: the claim is checked once per
+    `AgentConfig` field, not against one fixed string."""
+    panel = client.get('/').text
+    js = client.get('/panel.js').text
     models = {role.field for role in models_mod.ROLES}
     for name in AgentConfig.__dataclass_fields__:
         if f'agent.{name}' in models:
@@ -663,15 +726,6 @@ def test_the_panel_has_a_control_for_every_agent_knob():
             continue
         assert f"$('{name}')" in js, name
         assert f'id="{name}"' in panel, name
-
-
-def test_the_inspector_renders_the_loop_beside_the_ranks():
-    """The ladder is what makes an agent row readable: the candidate table says
-    what came back, the ladder says after what."""
-    js = _static('inspector.js')
-    assert 'function agentLadder' in js
-    assert 'trace.agent' in js
-    assert 'agent-ladder' in _static('inspector.css')
 
 
 def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
@@ -694,24 +748,3 @@ def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
     assert len(handed) > 900, 'a shorter corpus than this cannot show the fault'
     for node in ('assess', 'draft', 'critique', 'completeness'):
         assert handed in seen[node], node
-
-
-def test_the_panel_merges_a_remembered_config_over_the_served_groups():
-    """A browser holding a config from before the agent group existed must
-    not come up with blank agent controls — a blank number input reads as 0,
-    and validation then refuses `max_hops` for a knob nobody touched. So the
-    group list comes from the served defaults, never hard-coded in the page."""
-    panel = _static('panel.js')
-    assert 'for (const group of Object.keys(defaults))' in panel
-    assert "for (const group of ['index', 'retrieval', 'generation']) {\n    merged" \
-        not in panel, 'the hard-coded group list is back in startingConfig'
-
-
-def test_the_models_column_stays_the_right_hand_one_whatever_the_step_count():
-    """A four-slot grid's auto-placement fills a row before wrapping, which
-    would put the *models* card on a second row — breaking the rule that
-    every model lives in the one right-hand column. Pinned rather than left
-    to arithmetic."""
-    panel = _static('panel.css')
-    assert '.bench > .rag-models { grid-column: -2 / -1; }' in panel
-    assert 'repeat(4, minmax(0, 1fr)) minmax(0, 300px)' in panel

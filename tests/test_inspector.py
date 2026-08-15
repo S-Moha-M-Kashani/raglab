@@ -1,3 +1,5 @@
+import pytest
+
 from raglab import evaluate, pipeline, corpus, inspector, present
 from raglab.config import IndexConfig, RetrievalConfig, LabSettings
 from raglab.index import IndexRegistry
@@ -199,12 +201,6 @@ def _client(monkeypatch):
     return TestClient(inspector.create_inspector_app())
 
 
-def _static(name: str) -> str:
-    """One of the browser files, as text — the Inspector's page script runs
-    against a live DOM at import, so there is no seam to import it through."""
-    return (inspector.STATIC / name).read_text(encoding='utf-8')
-
-
 # FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     client = _client(monkeypatch)
@@ -273,35 +269,179 @@ def test_trace_rejects_an_unknown_reranker(monkeypatch):
     assert 'unknown reranker' in res.json()['detail']
 
 
-# The served shell exposes its test-stable hooks.
-def test_inspector_page_exposes_the_three_views(monkeypatch):
-    client = _client(monkeypatch)
-    html = client.get('/').text
-    for hook in ('tab-groundtruth', 'tab-chunks', 'tab-retrieval',
-                 'inspector-tab', 'retrieval-table',
-                 # the followed view's config statement and the answer text
-                 # from the generation half of a followed query
-                 'inspector-active-config', 'inspector-answer',
-                 # one table per question of the followed experiment
-                 'retrieval-questions'):
-        assert hook in html, f'missing {hook}'
+# --- the served Inspector page's own conventions, as one table -------------
+#
+# The six page-pin tests that used to live here (three-views, generation tab
+# and evidence reveal, question picker, chunks/summaries toggle, JS keeps no
+# config literal, the corpus-follow fixture wiring), plus the Inspector's own
+# half of two tests that used to live in test_panel.py (the shared column
+# sorter, the shared token sheet and script) are rows below.
+
+@pytest.fixture(scope='module')
+def inspector_texts():
+    """Every named text the convention table checks, fetched the one way a
+    browser actually reaches it (`client.get`) rather than a second disk read
+    of the same file. A fresh client per fixture call, same as `_client`
+    above, since the Inspector app is cheap to build and this keeps the
+    fixture independent of any one test's monkeypatch."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(inspector.create_inspector_app())
+    return {
+        'inspector.html': client.get('/').text,
+        'inspector.css': client.get('/inspector.css').text,
+        'inspector.js': client.get('/inspector.js').text,
+    }
 
 
-# The served shell exposes the new views' hooks.
-def test_page_exposes_the_generation_tab_and_the_evidence_reveal(monkeypatch):
-    """Four things the two new features are rendered by, so a rename cannot
-    quietly remove one."""
-    client = _client(monkeypatch)
+# (file, must_contain, must_not_contain, reason) — one row per retired
+# single-substring pin test, each carrying the one line that used to be its
+# docstring so a failure names the rule rather than printing a bare
+# "assert 'x' in text".
+INSPECTOR_CONVENTIONS = [
+    ('inspector.html', 'tab-groundtruth', None,
+     'the served shell must expose its ground-truth tab hook'),
+    ('inspector.html', 'tab-chunks', None,
+     'the served shell must expose its chunks tab hook'),
+    ('inspector.html', 'tab-retrieval', None,
+     'the served shell must expose its retrieval tab hook'),
+    ('inspector.html', 'inspector-tab', None,
+     'the served shell must expose the tab-switching hook'),
+    ('inspector.html', 'retrieval-table', None,
+     'the served shell must expose the retrieval table hook'),
+    ('inspector.html', 'inspector-active-config', None,
+     "the followed view's config statement must be renderable"),
+    ('inspector.html', 'inspector-answer', None,
+     "the followed query's generated answer must be renderable"),
+    ('inspector.html', 'retrieval-questions', None,
+     'one table per question of the followed experiment must be renderable'),
+    ('inspector.html', 'tab-generation', None,
+     'the generation tab must expose its hook'),
+    ('inspector.html', 'view-generation', None,
+     'the generation view must expose its hook'),
+    ('inspector.html', 'generation-questions', None,
+     'the generation view must expose a hook to render its questions into'),
+    ('inspector.html', 'generation-active-config', None,
+     "the generation view's active-config statement must be renderable"),
+    ('inspector.css', '.chunk-reveal', None,
+     'the evidence reveal is CSS-driven and the class must exist'),
+    ('inspector.css', '.evidence-mark', None,
+     'the evidence highlight is CSS-driven and the class must exist'),
+    ('inspector.css', '.retrieval-row:hover', None,
+     'the reveal must open on hover, without a click'),
+    ('inspector.html', 'add-question', None,
+     'the question picker must expose the button that opens it'),
+    ('inspector.html', 'question-picker', None,
+     'the question picker must expose its own hook'),
+    ('inspector.html', 'question-picker-list', None,
+     'the question picker must expose the listbox hook'),
+    ('inspector.css', '.q-option--hard', None,
+     'the picker must colour-code the hard questions'),
+    ('inspector.css', '.q-option--medium', None,
+     'the picker must colour-code the medium questions'),
+    ('inspector.css', '.q-option--easy', None,
+     'the picker must colour-code the easy questions'),
+    ('inspector.css', '.q-option-detail', None,
+     'the picker must expose the detail reveal class'),
+    ('inspector.css', '.q-option:hover', None,
+     'the picker detail must reveal on hover, without a click'),
+    ('inspector.html', 'role="listbox"', None,
+     'the picker must be reachable without a mouse'),
+    ('inspector.html', 'aria-expanded', None,
+     'the picker must state its open/closed state for assistive tech'),
+    ('inspector.html', 'chunks-mode', None,
+     'the chunks/summaries toggle must expose its own hook'),
+    ('inspector.html', 'chunks-mode-chunks', None,
+     'the toggle must expose its chunks-half hook'),
+    ('inspector.html', 'chunks-mode-summaries', None,
+     'the toggle must expose its summaries-half hook'),
+    ('inspector.html', 'summaries-body', None,
+     'the summaries view must expose a hook to render rows into'),
+    ('inspector.html', 'Summaries', None,
+     'the tab must name summaries even when none were built, or a reader has '
+     'no reason to think the index might hold them'),
+    ('inspector.css', '.layer-badge', None,
+     'the summaries view reuses the retrieval table\'s badge rather than '
+     'inventing a second vocabulary for the same idea'),
+    ('inspector.html', 'aria-pressed', None,
+     'the pressed state is what says which half of the toggle is on screen'),
+    # Asserted on the *values*, not on a literal's name, so renaming a
+    # hand-maintained copy of the pipeline cannot smuggle it back in.
+    # `hybrid-rrf` is deliberately not a row here — it also appears in a
+    # comment describing the active-config line, and a guard that forbids
+    # describing the code is a guard nobody keeps.
+    ('inspector.js', None, 'semantic-drift',
+     "inspector.js must not keep its own copy of the pipeline's chunker name"),
+    ('inspector.js', None, 'sentence-transformers',
+     "inspector.js must not keep its own copy of the pipeline's embedder name"),
+    ('inspector.js', None, 'grade_threshold',
+     "inspector.js must not keep its own copy of the pipeline's gate threshold"),
+    ('inspector.js', '/api/config', None,
+     'inspector.js must fetch the config it renders, rather than assume one'),
+    ('inspector.js', 'FOLLOWED_CONFIG', None,
+     'following the lab must stay the primary path; the served config is only '
+     'the fallback for a lab that is down'),
+    ('inspector.js', "'/api/groundtruth?dataset='", None,
+     'the ground-truth fixture must be fetched with the corpus named, or a '
+     'dataset change has nothing to reload against'),
+    ('inspector.js', "(body.dataset || '') !== followed.dataset", None,
+     'the follow loop must notice the corpus changing'),
+    ('inspector.js', 'followDataset(followed.dataset)', None,
+     'a changed corpus must reload the fixture'),
+    ('inspector.js', 'await loadGroundTruth(dataset)', None,
+     'the reload must name the corpus it was given'),
+    ('inspector.js', 'dataset: FOLLOWED_DATASET', None,
+     'a question added from the picker must be run against the corpus the '
+     'picker offered, not a stale default'),
+    ('inspector.html', 'sorttable.js', None,
+     'the Inspector must load the shared column sorter, the same one the '
+     'panel loads'),
+    ('inspector.html', 'data-nosort', None,
+     "the ranks column draws a shape the same three numbers already follow, "
+     "so sorting on the picture would sort on nothing"),
+]
+
+
+@pytest.mark.parametrize('file, must_contain, must_not_contain, reason',
+                         INSPECTOR_CONVENTIONS)
+def test_the_served_inspector_page_keeps_its_conventions(
+        inspector_texts, file, must_contain, must_not_contain, reason):
+    # this is a convention test
+    """Six page-pin tests plus two halves moved over from test_panel.py,
+    folded into one table. Each row is a claim the served Inspector shell
+    makes about itself, and the reason string is what a failure prints
+    instead of a bare `assert 'x' in text`."""
+    text = inspector_texts[file]
+    if must_contain is not None:
+        assert must_contain in text, reason
+    if must_not_contain is not None:
+        assert must_not_contain not in text, reason
+
+
+def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
+    # this is a convention test
+    """`tokens.css` and `lab.js` are one file for both pages rather than a
+    copy each, so a design token or a utility cannot drift apart on either
+    page. This pins that the Inspector actually routes them, its page
+    actually loads them, and each loads before the page's own stylesheet or
+    script — a later link would lose the tokens to the page's own overrides
+    instead of feeding them. The panel's half of this claim lives in
+    test_panel.py."""
+    from fastapi.testclient import TestClient
+
+    client = TestClient(inspector.create_inspector_app())
+    assert (inspector.STATIC / 'tokens.css').exists()
+    assert (inspector.STATIC / 'lab.js').exists()
+
     html = client.get('/').text
-    css = client.get('/inspector.css').text
-    for hook in ('tab-generation', 'view-generation', 'generation-questions',
-                 'generation-active-config'):
-        assert hook in html, f'missing {hook}'
-    # the reveal and the highlight are CSS-driven, so the classes must exist
-    for rule in ('.chunk-reveal', '.evidence-mark'):
-        assert rule in css, f'missing style {rule}'
-    # hover opens the reveal without a click
-    assert ':hover .chunk-reveal' in css or '.retrieval-row:hover' in css
+    tokens = client.get('/tokens.css')
+    lab = client.get('/lab.js')
+    assert tokens.status_code == 200
+    assert tokens.headers['content-type'].startswith('text/css')
+    assert lab.status_code == 200
+    assert lab.headers['content-type'].startswith('application/javascript')
+    assert (html.index('href="/tokens.css"') < html.index('href="/inspector.css"'))
+    assert (html.index('src="/lab.js"') < html.index('src="/inspector.js"'))
 
 
 # --- following the lab (:9002) ----------------------------------------------
@@ -577,25 +717,6 @@ def _outcome_for(config: dict, question: dict):
     return pipeline.answer(outcome, GenerationConfig(answerer='extractive'))
 
 
-# The served page carries the picker's hooks.
-def test_page_offers_a_question_picker_coded_by_difficulty(monkeypatch):
-    """A button that opens a listbox where each row carries its difficulty
-    as colour and reveals the question, its evidence and its expected answer
-    on hover."""
-    client = _client(monkeypatch)
-    html = client.get('/').text
-    css = client.get('/inspector.css').text
-    for hook in ('add-question', 'question-picker', 'question-picker-list'):
-        assert hook in html, f'missing {hook}'
-    # difficulty is colour in the picker only — never in the tables, where colour
-    # already means a pipeline step
-    for rule in ('.q-option--hard', '.q-option--medium', '.q-option--easy',
-                 '.q-option-detail'):
-        assert rule in css, f'missing style {rule}'
-    assert ':hover .q-option-detail' in css or '.q-option:hover' in css
-    # a listbox has to be reachable without a mouse
-    assert 'role="listbox"' in html and 'aria-expanded' in html
-
 
 # FastAPI TestClient over the read-only app.
 def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
@@ -762,27 +883,6 @@ def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
     assert view['summaries'] == []
 
 
-# The served shell carries the toggle's hooks.
-def test_page_offers_a_chunks_and_summaries_toggle(monkeypatch):
-    """The tab has to name summaries even when none were built — a reader
-    who cannot see the word has no reason to think the index might hold
-    them."""
-    client = _client(monkeypatch)
-    html = client.get('/').text
-    css = client.get('/inspector.css').text
-
-    for hook in ('chunks-mode', 'chunks-mode-chunks', 'chunks-mode-summaries',
-                 'summaries-body'):
-        assert hook in html, f'missing {hook}'
-    # the tab names both kinds, so the toggle is discoverable from the nav
-    assert 'Summaries' in html
-    # the badge that marks a summary row already exists for the retrieval table;
-    # the summaries view reuses it rather than inventing a second vocabulary
-    assert '.layer-badge' in css
-    # pressed state is what says which half is on screen
-    assert 'aria-pressed' in html
-
-
 # FastAPI TestClient over the read-only app; a real chunk build and a real
 # SQLite file on a temp path.
 def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
@@ -864,25 +964,6 @@ def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
     assert _client(monkeypatch).get('/api/follow').json()['dataset'] == ''
 
 
-# It reads the browser file the way the agent-ladder test does; the
-# Inspector's page script has no module seam to import.
-def test_the_page_reads_its_fixture_from_the_corpus_it_is_following():
-    """The Ground Truth tab, the ideal answer beside each row, and the
-    question picker all read one map filled by one fetch. That fetch has to
-    name the corpus and happen again when the corpus changes — and a
-    question added from the picker must be *run* against that same corpus,
-    or it comes back 404 for an id the page itself just offered."""
-    js = _static('inspector.js')
-    assert "'/api/groundtruth?dataset='" in js, \
-        'the fixture is fetched without naming a corpus'
-    assert "(body.dataset || '') !== followed.dataset" in js, \
-        'the follow loop never notices the corpus changing'
-    assert 'followDataset(followed.dataset)' in js, \
-        'the corpus changed and the fixture was not reloaded'
-    assert 'await loadGroundTruth(dataset)' in js, \
-        'the reload does not name the corpus it was given'
-    assert 'dataset: FOLLOWED_DATASET' in js, \
-        'an added question is run against a corpus the picker did not offer'
 # FastAPI TestClient over the read-only app.
 def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeypatch):
     """The frontend reads its fallback config from here rather than keeping
@@ -908,21 +989,3 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     assert body['chosen']['retrieval']['retriever'] in body['retrievers']
     assert body['chosen']['retrieval']['reranker'] in body['rerankers']
     assert body['chosen']['retrieval']['grader'] in body['graders']
-
-
-# The served asset keeps no config of its own.
-def test_inspector_js_keeps_no_config_literal_of_its_own(monkeypatch):
-    """Asserted on the *values*, not on a literal's name, so renaming a
-    hand-maintained copy of the pipeline cannot smuggle it back in.
-    `hybrid-rrf` is deliberately not among them — it also appears in a
-    comment describing the active-config line, and a guard that forbids
-    describing the code is a guard nobody keeps."""
-    client = _client(monkeypatch)
-    js = client.get('/inspector.js').text
-
-    for value in ('semantic-drift', 'sentence-transformers', 'grade_threshold'):
-        assert value not in js, f'inspector.js still names {value} itself'
-    assert '/api/config' in js, 'inspector.js must fetch the config it renders'
-    # Following the lab stays the primary path — the served config is only the
-    # fallback for a lab that is down, which is all `CHOSEN` ever was.
-    assert 'FOLLOWED_CONFIG' in js

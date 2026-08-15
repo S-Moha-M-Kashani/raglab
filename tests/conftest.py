@@ -214,7 +214,15 @@ def _no_test_reads_the_developers_real_key():
     environment's: that file drives `credentials.set_key` and passes its own
     explicit env dicts to `load_lab_settings`, neither of which this fixture
     touches, so its premise (a *typed* key beats an *environment* key)
-    survives an environment pinned to no key at all."""
+    survives an environment pinned to no key at all.
+
+    Session scope only closes the *module-scope* hazard above; within one
+    scope, pytest still instantiates autouse fixtures in roughly declaration
+    order, so this being the *last* of the four session-scoped guards in this
+    file is itself load-bearing — a future session-scoped autouse fixture
+    declared *above* it that calls `create_app()` or `load_lab_settings()`
+    would run before this pin took effect and reopen exactly the hole it
+    closes. It is safe today only because none of the other three does."""
     saved = os.environ.get('OPENROUTER_API_KEY')
     os.environ['OPENROUTER_API_KEY'] = ''
     yield

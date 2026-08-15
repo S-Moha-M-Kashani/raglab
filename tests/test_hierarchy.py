@@ -22,6 +22,12 @@ LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 # not the chunker, and 167 leaves is enough for every partition to be non-trivial.
 LEAVES = dict(chunker='session', embedder='token-hash', contextual=False)
 
+# The 5-session smoke corpus, for the tests that need *a* built hierarchy
+# rather than specifically the 167-session diary's community structure.
+# `token-hash` needs no model download, matching `LEAVES` above.
+SMOKE_LEAVES = dict(dataset='smoke-mini', chunker='session',
+                    embedder='token-hash', contextual=False)
+
 
 @pytest.fixture(scope='module')
 def diary():
@@ -33,9 +39,19 @@ def registry(diary):
     return IndexRegistry(LAB_SETTINGS, diary)
 
 
+@pytest.fixture(scope='module')
+def smoke_registry():
+    """A registry over the smoke corpus, built fresh per grouping — separate
+    from `registry` (the 167-session diary) because the anchor test below
+    parametrizes across every non-degenerate grouping and does not need the
+    diary's scale to prove "a grouping wrote a summary beside its leaves"."""
+    return IndexRegistry(LAB_SETTINGS)
+
+
 # --- the fingerprint -------------------------------------------------------
 
 def test_a_flat_index_is_fingerprinted_exactly_as_it_was_before_hierarchies():
+    # this is a unit test
     """Seven new fields, none of which may touch a flat index's name — every
     `index.collection` already written into `.runs/` names an index a
     rebuild has to be able to reproduce."""
@@ -45,6 +61,7 @@ def test_a_flat_index_is_fingerprinted_exactly_as_it_was_before_hierarchies():
 
 
 def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index():
+    # this is a unit test
     """A stale `graph_knn` in a browser tab must not cost a 167-session rebuild
     of an index that is byte-identical to the one already built. `hierarchy=''`
     means nothing below it ran."""
@@ -54,6 +71,7 @@ def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index()
 
 
 def test_a_knob_the_chosen_grouping_never_reads_does_not_cost_a_rebuild():
+    # this is a unit test
     """The same argument one level down: k-means builds no graph, so the number
     of graph neighbours cannot change what it stored."""
     assert (IndexConfig(hierarchy='kmeans', graph_knn=99).fingerprint()
@@ -64,6 +82,7 @@ def test_a_knob_the_chosen_grouping_never_reads_does_not_cost_a_rebuild():
 
 
 def test_two_groupings_are_two_indexes():
+    # this is a unit test
     """Leiden and Louvain partition the same graph differently, so they store
     different rows and must never share a collection."""
     seen = {IndexConfig(hierarchy=name).fingerprint() for name in HIERARCHIES}
@@ -71,9 +90,23 @@ def test_two_groupings_are_two_indexes():
 
 
 # --- availability, refused rather than substituted -------------------------
+#
+# Three tests used to cover this: the unit refusal below, a direct check of
+# `hierarchy.available()`'s answers, and the route 400 kept near the bottom of
+# this file. The middle one is dropped — its claims are not lost, they are
+# proven more directly elsewhere: the "leiden needs graph-index" install
+# string is asserted right here on the refusing side, `hierarchy_support`'s
+# `louvain: available=True` is asserted from the real, unmocked
+# `/api/options` response in `test_both_panels_are_served_the_hierarchy_lists`,
+# and the anchor test below actually *builds* an index with each of
+# `louvain`/`leiden`/`label-prop`/`raptor`/`agglomerative`/`kmeans` — a
+# stronger proof that each one is available in this environment than reading
+# a dict entry, since an unavailable one would fail the build rather than
+# silently reporting false.
 
 def test_a_grouping_whose_library_is_missing_is_refused_and_never_substituted(
         monkeypatch):
+    # this is a unit test
     """The availability *check* is stubbed rather than the option list, so
     this asserts on the rule and not on which extras happen to be installed
     here."""
@@ -87,25 +120,23 @@ def test_a_grouping_whose_library_is_missing_is_refused_and_never_substituted(
     assert LabConfig(index=IndexConfig(hierarchy='louvain')).validate() == []
 
 
-def test_availability_is_verified_rather_than_asserted():
-    """`available()` answers per grouping, and says what to install. networkx
-    and scikit-learn are core dependencies, so those five are always true."""
-    answers = hierarchy.available()
-    for name in ('louvain', 'label-prop', 'raptor', 'agglomerative', 'kmeans'):
-        assert answers[name]['available'], f'{name} runs on a core dependency'
-    assert 'graph-index' in answers['leiden']['install']
-
-
 # --- the build -------------------------------------------------------------
 
-# Real in-memory index, offline hash embedder.
-@pytest.mark.parametrize('name', [h for h in HIERARCHIES if h])
+# Real in-memory index, offline hash embedder, smoke corpus (5 sessions):
+# fast enough that every non-degenerate grouping can be built once per test
+# run. `metadata` is excluded on purpose, not folded in: the smoke fixture's
+# sessions carry no `threads` metadata, so it groups by nothing and writes
+# zero summaries — a real degeneracy, not a bug in the assertion. Its own
+# claim is checked instead by `test_the_metadata_control_reproduces_the_corpus_own_storylines`,
+# which needs the diary's 18 declared storylines and stays there.
+@pytest.mark.parametrize('name', [h for h in HIERARCHIES if h and h != 'metadata'])
 def test_every_grouping_writes_summaries_beside_the_leaves_it_grouped(
-        registry, name):
+        smoke_registry, name):
+    # this is an integration test
     """Additive, always: replacing a leaf with its summary loses information
     permanently, unlike keeping both."""
-    flat = registry.get(IndexConfig(**LEAVES))
-    grouped = registry.get(IndexConfig(**LEAVES, hierarchy=name))
+    flat = smoke_registry.get(IndexConfig(**SMOKE_LEAVES))
+    grouped = smoke_registry.get(IndexConfig(**SMOKE_LEAVES, hierarchy=name))
 
     leaf_ids = {c.id for c in flat.chunks}
     assert leaf_ids <= {c.id for c in grouped.chunks}
@@ -117,45 +148,62 @@ def test_every_grouping_writes_summaries_beside_the_leaves_it_grouped(
         assert summary.level >= 1 and summary.group_id
         assert set(summary.member_ids) <= leaf_ids
 
+    # Folded in from what used to be separate report-shape checks: cheap on
+    # five sessions and true regardless of scale, unlike `groups >= 2` below,
+    # which five sessions cannot show (they collapse to one component).
+    report = grouped.stats.hierarchy
+    assert report['hierarchy'] == name
+    assert report['groups'] >= 1 and report['summaries'] == report['groups']
+    assert grouped.stats.leaves < grouped.stats.chunks, 'summaries are counted as rows'
+    if name in GRAPH_HIERARCHIES:
+        assert report['modularity'] is not None, 'a graph method reports modularity'
+    else:
+        assert report['silhouette'] is not None, 'a clustering method reports silhouette'
+
 
 def test_the_metadata_control_reproduces_the_corpus_own_storylines(registry,
                                                                    diary):
+    # this is an integration test
     """Kept as a control against the old, deleted rollups: it has to be the
-    thing it claims to be, one group per declared thread."""
+    thing it claims to be, one group per declared thread. Stays on the diary
+    (never the smoke corpus, which declares no threads at all) — CLAUDE.md
+    pins this exact number as the corpus's own thread count."""
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='metadata'))
     summaries = [c for c in grouped.chunks if c.layer == 'summary']
     assert len(summaries) == len(diary['threads']) == 18
 
 
 def test_a_build_reports_what_the_grouping_did(registry):
-    """A partition with no community structure makes every score under it
-    uninformative, and that is worth knowing before reading them."""
+    # this is an integration test
+    """The report fields that only mean something at real scale: five smoke
+    sessions collapse to one community (modularity 0.0, one group), so
+    `groups >= 2` and a populated `per_level`/`nodes`/`edges` can only be
+    shown on the diary. The fields that hold at any scale (the report names
+    its own grouping, `summaries == groups`, modularity vs. silhouette) are
+    asserted for every grouping in the anchor test above instead."""
     stats = registry.get(IndexConfig(**LEAVES, hierarchy='louvain')).stats
     report = stats.hierarchy
-    assert report['hierarchy'] == 'louvain'
-    assert report['groups'] >= 2 and report['summaries'] == report['groups']
-    assert report['modularity'] is not None, 'a graph method reports modularity'
+    assert report['groups'] >= 2, 'the diary is large enough for real structure'
     assert report['nodes'] and report['edges'] and report['components']
     assert 0.0 < report['coverage'] <= 1.0
     assert report['per_level'][0]['level'] == 1
-    assert stats.leaves < stats.chunks, 'summaries are counted as rows'
-
-    clustered = registry.get(IndexConfig(**LEAVES, hierarchy='kmeans')).stats
-    assert clustered.hierarchy['silhouette'] is not None
-    assert clustered.hierarchy['modularity'] is None, 'k-means builds no graph'
 
 
 def test_a_flat_build_reports_no_hierarchy_at_all(registry):
+    # this is an integration test
     """None rather than an empty block: "no hierarchy" and "a hierarchy that
     found nothing" are different facts about a build."""
     assert registry.get(IndexConfig(**LEAVES)).stats.hierarchy is None
 
 
-def test_building_a_hierarchy_opens_no_socket_and_calls_no_model(monkeypatch,
-                                                                 diary):
+def test_building_a_hierarchy_opens_no_socket_and_calls_no_model(monkeypatch):
+    # this is an integration test
     """The decision that makes a hierarchy sweepable at all — a summariser
     that reached for a model would let the offline `fake` backend fill an
-    index with confident invention no field on the row contradicts."""
+    index with confident invention no field on the row contradicts. Runs
+    over the smoke corpus: the claim is that no build anywhere calls out, and
+    five sessions prove it as well as 167 while building in a fraction of
+    the time."""
     import socket
 
     def refuse(*args, **kwargs):
@@ -163,14 +211,17 @@ def test_building_a_hierarchy_opens_no_socket_and_calls_no_model(monkeypatch,
 
     monkeypatch.setattr(socket.socket, 'connect', refuse)
     monkeypatch.setattr(pipeline, 'lab_chat', refuse)
-    fresh = IndexRegistry(LAB_SETTINGS, diary)
-    index = fresh.get(IndexConfig(**LEAVES, hierarchy='louvain'))
+    fresh = IndexRegistry(LAB_SETTINGS)
+    index = fresh.get(IndexConfig(**SMOKE_LEAVES, hierarchy='louvain'))
     assert any(c.layer == 'summary' for c in index.chunks)
 
 
 def test_a_deeper_hierarchy_groups_its_own_summaries(registry):
+    # this is an integration test
     """Level 2 is the same operation applied to level 1's output, which is what
-    makes "recursive" mean something rather than being a second parameter."""
+    makes "recursive" mean something rather than being a second parameter.
+    Stays on the diary: five smoke sessions collapse to one level-1 group,
+    leaving nothing for a second level to group."""
     index = registry.get(IndexConfig(**LEAVES, hierarchy='agglomerative',
                                      hierarchy_levels=2, granularity=2.0))
     levels = {c.level for c in index.chunks if c.layer == 'summary'}
@@ -183,6 +234,7 @@ def test_a_deeper_hierarchy_groups_its_own_summaries(registry):
 
 @pytest.mark.parametrize('name', config.SUMMARIZERS)
 def test_every_summariser_writes_text_from_the_group_and_calls_no_model(name):
+    # this is a unit test
     from raglab.chunking import Chunk
     chunks = [Chunk(id=f'c{i}', text=f'session {i} tax office installment {i}',
                     session_id=f's{i}', date=f'2026-01-{i + 1:02d}')
@@ -194,6 +246,7 @@ def test_every_summariser_writes_text_from_the_group_and_calls_no_model(name):
 
 
 def test_the_card_summariser_states_the_count_rather_than_implying_it():
+    # this is a unit test
     """States a number instead of asking a model to count retrieved chunks —
     counting is a task a language model is bad at."""
     from raglab.chunking import Chunk
@@ -214,6 +267,7 @@ def _question(ground_truth):
 
 
 def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
+    # this is an integration test
     """The control has to actually be a control: if `leaves` moved a single
     context, no row using it could say whether building the summaries cost
     anything."""
@@ -232,6 +286,7 @@ def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
 
 
 def test_the_summaries_scope_retrieves_only_summaries(registry):
+    # this is an integration test
     ground_truth = load_ground_truth()
     question = _question(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
@@ -245,6 +300,7 @@ def test_the_summaries_scope_retrieves_only_summaries(registry):
 
 
 def test_drill_down_expands_each_summary_to_the_members_it_stands_for(registry):
+    # this is an integration test
     """Summaries compete only against summaries, so being outnumbered by
     leaves cannot happen, and the members arrive as evidence the answerer
     can quote."""
@@ -266,6 +322,7 @@ def test_drill_down_expands_each_summary_to_the_members_it_stands_for(registry):
 
 
 def test_a_boost_promotes_a_summary_into_the_candidate_cut(registry):
+    # this is an integration test
     """Applied before the cut, never after: there are far more leaves than
     summaries, so a summary that had not already survived the cut could not
     be promoted into it — that would be a no-op that looked like a knob."""
@@ -292,6 +349,7 @@ def replace_boost(cfg: RetrievalConfig, value: float) -> RetrievalConfig:
 
 
 def test_mixed_is_the_default_so_a_hierarchy_changes_no_retrieval_by_itself():
+    # this is a unit test
     """Building a hierarchy must not move a number on its own — the first row is
     then a clean answer to one question, and drill-down is a second candidate
     rather than a confound in the first."""
@@ -300,23 +358,37 @@ def test_mixed_is_the_default_so_a_hierarchy_changes_no_retrieval_by_itself():
 
 
 def test_the_store_filter_and_the_bm25_mask_agree_about_layers(registry):
+    # this is an integration test
     """Hybrid fusion compares two candidate pools. If the `where` clause and the
     mask disagree about which rows exist, the two halves of the search are
-    silently looking at different corpora."""
+    silently looking at different corpora. Sampled to 10 chunks rather than
+    every one of the ~185 the diary's louvain build produces — stratified
+    across both layers on purpose, since a plain `chunks[:10]` would land in
+    one session's leaves and never touch a summary row."""
     from raglab import query as query_mod
     from raglab.store import matches
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
+    sample_ids = {c.id for c in [c for c in grouped.chunks
+                                 if c.layer == 'summary'][:5]
+                        + [c for c in grouped.chunks
+                           if c.layer != 'summary'][:5]}
+    assert any(grouped.by_id[i].layer == 'summary' for i in sample_ids)
+    assert any(grouped.by_id[i].layer != 'summary' for i in sample_ids), (
+        'the sample must cover both layers to test their agreement')
     for scope in ('mixed', 'leaves', 'summaries'):
         cfg = RetrievalConfig(summary_scope=scope)
         layers, levels = pipeline.summary_filter(cfg)
         where = query_mod.layer_clause(None, layers, levels)
         mask = pipeline._allowed(grouped, None, layers, levels)
         for i, chunk in enumerate(grouped.chunks):
+            if chunk.id not in sample_ids:
+                continue
             assert bool(mask[i]) == matches(chunk.metadata(), where), (
                 f'{scope}: {chunk.id} disagrees between the two halves')
 
 
 def test_every_hierarchy_control_is_dead_until_it_means_something():
+    # this is a unit test
     """What the panels grey out by, including the three retrieval knobs that
     gate on an *index* field — what retrieval may do with summaries is decided
     by whether the build wrote any."""
@@ -349,6 +421,7 @@ def test_every_hierarchy_control_is_dead_until_it_means_something():
 
 # Real evaluation, offline embedder, fake LLM.
 def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
+    # this is an integration test
     """"The hierarchy was configured" and "the hierarchy was retrieved" are
     different facts, and a row that scores flat is uninterpretable without
     the second."""
@@ -369,6 +442,7 @@ def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
 
 # FastAPI TestClient.
 def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
+    # this is an integration test
     """A 400 naming what to install, not a 500 from an import three frames
     down. Both run routes already apply one screen; a build applies the half of
     it that describes what gets stored."""
@@ -386,6 +460,7 @@ def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
 
 # FastAPI TestClient.
 def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
+    # this is an integration test
     from fastapi.testclient import TestClient
 
     from raglab import server
@@ -393,12 +468,16 @@ def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     assert options['hierarchies'] == list(HIERARCHIES)
     assert options['summary_scopes'] == list(config.SUMMARY_SCOPES)
     assert options['summarizers'] == list(config.SUMMARIZERS)
+    # Read from the real, unmocked availability check — one of the claims
+    # `test_availability_is_verified_rather_than_asserted` used to make,
+    # before it was dropped as the availability rule's redundant middle test.
     assert options['hierarchy_support']['louvain']['available'] is True
     assert 'retrieval.summary_scope' in options['dependencies']
 
 
 # Reads the panel's own source.
 def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
+    # this is a convention test
     """Resolving the dependency rules happens per keystroke in the browser
     without a round trip, so the resolution exists twice and the two copies
     must agree — a single-level resolver once left `graph_knn` live under a
@@ -422,6 +501,7 @@ def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
 
 
 def test_the_graph_methods_are_named_as_chunk_graphs_and_not_as_graphrag():
+    # this is a convention test
     """A reader who sees `leiden` on a leaderboard row will think GraphRAG
     unless told otherwise, and GraphRAG's graph is over LLM-extracted entities.
     The help text is where that is corrected, so it is pinned."""
@@ -446,6 +526,7 @@ def _tied_corpus() -> list[str]:
 
 
 def test_terms_that_tie_on_idf_are_chosen_by_a_stated_rule():
+    # this is an integration test
     """A tie must be broken by something written down, not by `set`
     iteration order, which Python randomises per process — everything
     downstream (edges, partition, summaries, fingerprint) follows it. The
@@ -471,6 +552,7 @@ def test_terms_that_tie_on_idf_are_chosen_by_a_stated_rule():
 # Two subprocesses, so it tests the thing that actually varies:
 # PYTHONHASHSEED, which is fixed within any one process.
 def test_the_same_corpus_builds_the_same_graph_in_a_different_process():
+    # this is an integration test
     """One fingerprint must name one index, across processes and not merely
     within one. `SEED` fixes Louvain's own RNG, not the order of the input
     it is handed — and string hashing is fixed for the life of a process, so

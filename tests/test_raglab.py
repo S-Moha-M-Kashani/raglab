@@ -165,43 +165,6 @@ def test_the_lab_ignores_a_leftover_chroma_environment(monkeypatch):
     assert 'lodestar' not in repr(config.load_lab_settings())
 
 
-# --- question selection -----------------------------------------------------
-# These three stay here until the sampling step of the test-plan moves and
-# merges them into tests/test_sampling.py, which owns the subject.
-
-def test_select_questions_strides_across_types(ground_truth):
-    # this is a unit test
-    picked = evaluate.select_questions(ground_truth, limit=10)
-    assert len(picked) == 10
-    assert len({q['type'] for q in picked}) > 1, 'a limited run must stay diverse'
-
-
-def test_a_limited_run_reaches_the_end_of_the_question_set(ground_truth):
-    # this is a unit test
-    """Striding with `questions[::step][:limit]` silently drops a tail
-    whenever the count is not a multiple of the limit. Not a rounding
-    detail: the set is grouped by type with the newest appended last, so
-    the dropped tail is always the most recently added question type."""
-    questions = ground_truth['questions']
-    for limit in (5, 10, 20, 25, 40):
-        picked = evaluate.select_questions(ground_truth, limit=limit)
-        assert len(picked) == limit, limit
-        ids = [q['id'] for q in picked]
-        assert len(set(ids)) == limit, f'{limit} produced duplicates'
-        assert ids[0] == questions[0]['id'], limit
-        # The last pick is within one stride of the end, not 16 short of it.
-        stride = -(-len(questions) // limit)          # ceil
-        assert questions.index(picked[-1]) >= len(questions) - stride, limit
-
-
-def test_a_limited_run_covers_the_newest_question_type(ground_truth):
-    # this is a unit test
-    """Habit questions are last in the file, so a limit that cannot reach
-    the end cannot measure habit retrieval at all."""
-    picked = evaluate.select_questions(ground_truth, limit=20)
-    assert any(q['type'] == 'habit' for q in picked)
-
-
 # --- RAGAS bridge ----------------------------------------------------------
 
 def test_ragas_telemetry_is_disabled_on_import():

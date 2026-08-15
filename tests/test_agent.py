@@ -27,23 +27,18 @@ LEAVES = dict(chunker='session', embedder='token-hash', contextual=False)
 
 
 @pytest.fixture(scope='module')
-def diary():
-    return load_diary()
-
-
-@pytest.fixture(scope='module')
 def ground_truth():
-    return load_ground_truth()
+    """The five-session smoke corpus's own ground truth, not the diary's —
+    every loop test below scripts `agent._ask`, so the corpus only has to
+    exist, never carry the specific evidence one diary question needs."""
+    from raglab import datasets
+    _, gt = datasets.load('smoke-mini')
+    return gt
 
 
 @pytest.fixture(scope='module')
-def registry(diary):
-    return IndexRegistry(LAB_SETTINGS, diary)
-
-
-@pytest.fixture(scope='module')
-def index(registry):
-    return registry.get(IndexConfig(**LEAVES))
+def index(smoke_index):
+    return smoke_index.index
 
 
 @pytest.fixture
@@ -94,6 +89,7 @@ class Stub:
 # --- the settings: off by default, outside the fingerprint ------------------
 
 def test_the_agent_is_off_by_default_and_changes_nothing_until_asked():
+    # this is a unit test
     """The `summary_scope` rule applied to a loop: shipping the agent must move
     no number in a lab nobody has reconfigured, or the four scopes stop being a
     factorial and become a confound in every earlier row."""
@@ -103,6 +99,7 @@ def test_the_agent_is_off_by_default_and_changes_nothing_until_asked():
 
 
 def test_no_agent_knob_can_cost_an_index_rebuild():
+    # this is a unit test
     """The agent is not an index field, so all four scopes sweep free against a
     single build — the property that makes this affordable to measure. A scope in
     the fingerprint would mean four 167-session builds to fill one 2x2 table."""
@@ -113,6 +110,7 @@ def test_no_agent_knob_can_cost_an_index_rebuild():
 
 
 def test_the_four_scopes_are_the_two_by_two_and_nothing_else():
+    # this is a unit test
     """`retrieve` and `generate` own one stage each; `full` owns both. A fifth
     value would be a mechanism with no cell in the table."""
     assert SCOPES == ('', 'retrieve', 'generate', 'full')
@@ -126,6 +124,7 @@ def test_the_four_scopes_are_the_two_by_two_and_nothing_else():
 
 def test_a_scope_this_installation_cannot_run_is_refused_never_substituted(
         monkeypatch):
+    # this is a unit test
     """The `leiden` rule. A row labelled `scope=full` that was actually served
     by the fixed pipeline is the worst artefact this lab can produce, because no
     other field on it disagrees."""
@@ -139,6 +138,7 @@ def test_a_scope_this_installation_cannot_run_is_refused_never_substituted(
 
 
 def test_the_writing_scopes_require_the_llm_answerer():
+    # this is a unit test
     """Under `extractive` the answer is quoted from the corpus, so there is
     nothing for a critic to critique and nothing for a revision to change. A
     validation error, never a silent promotion of the answerer."""
@@ -156,11 +156,13 @@ def test_the_writing_scopes_require_the_llm_answerer():
 @pytest.mark.parametrize('knob,value', [('max_hops', 0), ('max_revisions', -1),
                                         ('max_llm_calls', 0)])
 def test_a_loop_bound_below_its_floor_is_refused(knob, value):
+    # this is a unit test
     problems = agent_cfg(scope='full', **{knob: value}).validate()
     assert any(knob in p for p in problems), problems
 
 
 def test_an_unknown_scope_or_critic_is_refused_with_the_list():
+    # this is a unit test
     assert any('scope' in p for p in agent_cfg(scope='wander').validate())
     assert any('critic' in p
                for p in agent_cfg(scope='generate', critic='vibes').validate())
@@ -170,6 +172,7 @@ def test_an_unknown_scope_or_critic_is_refused_with_the_list():
 # --- what the panel shows --------------------------------------------------
 
 def test_every_agent_knob_explains_itself():
+    # this is a unit test
     """`explain.missing() == []` is what stops a knob shipping unexplained, and
     the agent's group has to be inside that gate rather than beside it."""
     assert explain.missing() == []
@@ -179,6 +182,7 @@ def test_every_agent_knob_explains_itself():
 
 
 def test_the_agent_is_the_fourth_step_and_its_models_wear_its_ink():
+    # this is a unit test
     """`ModelRole.step` is derived from the field a role writes to, so an ink
     cannot disagree with where the value is stored."""
     keys = [step.key for step in config.STEPS]
@@ -191,6 +195,7 @@ def test_the_agent_is_the_fourth_step_and_its_models_wear_its_ink():
 
 
 def test_each_agent_knob_is_greyed_out_by_the_scope_that_never_reads_it():
+    # this is a unit test
     """Per scope, and transitively: a critic model is dead when the critic is
     off, which is itself dead when the scope owns no generation."""
     def state(**kwargs):
@@ -227,6 +232,7 @@ def test_each_agent_knob_is_greyed_out_by_the_scope_that_never_reads_it():
 
 def test_a_sufficient_first_hop_stops_and_names_why(index, question, query_date,
                                                     monkeypatch):
+    # this is an integration test
     stub = Stub(plan='the diary entries about this', assess='SCORE: 0.9')
     monkeypatch.setattr(agent, '_ask', stub)
     outcome = agent.run(index, agent_cfg(scope='retrieve', max_hops=3),
@@ -238,46 +244,64 @@ def test_a_sufficient_first_hop_stops_and_names_why(index, question, query_date,
     assert stub.count('rewrite') == 0
 
 
-def test_an_insufficient_verdict_rewrites_and_hops_again_up_to_the_cap(
-        index, question, query_date, monkeypatch):
-    stub = Stub(plan='...', assess='SCORE: 0.1', rewrite='خواب و بیخوابی')
+# Four ways a retrieval-scope loop can end, each a real cause rather than a
+# label derived from the config passed in — `agent_stop` is the row's whole
+# excuse for why a run refused, so the values below are hand-picked per case,
+# never computed from `config_delta`. `threshold` needs a contrast (same
+# score, two thresholds) to show the threshold decides anything at all, so it
+# is two rows rather than one. On the five-session smoke index rather than
+# the 167-session diary: every case scripts `agent._ask`, so the corpus only
+# has to exist, never carry any one question's specific evidence.
+LOOP_BOUND_CASES = [
+    dict(id='hop-cap', config_delta=dict(max_hops=3),
+         answers=dict(plan='...', assess='SCORE: 0.1',
+                      rewrite='خواب و بیخوابی'),
+         diagnostics=dict(agent_stop='hop-cap', agent_hops=3, agent_rewrites=2)),
+    dict(id='rewrite-off', config_delta=dict(max_hops=2, rewrite=False),
+         answers=dict(plan='...', assess='SCORE: 0.1'),
+         diagnostics=dict(agent_stop='hop-cap', agent_hops=2, agent_rewrites=0),
+         stub_counts=dict(rewrite=0)),
+    dict(id='threshold-lenient', config_delta=dict(evidence_threshold=0.5),
+         answers=dict(plan='...', assess='SCORE: 0.6'),
+         diagnostics=dict(agent_stop='evidence-sufficient', agent_hops=1)),
+    dict(id='threshold-strict',
+         config_delta=dict(max_hops=2, evidence_threshold=0.8),
+         answers=dict(plan='...', assess='SCORE: 0.6'),
+         diagnostics=dict(agent_stop='hop-cap', agent_hops=2)),
+    dict(id='call-cap', config_delta=dict(max_hops=9, max_llm_calls=3),
+         answers=dict(plan='...', assess='SCORE: 0.1', rewrite='...'),
+         diagnostics=dict(agent_stop='call-cap', agent_calls=3),
+         stub_call_total=3),
+]
+
+
+@pytest.mark.parametrize('case', LOOP_BOUND_CASES,
+                         ids=[c['id'] for c in LOOP_BOUND_CASES])
+def test_the_retrieval_loop_stops_for_a_different_reason_per_config(
+        index, question, query_date, monkeypatch, case):
+    # this is an integration test
+    """`test_an_insufficient_verdict_rewrites_and_hops_again_up_to_the_cap`,
+    `test_rewriting_off_still_hops_and_is_the_control_for_the_rewrite`,
+    `test_the_threshold_is_what_decides_sufficiency` and
+    `test_the_cost_cap_ends_the_loop_and_names_itself`, folded into one table:
+    hop-cap, the rewrite control, the threshold (both directions) and the
+    call-cap, each asserted on the exact diagnostics field the original test
+    checked."""
+    stub = Stub(**case['answers'])
     monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='retrieve', max_hops=3),
+    outcome = agent.run(index, agent_cfg(scope='retrieve', **case['config_delta']),
                         question, query_date, llm=FakeChat())
-    assert outcome.diagnostics['agent_hops'] == 3
-    assert outcome.diagnostics['agent_rewrites'] == 2, 'one per hop after the first'
-    assert outcome.diagnostics['agent_stop'] == 'hop-cap'
-
-
-def test_rewriting_off_still_hops_and_is_the_control_for_the_rewrite(
-        index, question, query_date, monkeypatch):
-    """`rewrite=False` is what says whether rewriting was the useful part or
-    merely another look at the same pool."""
-    stub = Stub(plan='...', assess='SCORE: 0.1')
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index,
-                        agent_cfg(scope='retrieve', max_hops=2, rewrite=False),
-                        question, query_date, llm=FakeChat())
-    assert outcome.diagnostics['agent_hops'] == 2
-    assert outcome.diagnostics['agent_rewrites'] == 0
-    assert stub.count('rewrite') == 0
-
-
-def test_the_threshold_is_what_decides_sufficiency(index, question, query_date,
-                                                   monkeypatch):
-    monkeypatch.setattr(agent, '_ask', Stub(plan='...', assess='SCORE: 0.6'))
-    lenient = agent.run(index, agent_cfg(scope='retrieve',
-                                         evidence_threshold=0.5),
-                        question, query_date, llm=FakeChat())
-    strict = agent.run(index, agent_cfg(scope='retrieve', max_hops=2,
-                                        evidence_threshold=0.8),
-                       question, query_date, llm=FakeChat())
-    assert lenient.diagnostics['agent_hops'] == 1
-    assert strict.diagnostics['agent_hops'] == 2
+    for key, expected in case['diagnostics'].items():
+        assert outcome.diagnostics[key] == expected, key
+    for node, expected in case.get('stub_counts', {}).items():
+        assert stub.count(node) == expected, node
+    if 'stub_call_total' in case:
+        assert len(stub.calls) == case['stub_call_total']
 
 
 def test_every_hop_retrieves_through_the_measured_pipeline(
         index, question, query_date, monkeypatch):
+    # this is an integration test
     """The agent loops *around* `pipeline.retrieve`, never past it: every
     existing retrieval knob still applies on every hop, so the row is a loop
     over a pipeline the lab has already swept rather than a second one it has
@@ -303,6 +327,7 @@ def test_every_hop_retrieves_through_the_measured_pipeline(
 
 def test_a_grounded_draft_ships_without_revision(index, question, query_date,
                                                  monkeypatch):
+    # this is an integration test
     stub = Stub(draft='جواب فارسی [s001]', critique='SCORE: 0.9')
     monkeypatch.setattr(agent, '_ask', stub)
     outcome = agent.run(index, agent_cfg(scope='generate'), question,
@@ -315,6 +340,7 @@ def test_a_grounded_draft_ships_without_revision(index, question, query_date,
 
 def test_a_refused_draft_is_revised_up_to_the_cap(index, question, query_date,
                                                   monkeypatch):
+    # this is an integration test
     stub = Stub(draft=['first', 'second'], critique='SCORE: 0.1')
     monkeypatch.setattr(agent, '_ask', stub)
     outcome = agent.run(index, agent_cfg(scope='generate', max_revisions=1),
@@ -326,6 +352,7 @@ def test_a_refused_draft_is_revised_up_to_the_cap(index, question, query_date,
 
 def test_the_critic_off_ships_the_draft_and_calls_no_critic(
         index, question, query_date, monkeypatch):
+    # this is an integration test
     """The control for the critic: without it the scope is one drafting call, so
     a `generate` row that beats `critic='none'` beat the critique, not the
     prompt."""
@@ -340,6 +367,7 @@ def test_the_critic_off_ships_the_draft_and_calls_no_critic(
 
 def test_the_both_critic_also_asks_whether_the_answer_answers_the_question(
         index, question, query_date, monkeypatch):
+    # this is an integration test
     stub = Stub(draft='جواب', critique='SCORE: 0.9', completeness='SCORE: 0.9')
     monkeypatch.setattr(agent, '_ask', stub)
     agent.run(index, agent_cfg(scope='generate', critic='both'), question,
@@ -358,6 +386,7 @@ def test_the_both_critic_also_asks_whether_the_answer_answers_the_question(
 
 def test_only_the_full_scope_retrieves_again_after_a_bad_critique(
         index, question, query_date, monkeypatch):
+    # this is an integration test
     """The interaction term of the factorial. `generate` can only rewrite the
     answer it has; `full` can go back for different evidence, which is the one
     mechanism neither middle row holds."""
@@ -386,6 +415,7 @@ def test_only_the_full_scope_retrieves_again_after_a_bad_critique(
 
 def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
         index, question, query_date):
+    # this is an integration test
     """No stub: `FakeChat` echoes its prompt, so every verdict is unparsable.
     An unreadable sufficiency verdict must mean *insufficient*, never a
     number that clears the threshold, or an unreachable model turns the loop
@@ -399,6 +429,7 @@ def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
 
 
 def test_the_verdict_parser_reads_a_score_and_refuses_to_invent_one():
+    # this is a unit test
     assert agent.verdict('SCORE: 0.8') == pytest.approx(0.8)
     assert agent.verdict('score 8/10') == pytest.approx(0.8)
     assert agent.verdict('YES') == 1.0
@@ -410,23 +441,12 @@ def test_the_verdict_parser_reads_a_score_and_refuses_to_invent_one():
 
 
 # --- cost, failure, and what the row says ----------------------------------
-
-def test_the_cost_cap_ends_the_loop_and_names_itself(index, question,
-                                                     query_date, monkeypatch):
-    """A shape-bounded loop can still be expensive, and an unsweepable knob is
-    not a knob."""
-    stub = Stub(plan='...', assess='SCORE: 0.1', rewrite='...')
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='retrieve', max_hops=9,
-                                         max_llm_calls=3),
-                        question, query_date, llm=FakeChat())
-    assert outcome.diagnostics['agent_stop'] == 'call-cap'
-    assert outcome.diagnostics['agent_calls'] == 3
-    assert len(stub.calls) == 3
-
+#
+# The cost cap (call-cap) itself is now one row of `LOOP_BOUND_CASES` above.
 
 def test_a_model_the_agent_cannot_reach_abstains_and_says_why(
         index, question, query_date, monkeypatch):
+    # this is an integration test
     """`_llm_answer`'s call one level up: one unreachable question must not end
     a run that has paid for twenty-nine others, and it must never quietly fall
     back to the fixed pipeline — that produces a row labelled with an agent that
@@ -443,6 +463,7 @@ def test_a_model_the_agent_cannot_reach_abstains_and_says_why(
 
 def test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores(
         index, ground_truth, query_date, monkeypatch):
+    # this is an integration test
     """The agent fills the same `Outcome`, so scoring, RAGAS, the ledger and the
     Inspector need no second idea of what a result is."""
     monkeypatch.setattr(agent, '_ask',
@@ -459,7 +480,42 @@ def test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores(
     assert 'n_contexts' in row and 'latency_ms' in row
 
 
+def test_agent_columns_join_the_runs_aggregate_and_its_notes_name_the_scope(
+        index, ground_truth, query_date, monkeypatch):
+    # this is an integration test
+    """The two distinct claims
+    `test_an_evaluation_with_a_scope_scores_records_and_names_the_loop` used
+    to prove over a full HTTP evaluation — that the run's notes name the
+    scope and its caps, and that `n_hops`/`n_agent_calls` ride the same
+    `AGGREGATED` tuple every other per-question number does and so reach the
+    run's overall means with no special case — direct, now: `agent.note_for`
+    on its own, then two `score_question` calls feeding `metrics.aggregate`.
+    No HTTP, no job, no ragas; the route-narrowing claim that test sat beside
+    is `test_the_retrieval_route_shows_the_loop_and_never_answers`, kept."""
+    retrieving = agent.note_for(AgentConfig(scope='retrieve', max_hops=5))
+    assert 'agent scope=retrieve' in retrieving and 'max_hops=5' in retrieving
+    assert 'critic=' not in retrieving, 'retrieve owns no generation'
+    full_note = agent.note_for(AgentConfig(scope='full', critic='both',
+                                           max_revisions=2))
+    assert 'agent scope=full' in full_note
+    assert 'critic=both' in full_note and 'max_revisions=2' in full_note
+
+    monkeypatch.setattr(agent, '_ask',
+                        Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
+                             critique='SCORE: 0.9'))
+    rows = [metrics.score_question(
+                asked, agent.run(index, agent_cfg(scope='full'),
+                                 asked['question_fa'], query_date, llm=FakeChat()),
+                k=3)
+            for asked in ground_truth['questions'][:2]]
+    assert all(row['agent_scope'] == 'full' for row in rows)
+    assert all(row['n_hops'] >= 1 and row['n_agent_calls'] >= 2 for row in rows)
+    assert all(row['agent_stop'] for row in rows)
+    assert metrics.aggregate(rows)['overall']['n_hops'] >= 1
+
+
 def test_the_loop_counters_are_explained_measures_not_bare_numbers():
+    # this is a unit test
     """`explain.missing_metrics() == []` is the gate; these two join it rather
     than arriving on the dashboard as unlabelled integers."""
     assert explain.missing_metrics() == []
@@ -472,17 +528,28 @@ def test_the_loop_counters_are_explained_measures_not_bare_numbers():
     assert 'n_agent_calls' in metrics.AGGREGATED
 
 
-def test_a_traced_agent_records_every_node_it_visited(index, question,
-                                                      query_date, monkeypatch):
-    """The Inspector's ladder. "Refused because the diary is silent" and
-    "refused after two hops found nothing" are different findings, and the trace
-    is where the second one is legible."""
-    monkeypatch.setattr(agent, '_ask',
-                        Stub(plan='...', assess='SCORE: 0.1', rewrite='...',
-                             draft='جواب', critique='SCORE: 0.9'))
+def test_a_traced_agent_records_every_node_and_moves_no_number(
+        index, question, query_date, monkeypatch):
+    # this is an integration test
+    """The Inspector's ladder — "refused because the diary is silent" and
+    "refused after two hops found nothing" are different findings, and the
+    trace is where the second one is legible — and `retrieve_traced`'s
+    guarantee one level up: tracing records the same run, so asking for it
+    can never change a score. One scripted run proves both, run twice (plain,
+    then traced) from a fresh stub each time."""
+    def scripted() -> Stub:
+        return Stub(plan='...', assess='SCORE: 0.1', rewrite='...',
+                    draft='جواب', critique='SCORE: 0.9')
+
+    monkeypatch.setattr(agent, '_ask', scripted())
+    plain = agent.run(index, agent_cfg(scope='full', max_hops=2), question,
+                      query_date, llm=FakeChat())
+
     trace: dict = {}
-    agent.run(index, agent_cfg(scope='full', max_hops=2), question, query_date,
-              llm=FakeChat(), trace=trace)
+    monkeypatch.setattr(agent, '_ask', scripted())
+    traced = agent.run(index, agent_cfg(scope='full', max_hops=2), question,
+                       query_date, llm=FakeChat(), trace=trace)
+
     nodes = [visit['node'] for visit in trace['agent']]
     assert nodes[0] == 'plan'
     assert nodes.count('retrieve') == 2
@@ -492,25 +559,7 @@ def test_a_traced_agent_records_every_node_it_visited(index, question,
     # the agent's traced run is not a second, poorer kind of trace.
     assert trace['candidates']
 
-
-def test_tracing_an_agent_moves_no_number(index, question, query_date,
-                                          monkeypatch):
-    """`retrieve_traced`'s guarantee, one level up: the trace is a recording of
-    the same run, so asking for it can never change a score."""
-    def once():
-        monkeypatch.setattr(agent, '_ask',
-                            Stub(plan='...', assess='SCORE: 0.9', draft='جواب',
-                                 critique='SCORE: 0.9'))
-        return agent.run(index, agent_cfg(scope='full'), question, query_date,
-                         llm=FakeChat())
-
-    plain = once()
-    trace: dict = {}
-    monkeypatch.setattr(agent, '_ask',
-                        Stub(plan='...', assess='SCORE: 0.9', draft='جواب',
-                             critique='SCORE: 0.9'))
-    traced = agent.run(index, agent_cfg(scope='full'), question, query_date,
-                       llm=FakeChat(), trace=trace)
+    # and the numbers agree, node-recording included: tracing changed nothing
     assert [c.chunk_id for c in plain.contexts] == [c.chunk_id
                                                     for c in traced.contexts]
     assert plain.answer == traced.answer
@@ -520,6 +569,7 @@ def test_tracing_an_agent_moves_no_number(index, question, query_date,
 # --- the graph itself ------------------------------------------------------
 
 def test_the_loop_is_a_compiled_langgraph_with_the_edge_full_alone_has():
+    # this is a unit test
     """Not an incidental while-loop: the scopes differ by which nodes and edges
     the graph has, which is the thing a reader can check against the design."""
     pytest.importorskip('langgraph')
@@ -544,6 +594,7 @@ def client():
 
 
 def test_the_panel_offers_every_scope_and_says_which_can_run(client):
+    # this is an integration test
     """Served, never listed in the frontend: a panel with its own list is a
     panel that will offer a scope the service refuses."""
     body = client.get('/api/options').json()
@@ -564,39 +615,20 @@ def test_the_panel_offers_every_scope_and_says_which_can_run(client):
     assert 'agent.scope' in body['help']
 
 
-def test_an_evaluation_with_a_scope_scores_records_and_names_the_loop(client,
-                                                                     monkeypatch):
-    """The whole way through: an agent run has to produce a row the leaderboard
-    can read, with the loop's counters on every question and its shape in the
-    notes — a row that says `scope=full` and nothing else would be two
-    configurations wearing one label."""
-    monkeypatch.setattr(agent, '_ask',
-                        Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
-                             critique='SCORE: 0.9'))
-    payload = agent_cfg(scope='full').to_dict() | {'limit': 2,
-                                                  'ragas_mode': 'off'}
-    res = client.post('/api/evaluations', json=payload)
-    assert res.status_code == 202, res.text
-    job = _finished(client, res.json()['job_id'])
-    assert job['state'] == 'done', job.get('error')
-    result = job['result']
-    rows = result['rows']
-    assert len(rows) == 2
-    assert all(row['agent_scope'] == 'full' for row in rows)
-    assert all(row['n_hops'] >= 1 and row['n_agent_calls'] >= 2 for row in rows)
-    assert all(row['agent_stop'] for row in rows)
-    assert any('agent scope=full' in note for note in result['notes'])
-    # The means join the summary like every other per-question number.
-    assert result['summary']['overall']['n_hops'] >= 1
-    # And the Inspector's ladder came back with the run rather than being lost.
-    assert result['traces'][0]['trace']['agent'][0]['node'] == 'plan'
-
-
 def test_the_retrieval_route_shows_the_loop_and_never_answers(client,
                                                              monkeypatch):
+    # this is an integration test
     """`/api/retrievals` retrieves and stops. An agent that owns retrieval is
     part of what there is to show; the drafting half of `full` is an answering
-    stage, so it must not run here however the scope is set."""
+    stage, so it must not run here however the scope is set.
+
+    (`test_an_evaluation_with_a_scope_scores_records_and_names_the_loop` used
+    to sit beside this, driving the same loop through `/api/evaluations`
+    instead — deleted, since this route already pins that the loop actually
+    runs through an HTTP job and traces come back; its one distinct claim,
+    that the agent's columns join the run's aggregate, now has its own direct
+    test beside `test_the_loop_counters_are_explained_measures_not_bare_
+    numbers`, and its notes claim has its own direct test on `agent.note_for`.)"""
     stub = Stub(plan='...', assess='SCORE: 0.1', rewrite='دوباره',
                 draft='این نباید اجرا شود')
     monkeypatch.setattr(agent, '_ask', stub)
@@ -614,6 +646,7 @@ def test_the_retrieval_route_shows_the_loop_and_never_answers(client,
 
 def test_a_scope_the_backend_cannot_run_is_a_400_on_both_run_routes(
         client, monkeypatch):
+    # this is an integration test
     """Both run routes apply the same screen — the rule `/api/queries` and
     `/api/evaluations` already share about models, applied to the agent."""
     monkeypatch.setattr(agent, 'agent_available', lambda: False)
@@ -728,13 +761,20 @@ def test_the_panel_has_a_control_for_every_agent_knob(client):
         assert f'id="{name}"' in panel, name
 
 
-def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
-                                                               query_date,
-                                                               monkeypatch):
+def test_every_agent_node_reads_the_evidence_the_answerer_reads(monkeypatch):
+    # this is an integration test
     """The `generate` scope asks whether a critique loop writes better
     answers from the *same* evidence, so a draft node holding less of it
     makes the scope partly a measurement of truncation rather than of
-    critique."""
+    critique. Deliberately not the module `index`/`question`/`query_date`
+    fixtures: this is the one test in the file that needs a corpus large
+    enough to show the fault (>900 handed characters), which the five-session
+    smoke corpus (630 raw content characters, before any retrieval narrows it
+    further) cannot supply — so it builds the full diary directly."""
+    diary_index = IndexRegistry(LAB_SETTINGS, load_diary()).get(IndexConfig(**LEAVES))
+    gt = load_ground_truth()
+    question = gt['questions'][0]['question_fa']
+    query_date = gt['meta']['query_date']
     seen: dict[str, str] = {}
 
     def spy(llm, model, node, system, user):
@@ -742,8 +782,8 @@ def test_every_agent_node_reads_the_evidence_the_answerer_reads(index, question,
         return 'SCORE: 0.9'
 
     monkeypatch.setattr(agent, '_ask', spy)
-    outcome = agent.run(index, agent_cfg(scope='full', critic='both'), question,
-                        query_date, llm=FakeChat())
+    outcome = agent.run(diary_index, agent_cfg(scope='full', critic='both'),
+                        question, query_date, llm=FakeChat())
     handed = pipeline.context_blocks(outcome)
     assert len(handed) > 900, 'a shorter corpus than this cannot show the fault'
     for node in ('assess', 'draft', 'critique', 'completeness'):

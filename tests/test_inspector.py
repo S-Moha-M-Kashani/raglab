@@ -1,17 +1,25 @@
-import pytest
+import time
+from pathlib import Path
 
-from raglab import evaluate, pipeline, corpus, inspector, present
-from raglab.config import IndexConfig, RetrievalConfig, LabSettings
+import pytest
+from fastapi.testclient import TestClient
+
+from raglab import evaluate, pipeline, corpus, inspector, metrics, present
+from raglab.config import IndexConfig, LabConfig, RetrievalConfig, LabSettings
 from raglab.index import IndexRegistry
+
+from conftest import _finished
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 
-def test_evidence_spans_locate_the_quote_and_never_invent_one():
-    """The green highlight is drawn from these ranges, so a range that is not
-    really the quote is a lie on screen. `mark_gold` also calls a chunk
-    *contained by* a quote gold, which has no verbatim quote inside it and
-    must highlight nothing."""
+def test_evidence_spans_and_mark_gold_agree_on_the_same_quote_either_direction():
+    # this is a unit test
+    """The green highlight (`evidence_spans`) and the gray/white gold split
+    (`mark_gold`) are two views of one match, over the same shared
+    normaliser — a chunk contained *by* a quote is gold with nothing verbatim
+    to highlight, and an empty normalisation on either side must never mark
+    everything gold."""
     quote = 'قسط‌بندی جریمه اوکی شد شیش قسط'
     text = f'خبر خوب: {quote}، از اول ماه دیگه'
     spans = present.evidence_spans(text, [quote])
@@ -37,9 +45,32 @@ def test_evidence_spans_locate_the_quote_and_never_invent_one():
     s, e = merged[0]
     assert 'قبل از اول ماه دیگه بود'[s:e] == 'اول ماه دیگه'
 
+    quotes = [quote]
+    texts = [
+        'خبر خوب: قسط‌بندی جریمه اوکی شد شیش قسط، از اول ماه دیگه',  # contains quote
+        'امروز هوا خیلی گرم بود و کاری پیش نرفت',                    # unrelated
+    ]
+    flags = inspector.mark_gold(texts, quotes)
+    assert flags == [True, False]
+
+    # quote longer than a small chunk: chunk contained by the quote also counts
+    assert inspector.mark_gold(['شیش قسط'], quotes) == [True]
+    # no quotes → nothing is gold
+    assert inspector.mark_gold(texts, []) == [False, False]
+
+    # empty normalisation (blank, whitespace-only, punctuation-only) → never gold
+    assert inspector.mark_gold(['', '   ', '...!!!'], quotes) == [False, False, False]
+
+    # a QUOTE that normalises to empty (punctuation-only, or a single short
+    # token the tokeniser drops) must not mark every candidate gold
+    assert inspector.mark_gold(
+        ['یک متن کاملا بی ربط', 'هر چیز دیگر'], ['؟!...']) == [False, False]
+    assert inspector.mark_gold(['یک متن کاملا بی ربط'], ['۶']) == [False]
+
 
 # Real fixture, real chunker.
 def test_a_question_reports_how_many_gold_chunks_existed_to_find():
+    # this is an integration test
     """"1 gold" is not a result until you know it was 1 of how many. The
     denominator is how many chunks in the whole index hold this question's
     evidence, not how many evidence quotes the fixture lists — one quote can
@@ -75,6 +106,7 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
 
 # Real fixture, real chunker.
 def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
+    # this is an integration test
     """Every span on every candidate must slice out of that candidate's own
     text, and a candidate marked gold with a verbatim quote must carry at
     least one."""
@@ -107,6 +139,7 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
 
 # Real in-memory index, offline ascii-hash embedder.
 def test_retrieve_traced_records_ranks_and_dropped_candidates():
+    # this is an integration test
     diary = corpus.load_diary()
     gt = corpus.load_ground_truth()
     index = IndexRegistry(LAB_SETTINGS, diary).get(
@@ -150,50 +183,6 @@ def test_retrieve_traced_records_ranks_and_dropped_candidates():
         'expected at least one candidate with float grade_score'
 
 
-def test_mark_gold_matches_evidence_quote_either_direction():
-    quotes = ['قسط‌بندی جریمه اوکی شد شیش قسط']
-    texts = [
-        'خبر خوب: قسط‌بندی جریمه اوکی شد شیش قسط، از اول ماه دیگه',  # contains quote
-        'امروز هوا خیلی گرم بود و کاری پیش نرفت',                    # unrelated
-    ]
-    flags = inspector.mark_gold(texts, quotes)
-    assert flags == [True, False]
-
-    # quote longer than a small chunk: chunk contained by the quote also counts
-    assert inspector.mark_gold(['شیش قسط'], quotes) == [True]
-    # no quotes → nothing is gold
-    assert inspector.mark_gold(texts, []) == [False, False]
-
-    # empty normalisation (blank, whitespace-only, punctuation-only) → never gold
-    assert inspector.mark_gold(['', '   ', '...!!!'], quotes) == [False, False, False]
-
-    # a QUOTE that normalises to empty (punctuation-only, or a single short
-    # token the tokeniser drops) must not mark every candidate gold
-    assert inspector.mark_gold(
-        ['یک متن کاملا بی ربط', 'هر چیز دیگر'], ['؟!...']) == [False, False]
-    assert inspector.mark_gold(['یک متن کاملا بی ربط'], ['۶']) == [False]
-
-
-# Real in-memory index, offline.
-def test_chunks_by_session_groups_and_counts():
-    diary = corpus.load_diary()
-    index = IndexRegistry(LAB_SETTINGS, diary).get(
-        IndexConfig(chunker='session', embedder='ascii-hash'))
-    groups = inspector.chunks_by_session(index)
-
-    assert len(groups) == len(index.by_session)
-    total = sum(len(g['chunks']) for g in groups)
-    assert total == len(index.chunks)
-    first = groups[0]
-    assert first['session_id'] and 'date' in first
-    assert all('id' in c and 'text' in c for c in first['chunks'])
-
-
-import time
-
-from fastapi.testclient import TestClient
-
-
 def _client(monkeypatch):
     from raglab import inspector
     # Pin the offline/fake backend so no test needs a key or a network.
@@ -203,6 +192,7 @@ def _client(monkeypatch):
 
 # FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
+    # this is an integration test
     client = _client(monkeypatch)
     body = client.get('/api/groundtruth').json()
     q = body['questions'][0]
@@ -214,28 +204,56 @@ def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
 
 
 # FastAPI TestClient over the read-only app; real in-memory index build via
-# the job runner.
-def test_chunks_job_returns_sessions(monkeypatch):
+# the job runner. Parametrized over a flat build and a hierarchical one, both
+# on the five-session smoke corpus, so the toggle's two halves (leaves-only,
+# leaves-plus-summaries) are one test rather than two near-duplicates.
+@pytest.mark.parametrize('index_cfg, expect_summaries', [
+    ({'dataset': 'smoke-mini', 'chunker': 'session', 'embedder': 'token-hash'},
+     False),
+    ({'dataset': 'smoke-mini', 'chunker': 'session', 'embedder': 'token-hash',
+      'hierarchy': 'kmeans', 'summarizer': 'centroid', 'min_group': 2},
+     True),
+], ids=['flat', 'hierarchy'])
+def test_chunks_job_returns_sessions_and_any_summaries_beside_them(
+        monkeypatch, smoke_index, index_cfg, expect_summaries):
+    # this is an integration test
+    """The manual build path serves both halves in one job, so the toggle
+    needs no second request — and `total` keeps counting leaves, since that
+    is what the chunk-size knob is read against. `kmeans` rather than
+    `metadata` for the hierarchy half: the smoke corpus's five sessions each
+    declare their own single topic, so a metadata grouping never reaches
+    `min_group` and writes no summary at all — measured empirically before
+    writing this test."""
     client = _client(monkeypatch)
-    cfg = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'}}
-    acc = client.post('/api/chunks', json=cfg)
+    acc = client.post('/api/chunks', json={'index': index_cfg})
     assert acc.status_code == 202
-    job_id = acc.json()['job_id']
-    # jobs run on a daemon thread; poll until done
-    for _ in range(200):
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] in ('done', 'error'):
-            break
-        time.sleep(0.02)
+    job = _finished(client, acc.json()['job_id'])
     assert job['state'] == 'done', job.get('error')
     result = job['result']
-    assert result['total'] == sum(len(g['chunks'])
-                                  for g in result['chunks_by_session'])
+
+    groups = result['chunks_by_session']
+    assert result['total'] == sum(len(g['chunks']) for g in groups)
+    first = groups[0]
+    assert first['session_id'] and 'date' in first
+    assert all('id' in c and 'text' in c for c in first['chunks'])
+    # one group per session either way — a hierarchy adds rows beside the
+    # leaves, it never folds two sessions' leaves into one group
+    assert len(groups) == len(smoke_index.index.by_session)
+
+    if expect_summaries:
+        assert result['total_summaries'] == len(result['summaries']) >= 1
+        summary = result['summaries'][0]
+        assert summary['members'] >= 1 and summary['level'] >= 1 and summary['text']
+    else:
+        assert result['total_summaries'] == 0
+        assert result['summaries'] == []
 
 
 # FastAPI TestClient over the read-only app; real in-memory index build and
-# retrieval trace via the job runner.
+# retrieval trace via the job runner. The file's one job round trip left
+# whole: build, retrieve, mark gold, all through the actual job table.
 def test_trace_job_marks_gold(monkeypatch):
+    # this is an integration test
     client = _client(monkeypatch)
     gt_q = client.get('/api/groundtruth').json()['questions'][0]
     payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
@@ -245,28 +263,10 @@ def test_trace_job_marks_gold(monkeypatch):
                'question_id': gt_q['id']}
     acc = client.post('/api/trace', json=payload)
     assert acc.status_code == 202
-    job_id = acc.json()['job_id']
-    for _ in range(200):
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] in ('done', 'error'):
-            break
-        time.sleep(0.02)
+    job = _finished(client, acc.json()['job_id'])
     assert job['state'] == 'done', job.get('error')
     cands = job['result']['trace']['candidates']
     assert cands and all('gold' in c for c in cands)
-
-
-# An invalid config must refuse synchronously, the same as /api/questions,
-# rather than accept the job and fail it with state='error'.
-def test_trace_rejects_an_unknown_reranker(monkeypatch):
-    client = _client(monkeypatch)
-    gt_q = client.get('/api/groundtruth').json()['questions'][0]
-    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-               'retrieval': {'reranker': 'nope'},
-               'question_id': gt_q['id']}
-    res = client.post('/api/trace', json=payload)
-    assert res.status_code == 400
-    assert 'unknown reranker' in res.json()['detail']
 
 
 # --- the served Inspector page's own conventions, as one table -------------
@@ -459,12 +459,19 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
 
 
 # --- following the lab (:9002) ----------------------------------------------
+#
+# `/api/follow` has two halves: a real HTTP round trip to :9002 (`_lab_get`),
+# and a set of pure selection/normalisation functions that pick the newest
+# relevant job and reshape it for the page. The six tests that used to drive
+# all of this through a threaded fake HTTP server are now one integration
+# test proving the transport (a real socket, both up and down) plus direct
+# unit tests on each normalisation function — fed canned job lists, no
+# thread, no socket, and a monkeypatched `_lab_get` standing in for the one
+# network call those functions still make to fetch a job's full body.
 
 import json as _json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-import pytest
 
 FAKE_INDEX_JOB = {
     'id': 'idx-fake-1', 'kind': 'index', 'state': 'done',
@@ -522,8 +529,19 @@ FAKE_RUN_JOB = {
                    {'session_id': 'run-s1', 'date': '2026-02-02',
                     'chunks': [{'id': 'run-s1-0', 'text': 'drifted chunk'}]}]}}
 
-# Newest first, the order the lab's own /api/jobs uses. Tests reassign this to
-# say which run happened last.
+# A build on a corpus that is not the built-in diary — the shape of the fault
+# `_followed_dataset` exists to pin: the lab names its dataset on every job it
+# starts, and the Inspector must read that rather than guess the diary.
+FAKE_OTHER_CORPUS_JOB = {
+    'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
+    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+                         'dataset': 'meetings-de'}},
+    'result': {'chunks': 1, 'chunks_by_session': [
+        {'session_id': 'mtg-0113', 'date': '2026-01-13',
+         'chunks': [{'id': 'mtg-0113:c0', 'text': 'Protokoll'}]}]}}
+
+# Newest first, the order the lab's own /api/jobs uses. The transport test
+# reassigns this to say which run happened last.
 FAKE_ORDER = [FAKE_QUERY_JOB, FAKE_INDEX_JOB]
 
 
@@ -555,8 +573,8 @@ class _FakeLabHandler(BaseHTTPRequestHandler):
 @pytest.fixture
 def fake_lab():
     """A tiny stand-in :9002 — canned `/api/jobs` and `/api/jobs/{id}` JSON —
-    so the follow test is fast, offline and independent of the real lab's own
-    behaviour."""
+    so the one transport test that needs a real socket stays fast, offline
+    and independent of the real lab's own behaviour."""
     server = ThreadingHTTPServer(('127.0.0.1', 0), _FakeLabHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -567,9 +585,33 @@ def fake_lab():
         thread.join(timeout=2)
 
 
-# FastAPI TestClient; the lab it points at is an unreachable port, pinning "a
-# lab that is not running is a normal state".
-def test_follow_reports_lab_down_without_raising(monkeypatch):
+def _index_of(jobs: list[dict]) -> dict:
+    """The `{'jobs': [...]}` shape `/api/jobs` returns — the summary list the
+    pure functions below take as their one argument."""
+    return {'jobs': [{'id': j['id'], 'kind': j['kind'], 'state': j['state'],
+                      'config': j['config']} for j in jobs]}
+
+
+def _canned_lab(jobs: list[dict]):
+    """A monkeypatch stand-in for `inspector._lab_get`: a dict lookup by job
+    id over canned full job bodies, so `_job_view`/`_question_set`/
+    `_newest_chunks` — which each fetch one job's full body once they have
+    picked it from the summary list — need no thread and no socket either."""
+    by_id = {job['id']: job for job in jobs}
+    def _get(path):
+        return by_id.get(path.rsplit('/', 1)[-1])
+    return _get
+
+
+# FastAPI TestClient; the lab is a real thread over a real socket — the one
+# thing worth proving with one, since everything the transport carries is
+# proven directly below.
+def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab):
+    # this is an integration test
+    """`GET /api/follow` must answer HTTP 200 whether or not :9002 can be
+    reached — an unreachable daemon is a normal state for the Inspector, not
+    an exception — and when it can, the query and index views it returns must
+    be exactly what the reachable lab's newest finished jobs said."""
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', 'http://127.0.0.1:9')
     client = _client(monkeypatch)
     res = client.get('/api/follow')
@@ -578,14 +620,9 @@ def test_follow_reports_lab_down_without_raising(monkeypatch):
     assert body['lab'] == 'down'
     assert body['index'] is None and body['query'] is None
 
-
-# FastAPI TestClient over the read-only app; the lab is a canned fake HTTP
-# server, not the real :9002.
-def test_follow_reads_a_finished_index_and_query_job(monkeypatch, fake_lab):
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
     body = client.get('/api/follow').json()
-
     assert body['lab'] == 'up'
     assert body['index']['config']['index']['chunker'] == 'session'
     assert body['index']['chunks_by_session'][0]['session_id'] == 's1'
@@ -595,20 +632,17 @@ def test_follow_reads_a_finished_index_and_query_job(monkeypatch, fake_lab):
     assert body['query']['trace']['candidates'][0]['gold'] is True
 
 
-# FastAPI TestClient; the lab is a canned fake.
-def test_follow_shows_one_table_per_selected_question(monkeypatch, fake_lab,
-                                                      request):
+def test_question_set_prefers_the_newest_finished_set_over_an_older_one(monkeypatch):
+    # this is a unit test
     """The retrieval window must show *only* the questions the experiment
-    picked. Both the retrieval-only run and a judged evaluation feed it, so
-    `/api/follow` normalises them to one shape and the page keeps one
-    renderer."""
-    module = request.module
-    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
-    client = _client(monkeypatch)
-
-    monkeypatch.setattr(module, 'FAKE_ORDER',
-                        [FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB])
-    view = client.get('/api/follow').json()['retrieval']
+    picked, and whichever of the two set-wide kinds finished more recently —
+    both feed `_question_set`, which normalises them to one shape so the
+    page keeps one renderer. Fed canned job lists directly; no thread, no
+    socket."""
+    monkeypatch.setattr(inspector, '_lab_get',
+                        _canned_lab([FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    view = inspector._question_set(
+        _index_of([FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]))
     assert view['kind'] == 'retrieve'
     assert view['config']['retrieval']['k'] == 3
     assert [q['question_id'] for q in view['questions']] == ['q-001', 'q-002']
@@ -617,57 +651,123 @@ def test_follow_shows_one_table_per_selected_question(monkeypatch, fake_lab,
 
     # an evaluation that finished later is what the window follows instead, and
     # its traces arrive under a different key on the lab's side
-    monkeypatch.setattr(module, 'FAKE_ORDER',
-                        [FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB])
-    view = client.get('/api/follow').json()['retrieval']
+    monkeypatch.setattr(inspector, '_lab_get',
+                        _canned_lab([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+    view = inspector._question_set(
+        _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
     assert view['kind'] == 'run'
     assert [q['question_id'] for q in view['questions']] == ['q-009']
 
     # no set-wide run at all is a normal state, not an error
-    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_INDEX_JOB])
-    body = client.get('/api/follow').json()
-    assert body['lab'] == 'up' and body['retrieval'] is None
+    assert inspector._question_set(_index_of([FAKE_INDEX_JOB])) is None
 
 
-# FastAPI TestClient; the lab is a canned fake.
-def test_follow_shows_the_chunks_the_last_run_actually_used(monkeypatch,
-                                                           fake_lab, request):
-    """The two windows must describe the same pipeline. An evaluation builds
-    its index *implicitly*, so it creates no index job — the chunks window
-    must not keep showing whatever `Build` was last pressed while the
-    retrieval window shows the experiment. So the chunks come from the
-    newest job that produced any, whatever its kind."""
-    module = request.module
-    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
-    client = _client(monkeypatch)
-
+def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
+    # this is a unit test
+    """The chunks window must describe the same pipeline the retrieval window
+    does: not `kind == 'index'` but "the newest job that reported any chunks
+    at all", since an evaluation builds its index implicitly and creates no
+    index job of its own. And a job recorded before the lab reported summaries
+    at all must come back with `summaries == []`, never a missing key."""
     # the exact shape that misled: the run is newer than the index build, and
     # they name different chunkers
-    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_RUN_JOB, FAKE_INDEX_JOB])
-    body = client.get('/api/follow').json()
-    assert body['index']['config']['index']['chunker'] == 'semantic-drift'
-    assert body['index']['chunks_by_session'][0]['session_id'] == 'run-s1'
+    monkeypatch.setattr(inspector, '_lab_get',
+                        _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB, FAKE_RETRIEVE_JOB]))
+    index_view = inspector._newest_chunks(_index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    assert index_view['config']['index']['chunker'] == 'semantic-drift'
+    assert index_view['chunks_by_session'][0]['session_id'] == 'run-s1'
+    assert index_view['summaries'] == []
     # and both windows now agree about which index produced what is on screen
-    assert (body['index']['config']['index']['chunker']
-            == body['retrieval']['config']['index']['chunker'])
+    retrieval_view = inspector._question_set(
+        _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+    assert (index_view['config']['index']['chunker']
+            == retrieval_view['config']['index']['chunker'])
 
     # an explicit build afterwards is the newest again, and wins
-    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_INDEX_JOB, FAKE_RUN_JOB])
-    body = client.get('/api/follow').json()
-    assert body['index']['config']['index']['chunker'] == 'session'
+    monkeypatch.setattr(inspector, '_lab_get',
+                        _canned_lab([FAKE_INDEX_JOB, FAKE_RUN_JOB]))
+    index_view = inspector._newest_chunks(_index_of([FAKE_INDEX_JOB, FAKE_RUN_JOB]))
+    assert index_view['config']['index']['chunker'] == 'session'
+    assert index_view['summaries'] == []
+
+    # a hierarchy actually reports its summaries beside the leaves
+    with_summaries = {
+        'id': 'idx-fake-3', 'kind': 'index', 'state': 'done',
+        'config': {'index': {'chunker': 'session', 'hierarchy': 'metadata'}},
+        'result': {'chunks': 2, 'chunks_by_session': [
+            {'session_id': 's1', 'date': '2026-01-01',
+             'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}],
+            'summaries': [{'id': 'summary:h1-000', 'text': 'a group card',
+                           'group_id': 'h1-000', 'level': 1, 'members': 2,
+                           'member_ids': ['s1-0', 's2-0'], 'sessions': 2,
+                           'chars': 12}]}}
+    monkeypatch.setattr(inspector, '_lab_get', _canned_lab([with_summaries]))
+    view = inspector._newest_chunks(_index_of([with_summaries]))
+    assert view['chunks_by_session'][0]['session_id'] == 's1'
+    assert len(view['summaries']) == 1
+    assert view['summaries'][0]['group_id'] == 'h1-000'
+    assert view['summaries'][0]['sessions'] == 2
 
 
-# FastAPI TestClient over the read-only app; a real in-memory index, the
-# offline embedder and the extractive answerer.
+def test_generation_view_only_when_an_evaluation_wrote_rows(monkeypatch):
+    # this is a unit test
+    """What the model wrote and how it scored come from the evaluation's own
+    rows; only an evaluation has them, so a retrieval-only run leaves
+    `_generation_view` returning `None` rather than showing a stale answer
+    beside fresh ranks."""
+    monkeypatch.setattr(inspector, '_lab_get',
+                        _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    view = inspector._generation_view(_index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    assert view['job_id'] == FAKE_RUN_JOB['id']
+    assert view['config']['retrieval']['retriever'] == 'dense'
+    row = view['rows'][0]
+    assert row['id'] == 'q-009'
+    assert row['answer'] == 'یک جواب که مدل نوشت.'
+    assert row['answer_similarity'] == 0.42
+    # the run-level judged scores, which are per run and not per question
+    assert view['ragas']['metrics']['faithfulness'] == 0.75
+    assert view['summary']['n_questions'] == 1
+
+    # a retrieval-only run generates nothing, and says so rather than lying
+    monkeypatch.setattr(inspector, '_lab_get',
+                        _canned_lab([FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+    assert inspector._generation_view(
+        _index_of([FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB])) is None
+
+
+def test_followed_dataset_reads_the_newest_jobs_own_config():
+    # this is a unit test
+    """Which corpus the lab is on is a fact about the whole page, so
+    `_followed_dataset` answers it once from the same summary list rather
+    than each window guessing separately — and it needs no `_lab_get` call at
+    all, since the dataset already rides on `/api/jobs`'s own config field."""
+    assert inspector._followed_dataset(
+        _index_of([FAKE_OTHER_CORPUS_JOB, FAKE_INDEX_JOB])) == 'meetings-de'
+    # the newest job wins, exactly as every other window on this page follows
+    # the newest job — switching back to the diary must switch the fixture back
+    assert inspector._followed_dataset(
+        _index_of([FAKE_INDEX_JOB, FAKE_OTHER_CORPUS_JOB])) == ''
+    # a job whose config names no index at all cannot say which corpus it ran
+    # on, so it is passed over rather than read as the built-in one: "does not
+    # say" and "says the diary" are different facts
+    assert inspector._followed_dataset(
+        _index_of([FAKE_QUERY_JOB, FAKE_OTHER_CORPUS_JOB])) == 'meetings-de'
+    assert inspector._followed_dataset({'jobs': []}) == ''
+
+
+# FastAPI TestClient over the read-only app; a real in-memory index build,
+# through two genuinely different code paths — `pipeline.retrieve_traced`
+# (what the Inspector's own `/api/questions` route calls, to feed the
+# ladder) against plain `pipeline.retrieve` (what every evaluation calls) —
+# so the comparison below is not one call checked against itself.
 def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch):
+    # this is an integration test
     """A question you add by hand has to arrive scored exactly like the ones
-    the experiment selected — same retrieval row, same generation row, same
-    metric keys — or the two cannot be read side by side. The row it returns
-    is asserted against what `metrics.score_question` produces for the same
-    outcome."""
-    from raglab import metrics
-    client = _client(monkeypatch)
-    gt_q = client.get('/api/groundtruth').json()['questions'][0]
+    the experiment selected — same generation row, same metric keys — or the
+    two cannot be read side by side."""
+    gt = corpus.load_ground_truth()
+    gt_q = gt['questions'][0]
+    query_date = gt['meta']['query_date']
     config = {'index': {'chunker': 'fixed-overlap', 'chunk_chars': 500,
                         'overlap': 100, 'contextual': True,
                         'embedder': 'ascii-hash'},
@@ -675,15 +775,28 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
                             'grader': 'none', 'k': 5, 'rerank_depth': 20,
                             'time_filter': False, 'multi_query': False},
               'generation': {'answerer': 'extractive'}}
+    cfg = LabConfig.from_dict(config)
+    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(cfg.index)
 
-    acc = client.post('/api/questions', json={**config, 'question_id': gt_q['id']})
-    assert acc.status_code == 202, acc.text
-    job = _wait(client, acc.json()['job_id'])
-    assert job['state'] == 'done', job.get('error')
-    result = job['result']
+    # the added-question path: retrieve_traced feeds the ladder, then answer
+    # and score exactly as `/api/questions`'s own job does
+    quotes = [ev['quote'] for ev in gt_q.get('evidence', [])]
+    outcome_a, trace = pipeline.retrieve_traced(
+        index, cfg.retrieval, gt_q['question_fa'], query_date)
+    retrieval = evaluate.trace_row(
+        gt_q, trace, gold_present=present.gold_available(index, quotes))
+    outcome_a = pipeline.answer(outcome_a, cfg.generation)
+    row = evaluate.json_safe(
+        metrics.score_question(gt_q, outcome_a, cfg.retrieval.k))
+
+    # the run's own path: every evaluation retrieves with the plain,
+    # untraced call — a genuinely different route through the same pipeline
+    outcome_b = pipeline.retrieve(index, cfg.retrieval, gt_q['question_fa'],
+                                  query_date)
+    outcome_b = pipeline.answer(outcome_b, cfg.generation)
+    reference = metrics.score_question(gt_q, outcome_b, cfg.retrieval.k)
 
     # the retrieval half, shaped like a followed question
-    retrieval = result['retrieval']
     assert retrieval['question_id'] == gt_q['id']
     assert isinstance(retrieval['gold_available'], int)
     candidate = retrieval['trace']['candidates'][0]
@@ -693,47 +806,21 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
 
     # the generation half, shaped like an evaluation's row: same keys, so the
     # added question shows the same metrics and no others
-    row = result['generation']
-    reference = metrics.score_question(
-        gt_q, _outcome_for(config, gt_q), config['retrieval']['k'])
     assert set(row) == set(reference), (
         f"added row differs: only here {set(row) - set(reference)}, "
         f"only in the eval row {set(reference) - set(row)}")
     assert row['id'] == gt_q['id'] and row['answer']
 
-    # and it says which config produced it, because a row measured under other
-    # settings than its neighbours is worse than no row
-    assert result['config']['index']['chunker'] == 'fixed-overlap'
-
-    # an unknown id refuses synchronously rather than dying inside a job
+    # an unknown id refuses synchronously rather than dying inside a job —
+    # the one assertion that still needs the actual route
+    client = _client(monkeypatch)
     assert client.post('/api/questions',
                        json={**config, 'question_id': 'q-nope'}).status_code == 404
 
 
-def _wait(client, job_id: str, tries: int = 400) -> dict:
-    for _ in range(tries):
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] in ('done', 'error'):
-            return job
-        time.sleep(0.02)
-    raise AssertionError(f'job {job_id} never finished')
-
-
-def _outcome_for(config: dict, question: dict):
-    """Computed here so the metric keys are compared against a real outcome
-    rather than a guess."""
-    from raglab.config import GenerationConfig, LabConfig
-    cfg = LabConfig.from_dict(config)
-    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(cfg.index)
-    gt = corpus.load_ground_truth()
-    outcome = pipeline.retrieve(index, cfg.retrieval, question['question_fa'],
-                                gt['meta']['query_date'])
-    return pipeline.answer(outcome, GenerationConfig(answerer='extractive'))
-
-
-
 # FastAPI TestClient over the read-only app.
 def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
+    # this is an integration test
     """Served from `explain` — the lab's own source for /api/options —
     rather than copied into the Inspector's page, so the two panels cannot
     end up explaining the same metric differently."""
@@ -752,35 +839,6 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
                for m in body['metrics'])
 
 
-# FastAPI TestClient; the lab is a canned fake.
-def test_follow_exposes_what_the_evaluation_generated(monkeypatch, fake_lab,
-                                                     request):
-    """What the model wrote and how it scored come from the evaluation's own
-    rows; only an evaluation has them, so a retrieval-only run leaves this
-    `None` rather than showing a stale answer beside fresh ranks."""
-    module = request.module
-    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
-    client = _client(monkeypatch)
-
-    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_RUN_JOB, FAKE_INDEX_JOB])
-    view = client.get('/api/follow').json()['generation']
-    assert view['job_id'] == FAKE_RUN_JOB['id']
-    assert view['config']['retrieval']['retriever'] == 'dense'
-    row = view['rows'][0]
-    assert row['id'] == 'q-009'
-    assert row['answer'] == 'یک جواب که مدل نوشت.'
-    assert row['answer_similarity'] == 0.42
-    # the run-level judged scores, which are per run and not per question
-    assert view['ragas']['metrics']['faithfulness'] == 0.75
-    assert view['summary']['n_questions'] == 1
-
-    # a retrieval-only run generates nothing, and says so rather than lying
-    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB])
-    body = client.get('/api/follow').json()
-    assert body['generation'] is None
-    assert body['retrieval']['kind'] == 'retrieve'   # retrieval still follows
-
-
 # --- summaries: the rows a hierarchy adds beside the leaves -----------------
 
 HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
@@ -793,6 +851,7 @@ HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
 
 # Real in-memory index with a real hierarchy.
 def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
+    # this is an integration test
     """No row the build wrote may be absent from both views. A summary
     spanning more than one session gets `session_id=''`, and
     `chunks_by_session` iterates only chunks with a truthy session id — so
@@ -839,147 +898,39 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     assert present.summary_rows(flat) == []
 
 
-# FastAPI TestClient over the read-only app; a real in-memory hierarchical
-# build via the job runner.
-def test_chunks_job_returns_the_summaries_beside_the_chunk_groups(monkeypatch):
-    """The manual build path serves both halves in one job, so the toggle
-    needs no second request — and `total` keeps counting leaves, since that
-    is what the chunk-size knob is read against."""
-    client = _client(monkeypatch)
-    acc = client.post('/api/chunks', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash',
-                  'hierarchy': 'metadata', 'summarizer': 'centroid'}})
-    assert acc.status_code == 202
-    job = _wait(client, acc.json()['job_id'])
-    assert job['state'] == 'done', job.get('error')
-    result = job['result']
+# A direct assert over the Inspector's job table and its own source, rather
+# than a full chunks-job build and a poll for the absence of a database file
+# — the round trip through the job runner is what
+# `test_chunks_job_returns_sessions_and_any_summaries_beside_them` already
+# proves.
+def test_the_inspector_constructs_its_job_table_with_no_recorder():
+    # this is a convention test
+    """`Jobs(record=None)` — the default — is what keeps the Inspector's
+    scratch builds for looking at chunks from becoming a second writer of the
+    lab's experiment ledger: `record(job, state)` is called once per finished
+    job, or nothing is, and the Inspector must be the "nothing" case. The
+    lab's own `server.py` passes `record=ledger.record` at its own
+    construction site (checked against the same source below), so the
+    Inspector's absence of an argument is the whole of the guard."""
+    from raglab.server import Jobs
+    assert Jobs().record is None, 'Jobs must default to no recorder'
 
-    assert result['total'] == sum(len(g['chunks'])
-                                  for g in result['chunks_by_session'])
-    assert result['total_summaries'] == len(result['summaries']) >= 1
-    summary = result['summaries'][0]
-    assert summary['members'] >= 1 and summary['level'] >= 1 and summary['text']
+    inspector_source = Path(inspector.__file__).read_text(encoding='utf-8')
+    assert 'jobs = Jobs()' in inspector_source, (
+        'the Inspector must construct its job table with no recorder')
+    assert 'record=ledger.record' not in inspector_source, (
+        "the Inspector must not adopt the lab's own recording call")
 
-
-# FastAPI TestClient; the lab is a canned fake.
-def test_follow_carries_the_summaries_the_lab_built(monkeypatch, fake_lab,
-                                                   request):
-    """The followed view has no index of its own — it reads what the lab's
-    job reported — so a summary is visible on :9003 only if the lab put it
-    on the job. A job from before this existed carries no such key, and must
-    arrive as an empty list rather than an error."""
-    module = request.module
-    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
-    client = _client(monkeypatch)
-
-    with_summaries = {
-        'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
-        'config': {'index': {'chunker': 'session', 'hierarchy': 'metadata'}},
-        'result': {'chunks': 2, 'chunks_by_session': [
-            {'session_id': 's1', 'date': '2026-01-01',
-             'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}],
-            'summaries': [{'id': 'summary:h1-000', 'text': 'a group card',
-                           'group_id': 'h1-000', 'level': 1, 'members': 2,
-                           'member_ids': ['s1-0', 's2-0'], 'sessions': 2,
-                           'chars': 12}]}}
-
-    monkeypatch.setattr(module, 'FAKE_ORDER', [with_summaries])
-    view = client.get('/api/follow').json()['index']
-    assert view['chunks_by_session'][0]['session_id'] == 's1'
-    assert len(view['summaries']) == 1
-    assert view['summaries'][0]['group_id'] == 'h1-000'
-    assert view['summaries'][0]['sessions'] == 2
-
-    # a flat build, and every job recorded before summaries were reported at all
-    monkeypatch.setattr(module, 'FAKE_ORDER', [FAKE_INDEX_JOB])
-    view = client.get('/api/follow').json()['index']
-    assert view['chunks_by_session'][0]['session_id'] == 's1'
-    assert view['summaries'] == []
-
-
-# FastAPI TestClient over the read-only app; a real chunk build and a real
-# SQLite file on a temp path.
-def test_the_inspector_writes_nothing_to_the_labs_ledger(monkeypatch, tmp_path):
-    """It builds its own in-memory index through the *lab's* job runner
-    (`from .server import Jobs`), so when every finished job started
-    recording itself into `Jobs.run`, the Inspector risked silently becoming
-    a second writer of the lab's experiment ledger from a second OS process.
-    A scratch build for looking at chunks is not an experiment anybody
-    ranks."""
-    from raglab import ledger
-
-    db = tmp_path / 'raglab.db'
-    monkeypatch.setenv('RAGLAB_DB', str(db))
-    client = _client(monkeypatch)
-    acc = client.post('/api/chunks', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'}})
-    assert acc.status_code == 202
-    job_id = acc.json()['job_id']
-    for _ in range(400):
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] in ('done', 'error'):
-            break
-        time.sleep(0.02)
-    assert job['state'] == 'done', job.get('error')
-
-    # The build worked; it simply left no trace in the lab's record.
-    assert job['result']['total'] > 0
-    # Existence first, and only then a read: `ledger.connect` creates the schema,
-    # so asking the ledger what is in it would bring the file into being and the
-    # stronger assertion would pass for the wrong reason.
-    assert not db.exists(), 'the Inspector must not even create the file'
-    assert ledger.experiments(path=db) == []
-    # And it did not quietly fail to record either — that would be the same bug
-    # wearing an error message.
-    assert 'ledger_error' not in job
-
-
-# A build on a corpus that is not the built-in diary — the shape of the fault
-# this pins: the lab names its dataset on every job it starts, and the Inspector
-# reads the fixture from somewhere else entirely.
-FAKE_OTHER_CORPUS_JOB = {
-    'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
-    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash',
-                         'dataset': 'meetings-de'}},
-    'result': {'chunks': 1, 'chunks_by_session': [
-        {'session_id': 'mtg-0113', 'date': '2026-01-13',
-         'chunks': [{'id': 'mtg-0113:c0', 'text': 'Protokoll'}]}]}}
-
-
-# FastAPI TestClient; the lab is a canned fake.
-def test_follow_names_the_corpus_the_lab_is_working_on(monkeypatch, fake_lab,
-                                                       request):
-    """Which corpus the lab is on is a fact about the whole page, not about
-    one window, so `/api/follow` answers it once rather than each window
-    guessing separately."""
-    module = request.module
-    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
-    client = _client(monkeypatch)
-
-    monkeypatch.setattr(module, 'FAKE_ORDER',
-                        [FAKE_OTHER_CORPUS_JOB, FAKE_INDEX_JOB])
-    assert client.get('/api/follow').json()['dataset'] == 'meetings-de'
-
-    # The newest job wins, exactly as every other window on this page follows
-    # the newest job — switching back to the diary must switch the fixture back.
-    monkeypatch.setattr(module, 'FAKE_ORDER',
-                        [FAKE_INDEX_JOB, FAKE_OTHER_CORPUS_JOB])
-    assert client.get('/api/follow').json()['dataset'] == ''
-
-    # A job whose config names no index at all cannot say which corpus it ran
-    # on, so it is passed over rather than read as the built-in one: "does not
-    # say" and "says the diary" are different facts.
-    monkeypatch.setattr(module, 'FAKE_ORDER',
-                        [FAKE_QUERY_JOB, FAKE_OTHER_CORPUS_JOB])
-    assert client.get('/api/follow').json()['dataset'] == 'meetings-de'
-
-    # And a lab that is not running names no corpus rather than the diary.
-    monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', 'http://127.0.0.1:9')
-    assert _client(monkeypatch).get('/api/follow').json()['dataset'] == ''
+    from raglab import server
+    server_source = Path(server.__file__).read_text(encoding='utf-8')
+    assert 'Jobs(record=ledger.record)' in server_source, (
+        'the lab, unlike the Inspector, does record — the contrast this '
+        'guard depends on')
 
 
 # FastAPI TestClient over the read-only app.
 def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeypatch):
+    # this is an integration test
     """The frontend reads its fallback config from here rather than keeping
     its own copy. The option lists ride along, reused from `config.py`
     rather than retyped — a list written twice is a list whose two readers

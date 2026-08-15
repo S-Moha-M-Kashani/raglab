@@ -170,14 +170,20 @@ def _long_session() -> dict:
     """A synthetic session with enough text to guarantee at least two
     fixed-overlap windows at chunk_chars=300/overlap=150 — the real corpus's
     `session` fixture is not guaranteed to be long enough, which used to make
-    the overlap assertion below skip itself instead of running."""
-    filler = ('امروز خیلی حرف زدم و چیزهای زیادی برای گفتن داشتم درباره کار و '
-              'خانواده و دوستان. ')
+    the overlap assertion below skip itself instead of running. Every
+    sentence carries its own number and the two messages continue the count
+    rather than repeating one phrase, so no word sequence recurs anywhere
+    else in the text — a repeated-filler fixture would let a check for
+    shared material pass by coincidental periodicity instead of by genuine
+    window overlap."""
+    sentences = [f'جمله شماره {i} امروز حرف زدم درباره کار و خانواده و دوستان.'
+                 for i in range(1, 31)]
     return {'session_id': 'long-1', 'date': '2026-01-01', 'time': '21:00',
             'source': 'voice', 'mood': {'label': 'خسته', 'valence': 4, 'arousal': 5},
             'topics': [], 'recurring_threads': [],
-            'messages': [{'role': 'user', 'intent': 'venting', 'content': filler * 6},
-                         {'role': 'assistant', 'content': filler * 6}]}
+            'messages': [{'role': 'user', 'intent': 'venting',
+                          'content': ' '.join(sentences[:15])},
+                         {'role': 'assistant', 'content': ' '.join(sentences[15:])}]}
 
 
 def test_overlap_chunker_repeats_material_between_windows():
@@ -194,6 +200,12 @@ def test_overlap_chunker_repeats_material_between_windows():
     assert len(chunks) >= 2, 'the synthetic session must be long enough to window'
     total = sum(len(c.text) for c in chunks)
     assert total > len(corpus.session_text(session))
+    # Not just longer overall: the tail of each window has to reappear,
+    # verbatim, at the head of the next one — every sentence here is
+    # numbered uniquely, so this substring cannot be satisfied by chance.
+    for a, b in zip(chunks, chunks[1:]):
+        tail = ' '.join(a.text.split()[-3:])
+        assert tail in b.text, (tail, b.text)
 
 
 def test_semantic_drift_cuts_at_an_explicit_topic_shift():

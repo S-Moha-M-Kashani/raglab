@@ -199,6 +199,22 @@ class FakeSentenceTransformer:
         return np.ones((len(list(texts)), self.dim), dtype=np.float32)
 
 
+class FakeSentenceTransformerModern(FakeSentenceTransformer):
+    """The sentence-transformers 5 shape — `get_embedding_dimension` rather
+    than `get_sentence_embedding_dimension` — so the wrapper's `getattr(...)
+    or ...` fallback has a modern method to prefer, not just a legacy one to
+    fall back to. The legacy method raises if called, so a regression that
+    stops preferring the modern one is caught rather than passing by
+    coincidence (both return the same `dim`)."""
+
+    def get_embedding_dimension(self) -> int:
+        return self.dim
+
+    def get_sentence_embedding_dimension(self) -> int:
+        raise AssertionError('the modern get_embedding_dimension must be '
+                              'preferred over the legacy method')
+
+
 class _Asymmetric:
     """An embedder whose query and passage sides are genuinely different, so
     `query_vectors` routing to `embed_queries` is a real distinction and not a
@@ -330,6 +346,9 @@ def test_the_catalogue_declares_the_prefixes_a_model_was_trained_with(
      'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'),
     ('sentence-transformers', 'SentenceTransformerEmbedder',
      lambda: FakeSentenceTransformer('intfloat/multilingual-e5-small'),
+     'intfloat/multilingual-e5-small'),
+    ('sentence-transformers', 'SentenceTransformerEmbedder',
+     lambda: FakeSentenceTransformerModern('intfloat/multilingual-e5-small'),
      'intfloat/multilingual-e5-small'),
 ])
 def test_a_prefixed_wrapper_marks_queries_and_passages_apart(

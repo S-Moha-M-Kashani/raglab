@@ -1,9 +1,10 @@
 """Tests for the served panel's own markup and script."""
+import json
 import re
 
 import pytest
 
-from raglab import baseline, config, metrics
+from raglab import baseline, config, evaluate, metrics
 
 from conftest import RAGLAB_DIR
 
@@ -121,7 +122,9 @@ CONVENTIONS = [
      'the panel must name the Inspector in its link text, not just point at '
      'the port — checked against the link text itself rather than the bare '
      'word "Inspector", which also appears in three unrelated HTML comments '
-     '(lines 7, 186, 225) that a rename of the visible link would not touch'),
+     '(the shared-tokens note by the stylesheet links, the retrieval-window '
+     'note above the actions row, and the note beside the link itself) that '
+     'a rename of the visible link would not touch'),
     ('index.html', None, 'id="question"',
      'asking one question moved to the Inspector; a control left behind is '
      'how a retired feature quietly comes back'),
@@ -333,18 +336,28 @@ def test_both_lab_pages_share_one_token_sheet_and_one_script(client):
 
 # --- the leaderboard's bounded view -----------------------------------------
 
-def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client):
+def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client, monkeypatch, tmp_path):
     # this is an integration test
     """A run can rank differently on a bounded page than over the whole
     directory, with nothing on screen explaining the disagreement — a
     bounded view has to say what it left out. That the panel actually asks
     for a stated limit is a row in the convention table above; this is the
-    behaviour behind it, exercised through the real route."""
+    behaviour behind it, exercised through the real route. Writes its own run
+    files rather than reading whatever the developer's `.runs/` happens to
+    hold, the way `test_leaderboard.py` does — a test that passes on an empty
+    directory is not coverage."""
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
+    for i in range(4):
+        run_id = f'20260731-12000{i}-abc12{i}'
+        (tmp_path / f'{run_id}.json').write_text(json.dumps({
+            'run_id': run_id, 'label': f'run {i}',
+        }), encoding='utf-8')
+
     body = client.get('/api/evaluations?limit=3').json()
-    assert len(body['runs']) <= 3
+    assert len(body['runs']) == 3
     # Served, not counted in the browser: the page cannot know how many files it
     # was not sent.
-    assert body['total'] >= len(body['runs'])
+    assert body['total'] >= 4
 
 
 # --- the one dynamic, data-driven guard -------------------------------------

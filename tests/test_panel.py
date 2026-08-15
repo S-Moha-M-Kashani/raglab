@@ -110,8 +110,11 @@ CONVENTIONS = [
     ('index.html', 'localhost:9003', None,
      'the panel must link to the Inspector, or :9003 is a port you have to '
      'already know about'),
-    ('index.html', 'Inspector', None,
-     'the panel must name the Inspector, not just link to it'),
+    ('index.html', 'Inspector (:9003)', None,
+     'the panel must name the Inspector in its link text, not just point at '
+     'the port — checked against the link text itself rather than the bare '
+     'word "Inspector", which also appears in three unrelated HTML comments '
+     '(lines 7, 186, 225) that a rename of the visible link would not touch'),
     ('index.html', None, 'id="question"',
      'asking one question moved to the Inspector; a control left behind is '
      'how a retired feature quietly comes back'),

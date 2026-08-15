@@ -376,11 +376,16 @@ INSPECTOR_CONVENTIONS = [
      "inspector.js must not keep its own copy of the pipeline's embedder name"),
     ('inspector.js', None, 'grade_threshold',
      "inspector.js must not keep its own copy of the pipeline's gate threshold"),
-    ('inspector.js', '/api/config', None,
-     'inspector.js must fetch the config it renders, rather than assume one'),
-    ('inspector.js', 'FOLLOWED_CONFIG', None,
-     'following the lab must stay the primary path; the served config is only '
-     'the fallback for a lab that is down'),
+    ('inspector.js', "fetch('/api/config')", None,
+     'inspector.js must fetch the config it renders, rather than assume one — '
+     "checked against the actual `fetch(...)` call rather than the bare route, "
+     'which also appears in an adjacent comment describing why `CHOSEN` is a '
+     'fallback'),
+    ('inspector.js', 'FOLLOWED_CONFIG || CHOSEN', None,
+     'following the lab must stay the primary path and the served config only '
+     'the fallback for a lab that is down — checked against the actual '
+     'fallback expression rather than the bare identifier, which also appears '
+     'in a comment naming it three lines above its declaration'),
     ('inspector.js', "'/api/groundtruth?dataset='", None,
      'the ground-truth fixture must be fetched with the corpus named, or a '
      'dataset change has nothing to reload against'),

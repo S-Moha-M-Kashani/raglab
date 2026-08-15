@@ -15,8 +15,8 @@ from conftest import RAGLAB_DIR
 def panel_texts(client):
     """Every named text the convention table below checks, fetched the one
     way a browser actually reaches it (`client.get`) — a second disk read of
-    the same file would be a claim about a copy nobody is served. Two entries
-    are carved out of the full page, and one out of `panel.js`, because their
+    the same file would be a claim about a copy nobody is served. Several
+    entries are carved out of the full page, css and script, because their
     claim is *where* the text sits rather than merely that it exists
     somewhere on the page — the same regions the retired pin tests scoped
     their own reads to. `server.py` is the one entry read from disk: the
@@ -40,6 +40,12 @@ def panel_texts(client):
         'index.html (embedding-model label)': embed_label.group(0),
         'index.html (modelCard section)': model_card.group(0),
         'panel.js (use-production handler)': handler,
+        # The widget's own CSS rules and script, sliced from a real selector
+        # / function name rather than the bare word "widget" — both files
+        # carry a header *comment* naming the widget first, and a check that
+        # started scanning there would still pass with the feature gutted.
+        'panel.css (widget block)': css[css.index('.widget-launch'):],
+        'panel.js (widget block)': js[js.index('widgetSay'):],
         'server.py': (RAGLAB_DIR / 'server.py').read_text(encoding='utf-8'),
     }
 
@@ -181,6 +187,53 @@ CONVENTIONS = [
     ('panel.js', 'restoreLastRun', None,
      'the remembered run must be re-read by id from the service, or a run '
      'file deleted between two visits would render a stale copy'),
+    ('index.html', 'id="widget-launch"', None,
+     'the widget launcher button must keep a stable id for its script hook'),
+    ('index.html', 'id="widget-window"', None,
+     'the widget window must keep a stable id — the launcher toggles it by id'),
+    ('index.html', 'id="widget-log"', None,
+     'the widget must have somewhere to render the conversation'),
+    ('index.html', 'id="widget-input"', None,
+     'the widget must have a text field to type a question into'),
+    ('index.html', 'id="widget-send"', None,
+     'the widget must have a button that submits the question'),
+    ('index.html', 'id="widget-settings"', None,
+     'the gear that reveals the model row must keep a stable id'),
+    ('index.html', 'id="widget-config"', None,
+     'the row the gear reveals must keep a stable id'),
+    ('index.html', 'id="widget-model"', None,
+     'the served model list needs somewhere to render into'),
+    ('panel.css (widget block)', 'position: fixed', None,
+     'the launcher and its window must be pinned to the viewport, or a '
+     'widget that scrolls with the page is a fourth card, not a widget — '
+     'scoped to the widget rules so an unrelated `position: fixed` '
+     'elsewhere in the sheet cannot satisfy this'),
+    ('panel.css (widget block)', 'right:', None,
+     'the corner is anchored from the right edge'),
+    ('panel.css (widget block)', 'bottom:', None,
+     'the corner is anchored from the bottom edge'),
+    ('panel.css (widget block)', None, '--step-',
+     'the widget is a helper, not a pipeline stage, and must wear no step ink'),
+    ('panel.css', '.widget-window[hidden] { display: none; }', None,
+     "a rule setting `display` beats the browser's own `[hidden] { display: "
+     'none }` — found live: the window stayed visible because nothing said '
+     'so explicitly. Checked against the exact rule so a bare `[hidden]` '
+     'selector with no `display: none` cannot satisfy it'),
+    ('panel.css', '.widget-config[hidden] { display: none; }', None,
+     'same fix, for the model row the gear toggles'),
+    ('panel.js', "api('/api/widget'", None,
+     "the widget's script must actually call its route — checked against "
+     'the call site itself, not the bare string `/api/widget`, which also '
+     "names the route in this block's own header comment"),
+    ('panel.js (widget block)', 'escapeHtml', None,
+     'a reply is model output rendered into the page, so it must go through '
+     'the shared escaper like every other untrusted string'),
+    ('panel.js (widget block)', 'widget-model', None,
+     "the script must read the gear's model select"),
+    ('panel.js (widget block)', 'model:', None,
+     'the chosen model must travel with every message — scoped past the '
+     "header comment so `embed_model:`, elsewhere in the file, cannot "
+     'satisfy this by suffix collision'),
 ]
 
 

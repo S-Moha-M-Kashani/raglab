@@ -1119,3 +1119,64 @@ window.showRun = async (runId) => {
 };
 
 boot();
+
+// --- the LLM widget: one module behind /api/widget, a window in the corner --
+// Replies are model output rendered into the page, so they pass through the
+// shared escapeHtml like every other untrusted string.
+
+function widgetSay(kind, text) {
+  const log = $('widget-log');
+  log.insertAdjacentHTML('beforeend',
+    `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function widgetAsk(message) {
+  widgetSay('you', message);
+  $('widget-send').disabled = true;
+  try {
+    const data = await api('/api/widget', { message, model: $('widget-model').value });
+    widgetSay('bot', data.reply);
+  } catch (error) {
+    widgetSay('err', error.message);
+  } finally {
+    $('widget-send').disabled = false;
+    $('widget-input').focus();
+  }
+}
+
+// The model list is served, not kept here — fetched once, on the first open.
+let widgetModelsLoaded = false;
+async function widgetLoadModels() {
+  if (widgetModelsLoaded) return;
+  try {
+    const data = await api('/api/widget');
+    $('widget-model').innerHTML = data.models.map((m) =>
+      `<option value="${escapeHtml(m.value)}"${m.value === data.default ? ' selected' : ''}>`
+      + `${escapeHtml(m.label)}</option>`).join('');
+    widgetModelsLoaded = true;
+  } catch (error) {
+    widgetSay('err', error.message);
+  }
+}
+
+$('widget-launch').addEventListener('click', () => {
+  const win = $('widget-window');
+  win.hidden = !win.hidden;
+  if (!win.hidden) { widgetLoadModels(); $('widget-input').focus(); }
+});
+
+$('widget-settings').addEventListener('click', () => {
+  const row = $('widget-config');
+  row.hidden = !row.hidden;
+});
+
+$('widget-close').addEventListener('click', () => { $('widget-window').hidden = true; });
+
+$('widget-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const message = $('widget-input').value.trim();
+  if (!message) return;
+  $('widget-input').value = '';
+  widgetAsk(message);
+});

@@ -49,7 +49,10 @@ def test_normalize_folds_equivalent_spellings_to_one_canonical_form(raw, expecte
     # filters (a single Latin letter, a question mark, an underscore).
     ('', True, set()),
     ('a ؟ _', True, set()),
-])
+], ids=['half-space-joined-emits-both-forms', 'half-space-spaced-form',
+        'stopwords-dropped-by-default', 'stopwords-kept-on-request',
+        'real-content-survives-its-own-stopwords', 'empty-input',
+        'pure-noise-filtered-to-nothing'])
 def test_tokens_handle_half_space_compounds_stopwords_and_noise(text, drop_stopwords, expected):
     # this is a unit test
     """`tokens()` must emit a half-spaced compound both joined and split, obey
@@ -68,7 +71,9 @@ def test_tokens_handle_half_space_compounds_stopwords_and_noise(text, drop_stopw
     ('کجا رفتی؟ هیچ جا', ['کجا رفتی؟', 'هیچ جا']),
     # Whitespace-only text has no sentences at all.
     ('   ', []),
-])
+], ids=['run-on-marker-then-period-three-sentences',
+        'run-on-marker-then-period-shorter-variant',
+        'question-mark-boundary', 'whitespace-only-is-empty'])
 def test_sentences_split_at_punctuation_and_spoken_run_on_markers(text, expected):
     # this is a unit test
     assert textnorm.sentences(text) == expected
@@ -114,18 +119,27 @@ def test_token_hash_is_normalised_and_nonzero_for_farsi():
 def test_every_chunker_yields_unique_nonempty_chunks_and_tracks_every_message(session, chunker):
     # this is a unit test
     """Every chunker, of every kind, must produce unique ids over nonempty
-    text. The four that track message spans (`session`, `message`,
-    `turn-pair`, `semantic-drift`) must additionally drop no message — the
-    ground truth cites evidence by message index. `fixed` and `fixed-overlap`
-    chunk by character window and record no span (`msg_start`/`msg_end` stay
-    -1), so the coverage half of the claim does not apply to them."""
+    text. `message`, `turn-pair` and `semantic-drift` compute `msg_start`/
+    `msg_end` from where each chunk actually begins and ends, so no message
+    may be dropped from that span — the ground truth cites evidence by
+    message index — and the check below reads those fields back. `session`
+    hard-codes the full span (`msg_start=0, msg_end=len(messages)-1`) on its
+    one chunk regardless of what got emitted, so reading the same fields back
+    would compare the index against itself; instead this checks that every
+    message's own content actually landed in the emitted text. `fixed` and
+    `fixed-overlap` chunk by character window and record no span at all
+    (`msg_start`/`msg_end` stay -1), so neither claim applies to them."""
     cfg = IndexConfig(chunker=chunker, embedder='char-hash', contextual=False)
     embedder = embedding.make_embedder('char-hash')
     chunks = chunking.chunk_session(session, cfg, embedder)
     assert chunks, chunker
     assert len({c.id for c in chunks}) == len(chunks), chunker
     assert all(c.text.strip() for c in chunks), chunker
-    if chunker not in ('fixed', 'fixed-overlap'):
+    if chunker == 'session':
+        assert len(chunks) == 1, chunker
+        for message in session['messages']:
+            assert message['content'] in chunks[0].text, chunker
+    elif chunker not in ('fixed', 'fixed-overlap'):
         covered = set()
         for chunk in chunks:
             covered.update(range(chunk.msg_start, chunk.msg_end + 1))

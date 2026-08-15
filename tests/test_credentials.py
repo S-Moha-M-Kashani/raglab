@@ -151,7 +151,7 @@ def test_no_artefact_a_run_leaves_behind_contains_the_key():
 
     job = {'id': 'job1', 'kind': 'run', 'state': 'done',
           'config': _with_backend(cfg, settings),
-          'result': result.as_dict() | {'notes': notes}}
+          'result': result.as_dict()}
     assert KEY not in json.dumps(job, default=str), 'the job dict the panel polls'
 
     row = ledger.row_for(job, 'done')

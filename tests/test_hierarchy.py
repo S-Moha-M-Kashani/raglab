@@ -159,6 +159,7 @@ def test_every_grouping_writes_summaries_beside_the_leaves_it_grouped(
         assert report['modularity'] is not None, 'a graph method reports modularity'
     else:
         assert report['silhouette'] is not None, 'a clustering method reports silhouette'
+        assert report['modularity'] is None, f'{name} builds no graph'
 
 
 def test_the_metadata_control_reproduces_the_corpus_own_storylines(registry,
@@ -468,10 +469,13 @@ def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     assert options['hierarchies'] == list(HIERARCHIES)
     assert options['summary_scopes'] == list(config.SUMMARY_SCOPES)
     assert options['summarizers'] == list(config.SUMMARIZERS)
-    # Read from the real, unmocked availability check — one of the claims
+    # Read from the real, unmocked availability check — the claims
     # `test_availability_is_verified_rather_than_asserted` used to make,
-    # before it was dropped as the availability rule's redundant middle test.
-    assert options['hierarchy_support']['louvain']['available'] is True
+    # before it was dropped as the availability rule's redundant middle test:
+    # every grouping that runs on a core dependency (everything but `leiden`,
+    # which needs the `graph-index` extra) reports available here, for real.
+    for name in ('louvain', 'label-prop', 'raptor', 'agglomerative', 'kmeans'):
+        assert options['hierarchy_support'][name]['available'] is True, name
     assert 'retrieval.summary_scope' in options['dependencies']
 
 

@@ -12,7 +12,10 @@ import time
 from pathlib import Path
 
 from raglab import config, ledger
-from raglab.server import Jobs
+from raglab.config import GenerationConfig, IndexConfig, LabConfig, RetrievalConfig
+from raglab.server import Jobs, _with_backend
+
+from conftest import LAB_SETTINGS
 
 
 def _run_to_terminal(jobs: Jobs, job_id: str, timeout: float = 30.0) -> dict:
@@ -59,6 +62,9 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     # A build's config carries a real retrieval/reranker/grader/generation
     # block, deliberately — so `retriever == ''` etc. below is proof the row
     # blanks them because it is a build, not proof they were merely absent.
+    # Hand-written, not through `_with_backend`, matching the real index
+    # route (`server.py`'s `/api/indexes` passes `config=cfg.to_dict()` with
+    # no backend attached at all — a build calls no chat model).
     index_job = jobs.start(
         'index', lambda report: {'chunks': 5, 'leaves': 5},
         config={'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
@@ -67,22 +73,30 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
                 'generation': {'answerer': 'llm'}})
     assert _run_to_terminal(jobs, index_job)['state'] == 'done'
 
+    # The two pipeline-owning kinds' configs are run through `_with_backend`,
+    # the real route helper, rather than a hand-written `'provider': 'fake'`
+    # — so `provider == 'fake'` below exercises the actual resolution
+    # (`run_settings.provider`), not just a round trip of a literal.
+    retrieve_cfg = LabConfig(index=IndexConfig(chunker='session', embedder='ascii-hash'),
+                             retrieval=RetrievalConfig(retriever='hybrid-rrf'))
     retrieve_job = jobs.start(
         'retrieve', lambda report: {'selection': {'n': 2},
                                     'questions': [{'trace': {'candidates': [1]}}]},
-        config={'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-                'retrieval': {'retriever': 'hybrid-rrf'}, 'provider': 'fake'})
+        config=_with_backend(retrieve_cfg, LAB_SETTINGS))
     assert _run_to_terminal(jobs, retrieve_job)['state'] == 'done'
 
-    run_job = jobs.start(
-        'run', lambda report: {'run_id': '20260101-000000-abcdef',
-                               'summary': {'n_questions': 3},
-                               'rows': [{'id': 'q1'}, {'id': 'q2'}, {'id': 'q3'}],
-                               'selection': {'n': 3},
-                               'chunks_by_session': [{'session_id': 's1'}]},
-        config={'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-                'retrieval': {'retriever': 'hybrid-rrf'},
-                'generation': {'answerer': 'extractive'}, 'provider': 'fake'})
+    run_cfg = LabConfig(index=IndexConfig(chunker='session', embedder='ascii-hash'),
+                        retrieval=RetrievalConfig(retriever='hybrid-rrf'),
+                        generation=GenerationConfig(answerer='extractive'),
+                        label='the ledger')
+
+    def run_work(report):
+        time.sleep(0.01)   # so `seconds` below is genuinely > 0, not rounded to it
+        return {'run_id': '20260101-000000-abcdef', 'summary': {'n_questions': 3},
+                'rows': [{'id': 'q1'}, {'id': 'q2'}, {'id': 'q3'}],
+                'selection': {'n': 3}, 'chunks_by_session': [{'session_id': 's1'}]}
+
+    run_job = jobs.start('run', run_work, config=_with_backend(run_cfg, LAB_SETTINGS))
     assert _run_to_terminal(jobs, run_job)['state'] == 'done'
 
     # 1. Written before the job goes terminal, for every kind — not just
@@ -96,7 +110,13 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     assert [row['kind'] for row in ledger.experiments()] == ['run', 'retrieve', 'index']
 
     # 2. A build's row stops at its index config: the retrieval/generation
-    # block on its job config is real, and still blanked.
+    # block on its job config is real, and still blanked. This is a fact
+    # about `ledger.row_for` alone — it says nothing about whether the real
+    # `/api/indexes` route ever attaches a provider to a build's config in
+    # the first place (it does not: `server.py`'s index route passes
+    # `config=cfg.to_dict()` with no `_with_backend` call at all). That
+    # route-level fact is pinned by `tests/test_e2e.py`'s
+    # `build_row['provider'] == ''`, not here.
     build = rows['index']
     assert build['chunker'] == 'session' and build['embedder'] == 'ascii-hash'
     assert build['retriever'] == '' and build['reranker'] == ''
@@ -105,7 +125,8 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     assert build['n_questions'] == 0 and build['decision'] is None
 
     # 3. The two that did retrieve say so, and the resolved backend — not
-    # the request — lands in `provider`.
+    # the request — lands in `provider`, genuinely resolved through
+    # `_with_backend`/`LAB_SETTINGS.provider` above, not hand-written.
     retrieved = rows['retrieve']
     assert retrieved['retriever'] == 'hybrid-rrf'
     assert retrieved['provider'] == 'fake'
@@ -115,6 +136,8 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     # Identified by its own run id, never by the job id, so the row and the
     # JSON file the leaderboard reads are the same measurement.
     assert evaluated['experiment_id'] == '20260101-000000-abcdef'
+    assert evaluated['label'] == 'the ledger'
+    assert evaluated['seconds'] > 0
     assert evaluated['answerer'] == 'extractive'
     assert evaluated['provider'] == 'fake'
     assert evaluated['n_questions'] == 3
@@ -142,6 +165,8 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     assert 'chunks_by_session' not in retrieve_detail
 
     assert ledger.experiment('no-such-experiment') is None
+
+    assert (tmp_path / 'raglab.db').exists(), 'the ledger is one SQLite file'
 
 
 def test_a_ledger_that_cannot_be_written_reports_on_the_job_and_never_loses_it(

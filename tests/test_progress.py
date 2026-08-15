@@ -44,6 +44,9 @@ def test_progress_reports_which_question_it_is_on(registry, ground_truth,
     # And the band, because a slow phase on hard questions is a different fact
     # from a slow phase overall.
     assert any(band in scoring[0][2] for band in config.DIFFICULTIES), scoring
+    # A run reports a terminal ('done', 1.0) too — without it, a poller has
+    # no way to tell "still running" from "finished and stopped reporting".
+    assert seen[-1][:2] == ('done', 1.0), seen
 
 
 def test_the_reporter_inspects_a_callbacks_arity_once_rather_than_per_call():

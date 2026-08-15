@@ -83,15 +83,20 @@ def reply(monkeypatch, cli, **kwargs):
 
 
 def test_a_claude_call_is_driven_as_a_completion_endpoint_not_an_agent(monkeypatch):
+    # this is a unit test
     """`--system-prompt` replaces Claude Code's agent prompt so the stage's own
     prompt is the only instruction; `--tools ""` means a judge cannot go read
-    `.runs/` instead of the context it was handed."""
-    # this is a unit test
+    `.runs/` instead of the context it was handed. `--effort` is claude's own
+    flag (codex's equivalent is `-c model_reasoning_effort=...`, a separate
+    builder checked in `test_a_codex_call_carries_its_instructions_in_the_prompt`)
+    — effort is a setting, not a constant, so this is the claude-path proof it
+    actually reaches this argv rather than only the object's `.effort` field."""
     _, recorder = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
     argv = recorder.argv
     assert argv[0] == 'claude' and '-p' in argv
     assert argv[argv.index('--output-format') + 1] == 'json'
     assert argv[argv.index('--model') + 1] == 'sonnet'
+    assert argv[argv.index('--effort') + 1] == 'low'
     # A tool is not merely unnecessary here, it is a way for a score to be wrong.
     assert argv[argv.index('--tools') + 1] == ''
     assert argv[argv.index('--setting-sources') + 1] == ''
@@ -107,6 +112,7 @@ def test_a_claude_call_is_driven_as_a_completion_endpoint_not_an_agent(monkeypat
 
 def test_each_call_runs_isolated_outside_this_repo_with_a_scrubbed_environment(
         monkeypatch):
+    # this is a unit test
     """Both CLIs discover instruction files from the working directory —
     pointed at a directory holding the previous call's leftovers, call N
     could read call N-1. And the flags scrub settings, config, rules, cwd and
@@ -114,7 +120,6 @@ def test_each_call_runs_isolated_outside_this_repo_with_a_scrubbed_environment(
     configuration from — `ANTHROPIC_DEFAULT_SONNET_MODEL` could remap the
     alias a row is labelled with. An allowlist rather than a denylist, since a
     denylist goes stale the moment either CLI ships a new variable."""
-    # this is a unit test
     monkeypatch.setenv('ANTHROPIC_BASE_URL', 'https://elsewhere.example')
     monkeypatch.setenv('ANTHROPIC_DEFAULT_SONNET_MODEL', 'some-other-model')
     monkeypatch.setenv('CLAUDE_CODE_MAX_OUTPUT_TOKENS', '32')
@@ -123,7 +128,7 @@ def test_each_call_runs_isolated_outside_this_repo_with_a_scrubbed_environment(
     for cli, stdout in (('claude', CLAUDE_ENVELOPE), ('codex', CODEX_EVENTS)):
         seen = {}
 
-        def stub(argv, cli=cli, stdout=stdout, **kwargs):
+        def stub(argv, stdout=stdout, **kwargs):
             # The one test that needs the directory's contents — listed
             # *during* the call, since the real cwd is a TemporaryDirectory
             # gone by the time an assertion could look at it.
@@ -152,11 +157,11 @@ def test_each_call_runs_isolated_outside_this_repo_with_a_scrubbed_environment(
 
 
 def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypatch):
+    # this is a unit test
     """`text=True` decodes with the preferred locale encoding, which under a
     C/POSIX locale is ASCII — a correct Farsi answer would raise there.
     Every other backend gets UTF-8 fixed by HTTP+JSON; this one's transport
     is bytes on a pipe."""
-    # this is a unit test
     farsi = 'دیروز برنج خوردم'
     stdout = json.dumps({'is_error': False, 'usage': {}, 'result': farsi})
     message, recorder = reply(monkeypatch, 'claude', stdout=stdout)
@@ -169,10 +174,10 @@ def test_the_reply_is_decoded_as_utf8_rather_than_as_the_machine_asked(monkeypat
 
 
 def test_a_codex_call_carries_its_instructions_in_the_prompt(monkeypatch):
+    # this is a unit test
     """Codex has no flag that replaces its system prompt, so the stage's text
     is prepended to the prompt body instead. `--ignore-user-config` is what
     makes the call reproducible against this machine's own config.toml."""
-    # this is a unit test
     _, recorder = reply(monkeypatch, 'codex', stdout=CODEX_EVENTS)
     argv = recorder.argv
     assert argv[:2] == ['codex', 'exec'] and '--json' in argv
@@ -187,9 +192,9 @@ def test_a_codex_call_carries_its_instructions_in_the_prompt(monkeypatch):
 
 
 def test_a_recorded_claude_envelope_parses_to_its_text_and_its_usage(monkeypatch):
+    # this is a unit test
     """The reply is the envelope's `result`, byte-exact, since the stage that
     asked for it parses it with a regex written for the other backends."""
-    # this is a unit test
     message, _ = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
     assert message.content == '1: 8\n2: 0\n3: 8'
     assert message.usage_metadata['input_tokens'] == 369
@@ -198,10 +203,10 @@ def test_a_recorded_claude_envelope_parses_to_its_text_and_its_usage(monkeypatch
 
 
 def test_a_recorded_codex_stream_parses_to_its_last_message_and_its_usage(monkeypatch):
+    # this is a unit test
     """Codex answers as a JSONL event stream; reading the *last*
     agent_message matters because a turn can say something before its
     answer."""
-    # this is a unit test
     message, _ = reply(monkeypatch, 'codex', stdout=CODEX_EVENTS)
     assert message.content == '1: 10\n2: 0\n3: 10'
     assert message.usage_metadata['input_tokens'] == 18513
@@ -209,10 +214,10 @@ def test_a_recorded_codex_stream_parses_to_its_last_message_and_its_usage(monkey
 
 
 def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(monkeypatch):
+    # this is a unit test
     """A chat-tuned CLI fences a block of scores out of habit; that is a
     property of the transport, not a different measurement, so it is undone.
     A reply that merely *contains* a fence is left byte-exact."""
-    # this is a unit test
     fenced = json.dumps({'is_error': False, 'usage': {},
                          'result': '```\n1: 8\n2: 0\n```'})
     message, _ = reply(monkeypatch, 'claude', stdout=fenced)
@@ -237,10 +242,10 @@ def test_a_reply_that_is_entirely_one_fence_is_unwrapped_and_nothing_else_is(mon
 
 
 def test_a_reply_cut_off_at_the_output_limit_is_refused_not_scored(monkeypatch):
+    # this is a unit test
     """A truncated reply parses exactly like a complete one, silently scoring
     the unreached part as "no opinion". Only `max_tokens` is refused: a stop
     reason a later version ships is not a known truncation."""
-    # this is a unit test
     cut = json.dumps({'is_error': False, 'stop_reason': 'max_tokens',
                       'usage': {'input_tokens': 369, 'output_tokens': 4},
                       'result': '1: 8\n2: 0'})
@@ -248,6 +253,21 @@ def test_a_reply_cut_off_at_the_output_limit_is_refused_not_scored(monkeypatch):
         reply(monkeypatch, 'claude', stdout=cut)
     message, _ = reply(monkeypatch, 'claude', stdout=CLAUDE_ENVELOPE)
     assert message.content == '1: 8\n2: 0\n3: 8'
+
+
+def test_a_per_call_model_override_reaches_the_argv_not_just_the_kwarg(monkeypatch):
+    # this is a unit test
+    """`_generate`'s own override branch — `kwargs.get('model') or self.model`
+    — is a second code path from the default-model case the completion-endpoint
+    test above covers, and llm.lab_chat's generic forwarding test cannot see
+    it (it never constructs a `CliChat`). Uncovered, a per-stage model
+    (`models.ROLES`) on a CLI backend would be silently ignored while the row
+    stayed labelled with the requested model."""
+    recorder = Recorder(stdout=CLAUDE_ENVELOPE)
+    monkeypatch.setattr(clichat.subprocess, 'run', recorder)
+    model = clichat.CliChat(cli='claude', model='sonnet')
+    model.invoke([{'role': 'user', 'content': BODY}], model='opus')
+    assert recorder.argv[recorder.argv.index('--model') + 1] == 'opus'
 
 
 FAULT_CASES = [
@@ -275,21 +295,21 @@ FAULT_CASES = [
     'nonzero-exit', 'error-envelope', 'unreadable-stdout',
     'missing-command', 'timeout'])
 def test_a_cli_fault_raises_a_named_cli_error(monkeypatch, cli, kwargs, expected):
+    # this is a unit test
     """One contract for every way this backend can fail: raise `CliError`
     naming what went wrong, rather than letting a bad reply score as if it
     were a real measurement. Eight faults, one rule — a decode error, an
     empty reply from either CLI, a non-zero exit, an error envelope,
     unreadable stdout, a missing command and a timeout."""
-    # this is a unit test
     with pytest.raises(clichat.CliError, match=expected):
         reply(monkeypatch, cli, **kwargs)
 
 
 def test_an_effort_the_cli_does_not_accept_is_refused_before_any_call():
+    # this is a unit test
     """The two CLIs accept different values — claude takes 'xhigh', codex
     takes 'none' — and codex answers an unaccepted one with exit 0 and no
     text, so the check must happen before the call."""
-    # this is a unit test
     assert clichat.checked_effort('claude', 'low') == 'low'
     assert clichat.checked_effort('codex', 'none') == 'none'
     with pytest.raises(ValueError, match='xhigh'):
@@ -299,9 +319,9 @@ def test_an_effort_the_cli_does_not_accept_is_refused_before_any_call():
 
 
 def test_availability_is_the_binary_because_there_is_nothing_else_to_ask(monkeypatch):
+    # this is a unit test
     """A CLI alias cannot be checked without paying for a call, so this
     verifies the one thing it can: whether the command is on this machine."""
-    # this is a unit test
     monkeypatch.setattr(clichat.shutil, 'which',
                         lambda name: '/usr/bin/claude' if name == 'claude' else None)
     assert clichat.cli_available('claude') is True

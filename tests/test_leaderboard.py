@@ -23,6 +23,7 @@ def _row(run_id, label, decision, ids, judge, stderr=None):
 
 
 def test_the_sweeps_own_ranking_reads_the_same_tie_leaderboard_verdict_would():
+    # this is a unit test
     """A lead inside the combined error must read as a tie in the sweep's own
     printed ranking too, or the first thing anyone reads is the conclusion
     the leaderboard's own error test rejects. Asserted against the returned
@@ -30,7 +31,6 @@ def test_the_sweeps_own_ranking_reads_the_same_tie_leaderboard_verdict_would():
     exact combined-error arithmetic — with exactly one substring check left
     for the wording, since the words are the one part a computed value cannot
     stand in for."""
-    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
     rows = [_row('r2', 'F llm relevance gate', 0.7375, ids, judge, stderr=0.0333),
@@ -47,8 +47,8 @@ def test_the_sweeps_own_ranking_reads_the_same_tie_leaderboard_verdict_would():
 
 
 def test_the_sweeps_ranking_names_a_winner_when_there_is_one():
-    """Same shape as the tie test, on rows the leaderboard actually ranks."""
     # this is a unit test
+    """Same shape as the tie test, on rows the leaderboard actually ranks."""
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
     rows = [_row('r2', 'F', 0.90, ids, judge, stderr=0.01),
@@ -91,13 +91,13 @@ def _different_unrecorded_counts():
 ], ids=['different-questions', 'different-judges', 'different-unrecorded-counts'])
 def test_rows_are_grouped_only_with_what_they_can_be_compared_against(build_rows,
                                                                       reason):
+    # this is a unit test
     """A decision score is comparable only against rows scored on the same
     questions by the same judge: different question ids, a judge swap, or two
     runs that never recorded which questions they scored (so they key on a
     bare count instead — a row measured on 30 balanced questions must never
     read as beating one measured on 24 strided ones) all land in separate
     tables, never one ranked together."""
-    # this is a unit test
     groups = leaderboard.group(build_rows())
     assert len(groups) == 2, reason
     assert all(len(g.rows) == 1 for g in groups)
@@ -118,9 +118,9 @@ def test_a_group_ranks_by_decision_score_and_keeps_the_unranked_rows_last():
 
 
 def test_a_lead_inside_the_error_is_reported_as_a_tie():
+    # this is a unit test
     """The margin has to be compared to the error, or the leaderboard
     manufactures conclusions a bare ranking cannot support."""
-    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
     group, = leaderboard.group([
@@ -157,6 +157,7 @@ def _no_measured_error_rows():
     (_no_measured_error_rows, False),
 ], ids=['sample-not-recorded', 'no-measured-error'])
 def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows, check_markdown):
+    # this is a unit test
     """Two different reasons a group refuses a winner. Two runs of 24
     questions apiece may still be two *different* 24 — nothing on those rows
     says which, so even with errors measured the comparison is not
@@ -166,7 +167,6 @@ def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows, check_markdow
     'unknown' rather than manufacturing a decision, and the unrecorded case
     additionally must carry no rank numbers, since a numbered row is a rank
     claim this data cannot support."""
-    # this is a unit test
     found, = leaderboard.group(build_rows())
     assert leaderboard.verdict(found) == 'unknown'
     if check_markdown:
@@ -177,10 +177,10 @@ def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows, check_markdow
 
 
 def test_the_group_that_decides_something_is_printed_first():
+    # this is a unit test
     """Sorting by question count would put a group of unrecorded samples,
     which cannot be ranked at all, above the group that decides something —
     a reader opens this for the live decision."""
-    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     stale = _row('r0', 'old 100q', 0.61, [], judge)
     stale['selection'], stale['n_questions'] = {}, 100
@@ -214,9 +214,9 @@ def test_the_markdown_names_the_sample_and_the_judge_on_every_group():
 
 def test_the_run_list_carries_the_two_fields_comparability_needs(tmp_path,
                                                                  monkeypatch):
+    # this is an integration test
     """Writes its own run file rather than reading `.runs/`: a test that
     skips when the developer's disk happens to be empty is not coverage."""
-    # this is an integration test
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     (tmp_path / '20260731-120000-abc123.json').write_text(json.dumps({
         'run_id': '20260731-120000-abc123', 'label': 'A baseline',

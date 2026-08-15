@@ -96,21 +96,21 @@ def _message_index_out_of_range(payload: dict) -> dict:
 ], ids=['quote-not-verbatim', 'session-missing', 'message-index-out-of-range'])
 def test_a_dataset_that_breaks_one_rule_is_refused_naming_it(mutate,
                                                               expected_substring):
+    # this is a unit test
     """Every lexical measurement in this lab — quote recall, the Inspector's
     green spans, the offline RAGAS context metrics — is computed against these
     evidence quotes, so a dataset that misquotes its own corpus would score
     *confidently* about text that was never there. Three ways the contract
     can be broken, refused rather than repaired, each naming what it refused."""
-    # this is a unit test
     payload = mutate(_valid())
     problems = datasets.validate(payload)
     assert any(expected_substring in problem for problem in problems), problems
 
 
 def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
+    # this is a unit test
     """One problem per attempt is a slow loop over a 200-question corpus, and a
     message that does not name the question is not a message, it is a search."""
-    # this is a unit test
     payload = _valid()
     payload['questions'][0]['type'] = 'made-up'
     payload['questions'][0]['difficulty'] = 'trivial'
@@ -122,10 +122,10 @@ def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
 
 
 def test_an_unanswerable_question_needs_no_evidence():
+    # this is a unit test
     """Abstention questions are the ones the corpus deliberately cannot answer:
     demanding evidence for them would make the failure mode the relevance gate
     exists for unmeasurable."""
-    # this is a unit test
     payload = _valid()
     payload['questions'].append({
         'id': 'q-2', 'type': 'abstention', 'difficulty': 'medium',
@@ -136,13 +136,13 @@ def test_an_unanswerable_question_needs_no_evidence():
 # --- the bundled samples ---------------------------------------------------
 
 def test_the_bundled_datasets_meet_their_contract_and_cover_the_failure_modes():
+    # this is a unit test
     """These four are reference points — the corpora a finding is checked
     against to tell "true of retrieval" from "true of Farsi diaries". A
     reference point nobody validated is a second unknown, and between them
     they have to offer more than one language, questions that need two
     sessions, and questions the corpus cannot answer — otherwise they are
     four spellings of the same test."""
-    # this is a unit test
     loaded = {}
     for name in BUNDLED:
         path = datasets.BUNDLED_DIR / f'{name}.json'
@@ -161,9 +161,9 @@ def test_the_bundled_datasets_meet_their_contract_and_cover_the_failure_modes():
 
 
 def test_the_catalogue_leads_with_the_built_in_corpus():
+    # this is a unit test
     """Every finding this lab has produced is about it, and it is the default: a list
     ordered by whatever sorted first would put it in an arbitrary place."""
-    # this is a unit test
     found = datasets.catalogue()
     assert found[0].id == datasets.BUILTIN
     assert found[0].source == 'builtin'
@@ -174,9 +174,9 @@ def test_the_catalogue_leads_with_the_built_in_corpus():
 # --- loading ---------------------------------------------------------------
 
 def test_a_loaded_dataset_arrives_in_the_shape_the_lab_speaks():
+    # this is a unit test
     """The contract says `question`; six modules and every stored run say
     `question_fa`. The loader is the one place that translates."""
-    # this is a unit test
     diary, ground_truth = datasets.load('smoke-mini')
     assert diary['sessions'] and ground_truth['questions']
     question = ground_truth['questions'][0]
@@ -201,12 +201,12 @@ def test_an_unknown_dataset_says_what_there_is():
 # --- the index cannot mix corpora ------------------------------------------
 
 def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
+    # this is a unit test
     """The one bug this feature could plausibly introduce, and the most
     expensive to notice late: an index built over one corpus handed a question
     from another. `''` is fingerprinted exactly as it was before the field
     existed — every run in `.runs/` records a collection name, and a new field
     in IndexConfig would otherwise rename them all."""
-    # this is a unit test
     assert (IndexConfig(dataset='smoke-mini').fingerprint()
             != IndexConfig().fingerprint())
     assert (IndexConfig(dataset='smoke-mini').fingerprint()
@@ -220,9 +220,9 @@ def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
 
 # Two corpora, one registry.
 def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
+    # this is an integration test
     """crosses into IndexRegistry/build — an index over one corpus must never
     answer for another."""
-    # this is an integration test
     from raglab.config import LabSettings
     from raglab.index import IndexRegistry
 
@@ -240,10 +240,10 @@ def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
 
 
 def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
+    # this is a unit test
     """The speaker tags and the contextual header are prepended to text that
     gets embedded, so writing them in Farsi over an English corpus adds a
     constant foreign phrase to every vector."""
-    # this is a unit test
     from raglab.chunking import chunk_session
     diary, _ = datasets.load('smoke-mini')
     chunks = chunk_session(diary['sessions'][0],
@@ -257,25 +257,28 @@ def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
 # --- the service -----------------------------------------------------------
 
 def test_the_options_serve_the_catalogue(client):
-    """The HTTP half of `test_the_catalogue_leads_with_the_built_in_corpus`:
-    asserts only that the same catalogue is reachable through the route, not
-    the defaults/help content that other tests already cover."""
     # this is an integration test
+    """The HTTP half of `test_the_catalogue_leads_with_the_built_in_corpus`.
+    `defaults['index']['dataset']` has no other assertion anywhere in the
+    suite — test_server.py pins the other index defaults but not this one —
+    so it is kept here even though the rest of this test asserts only
+    presence (catalogue reachability, not defaults/help content in general)."""
     body = client.get('/api/options').json()
     ids = [d['id'] for d in body['datasets']]
     assert ids[0] == datasets.BUILTIN
     assert set(BUNDLED) <= set(ids)
+    assert body['defaults']['index']['dataset'] == ''
 
 
 def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
                                                             monkeypatch):
+    # this is an integration test
     """The half of the rule the fingerprint cannot enforce: the index comes from
     one file and the questions must come from the same one. Distinct from
     `tests/test_e2e.py`'s smoke run, which checks only the ledger's `dataset`
     field and a partial (`limit=3`) selection — this checks the job result and
     the saved run file both carry `dataset`, and that all six of the corpus's
     own question ids (and none other) come back for a full run."""
-    # this is an integration test
     from raglab import evaluate
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     started = client.post('/api/evaluations', json={
@@ -334,9 +337,9 @@ def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(client):
 # --- the leaderboard -------------------------------------------------------
 
 def test_the_leaderboard_never_ranks_across_corpora():
+    # this is a unit test
     """Two corpora are not two configurations of one measurement: the questions
     differ, so the means are not of the same thing."""
-    # this is a unit test
     rows = [
         {'run_id': 'a', 'label': 'diary', 'dataset': 'diary-fa',
          'ragas_decision': 0.7, 'ragas_decision_stderr': 0.01,
@@ -357,9 +360,9 @@ def test_the_leaderboard_never_ranks_across_corpora():
 
 
 def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
+    # this is a unit test
     """Not a guess: it is the only corpus there was. Treating the blank as
     unknown would quarantine every row already on the leaderboard."""
-    # this is a unit test
     rows = [{'run_id': 'old', 'label': 'a', 'ragas_decision': 0.7,
              'selection': {'question_ids': ['q-1']},
              'judge': {'model': 'm', 'provider': 'p'}, 'n_questions': 1},
@@ -378,10 +381,10 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
 # contract nobody on that screen knew to read, and nothing on screen said so.
 
 def test_the_import_control_describes_a_shape_the_importer_really_enforces():
+    # this is a unit test
     """Every top-level key and closed vocabulary the description names has to
     be one `validate` really refuses the absence of — a description beside a
     checker is a description that can drift from it."""
-    # this is a unit test
     from raglab import explain
     text = explain.topics()['run.dataset-file']
     for named in ('dataset', 'sessions', 'questions',      # the three keys
@@ -406,14 +409,16 @@ def test_the_import_control_describes_a_shape_the_importer_really_enforces():
     for key in ('dataset', 'sessions', 'questions'):
         without = _valid()
         without.pop(key)
-        assert datasets.validate(without), f'{key} is described as required'
+        problems = datasets.validate(without)
+        assert any(f'"{key}"' in p for p in problems), (
+            f'{key} is described as required, but no problem names it: {problems}')
 
 
 def test_the_panel_renders_the_json_shape_as_a_shape():
+    # this is a convention test
     """This is the one help text with a structure in it, and a structure that
     arrives as one run-on paragraph is not one. Every other explainer is a
     single line, so preserving the newlines costs them nothing."""
-    # this is a convention test
     from raglab.server import STATIC
     css = (STATIC / 'panel.css').read_text(encoding='utf-8')
     rule = css.split('p.explain {')[1].split('}')[0]

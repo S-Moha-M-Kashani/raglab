@@ -29,9 +29,9 @@ def test_the_fake_backend_answers_without_a_network():
 
 
 def test_each_real_backend_is_built_for_its_own_endpoint_and_patience():
+    # this is a unit test
     """openrouter and ollama differ in nothing but endpoint and timeout — a
     local model needs longer than the remote-API 90s allows."""
-    # this is a unit test
     remote = llm.make_chat_model(Stub(provider='openrouter',
                                      openrouter_api_key='sk-test'))
     local = llm.make_chat_model(Stub(provider='ollama'))
@@ -45,17 +45,17 @@ def test_each_real_backend_is_built_for_its_own_endpoint_and_patience():
 
 
 def test_an_unknown_backend_raises_instead_of_falling_back():
+    # this is a unit test
     """No silent downgrade to openrouter, which would quietly bill an API on
     whichever machine had the local daemon down."""
-    # this is a unit test
     with pytest.raises(ValueError, match='unknown RAGLAB_LLM'):
         llm.make_chat_model(Stub(provider='wat'))
 
 
 def test_a_per_role_model_is_forwarded_per_request_not_bound():
+    # this is a unit test
     """An empty model means "whatever the client was built with" rather than
     a null model literally forwarded to invoke()."""
-    # this is a unit test
     captured = {}
 
     class Recorder:
@@ -70,6 +70,7 @@ def test_a_per_role_model_is_forwarded_per_request_not_bound():
 
 
 def test_a_cli_backend_is_built_through_the_same_one_construction_site():
+    # this is a unit test
     """A CLI is not an endpoint, so it takes no base url, and gets the local
     timeout since a process spawn plus an agent turn needs more than 90s.
     The per-role effort setting (`cli_effort`) is `make_chat_model`'s own job
@@ -77,7 +78,6 @@ def test_a_cli_backend_is_built_through_the_same_one_construction_site():
     argv* is clichat's job and is covered there, at the default value; the
     construction site's job, tested here, is threading the setting through and
     refusing an effort the chosen CLI does not accept before any call is made."""
-    # this is a unit test
     model = llm.make_chat_model(Stub(provider='claude', llm_model='sonnet',
                                      cli_effort='xhigh'))
     assert model.cli == 'claude' and model.model == 'sonnet'

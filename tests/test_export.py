@@ -45,6 +45,7 @@ RUN_FIXTURE = {
 
 
 def test_the_difficulty_table_counts_answers_and_evidence_separately():
+    # this is a unit test
     """The run files store no judged grade per question, so "correct" is
     evidence-based: an answerable question counts when the pipeline did not
     refuse *and* reached a gold session; an unanswerable one counts when it
@@ -52,7 +53,6 @@ def test_the_difficulty_table_counts_answers_and_evidence_separately():
     different failures, so they are reported apart rather than collapsed —
     and an unanswerable question has no evidence to find, so it must not be
     averaged in as a miss."""
-    # this is a unit test
     table = export.difficulty_rates(RUN_FIXTURE['rows'])
     assert [row['difficulty'] for row in table] == ['easy', 'medium', 'hard']
     easy, medium, hard = table
@@ -69,6 +69,7 @@ def test_the_difficulty_table_counts_answers_and_evidence_separately():
 
 def test_a_question_page_shows_everything_needed_to_judge_one_question(
         ground_truth):
+    # this is a unit test
     """The four things you need to judge one question, in one file — plus the
     two disclaimers a bare number would hide: the four deciding metrics are
     run means only, and the retrieved context is session ids, never chunk
@@ -76,7 +77,6 @@ def test_a_question_page_shows_everything_needed_to_judge_one_question(
     chunk text, so the page says what it has rather than reconstructing
     chunks by re-running retrieval, which would document a different
     retrieval than the one that was graded)."""
-    # this is a unit test
     question = next(q for q in ground_truth['questions'] if q['id'] == 'q-sh-001')
     row = next(r for r in RUN_FIXTURE['rows'] if r['id'] == 'q-sh-001')
     page = export.question_page(RUN_FIXTURE, question, row)
@@ -110,3 +110,7 @@ def test_the_export_writes_one_file_per_question_plus_an_index(ground_truth,
     assert RUN_FIXTURE['run_id'] in index
     # The index links the files, or a folder of 24 pages is unnavigable.
     assert '(q-sh-001.md)' in index
+    # And a written page is really the page, not an empty file `write_run`
+    # happened to create at the right name.
+    page = (tmp_path / 'q-sh-001.md').read_text(encoding='utf-8')
+    assert 'chunk text is not stored' in page.lower()

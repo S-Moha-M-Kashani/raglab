@@ -6,81 +6,90 @@ import pytest
 
 from raglab import chunking, clichat, corpus, embedding, metrics, pipeline, query, retrieval, textnorm
 from raglab.config import IndexConfig
+from raglab.options import CHUNKERS
 
 
 # --- text normalisation ----------------------------------------------------
 
-def test_normalize_folds_arabic_letterforms_and_digits():
-    assert textnorm.normalize('يك') == textnorm.normalize('یک')
-    assert '۱۴۰۵' not in textnorm.normalize('سال ۱۴۰۵')
-    assert '1405' in textnorm.normalize('سال ۱۴۰۵')
+@pytest.mark.parametrize('raw,expected', [
+    # Persian/Arabic-Indic digits fold to ASCII.
+    ('سال ۱۴۰۵', 'سال 1405'),
+    # ي (Arabic yeh) and ك (Arabic kaf) fold to their Persian equivalents.
+    ('يك', 'یک'),
+    # Harakat (here a kasra) are stripped alongside the letterform fold.
+    ('كِتاب', 'کتاب'),
+    # Runs of spaces collapse to one, together with the digit fold.
+    ('مي‌خواستم   بلاخره ۳ بار', 'می‌خواستم بلاخره 3 بار'),
+])
+def test_normalize_folds_equivalent_spellings_to_one_canonical_form(raw, expected):
+    # this is a unit test
+    """Two spellings a reader would call identical — Arabic letterforms,
+    Persian vs. Arabic-Indic digits, decorative harakat, doubled spaces — must
+    normalise to the exact same string, and normalising an already-canonical
+    string a second time must not change it (`normalize`'s own idempotence
+    guarantee)."""
+    assert textnorm.normalize(raw) == expected
+    assert textnorm.normalize(expected) == expected
 
 
-def test_normalize_is_idempotent():
-    once = textnorm.normalize('مي‌خواستم   بلاخره ۳ بار')
-    assert textnorm.normalize(once) == once
+@pytest.mark.parametrize('text,drop_stopwords,expected', [
+    # A half-spaced compound is emitted whole *and* split, so it matches the
+    # fully-spaced spelling the corpus also uses.
+    ('می‌خوام برم باشگاه', True, {'میخوام', 'خوام', 'برم', 'باشگاه'}),
+    ('می خوام برم باشگاه', True, {'خوام', 'برم', 'باشگاه'}),
+    # Stopwords dropped by default...
+    ('که از به پریا دعوا', True, {'پریا', 'دعوا'}),
+    # ...but kept on request, for phrases like «ماه پیش» the stop list would
+    # otherwise gut.
+    ('که پریا', False, {'که', 'پریا'}),
+    # Real content still comes through once the sentence's own stopwords
+    # (با, شد) are dropped.
+    ('امروز با پریا دعوام شد', True, {'امروز', 'پریا', 'دعوام'}),
+    # Noise: nothing to tokenise, or nothing that survives the length/word
+    # filters (a single Latin letter, a question mark, an underscore).
+    ('', True, set()),
+    ('a ؟ _', True, set()),
+], ids=['half-space-joined-emits-both-forms', 'half-space-spaced-form',
+        'stopwords-dropped-by-default', 'stopwords-kept-on-request',
+        'real-content-survives-its-own-stopwords', 'empty-input',
+        'pure-noise-filtered-to-nothing'])
+def test_tokens_handle_half_space_compounds_stopwords_and_noise(text, drop_stopwords, expected):
+    # this is a unit test
+    """`tokens()` must emit a half-spaced compound both joined and split, obey
+    `drop_stopwords`, and reduce pure noise to nothing — three behaviours a
+    reader could otherwise mistake for three unrelated bugs."""
+    assert set(textnorm.tokens(text, drop_stopwords)) == expected
 
 
-def test_tokens_match_across_half_space_spelling():
-    joined = set(textnorm.tokens('می‌خوام برم باشگاه'))
-    spaced = set(textnorm.tokens('می خوام برم باشگاه'))
-    assert joined & spaced
-    assert 'باشگاه' in joined and 'باشگاه' in spaced
-
-
-def test_tokens_drop_stopwords_but_keep_content():
-    tokens = textnorm.tokens('که از به پریا دعوا')
-    assert 'پریا' in tokens and 'دعوا' in tokens
-    assert 'که' not in tokens
-
-
-def test_sentences_split_spoken_run_ons():
-    text = 'امروز رفتم سر کار و بعدش پریا زنگ زد. خیلی خسته بودم'
-    assert len(textnorm.sentences(text)) >= 2
-
-
-def test_two_spellings_of_the_same_word_normalise_alike():
-    # Arabic ي/ك, Persian digits and diacritics are rendering differences,
-    # not word differences.
-    assert textnorm.normalize('يك') == textnorm.normalize('یک')
-    assert '1405' in textnorm.normalize('سال ۱۴۰۵')
-    assert textnorm.normalize('كِتاب') == 'کتاب'
-    once = textnorm.normalize('مي‌خواستم  ۳ بار')
-    assert textnorm.normalize(once) == once      # called twice in places
-
-
-def test_farsi_text_produces_tokens_and_noise_does_not():
-    assert textnorm.tokens('امروز با پریا دعوام شد')
-    assert textnorm.tokens('') == []
-    assert textnorm.tokens('a ؟ _') == []       # single letters and punctuation
-
-
-def test_stopwords_can_be_kept_for_the_time_filter():
-    # It matches phrases like «ماه پیش», whose words the stop list removes.
-    assert 'که' in textnorm.tokens('که پریا', drop_stopwords=False)
-
-
-def test_a_half_spaced_compound_matches_the_spaced_spelling():
-    joined = set(textnorm.tokens('می‌خوام برم باشگاه'))
-    assert 'میخوام' in joined
-    assert set(textnorm.tokens('می خوام برم باشگاه')) <= joined
+@pytest.mark.parametrize('text,expected', [
+    # «و بعدش» is a spoken-diary sentence boundary, same as the period.
+    ('امروز رفتم سر کار و بعدش پریا زنگ زد. خیلی خسته بودم',
+     ['امروز رفتم سر کار', 'پریا زنگ زد.', 'خیلی خسته بودم']),
+    ('رفتم سر کار و بعدش پریا زنگ زد. خسته بودم',
+     ['رفتم سر کار', 'پریا زنگ زد.', 'خسته بودم']),
+    # «؟» is a boundary character alongside «.», «!».
+    ('کجا رفتی؟ هیچ جا', ['کجا رفتی؟', 'هیچ جا']),
+    # Whitespace-only text has no sentences at all.
+    ('   ', []),
+], ids=['run-on-marker-then-period-three-sentences',
+        'run-on-marker-then-period-shorter-variant',
+        'question-mark-boundary', 'whitespace-only-is-empty'])
+def test_sentences_split_at_punctuation_and_spoken_run_on_markers(text, expected):
+    # this is a unit test
+    assert textnorm.sentences(text) == expected
 
 
 def test_character_ngrams_share_a_stem_across_affixes():
+    # this is a unit test
     assert set(textnorm.char_ngrams('میخواستم')) & set(textnorm.char_ngrams('نمیخواستم'))
     assert textnorm.char_ngrams('اب', 4) == ['اب']   # shorter than the window
     assert textnorm.char_ngrams('') == []
 
 
-def test_run_on_speech_splits_into_sentences():
-    assert len(textnorm.sentences('رفتم سر کار و بعدش پریا زنگ زد. خسته بودم')) >= 2
-    assert len(textnorm.sentences('کجا رفتی؟ هیچ جا')) == 2
-    assert textnorm.sentences('   ') == []
-
-
 # --- embedders -------------------------------------------------------------
 
 def test_ascii_hash_embedder_is_blind_to_farsi():
+    # this is a unit test
     """An `[a-z0-9]+` tokeniser embeds a Farsi diary to the zero vector, so
     retrieval over it is arbitrary — the finding that moved the brain's
     default embedder off `hash`."""
@@ -89,6 +98,7 @@ def test_ascii_hash_embedder_is_blind_to_farsi():
 
 
 def test_char_hash_prefers_a_paraphrase_over_an_unrelated_line():
+    # this is a unit test
     embedder = embedding.make_embedder('char-hash')
     vectors = embedder.embed(['دعوا با پریا سر کارهای خونه',
                               'باز با پریا دعوا کردیم سر خونه',
@@ -97,6 +107,7 @@ def test_char_hash_prefers_a_paraphrase_over_an_unrelated_line():
 
 
 def test_token_hash_is_normalised_and_nonzero_for_farsi():
+    # this is a unit test
     vectors = embedding.make_embedder('token-hash').embed(['خواب بی‌خوابی کمردرد'])
     assert np.any(vectors)
     assert abs(float(np.linalg.norm(vectors[0])) - 1.0) < 1e-5
@@ -104,30 +115,39 @@ def test_token_hash_is_normalised_and_nonzero_for_farsi():
 
 # --- chunking --------------------------------------------------------------
 
-@pytest.mark.parametrize('chunker', ('message', 'turn-pair', 'semantic-drift'))
-def test_message_preserving_chunkers_cover_every_turn(session, chunker):
-    """No message may be dropped: the ground truth cites evidence by message
-    index."""
+@pytest.mark.parametrize('chunker', CHUNKERS)
+def test_every_chunker_yields_unique_nonempty_chunks_and_tracks_every_message(session, chunker):
+    # this is a unit test
+    """Every chunker, of every kind, must produce unique ids over nonempty
+    text. `message`, `turn-pair` and `semantic-drift` compute `msg_start`/
+    `msg_end` from where each chunk actually begins and ends, so no message
+    may be dropped from that span — the ground truth cites evidence by
+    message index — and the check below reads those fields back. `session`
+    hard-codes the full span (`msg_start=0, msg_end=len(messages)-1`) on its
+    one chunk regardless of what got emitted, so reading the same fields back
+    would compare the index against itself; instead this checks that every
+    message's own content actually landed in the emitted text. `fixed` and
+    `fixed-overlap` chunk by character window and record no span at all
+    (`msg_start`/`msg_end` stay -1), so neither claim applies to them."""
     cfg = IndexConfig(chunker=chunker, embedder='char-hash', contextual=False)
-    chunks = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))
-    covered = set()
-    for chunk in chunks:
-        covered.update(range(chunk.msg_start, chunk.msg_end + 1))
-    assert covered == set(range(len(session['messages'])))
-
-
-def test_every_chunker_produces_unique_ids_and_nonempty_text(session):
     embedder = embedding.make_embedder('char-hash')
-    for chunker in ('fixed', 'fixed-overlap', 'message', 'turn-pair', 'session',
-                    'semantic-drift'):
-        cfg = IndexConfig(chunker=chunker, embedder='char-hash')
-        chunks = chunking.chunk_session(session, cfg, embedder)
-        assert chunks, chunker
-        assert len({c.id for c in chunks}) == len(chunks), chunker
-        assert all(c.text.strip() for c in chunks), chunker
+    chunks = chunking.chunk_session(session, cfg, embedder)
+    assert chunks, chunker
+    assert len({c.id for c in chunks}) == len(chunks), chunker
+    assert all(c.text.strip() for c in chunks), chunker
+    if chunker == 'session':
+        assert len(chunks) == 1, chunker
+        for message in session['messages']:
+            assert message['content'] in chunks[0].text, chunker
+    elif chunker not in ('fixed', 'fixed-overlap'):
+        covered = set()
+        for chunk in chunks:
+            covered.update(range(chunk.msg_start, chunk.msg_end + 1))
+        assert covered == set(range(len(session['messages']))), chunker
 
 
 def test_fixed_chunker_matches_the_production_packing(session):
+    # this is a unit test
     """Same greedy 500-char packing the brain ships, or the comparison is
     against a straw man."""
     from raglab.chunking import chunk_text
@@ -138,6 +158,7 @@ def test_fixed_chunker_matches_the_production_packing(session):
 
 
 def test_contextual_prefix_situates_the_chunk(session):
+    # this is a unit test
     cfg = IndexConfig(chunker='message', contextual=True)
     chunk = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))[0]
     assert session['date'] in chunk.prefix
@@ -145,17 +166,54 @@ def test_contextual_prefix_situates_the_chunk(session):
     assert chunk.body and not chunk.body.startswith('[')
 
 
-def test_overlap_chunker_repeats_material_between_windows(session):
+def _long_session() -> dict:
+    """A synthetic session with enough text to guarantee at least two
+    fixed-overlap windows at chunk_chars=300/overlap=150 — the real corpus's
+    `session` fixture is not guaranteed to be long enough, which used to make
+    the overlap assertion below skip itself instead of running. Every word
+    in the body is its own unique token (`واژه0001`, `واژه0002`, …) rather
+    than a fixed phrase with a leading numeral varying — a shared numeral
+    still leaves the *rest* of the phrase identical everywhere, which is
+    exactly what let an earlier version of this fixture (one filler phrase
+    repeated, then one phrase per sentence with only the number changing)
+    satisfy a shared-substring check on every adjacent pair regardless of
+    whether the windows actually overlapped. With no word repeated anywhere
+    in the whole text, a substring shared between two chunks can only come
+    from a window that genuinely spans the same stretch of source text."""
+    words = [f'واژه{i:04d}' for i in range(1, 260)]
+    midpoint = len(words) // 2
+    return {'session_id': 'long-1', 'date': '2026-01-01', 'time': '21:00',
+            'source': 'voice', 'mood': {'label': 'خسته', 'valence': 4, 'arousal': 5},
+            'topics': [], 'recurring_threads': [],
+            'messages': [{'role': 'user', 'intent': 'venting',
+                          'content': ' '.join(words[:midpoint])},
+                         {'role': 'assistant', 'content': ' '.join(words[midpoint:])}]}
+
+
+def test_overlap_chunker_repeats_material_between_windows():
+    # this is a unit test
+    """Adjacent windows must share material, or `fixed-overlap` is `fixed`
+    with extra config. Run over a synthetic session built long enough to
+    window at least twice, rather than skipping when the corpus session
+    handed to it happens to be short — a test that can skip itself is a test
+    that can assert nothing."""
+    session = _long_session()
     cfg = IndexConfig(chunker='fixed-overlap', chunk_chars=300, overlap=150,
                       contextual=False)
     chunks = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))
-    if len(chunks) < 2:
-        pytest.skip('session too short to window')
+    assert len(chunks) >= 2, 'the synthetic session must be long enough to window'
     total = sum(len(c.text) for c in chunks)
     assert total > len(corpus.session_text(session))
+    # Not just longer overall: the tail of each window has to reappear,
+    # verbatim, at the head of the next one — every sentence here is
+    # numbered uniquely, so this substring cannot be satisfied by chance.
+    for a, b in zip(chunks, chunks[1:]):
+        tail = ' '.join(a.text.split()[-3:])
+        assert tail in b.text, (tail, b.text)
 
 
 def test_semantic_drift_cuts_at_an_explicit_topic_shift():
+    # this is a unit test
     fake = {'session_id': 'x-1', 'date': '2026-01-01', 'time': '22:00',
             'source': 'voice', 'mood': {'label': 'خسته', 'valence': 4, 'arousal': 5},
             'topics': [], 'recurring_threads': [],
@@ -173,6 +231,7 @@ def test_semantic_drift_cuts_at_an_explicit_topic_shift():
 
 
 def test_chunk_metadata_is_chroma_safe(session):
+    # this is a unit test
     cfg = IndexConfig(chunker='message')
     chunk = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))[0]
     for key, value in chunk.metadata().items():
@@ -180,6 +239,7 @@ def test_chunk_metadata_is_chroma_safe(session):
 
 
 def test_importance_rises_with_emotional_intensity():
+    # this is a unit test
     calm = {'mood': {'label': 'آروم', 'valence': 6, 'arousal': 2}}
     wrecked = {'mood': {'label': 'داغون', 'valence': 1, 'arousal': 9}}
     assert chunking.importance_of(wrecked) > chunking.importance_of(calm)
@@ -208,7 +268,15 @@ def habit_period(freq: str, day: str) -> str:
     return d.isoformat()
 
 
-def test_the_corpus_declares_its_habits_the_way_a_board_card_does(diary):
+def test_the_bundled_corpus_declares_consistent_habits(diary):
+    # this is a convention test
+    """Validates fixture data, not code: the habit corpus must be internally
+    consistent the way a board habit card is (freq/count/history agree with
+    each other), consistent with the sessions and thread the diarist's habit
+    tracking is woven into, and varied enough (three of four cadences) that
+    the period arithmetic for daily and monthly habits is exercised by every
+    run, not just weekly ones. Folds five formerly separate data-validation
+    tests, each of which validated fixture data rather than lab code."""
     habits = diary['habits']
     assert habits, 'the corpus must carry the habits the diarist tracks'
     for slug, habit in habits.items():
@@ -217,33 +285,19 @@ def test_the_corpus_declares_its_habits_the_way_a_board_card_does(diary):
         assert habit['title_fa'], slug
         assert isinstance(habit['times'], list), slug
         assert isinstance(habit['history'], dict), slug
-    # All four board cadences are not required, but a corpus that only ever
-    # measured weekly habits would leave the monthly and daily period arithmetic
-    # untested by every run.
-    assert {h['freq'] for h in habits.values()} >= {'daily', 'weekly', 'monthly'}
-
-
-def test_every_habit_completion_sits_in_the_period_it_is_filed_under(diary):
-    """`habitHistory` is bucketed by period id, so a date filed under the
-    wrong bucket would make every count wrong."""
-    for slug, habit in diary['habits'].items():
         for period, days in habit['history'].items():
+            # `habitHistory` is bucketed by period id, so a date filed under
+            # the wrong bucket would make every count wrong.
             for day in days:
                 assert habit_period(habit['freq'], day) == period, f'{slug} {day}'
-
-
-def test_a_habit_is_never_punched_more_often_than_its_period_asks(diary):
-    """The punch strip has exactly `count` boxes, so more completions than
-    that in one period could not have come from the board."""
-    for slug, habit in diary['habits'].items():
-        for period, days in habit['history'].items():
+            # The punch strip has exactly `count` boxes, so more completions
+            # than that in one period could not have come from the board.
             assert len(days) <= habit['count'], f'{slug} {period}'
             assert len(days) == len(set(days)), f'{slug} {period} has a repeat'
+    assert {h['freq'] for h in habits.values()} >= {'daily', 'weekly', 'monthly'}
 
-
-def test_the_habit_sessions_joined_the_corpus_without_disturbing_it(diary):
-    """Additive on purpose: appended on dates the corpus had not used, so
-    every pre-existing session stays exactly as it was."""
+    # Additive on purpose: appended on dates the corpus had not used, so
+    # every pre-existing session stays exactly as it was.
     sessions = diary['sessions']
     ids = [s['session_id'] for s in sessions]
     assert len(ids) == len(set(ids)), 'a session id was reused'
@@ -254,14 +308,13 @@ def test_the_habit_sessions_joined_the_corpus_without_disturbing_it(diary):
     for s in habit_sessions:
         assert period['from'] <= s['date'] <= period['to'], s['session_id']
 
-
-def test_the_habit_storyline_is_described_like_every_other_thread(diary):
-    """thread_layer builds its digest title from this description; a thread with
-    no entry gets an empty one, which reads as a bug in the digest."""
+    # thread_layer builds its digest title from this description; a thread
+    # with no entry gets an empty one, which reads as a bug in the digest.
     assert diary['threads']['habit-tracking']
 
 
 def test_every_chunk_reports_a_habit_field_even_when_it_has_none(session):
+    # this is a unit test
     """Chroma metadata is a fixed shape per collection in practice: a field that
     only some rows carry turns a `where` clause into a silent partial scan."""
     assert 'habit-tracking' not in session['recurring_threads']
@@ -277,6 +330,7 @@ def test_every_chunk_reports_a_habit_field_even_when_it_has_none(session):
 
 def test_habit_questions_cite_verbatim_evidence_like_the_rest_of_the_set(
         diary, ground_truth):
+    # this is a unit test
     """The evidence quote is what quote-recall measures survival of, so a quote
     that is not literally in its cited message silently scores every config down."""
     sessions = corpus.sessions_by_id(diary)
@@ -292,6 +346,7 @@ def test_habit_questions_cite_verbatim_evidence_like_the_rest_of_the_set(
 
 
 def test_every_question_type_is_one_the_report_breaks_down(ground_truth):
+    # this is a unit test
     """metrics.aggregate walks TYPES, so a question type missing from it is
     dropped from the per-type table without any error — the breakdown just
     quietly stops covering part of the set."""
@@ -306,21 +361,27 @@ def test_every_question_type_is_one_the_report_breaks_down(ground_truth):
     ('نوروز چی شد؟', 20260318, 20260404),
 ])
 def test_time_scopes_resolve_to_the_right_window(question, expect_from, expect_to):
+    # this is a unit test
     scope = query.resolve_time_scope(question, '2026-07-28')
     assert scope is not None, question
     assert (scope.from_int, scope.to_int) == (expect_from, expect_to)
+    assert scope.label == {'آذر چه خبر بود؟': 'آذر', 'پارسال پاییز حالم چطور بود؟': 'پاییز پارسال',
+                           'نوروز چی شد؟': 'نوروز'}[question]
 
 
 def test_untimed_question_has_no_scope():
+    # this is a unit test
     assert query.resolve_time_scope('چرا با پریا دعوا می‌کنیم؟', '2026-07-28') is None
 
 
 def test_relative_month_scope_is_the_previous_calendar_month():
+    # this is a unit test
     scope = query.resolve_time_scope('ماه پیش چی کار کردم؟', '2026-07-28')
     assert scope and (scope.from_int, scope.to_int) == (20260601, 20260630)
 
 
 def test_where_clause_overlaps_rather_than_contains():
+    # this is a unit test
     """A chunk whose span straddles the edge of the window is kept: a scope
     asks about a period, not that the evidence sit entirely inside it."""
     scope = query.TimeScope(20260101, 20260131, 'دی', 'jalali-month')
@@ -331,18 +392,21 @@ def test_where_clause_overlaps_rather_than_contains():
 
 
 def test_expansion_adds_a_synonym_variant():
+    # this is a unit test
     variants = query.expand('دعوا با همسرم سر چی بود؟')
     assert len(variants) >= 2
     assert any('پریا' in v for v in variants)
 
 
 def test_keyword_query_strips_interrogatives():
+    # this is a unit test
     assert 'چی' not in query.keyword_query('حال مامان چی شد؟')
 
 
 # --- retrieval primitives --------------------------------------------------
 
 def test_bm25_finds_the_document_with_the_rare_term():
+    # this is a unit test
     bm25 = retrieval.BM25(['نامه اداره مالیات رسید و جریمه خوردم',
                            'با پریا دعوا کردیم', 'رفتم پیاده‌روی'])
     top = bm25.top('مالیات جریمه', 2)
@@ -350,18 +414,21 @@ def test_bm25_finds_the_document_with_the_rare_term():
 
 
 def test_bm25_respects_the_allowed_mask():
+    # this is a unit test
     bm25 = retrieval.BM25(['مالیات', 'مالیات'])
     allowed = np.array([False, True])
     assert [i for i, _ in bm25.top('مالیات', 2, allowed)] == [1]
 
 
 def test_rrf_ranks_a_document_both_retrievers_agree_on_first():
+    # this is a unit test
     fused = retrieval.rrf([['a', 'b', 'c'], ['b', 'a', 'd']])
     assert max(fused, key=fused.get) in ('a', 'b')
     assert fused['a'] > fused['c'] and fused['b'] > fused['d']
 
 
 def test_mmr_breaks_up_near_duplicates():
+    # this is a unit test
     vectors = np.array([[1, 0], [1, 0], [0, 1]], dtype=np.float32)
     relevance = np.array([1.0, 0.99, 0.5], dtype=np.float32)
     assert retrieval.mmr(vectors, relevance, 2, 1.0) == [0, 1]
@@ -369,16 +436,19 @@ def test_mmr_breaks_up_near_duplicates():
 
 
 def test_mmr_falls_back_when_vectors_are_missing():
+    # this is a unit test
     relevance = np.array([0.2, 0.9], dtype=np.float32)
     assert retrieval.mmr(np.zeros((0, 2), dtype=np.float32), relevance, 2, 0.5) == [1, 0]
 
 
 def test_recency_weight_halves_after_one_half_life():
+    # this is a unit test
     weight = retrieval.recency_weight(20260101, 20260701, 180.0)
     assert 0.4 < weight < 0.6
 
 
 def test_llm_grade_parser_defaults_unscored_lines_to_neutral():
+    # this is a unit test
     class Reply:
         content = '1: 8\nnonsense\n3: 0'
 
@@ -395,6 +465,7 @@ def test_llm_grade_parser_defaults_unscored_lines_to_neutral():
 # --- metrics ---------------------------------------------------------------
 
 def test_retrieval_metric_arithmetic():
+    # this is a unit test
     retrieved, gold = ['a', 'x', 'b'], ['a', 'b', 'c']
     assert metrics.recall_at_k(retrieved, gold, 3) == pytest.approx(2 / 3)
     assert metrics.precision_at_k(retrieved, gold, 3) == pytest.approx(2 / 3)
@@ -403,27 +474,31 @@ def test_retrieval_metric_arithmetic():
     assert metrics.ndcg_at_k(['a', 'b'], gold, 2) > metrics.ndcg_at_k(['x', 'a'], gold, 2)
 
 
-def test_quote_recall_needs_the_answering_sentence_not_just_the_session():
+@pytest.mark.parametrize('answer,expected', [
+    # Something from the right session, but not the answering sentence: recall
+    # needs the sentence itself, not merely that the session was retrieved.
+    ('حرف‌های دیگری از همان نشست', 0.0),
+    # The answering sentence, with irregular spacing a chunker's own
+    # whitespace normalisation could introduce — both the sentence match and
+    # its tolerance for whitespace noise are exercised by this one case.
+    ('گفتم آذر  تموم   شد و از هیچ    شرکتی هیچ خبری نیس بعدش', 1.0),
+])
+def test_quote_recall_needs_the_exact_sentence_and_tolerates_whitespace(answer, expected):
+    # this is a unit test
     question = {'evidence': [{'session_id': 's1', 'message_indices': [0],
                               'quote': 'آذر تموم شد و از هیچ شرکتی هیچ خبری نیس'}]}
-    assert metrics.quote_recall('حرف‌های دیگری از همان نشست', question) == 0.0
-    assert metrics.quote_recall('گفتم آذر تموم شد و از هیچ شرکتی هیچ خبری نیس بعدش',
-                                question) == 1.0
-
-
-def test_quote_recall_tolerates_whitespace_normalisation():
-    question = {'evidence': [{'quote': 'می خوام برم باشگاه', 'session_id': 's',
-                              'message_indices': [0]}]}
-    assert metrics.quote_recall('گفت می  خوام   برم باشگاه', question) == 1.0
+    assert metrics.quote_recall(answer, question) == expected
 
 
 def test_latest_state_session_is_the_newest_evidence():
+    # this is a unit test
     question = {'evidence': [{'session_id': '2025-12-01-a'},
                              {'session_id': '2026-05-12-a'}]}
     assert metrics.latest_state_session(question) == '2026-05-12-a'
 
 
 def test_aggregate_reports_per_type_and_a_headline():
+    # this is a unit test
     rows = [
         {'id': 'q1', 'type': 'single-hop', 'difficulty': 'easy', 'answerable': True,
          'recall': 1.0, 'quote_recall': 1.0, 'ndcg': 1.0, 'hit': 1.0,
@@ -437,23 +512,33 @@ def test_aggregate_reports_per_type_and_a_headline():
     assert 0 < summary['overall']['headline'] <= 1.0
 
 
-def test_an_answerer_that_could_not_be_reached_says_so_on_the_row(ground_truth):
-    """`pipeline._llm_answer` catches everything the model raises and returns
-    the canonical refusal, so a CliError or a timeout looks exactly like "the
-    diary is silent about that" unless something on the row says otherwise."""
+def test_an_answerer_that_could_not_be_reached_says_so_on_the_row():
+    # this is a unit test
+    """`pipeline._llm_answer` catches everything the model raises, returns the
+    canonical refusal, and records the caught error on the outcome's own
+    diagnostics — checked one layer down at `_llm_answer` itself, rather than
+    through `metrics.score_question`, so a CliError or a timeout does not look
+    exactly like "the diary is silent about that" unless something says
+    otherwise."""
     class Unreachable:
         def invoke(self, messages, **kwargs):
             raise clichat.CliError('claude did not answer within 600s')
 
-    question = next(q for q in ground_truth['questions'] if q['answerable'])
-    outcome = pipeline.Outcome(question=question['question_fa'], contexts=[])
-    outcome.answer = pipeline._llm_answer(outcome, Unreachable(), 'sonnet')
-    row = metrics.score_question(question, outcome, k=5)
-    assert row['answer'] == pipeline.REFUSAL
-    assert 'did not answer' in row['answer_error']
+    outcome = pipeline.Outcome(question='امروز چه خبر بود؟', contexts=[])
+    answer = pipeline._llm_answer(outcome, Unreachable(), 'sonnet')
+    assert answer == pipeline.REFUSAL
+    assert 'did not answer' in outcome.diagnostics['answer_error']
 
-    # And a run where the model did answer carries no such field, so its presence
+    # And a model that does answer leaves no such diagnostic, so its presence
     # means one thing.
-    answered = pipeline.Outcome(question=question['question_fa'], contexts=[],
-                                answer='یک جواب')
-    assert 'answer_error' not in metrics.score_question(question, answered, k=5)
+    class Answered:
+        content = 'یک جواب'
+
+    class Working:
+        def invoke(self, messages, **kwargs):
+            return Answered()
+
+    worked = pipeline.Outcome(question='امروز چه خبر بود؟', contexts=[])
+    answer2 = pipeline._llm_answer(worked, Working(), 'sonnet')
+    assert answer2 == 'یک جواب'
+    assert 'answer_error' not in worked.diagnostics

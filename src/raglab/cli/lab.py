@@ -25,7 +25,6 @@ USAGE = f"""Usage: uv run raglab-lab [options]
 Runs the lab's tests, then starts the lab on :{serve.PANEL_PORT}.
 
   --no-test    start the lab without running the suite first
-  --all        run the whole suite, not just the lab's own file
   --test-only  run the suite and stop
 """
 
@@ -43,10 +42,15 @@ def main() -> None:
         return
 
     if '--no-test' not in argv:
-        # The lab's own file by default. The full suite is a minute rather than
-        # seconds, and the question this runner answers — "is the lab sound
-        # enough to look at?" — is answered by the lab's tests.
-        target = 'tests' if '--all' in argv else 'tests/test_raglab.py'
+        # The whole suite, not just tests/test_raglab.py: the 2026-08
+        # restructuring scattered that file's contents across
+        # test_conventions.py, test_primitives.py, test_store_index.py and
+        # others, so the narrow file no longer answers "is the lab sound
+        # enough to look at?" on its own — it would miss a broken conftest
+        # guard, a broken panel convention, or a broken Inspector route.
+        # Measured: 542 cases, 11.2 s, so there is no longer a speed reason
+        # to run less than everything.
+        target = 'tests'
         print(f'\n\033[1m▸ {target}\033[0m')
         status = subprocess.run([sys.executable, '-m', 'pytest', target, '-q'],
                                 cwd=ROOT).returncode

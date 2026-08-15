@@ -1,15 +1,16 @@
-"""The in-memory vector store and the index/pipeline built on top of it —
-integration tests running entirely in process memory."""
+"""The in-memory vector store (unit tests, direct calls) and the index
+registry / pipeline built on top of it (integration tests: an index build or
+a full retrieval crosses modules)."""
 import socket
 
 import numpy as np
 import pytest
 
-from raglab import corpus, metrics, pipeline, query, store
+from raglab import corpus, datasets, pipeline, query, store
 from raglab.config import GenerationConfig, IndexConfig, RetrievalConfig
 from raglab.index import IndexRegistry
 
-from conftest import LAB_SETTINGS, RAGLAB_DIR
+from conftest import LAB_SETTINGS, SMOKE_INDEX
 
 
 # --- the ephemeral vector store --------------------------------------------
@@ -17,21 +18,30 @@ from conftest import LAB_SETTINGS, RAGLAB_DIR
 # longer: the lab owns a store in memory instead of a Chroma database.
 
 def test_memory_store_ranks_by_cosine_distance():
+    # this is a unit test
     """Chroma's contract, which `LabIndex.dense` reads: `distances`, not
-    similarities, so the caller's `1 - d` keeps meaning what it meant."""
+    similarities, so the caller's `1 - d` keeps meaning what it meant. Asked
+    for more rows than it holds (8 against 3), it still returns only the 3 —
+    a store may never invent rows, and an empty one must answer empty
+    rather than raising."""
     vectors = store.MemoryVectors('raglab-test')
     vectors.upsert(ids=['near', 'orthogonal', 'opposite'],
                    documents=['a', 'b', 'c'],
                    embeddings=[[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0]],
                    metadatas=[{'layer': 'chunk'}] * 3)
-    res = vectors.query(query_embeddings=[[1.0, 0.0]], n_results=3)
+    res = vectors.query(query_embeddings=[[1.0, 0.0]], n_results=8)
     assert res['ids'][0] == ['near', 'orthogonal', 'opposite']
     assert res['distances'][0] == pytest.approx([0.0, 1.0, 2.0], abs=1e-6)
     assert res['documents'][0][0] == 'a'
     assert res['metadatas'][0][0] == {'layer': 'chunk'}
 
+    empty = store.MemoryVectors('raglab-empty')
+    assert empty.count() == 0
+    assert empty.query(query_embeddings=[[1.0, 0.0]], n_results=5)['ids'] == [[]]
+
 
 def test_memory_store_answers_several_query_vectors_at_once():
+    # this is a unit test
     """A store that silently answered only the first query vector would
     score multi-query expansion as doing nothing."""
     vectors = store.MemoryVectors('raglab-test')
@@ -42,6 +52,7 @@ def test_memory_store_answers_several_query_vectors_at_once():
 
 
 def test_memory_store_upsert_replaces_a_record_instead_of_duplicating_it():
+    # this is a unit test
     """Chunk ids are deterministic, so a rebuild writes the same ids again."""
     vectors = store.MemoryVectors('raglab-test')
     vectors.upsert(ids=['a'], documents=['first'], embeddings=[[1.0, 0.0]],
@@ -55,34 +66,30 @@ def test_memory_store_upsert_replaces_a_record_instead_of_duplicating_it():
 
 
 def test_memory_store_applies_the_where_clause_the_lab_actually_builds():
+    # this is a unit test
     """Asserted against `query.where_clause` itself, not a hand-written
-    dict, since a hand-rolled store could quietly differ from Chroma here."""
+    dict, since a hand-rolled store could quietly differ from Chroma here.
+    Two cases share one clause: a chunk entirely outside the window is
+    dropped, one merely straddling its edge is kept — the overlap semantics
+    of the clause itself are pinned in test_primitives.py
+    (`test_where_clause_overlaps_rather_than_contains`); this only checks
+    that the store applies whatever clause it is handed."""
+    where = query.where_clause(query.TimeScope(20251122, 20251221, 'آذر', 'jalali'))
     vectors = store.MemoryVectors('raglab-test')
     vectors.upsert(
-        ids=['in-scope', 'too-early', 'too-late'],
-        documents=['keep', 'drop', 'drop'],
-        embeddings=[[1.0, 0.0]] * 3,
+        ids=['in-scope', 'too-early', 'too-late', 'straddling'],
+        documents=['keep', 'drop', 'drop', 'keep too'],
+        embeddings=[[1.0, 0.0]] * 4,
         metadatas=[{'span_from': 20251201, 'span_to': 20251201},
                    {'span_from': 20250101, 'span_to': 20250101},
-                   {'span_from': 20260301, 'span_to': 20260301}])
-    where = query.where_clause(query.TimeScope(20251122, 20251221, 'آذر', 'jalali'))
-    res = vectors.query(query_embeddings=[[1.0, 0.0]], n_results=3, where=where)
-    assert res['ids'][0] == ['in-scope']
-
-
-def test_memory_store_keeps_a_chunk_that_merely_overlaps_the_scope():
-    """Containment would drop exactly the evidence a scoped question is
-    reaching for."""
-    vectors = store.MemoryVectors('raglab-test')
-    vectors.upsert(ids=['thread'], documents=['a year of it'],
-                   embeddings=[[1.0, 0.0]],
-                   metadatas=[{'span_from': 20250801, 'span_to': 20260720}])
-    where = query.where_clause(query.TimeScope(20251122, 20251221, 'آذر', 'jalali'))
-    res = vectors.query(query_embeddings=[[1.0, 0.0]], n_results=3, where=where)
-    assert res['ids'][0] == ['thread']
+                   {'span_from': 20260301, 'span_to': 20260301},
+                   {'span_from': 20250801, 'span_to': 20260720}])
+    res = vectors.query(query_embeddings=[[1.0, 0.0]], n_results=4, where=where)
+    assert res['ids'][0] == ['in-scope', 'straddling']
 
 
 def test_memory_store_does_not_match_a_metadata_key_a_record_lacks():
+    # this is a unit test
     """Chroma's semantics: a record missing the filtered key is excluded,
     never kept — the reason `Chunk.metadata()` carries `habit` on every
     chunk."""
@@ -95,19 +102,13 @@ def test_memory_store_does_not_match_a_metadata_key_a_record_lacks():
     assert res['ids'][0] == ['has']
 
 
-def test_memory_store_never_returns_more_than_it_holds():
-    vectors = store.MemoryVectors('raglab-test')
-    vectors.upsert(ids=['a'], documents=['one'], embeddings=[[1.0, 0.0]],
-                   metadatas=[{}])
-    assert vectors.query(query_embeddings=[[1.0, 0.0]], n_results=8)['ids'] == [['a']]
-    empty = store.MemoryVectors('raglab-empty')
-    assert empty.count() == 0
-    assert empty.query(query_embeddings=[[1.0, 0.0]], n_results=5)['ids'] == [[]]
-
-
-def test_memory_store_returns_stored_vectors_in_the_order_asked_for():
+def test_memory_store_get_returns_requested_ids_in_order_and_skips_missing_ones():
+    # this is a unit test
     """`LabIndex.vectors_for` reads vectors back for MMR rather than
-    re-embedding, and zips the result against the ids it asked for."""
+    re-embedding, and zips the result against the ids it asked for — so
+    order must be preserved. And a silent partial result, like Chroma's:
+    the caller pairs ids with vectors by name, so a placeholder row for an
+    id never stored would be a wrong vector."""
     vectors = store.MemoryVectors('raglab-test')
     vectors.upsert(ids=['a', 'b'], documents=['x', 'y'],
                    embeddings=[[1.0, 0.0], [0.0, 1.0]], metadatas=[{}, {}])
@@ -116,100 +117,86 @@ def test_memory_store_returns_stored_vectors_in_the_order_asked_for():
     assert np.allclose(got['embeddings'][0], [0.0, 1.0])
     assert np.allclose(got['embeddings'][1], [1.0, 0.0])
 
-
-def test_memory_store_get_skips_an_id_it_does_not_hold():
-    """A silent partial result, like Chroma's: the caller pairs ids with
-    vectors by name, so a placeholder row would be a wrong vector."""
-    vectors = store.MemoryVectors('raglab-test')
-    vectors.upsert(ids=['a'], documents=['x'], embeddings=[[1.0, 0.0]],
-                   metadatas=[{}])
-    assert vectors.get(ids=['a', 'missing'], include=['embeddings'])['ids'] == ['a']
+    partial = vectors.get(ids=['a', 'missing'], include=['embeddings'])
+    assert partial['ids'] == ['a']
 
 
-def test_the_index_holds_its_vectors_in_process_memory(index):
-    """Asserted on the type, since "there is no database" is not observable
-    from a query that merely succeeds."""
-    assert isinstance(index.store, store.MemoryVectors)
-    assert index.store.count() == index.stats.chunks
-
-
-# The lab must never grow a vector-database dependency.
-def test_no_lab_module_imports_a_vector_database_client():
-    """chromadb is production's dependency, not the lab's. One import line
-    would bring the persistence back, and it would look harmless."""
-    offenders = []
-    for path in sorted(RAGLAB_DIR.glob('*.py')):
-        for line in path.read_text(encoding='utf-8').splitlines():
-            stripped = line.strip()
-            if not stripped.startswith(('import ', 'from ')):
-                continue
-            if 'chromadb' in stripped or 'ChatStore' in stripped:
-                offenders.append(f'{path.name}: {stripped}')
-    assert offenders == []
-
-
-def test_a_fresh_lab_process_rebuilds_its_index(diary):
-    """Nothing outlives the registry: a second one over the same config
-    builds again rather than finding a collection waiting for it."""
-    cfg = IndexConfig(chunker='session', embedder='token-hash')
-    first = IndexRegistry(LAB_SETTINGS, diary).get(cfg)
-    second = IndexRegistry(LAB_SETTINGS, diary).get(cfg)
-    assert second is not first and second.store is not first.store
-    assert not first.stats.reused and not second.stats.reused
-    assert second.stats.chunks == first.stats.chunks
-    assert second.store.count() == second.stats.chunks
-
-
-def test_building_an_index_opens_no_socket(diary, monkeypatch):
+def test_building_an_index_opens_no_socket(monkeypatch):
+    # this is an integration test
     """The offline embedders download nothing, so a connection here could
-    only be a store trying to persist."""
+    only be a store trying to persist. Built over the smoke corpus — cheap,
+    5 sessions, no model download — rather than the 167-session diary this
+    guard used to build for the same claim."""
     def refuse(*_args, **_kwargs):
         raise AssertionError('the lab opened a network connection while building')
 
     monkeypatch.setattr(socket.socket, 'connect', refuse)
     monkeypatch.setattr(socket.socket, 'connect_ex', refuse)
-    built = IndexRegistry(LAB_SETTINGS, diary).get(
-        IndexConfig(chunker='session', embedder='ascii-hash'))
-    assert built.stats.chunks == len(diary['sessions'])
+    built = IndexRegistry(LAB_SETTINGS).get(IndexConfig(**SMOKE_INDEX))
+    assert built.stats.chunks == 5
 
 
-# --- index and pipeline (integration, in-process memory) -------------------
+# --- index registry and pipeline (integration, in-process memory) ----------
 
-def test_index_is_reused_for_the_same_fingerprint(registry):
-    """`reused` reports the only form left: this process built the index
-    earlier and still has it."""
+def test_registry_reuses_within_a_process_and_rebuilds_across_one(diary):
+    # this is an integration test
+    """Three claims in one build+get sequence rather than three tests: a
+    second `get` on the same registry returns the same object and reports
+    `reused`; a fresh registry never inherits another's index and rebuilds
+    from scratch; and the store always holds exactly as many rows as
+    `stats.chunks` claims, on both the first build and the second."""
     cfg = IndexConfig(chunker='turn-pair', embedder='token-hash')
-    first = registry.get(cfg)
+    reg = IndexRegistry(LAB_SETTINGS, diary)
+
+    first = reg.get(cfg)
     assert not first.stats.reused
-    assert registry.get(cfg) is first
-    assert first.stats.reused
-    assert first.stats.collection == cfg.collection()
+    assert isinstance(first.store, store.MemoryVectors)
+    assert first.store.count() == first.stats.chunks
+
+    same = reg.get(cfg)
+    assert same is first and same.stats.reused
+    assert same.stats.collection == cfg.collection()
+
+    fresh = IndexRegistry(LAB_SETTINGS, diary).get(cfg)
+    assert fresh is not first and fresh.store is not first.store
+    assert not fresh.stats.reused
+    assert fresh.stats.chunks == first.stats.chunks
+    assert fresh.store.count() == fresh.stats.chunks
 
 
 def test_different_configs_get_different_collections():
+    # this is a unit test
     a = IndexConfig(chunker='fixed').collection()
     b = IndexConfig(chunker='session').collection()
     assert a != b and a.startswith('raglab-')
 
 
-def test_retrieval_finds_the_evidence_session_for_a_known_question(index, ground_truth):
-    """End-to-end on the real corpus: a hybrid retrieval over semantic chunks
-    must surface at least one cited evidence session for most single-hop
-    questions. Asserted as a rate, not per question — a single hard question
-    should not be able to fail the suite."""
-    questions = [q for q in ground_truth['questions']
-                 if q['type'] == 'single-hop'][:10]
-    cfg = RetrievalConfig(retriever='hybrid-rrf', k=8, reranker='lexical')
-    hits = 0
-    for question in questions:
-        outcome = pipeline.retrieve(index, cfg, question['question_fa'],
-                                    question['query_date'])
-        gold = corpus.evidence_sessions(question)
-        hits += metrics.hit_at_k(outcome.sessions, gold, cfg.k)
-    assert hits >= 4, f'only {hits}/10 single-hop questions found any evidence'
+def test_retrieval_finds_the_evidence_session_for_a_known_question(smoke_index):
+    # this is an integration test
+    """Replaces a statistical rate over the real corpus (>=4/10 single-hop
+    questions found *any* evidence, one hard question away from flaking)
+    with one deterministic pin on the 5-session smoke set: `token-hash` has
+    no RNG, so a known question retrieves its single known evidence session
+    at rank 1, every run, on every process. `mini-004` rather than the
+    first-indexed session on purpose: a broken retriever that degenerates
+    to insertion order would still pass a check against session 1, and
+    session 4 is exactly what catches that (verified by mutating
+    `textnorm.tokens` to return `[]` and watching this fail while every
+    question collapsed to the same first-three-by-insertion-order answer)."""
+    _, truth = datasets.load('smoke-mini')
+    question = next(q for q in truth['questions'] if q['id'] == 'mini-004')
+    assert corpus.evidence_sessions(question) == ['mini-04']
+
+    outcome = pipeline.retrieve(smoke_index.index,
+                                RetrievalConfig(retriever='hybrid-rrf', k=3,
+                                                reranker='lexical'),
+                                question['question_fa'],
+                                truth['meta']['query_date'])
+    assert outcome.sessions[0] == 'mini-04'
 
 
 def test_time_filter_narrows_the_candidate_pool(index, ground_truth):
+    # this is an integration test
     scoped = 'آذر چه خبر بود؟'
     with_filter = pipeline.retrieve(index, RetrievalConfig(time_filter=True),
                                     scoped, '2026-07-28')
@@ -222,29 +209,31 @@ def test_time_filter_narrows_the_candidate_pool(index, ground_truth):
     assert dates and all(20251122 <= d <= 20251221 for d in dates), dates
 
 
-def test_grader_threshold_produces_an_abstention(index):
-    """A question about something the diary never mentions must be refusable —
-    and only the grader can refuse it."""
+def test_grader_threshold_produces_the_refusal_string(index):
+    # this is an integration test
+    """A question about something the diary never mentions must be
+    refusable, and only the grader can refuse it: the same nonsense
+    question retrieves contexts ungated but abstains once a strict lexical
+    threshold is applied. That gated outcome, fed straight into `answer()`,
+    must produce the refusal string rather than an invented one — the
+    abstention trio's three claims in a single retrieve-then-answer."""
     nonsense = 'قرارداد خرید کشتی در بندر عباس چی شد؟'
     ungated = pipeline.retrieve(index, RetrievalConfig(grader='none'), nonsense,
                                 '2026-07-28')
+    assert not ungated.abstained and ungated.contexts
+
     gated = pipeline.retrieve(index, RetrievalConfig(grader='lexical',
                                                     grade_threshold=0.9),
                               nonsense, '2026-07-28')
-    assert not ungated.abstained and ungated.contexts
     assert gated.abstained and not gated.contexts
 
-
-def test_answerer_emits_the_refusal_when_abstaining(index):
-    outcome = pipeline.retrieve(index, RetrievalConfig(grader='lexical',
-                                                      grade_threshold=0.99),
-                                'قرارداد کشتی', '2026-07-28')
-    outcome = pipeline.answer(outcome, GenerationConfig(answerer='extractive'))
+    outcome = pipeline.answer(gated, GenerationConfig(answerer='extractive'))
     assert outcome.answer == pipeline.REFUSAL
     assert outcome.abstained
 
 
 def test_quoting_the_diarist_saying_i_dont_know_is_not_an_abstention():
+    # this is a unit test
     """The diarist writes «نمیدونم» constantly, and counting it as a refusal
     would score answerable questions as abstentions on a pipeline with no
     gate."""
@@ -254,24 +243,3 @@ def test_quoting_the_diarist_saying_i_dont_know_is_not_an_abstention():
         'کارت رو عوض کردی. خودت گفتی نمیدونم درست بود یا نه.', 'llm')
     assert pipeline.reads_as_refusal(pipeline.REFUSAL, 'extractive')
     assert pipeline.reads_as_refusal('چیزی در این مورد ذکر نشده.', 'llm')
-
-
-def test_ascii_hash_baseline_retrieves_worse_than_char_hash(registry, ground_truth):
-    """The production embedder cannot represent this corpus, so it must lose
-    to a Unicode-aware one."""
-    questions = [q for q in ground_truth['questions']
-                 if q['type'] == 'single-hop'][:8]
-    cfg = RetrievalConfig(retriever='dense', k=8, reranker='none', time_filter=False)
-
-    def rate(embedder_name):
-        index = registry.get(IndexConfig(chunker='fixed', embedder=embedder_name,
-                                         contextual=False))
-        total = 0.0
-        for question in questions:
-            outcome = pipeline.retrieve(index, cfg, question['question_fa'],
-                                        question['query_date'])
-            total += metrics.hit_at_k(outcome.sessions,
-                                      corpus.evidence_sessions(question), cfg.k)
-        return total / len(questions)
-
-    assert rate('char-hash') > rate('ascii-hash')

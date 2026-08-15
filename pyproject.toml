@@ -38,7 +38,7 @@ dependencies = [
 semantic = ["fastembed>=0.7"]
 # ~1 GB. Reaches the Persian-tuned encoders and Qwen3, which are plain
 # HuggingFace checkpoints fastembed does not serve. The default embedder needs
-# this — see README's launch line and tests/test_ports.py.
+# this — see README's launch line and tests/test_conventions.py.
 local-embeddings = ["sentence-transformers>=3.0"]
 # Leiden alone needs compiled wheels; every other grouping runs on networkx and
 # scikit-learn, which are core. Optional so a lab that cannot build them still

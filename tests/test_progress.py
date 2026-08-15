@@ -3,6 +3,8 @@ from a hang, so every phase says where it is."""
 import threading
 import time
 
+import pytest
+
 from raglab import config, evaluate, explain, ragas_eval
 from raglab.llm_tools import sweep
 from raglab.config import GenerationConfig, IndexConfig, LabConfig
@@ -22,6 +24,11 @@ PROGRESS_CFG = LabConfig(index=IndexConfig(chunker='message', embedder='char-has
 
 def test_progress_reports_which_question_it_is_on(registry, ground_truth,
                                                   tmp_path, monkeypatch):
+    # this is an integration test
+    """The one live `run_eval` in this file — a smoke run standing in for the
+    two that used to be here, since the other, `_reporter`'s own arity
+    adaptation, is now pinned directly against the function below rather
+    than by running a whole evaluation twice to observe it indirectly."""
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     seen = []
     evaluate.run_eval(registry, ground_truth, PROGRESS_CFG, LAB_SETTINGS,
@@ -37,21 +44,47 @@ def test_progress_reports_which_question_it_is_on(registry, ground_truth,
     # And the band, because a slow phase on hard questions is a different fact
     # from a slow phase overall.
     assert any(band in scoring[0][2] for band in config.DIFFICULTIES), scoring
+    # A run reports a terminal ('done', 1.0) too — without it, a poller has
+    # no way to tell "still running" from "finished and stopped reporting".
+    assert seen[-1][:2] == ('done', 1.0), seen
 
 
-def test_a_two_argument_progress_callback_still_works(registry, ground_truth,
-                                                      tmp_path, monkeypatch):
-    """The detail is additive. The panel's reporter predates it, and a run must
-    not fail because its caller does not want the third argument."""
-    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    seen = []
-    evaluate.run_eval(registry, ground_truth, PROGRESS_CFG, LAB_SETTINGS,
-                      limit=2, ragas_mode='off',
-                      progress=lambda stage, fraction: seen.append(stage))
-    assert 'scoring' in seen and 'done' in seen
+def test_the_reporter_inspects_a_callbacks_arity_once_rather_than_per_call():
+    # this is a unit test
+    """The detail is additive: the panel's reporter predates it, and a run
+    must not fail because its caller only wants two arguments — checked
+    directly against `evaluate._reporter` rather than by running a whole
+    evaluation twice to observe the same adaptation indirectly. The arity
+    is inspected once (`inspect.signature`), not by trying a 3-argument call
+    and catching the `TypeError` per call — the second approach would also
+    swallow a real bug raised *inside* a 3-argument callback, mistaking it
+    for an arity mismatch."""
+    seen_three = []
+    report3 = evaluate._reporter(
+        lambda stage, fraction, detail='': seen_three.append((stage, fraction, detail)))
+    report3('scoring', 0.5, 'question 3/4 · hard')
+    assert seen_three == [('scoring', 0.5, 'question 3/4 · hard')]
+
+    seen_two = []
+    report2 = evaluate._reporter(lambda stage, fraction: seen_two.append((stage, fraction)))
+    report2('scoring', 0.5, 'question 3/4 · hard')
+    assert seen_two == [('scoring', 0.5)], 'a 2-arg callback must never see the detail'
+
+    assert evaluate._reporter(None)('scoring', 0.5, 'ignored') is None
+
+    # The mechanism, not just the outcome: a 3-arg-compatible callback that
+    # raises for a real reason must not be read as "wrong arity, retry with
+    # two arguments" — a per-call `try/except TypeError` would do exactly
+    # that, and would report a different (arity) error here instead.
+    def genuinely_buggy(stage, fraction, detail):
+        raise TypeError('boom from inside the callback, not an arity mismatch')
+
+    with pytest.raises(TypeError, match='boom from inside the callback'):
+        evaluate._reporter(genuinely_buggy)('scoring', 0.5, 'question 3/4 · hard')
 
 
 def test_the_judged_phase_reports_calls_as_they_land():
+    # this is a unit test
     """The judged phase is the whole wall clock on a local judge. RAGAS scores a
     batch, so without a per-call hook the bar sits at one number for hours."""
     watch = ragas_eval.JudgeWatch(total=6)
@@ -68,6 +101,7 @@ def test_the_judged_phase_reports_calls_as_they_land():
 
 
 def test_the_job_carries_the_detail_to_whoever_is_polling():
+    # this is an integration test
     """The panel polls a job dict, so the detail has to be a field on it — a
     progress line only the terminal sees leaves the two UIs looking hung."""
     from raglab.server import Jobs
@@ -90,6 +124,7 @@ def test_the_job_carries_the_detail_to_whoever_is_polling():
 
 
 def test_a_running_job_can_be_cancelled_before_its_next_call():
+    # this is an integration test
     """Stopping a run must prevent its next unit of work, not just its polling."""
     from raglab.server import Jobs
     jobs = Jobs()
@@ -117,7 +152,13 @@ def test_a_running_job_can_be_cancelled_before_its_next_call():
     assert '_cancel' not in job
 
 
-def test_the_terminal_bar_says_stage_fraction_elapsed_and_detail():
+def test_the_terminal_bar_renders_its_fields_and_never_leaves_a_stale_tail():
+    # this is a unit test
+    """The two bar-rendering claims side by side: `sweep.bar` says stage,
+    fraction, elapsed and detail in one rewritten line, and `sweep.live`'s
+    redraws pad a shorter detail so a stale tail of a longer one cannot
+    survive — without that padding a redraw would leave characters behind
+    that read as a stale *number* rather than as a drawing artefact."""
     line = sweep.bar('Stage F', 'scoring', 0.5, 'question 16/30 · hard',
                      time.time() - 63)
     assert line.startswith('\r'), 'the line is rewritten in place, not appended'
@@ -128,10 +169,6 @@ def test_the_terminal_bar_says_stage_fraction_elapsed_and_detail():
     filled = line.count('█')
     assert filled == sweep.BAR_WIDTH // 2, filled
 
-
-def test_a_shorter_detail_cannot_leave_the_tail_of_a_longer_one_behind():
-    """Without the padding a redraw leaves stale characters on the line, which
-    reads as a stale *number* rather than as a drawing artefact."""
     written = []
     report = sweep.live('Stage A', time.time(),
                         stream=type('S', (), {'write': written.append,
@@ -143,6 +180,7 @@ def test_a_shorter_detail_cannot_leave_the_tail_of_a_longer_one_behind():
 
 
 def test_the_expected_judge_call_count_scales_with_k():
+    # this is a unit test
     """Context precision asks one verdict per retrieved chunk, so k is what
     drives the bill — the estimate has to know that or it is decoration."""
     at_k5 = ragas_eval.expected_judge_calls(n_samples=10, k=5)
@@ -152,6 +190,7 @@ def test_the_expected_judge_call_count_scales_with_k():
 
 
 def test_the_balance_control_is_explained_like_every_other_knob():
+    # this is a convention test
     """`explain.missing()` covers config fields; a run-level control has to be
     added to the same registry by hand or it reaches the panel unexplained."""
     assert 'run.balance' in explain.topics()

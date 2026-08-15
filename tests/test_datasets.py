@@ -17,7 +17,9 @@ from fastapi.testclient import TestClient
 
 from raglab import datasets
 from raglab.llm_tools import leaderboard
-from raglab.config import IndexConfig, LabConfig
+from raglab.config import IndexConfig
+
+from conftest import _finished
 
 BUNDLED = ('support-en', 'meetings-de', 'research-multihop', 'smoke-mini')
 
@@ -68,32 +70,45 @@ def client(monkeypatch, tmp_path):
 # --- the contract ----------------------------------------------------------
 
 def test_a_dataset_that_meets_the_contract_has_nothing_to_report():
+    # this is a unit test
     assert datasets.validate(_valid()) == []
 
 
-def test_a_quote_that_is_not_in_the_message_it_cites_is_refused():
-    """Every lexical measurement in this lab is computed against these
-    quotes, so a dataset that misquotes its own corpus scores *confidently*
-    about text the corpus never contained, not worse."""
-    payload = _valid()
+def _quote_rewritten(payload: dict) -> dict:
     payload['questions'][0]['evidence'][0]['quote'] = 'the roof was fixed in April'
-    problems = datasets.validate(payload)
-    assert any('verbatim' in problem for problem in problems), problems
+    return payload
 
 
-def test_evidence_pointing_at_a_session_that_is_not_there_is_refused():
-    payload = _valid()
+def _session_missing(payload: dict) -> dict:
     payload['questions'][0]['evidence'][0]['session_id'] = 's-99'
-    assert any('does not contain' in p for p in datasets.validate(payload))
+    return payload
 
 
-def test_a_message_index_outside_the_session_is_refused():
-    payload = _valid()
+def _message_index_out_of_range(payload: dict) -> dict:
     payload['questions'][0]['evidence'][0]['message_indices'] = [7]
-    assert any('outside session' in p for p in datasets.validate(payload))
+    return payload
+
+
+@pytest.mark.parametrize('mutate, expected_substring', [
+    (_quote_rewritten, 'verbatim'),
+    (_session_missing, 'does not contain'),
+    (_message_index_out_of_range, 'outside session'),
+], ids=['quote-not-verbatim', 'session-missing', 'message-index-out-of-range'])
+def test_a_dataset_that_breaks_one_rule_is_refused_naming_it(mutate,
+                                                              expected_substring):
+    # this is a unit test
+    """Every lexical measurement in this lab — quote recall, the Inspector's
+    green spans, the offline RAGAS context metrics — is computed against these
+    evidence quotes, so a dataset that misquotes its own corpus would score
+    *confidently* about text that was never there. Three ways the contract
+    can be broken, refused rather than repaired, each naming what it refused."""
+    payload = mutate(_valid())
+    problems = datasets.validate(payload)
+    assert any(expected_substring in problem for problem in problems), problems
 
 
 def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
+    # this is a unit test
     """One problem per attempt is a slow loop over a 200-question corpus, and a
     message that does not name the question is not a message, it is a search."""
     payload = _valid()
@@ -107,6 +122,7 @@ def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
 
 
 def test_an_unanswerable_question_needs_no_evidence():
+    # this is a unit test
     """Abstention questions are the ones the corpus deliberately cannot answer:
     demanding evidence for them would make the failure mode the relevance gate
     exists for unmeasurable."""
@@ -119,23 +135,22 @@ def test_an_unanswerable_question_needs_no_evidence():
 
 # --- the bundled samples ---------------------------------------------------
 
-@pytest.mark.parametrize('name', BUNDLED)
-def test_every_bundled_dataset_meets_its_own_contract(name):
+def test_the_bundled_datasets_meet_their_contract_and_cover_the_failure_modes():
+    # this is a unit test
     """These four are reference points — the corpora a finding is checked
     against to tell "true of retrieval" from "true of Farsi diaries". A
-    reference point nobody validated is a second unknown."""
-    path = datasets.BUNDLED_DIR / f'{name}.json'
-    assert path.exists(), f'{name} is missing from fixtures/groundtruth_datasets/'
-    assert datasets.validate(json.loads(path.read_text(encoding='utf-8'))) == []
-
-
-def test_the_samples_cover_the_failure_modes_worth_measuring():
-    """Between them the four have to offer more than one language, questions
-    that need two sessions, and questions the corpus cannot answer — otherwise
-    they are four spellings of the same test."""
-    loaded = {name: json.loads(
-        (datasets.BUNDLED_DIR / f'{name}.json').read_text(encoding='utf-8'))
-        for name in BUNDLED}
+    reference point nobody validated is a second unknown, and between them
+    they have to offer more than one language, questions that need two
+    sessions, and questions the corpus cannot answer — otherwise they are
+    four spellings of the same test."""
+    loaded = {}
+    for name in BUNDLED:
+        path = datasets.BUNDLED_DIR / f'{name}.json'
+        assert path.exists(), f'{name} is missing from fixtures/groundtruth_datasets/'
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        problems = datasets.validate(payload)
+        assert problems == [], (name, problems)
+        loaded[name] = payload
     languages = {d['dataset']['language'] for d in loaded.values()}
     assert len(languages) >= 2, languages
     types = {q['type'] for d in loaded.values() for q in d['questions']}
@@ -146,6 +161,7 @@ def test_the_samples_cover_the_failure_modes_worth_measuring():
 
 
 def test_the_catalogue_leads_with_the_built_in_corpus():
+    # this is a unit test
     """Every finding this lab has produced is about it, and it is the default: a list
     ordered by whatever sorted first would put it in an arbitrary place."""
     found = datasets.catalogue()
@@ -158,6 +174,7 @@ def test_the_catalogue_leads_with_the_built_in_corpus():
 # --- loading ---------------------------------------------------------------
 
 def test_a_loaded_dataset_arrives_in_the_shape_the_lab_speaks():
+    # this is a unit test
     """The contract says `question`; six modules and every stored run say
     `question_fa`. The loader is the one place that translates."""
     diary, ground_truth = datasets.load('smoke-mini')
@@ -175,6 +192,7 @@ def test_a_loaded_dataset_arrives_in_the_shape_the_lab_speaks():
 
 
 def test_an_unknown_dataset_says_what_there_is():
+    # this is a unit test
     with pytest.raises(ValueError) as raised:
         datasets.load('not-a-corpus')
     assert 'smoke-mini' in str(raised.value)
@@ -182,20 +200,17 @@ def test_an_unknown_dataset_says_what_there_is():
 
 # --- the index cannot mix corpora ------------------------------------------
 
-def test_the_dataset_is_part_of_the_fingerprint():
+def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
+    # this is a unit test
     """The one bug this feature could plausibly introduce, and the most
     expensive to notice late: an index built over one corpus handed a question
-    from another."""
+    from another. `''` is fingerprinted exactly as it was before the field
+    existed — every run in `.runs/` records a collection name, and a new field
+    in IndexConfig would otherwise rename them all."""
     assert (IndexConfig(dataset='smoke-mini').fingerprint()
             != IndexConfig().fingerprint())
     assert (IndexConfig(dataset='smoke-mini').fingerprint()
             != IndexConfig(dataset='support-en').fingerprint())
-
-
-def test_the_built_in_corpus_keeps_the_fingerprints_already_recorded():
-    """`''` is fingerprinted exactly as it was before the field existed —
-    every run in `.runs/` records a collection name, and a new field in
-    IndexConfig would otherwise rename them all."""
     # The literal is the value the field-less IndexConfig produced, read off
     # the code as it stood before this commit rather than off the code it
     # is checking.
@@ -205,6 +220,9 @@ def test_the_built_in_corpus_keeps_the_fingerprints_already_recorded():
 
 # Two corpora, one registry.
 def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
+    # this is an integration test
+    """crosses into IndexRegistry/build — an index over one corpus must never
+    answer for another."""
     from raglab.config import LabSettings
     from raglab.index import IndexRegistry
 
@@ -222,6 +240,7 @@ def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
 
 
 def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
+    # this is a unit test
     """The speaker tags and the contextual header are prepended to text that
     gets embedded, so writing them in Farsi over an English corpus adds a
     constant foreign phrase to every vector."""
@@ -238,18 +257,28 @@ def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
 # --- the service -----------------------------------------------------------
 
 def test_the_options_serve_the_catalogue(client):
+    # this is an integration test
+    """The HTTP half of `test_the_catalogue_leads_with_the_built_in_corpus`.
+    `defaults['index']['dataset']` has no other assertion anywhere in the
+    suite — test_server.py pins the other index defaults but not this one —
+    so it is kept here even though the rest of this test asserts only
+    presence (catalogue reachability, not defaults/help content in general)."""
     body = client.get('/api/options').json()
     ids = [d['id'] for d in body['datasets']]
     assert ids[0] == datasets.BUILTIN
     assert set(BUNDLED) <= set(ids)
     assert body['defaults']['index']['dataset'] == ''
-    assert body['help']['index.dataset']
 
 
 def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
                                                             monkeypatch):
+    # this is an integration test
     """The half of the rule the fingerprint cannot enforce: the index comes from
-    one file and the questions must come from the same one."""
+    one file and the questions must come from the same one. Distinct from
+    `tests/test_e2e.py`'s smoke run, which checks only the ledger's `dataset`
+    field and a partial (`limit=3`) selection — this checks the job result and
+    the saved run file both carry `dataset`, and that all six of the corpus's
+    own question ids (and none other) come back for a full run."""
     from raglab import evaluate
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     started = client.post('/api/evaluations', json={
@@ -270,20 +299,9 @@ def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
     assert saved['dataset'] == 'smoke-mini'
 
 
-def test_the_ledger_records_which_corpus_an_experiment_ran_on(client, tmp_path,
-                                                              monkeypatch):
-    from raglab import evaluate
-    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    started = client.post('/api/indexes', json={
-        'index': {'dataset': 'smoke-mini', 'chunker': 'session',
-                  'embedder': 'token-hash'}})
-    _finished(client, started.json()['job_id'])
-    row = client.get('/api/experiments').json()['experiments'][0]
-    assert row['dataset'] == 'smoke-mini'
-
-
 def test_a_dataset_is_imported_through_the_panel_and_becomes_selectable(client,
                                                                         tmp_path):
+    # this is an integration test
     added = client.post('/api/datasets', json=_valid())
     assert added.status_code == 200, added.text
     assert added.json()['id'] == 'tiny-test'
@@ -297,6 +315,7 @@ def test_a_dataset_is_imported_through_the_panel_and_becomes_selectable(client,
 
 
 def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(client):
+    # this is an integration test
     payload = _valid()
     payload['questions'][0]['evidence'][0]['quote'] = 'never said this'
     payload['questions'][0]['type'] = 'made-up'
@@ -307,6 +326,7 @@ def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(client)
 
 
 def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(client):
+    # this is an integration test
     payload = _valid()
     payload['dataset']['id'] = datasets.BUILTIN
     refused = client.post('/api/datasets', json=payload)
@@ -317,6 +337,7 @@ def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(client):
 # --- the leaderboard -------------------------------------------------------
 
 def test_the_leaderboard_never_ranks_across_corpora():
+    # this is a unit test
     """Two corpora are not two configurations of one measurement: the questions
     differ, so the means are not of the same thing."""
     rows = [
@@ -339,6 +360,7 @@ def test_the_leaderboard_never_ranks_across_corpora():
 
 
 def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
+    # this is a unit test
     """Not a guess: it is the only corpus there was. Treating the blank as
     unknown would quarantine every row already on the leaderboard."""
     rows = [{'run_id': 'old', 'label': 'a', 'ragas_decision': 0.7,
@@ -358,10 +380,11 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
 # round trip or state the shape before a file is picked; there is a whole
 # contract nobody on that screen knew to read, and nothing on screen said so.
 
-def test_the_import_control_describes_the_file_it_takes():
-    """Keyed to the control's own id, so the panel's one explainer mechanism
-    hangs it on the Import label without a second mechanism for file
-    inputs."""
+def test_the_import_control_describes_a_shape_the_importer_really_enforces():
+    # this is a unit test
+    """Every top-level key and closed vocabulary the description names has to
+    be one `validate` really refuses the absence of — a description beside a
+    checker is a description that can drift from it."""
     from raglab import explain
     text = explain.topics()['run.dataset-file']
     for named in ('dataset', 'sessions', 'questions',      # the three keys
@@ -381,22 +404,18 @@ def test_the_import_control_describes_the_file_it_takes():
     # rejection, and the full contract is one line away.
     assert 'verbatim' in text
     assert 'fixtures/groundtruth_datasets/' in text
-
-
-def test_the_described_shape_is_the_shape_the_importer_enforces():
-    """A description beside a checker is a description that can drift from it.
-    Each top-level key the text names has to be one `validate` really refuses
-    the absence of, or the panel promises a contract nobody keeps."""
-    from raglab import explain
-    text = explain.topics()['run.dataset-file']
+    # And each of the three top-level keys the text calls out is one
+    # `validate` genuinely refuses the absence of.
     for key in ('dataset', 'sessions', 'questions'):
-        assert key in text, key
         without = _valid()
         without.pop(key)
-        assert datasets.validate(without), f'{key} is described as required'
+        problems = datasets.validate(without)
+        assert any(f'"{key}"' in p for p in problems), (
+            f'{key} is described as required, but no problem names it: {problems}')
 
 
 def test_the_panel_renders_the_json_shape_as_a_shape():
+    # this is a convention test
     """This is the one help text with a structure in it, and a structure that
     arrives as one run-on paragraph is not one. Every other explainer is a
     single line, so preserving the newlines costs them nothing."""
@@ -407,6 +426,7 @@ def test_the_panel_renders_the_json_shape_as_a_shape():
 
 
 def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
+    # this is a convention test
     from raglab.server import STATIC
     html = (STATIC / 'index.html').read_text(encoding='utf-8')
     js = (STATIC / 'panel.js').read_text(encoding='utf-8')
@@ -414,13 +434,3 @@ def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     assert '/api/datasets' in js
     assert 'One table per dataset' in html
     assert 'byDataset' in js, 'the leaderboard renders one table per corpus'
-
-
-def _finished(client, job_id: str) -> dict:
-    import time
-    for _ in range(600):
-        job = client.get(f'/api/jobs/{job_id}').json()
-        if job['state'] != 'running':
-            return job
-        time.sleep(0.05)
-    raise AssertionError('job never finished')

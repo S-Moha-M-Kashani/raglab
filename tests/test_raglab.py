@@ -1,42 +1,75 @@
 """What is left of the original monolith after the topic sections moved into
-their own files: the evaluation harness, the RAGAS bridge, the four metrics
-that decide the architecture, the sweep that produces the leaderboard, what
-each number on the dashboard means, the three pipeline steps, retrieval on
-its own and the shipped assistant's settings, the project's production
-preset, and a handful of short untitled fragments (the HTTP surface,
-the panel's dependency rules, two regression reproductions) that were tacked
-onto other banners without one of their own."""
+their own files, and after step 4 of the test-plan merged what remained: the
+evaluation harness (run against the five-session smoke corpus, not the
+167-session diary), the RAGAS bridge, the four metrics that decide the
+architecture, the sweep that produces the leaderboard, what every number on
+the dashboard means, the three pipeline steps, the HTTP job surface the one
+end-to-end test does not cover, the panel's dependency rules, the project's
+production preset, and two regression reproductions.
+
+The full HTTP journey — index job → evaluation job → run file → ledger row →
+leaderboard group — lives in `tests/test_e2e.py`; what is left here are the
+route contracts that journey does not make."""
 import ast
 import json
 import os
+import threading
 from dataclasses import replace
 
 import pytest
 
-from raglab import (baseline, config, corpus,
-                    evaluate, explain, metrics, models, pipeline,
-                    ragas_eval, retrieval)
+from raglab import (baseline, config, corpus, datasets, evaluate, explain,
+                    metrics, models, pipeline, ragas_eval, retrieval)
+from raglab import index as index_module
 from raglab.llm_tools import sweep
-from raglab.config import (EMBEDDERS, RERANKERS, GenerationConfig, IndexConfig,
-                            LabConfig, LabSettings, RetrievalConfig)
+from raglab.config import (GenerationConfig, IndexConfig, LabConfig,
+                           RetrievalConfig)
 from raglab.index import IndexRegistry
 
-from conftest import LAB_SETTINGS, RAGLAB_DIR, _finished
+from conftest import (LAB_SETTINGS, RAGLAB_DIR, SMOKE_INDEX, _finished,
+                      drain_jobs)
 
 
-# --- evaluation harness ----------------------------------------------------
+@pytest.fixture(scope='module')
+def smoke_lab():
+    """A registry and the ground truth for the smoke corpus (5 sessions, 6
+    questions, `token-hash` — no model download), which is what the harness
+    tests run against: nothing they claim needs the 167-session diary, and
+    the diary build is the single most expensive thing this file could do.
+    Module-scoped, so the runs below share one build."""
+    _, truth = datasets.load('smoke-mini')
+    return IndexRegistry(LAB_SETTINGS), truth
 
-def test_a_run_writes_one_json_file_and_nothing_else(registry, ground_truth,
-                                                     tmp_path, monkeypatch):
-    """A run's index, contexts and answers die with the process; the one
-    thing that outlives it is a single strict-JSON file. `rglob` rather than
-    `glob`, so a stray subdirectory beside the runs cannot hide."""
+
+# --- the evaluation harness -------------------------------------------------
+
+def test_run_eval_scores_a_slice_end_to_end(smoke_lab, tmp_path, monkeypatch):
+    # this is an integration test
+    """One run, and everything a run has to get right about itself: a row per
+    selected question with an answer on it, a summary that aggregates overall
+    and by type, a `started_at` that agrees with the run id (a field named for
+    the start that holds the finish turns a run into a timeline nobody can
+    reconstruct), and exactly one strict-JSON file left behind — `rglob`
+    rather than `glob`, so a stray subdirectory beside the runs cannot hide.
+    The index, the contexts and the answers die with the process; the file is
+    the only thing that outlives it."""
+    registry, truth = smoke_lab
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    cfg = LabConfig(index=IndexConfig(chunker='session', embedder='char-hash'),
-                    retrieval=RetrievalConfig(k=4),
-                    generation=GenerationConfig(answerer='extractive'))
-    result = evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
-                               limit=2, ragas_mode='off')
+    cfg = LabConfig(index=IndexConfig(**SMOKE_INDEX),
+                    retrieval=RetrievalConfig(k=3, reranker='lexical'),
+                    generation=GenerationConfig(answerer='extractive'),
+                    label='test-slice')
+    result = evaluate.run_eval(registry, truth, cfg, LAB_SETTINGS,
+                               limit=4, ragas_mode='off')
+
+    assert len(result.rows) == 4
+    assert all('answer' in row for row in result.rows)
+    assert result.summary['overall']['headline'] is not None
+    assert result.summary['by_type']
+
+    stamp = result.run_id.split('-')[1]                      # HHMMSS
+    assert result.started_at.endswith(f'{stamp[:2]}:{stamp[2:4]}:{stamp[4:]}')
+
     assert [p.name for p in tmp_path.rglob('*')] == [f'{result.run_id}.json']
     saved = json.loads((tmp_path / f'{result.run_id}.json').read_text(
         encoding='utf-8'), parse_constant=lambda literal: pytest.fail(
@@ -45,69 +78,65 @@ def test_a_run_writes_one_json_file_and_nothing_else(registry, ground_truth,
     assert saved['config'] and saved['summary'] and saved['rows']
 
 
-def test_run_eval_scores_a_slice_end_to_end(registry, ground_truth, tmp_path,
-                                            monkeypatch):
+def test_a_traced_evaluation_scores_identically_and_leaves_traces_off_disk(
+        smoke_lab, tmp_path, monkeypatch):
+    # this is an integration test
+    """Two things must stay true: the scores may not move, since tracing is a
+    recording of the same retrieval and not a different one; and the traces
+    may not reach `.runs/`, the leaderboard's durable artifact, with data no
+    score is computed from. Both halves are checked by calling `run_eval`
+    twice — once traced, once not — rather than through HTTP, which proved
+    the same thing an index build and a job poll more expensively."""
+    registry, truth = smoke_lab
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    cfg = LabConfig(index=IndexConfig(chunker='message', embedder='char-hash',
-                                      contextual=True),
-                    retrieval=RetrievalConfig(k=6, reranker='lexical'),
-                    generation=GenerationConfig(answerer='extractive'),
-                    label='test-slice')
-    result = evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
-                               limit=12, ragas_mode='off')
-    assert len(result.rows) == 12
-    assert result.summary['overall']['headline'] is not None
-    assert result.summary['by_type']
-    assert (tmp_path / f'{result.run_id}.json').exists()
-    assert all('answer' in row for row in result.rows)
-
-
-def test_started_at_is_when_the_run_started(registry, ground_truth, tmp_path,
-                                            monkeypatch):
-    """`started_at` must agree with the run id, stamped at the start — a
-    field named for the start that actually holds the finish turns a run
-    into a timeline nobody can reconstruct."""
-    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    cfg = LabConfig(index=IndexConfig(chunker='session', embedder='char-hash'),
-                    retrieval=RetrievalConfig(k=4),
+    cfg = LabConfig(index=IndexConfig(**SMOKE_INDEX),
+                    retrieval=RetrievalConfig(retriever='hybrid-rrf',
+                                              reranker='none', grader='none',
+                                              k=3, rerank_depth=20,
+                                              time_filter=False,
+                                              multi_query=False),
                     generation=GenerationConfig(answerer='extractive'))
-    result = evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
-                               limit=2, ragas_mode='off')
-    stamp = result.run_id.split('-')[1]                      # HHMMSS
-    assert result.started_at.endswith(f'{stamp[:2]}:{stamp[2:4]}:{stamp[4:]}')
+    traced = evaluate.run_eval(registry, truth, cfg, LAB_SETTINGS, limit=2,
+                               balance='stride', ragas_mode='off', trace=True)
 
+    assert len(traced.rows) == 2
+    assert [t['question_id'] for t in traced.traces] == \
+        [row['id'] for row in traced.rows]
+    assert all(t['trace']['candidates'] for t in traced.traces)
 
-def test_select_questions_strides_across_types(ground_truth):
-    picked = evaluate.select_questions(ground_truth, limit=10)
-    assert len(picked) == 10
-    assert len({q['type'] for q in picked}) > 1, 'a limited run must stay diverse'
+    # The chunks this run retrieved from, for the same reason `/api/retrievals`
+    # carries them: an evaluation builds its index implicitly and creates no
+    # index job, so this is the only way the Inspector can show the chunks the
+    # scores were actually computed over instead of an unrelated earlier build.
+    groups = traced.chunks_by_session
+    assert sum(len(g['chunks']) for g in groups) == traced.index['chunks']
 
+    saved = json.loads((tmp_path / f'{traced.run_id}.json').read_text(
+        encoding='utf-8'))
+    assert 'traces' not in saved, 'traces must not reach the run file'
+    assert 'chunks_by_session' not in saved, 'chunk text must not reach the run file'
+    assert saved['rows'] == evaluate.json_safe(traced.rows)
 
-def test_a_limited_run_reaches_the_end_of_the_question_set(ground_truth):
-    """Striding with `questions[::step][:limit]` silently drops a tail
-    whenever the count is not a multiple of the limit. Not a rounding
-    detail: the set is grouped by type with the newest appended last, so
-    the dropped tail is always the most recently added question type."""
-    questions = ground_truth['questions']
-    for limit in (5, 10, 20, 25, 40):
-        picked = evaluate.select_questions(ground_truth, limit=limit)
-        assert len(picked) == limit, limit
-        ids = [q['id'] for q in picked]
-        assert len(set(ids)) == limit, f'{limit} produced duplicates'
-        assert ids[0] == questions[0]['id'], limit
-        # The last pick is within one stride of the end, not 16 short of it.
-        stride = -(-len(questions) // limit)          # ceil
-        assert questions.index(picked[-1]) >= len(questions) - stride, limit
+    # The load-bearing half: the same config, untraced, produces the same rows
+    # and the same summary. Latency is dropped at every depth — it measures the
+    # machine, not the pipeline, so two runs of identical code never agree on it
+    # and comparing it would make this test flaky rather than strict.
+    def scores(value):
+        if isinstance(value, dict):
+            return {k: scores(v) for k, v in value.items() if 'latency' not in k}
+        if isinstance(value, list):
+            return [scores(v) for v in value]
+        return value
 
-
-def test_a_limited_run_covers_the_newest_question_type(ground_truth):
-    """Habit questions are last in the file, so a limit that cannot reach
-    the end cannot measure habit retrieval at all."""
-    picked = evaluate.select_questions(ground_truth, limit=20)
-    assert any(q['type'] == 'habit' for q in picked)
+    untraced = evaluate.run_eval(registry, truth, cfg, LAB_SETTINGS, limit=2,
+                                 balance='stride', ragas_mode='off')
+    assert not untraced.traces, 'trace=False must record nothing'
+    assert scores(untraced.rows) == scores(traced.rows)
+    assert scores(untraced.summary) == scores(traced.summary)
 
 
 def test_config_round_trips_through_the_panel_payload():
+    # this is a unit test
     cfg = LabConfig.from_dict({'index': {'chunker': 'session', 'unknown': 1},
                                'retrieval': {'k': 3},
                                'generation': {'answerer': 'none'},
@@ -117,35 +146,18 @@ def test_config_round_trips_through_the_panel_payload():
     assert LabConfig.from_dict(cfg.to_dict()).to_dict() == cfg.to_dict()
 
 
-def test_the_lab_names_no_vector_database_at_all():
-    """A database the lab cannot name is one it cannot be pointed at by a
-    typo, an old shell, or a copied command."""
-    settings = LabSettings()
-    assert [f for f in vars(settings) if 'chroma' in f or 'database' in f] == []
-    with pytest.raises(TypeError):
-        LabSettings(chroma_database='lodestar')
-
-
-def test_the_lab_ignores_a_leftover_chroma_environment(monkeypatch):
-    """The board's Chroma stack runs whenever a board does, and a shell that
-    ran the old lab commands still exports these; neither may reach the lab."""
-    monkeypatch.setenv('RAGLAB_CHROMA_DATABASE', 'lodestar')
-    monkeypatch.setenv('BRAIN_CHROMA_URL', 'http://localhost:8001')
-    assert 'lodestar' not in repr(config.load_lab_settings())
-
-
 # --- RAGAS bridge ----------------------------------------------------------
 
 def test_ragas_telemetry_is_disabled_on_import():
+    # this is a unit test
     """RAGAS's usage ping blocks for minutes per `evaluate()` call when its
     endpoint is unreachable; importing the bridge must be enough to prevent
     that."""
-    from raglab import ragas_eval  # noqa: F401
     assert os.environ.get('RAGAS_DO_NOT_TRACK') == 'true'
 
 
 def test_ragas_availability_reports_missing_pieces_instead_of_raising():
-    from raglab import ragas_eval
+    # this is a unit test
     status = ragas_eval.availability(LAB_SETTINGS)
     assert isinstance(status.installed, bool)
     if status.installed:
@@ -153,10 +165,13 @@ def test_ragas_availability_reports_missing_pieces_instead_of_raising():
     assert 'ragas' in status.as_dict()['install_hint']
 
 
-def test_evidence_texts_are_the_cited_messages_not_the_short_quotes(diary,
-                                                                   ground_truth):
+def test_evidence_texts_are_the_cited_messages_not_the_short_quotes(
+        diary, ground_truth):
+    # this is a unit test
     """String-similarity metrics need comparable units, so RAGAS is given
-    the whole cited message, which must still contain the quote."""
+    the whole cited message, which must still contain the quote — and a
+    citation naming a session the corpus does not hold falls back to the
+    quote itself rather than dropping the evidence."""
     sessions = corpus.sessions_by_id(diary)
     question = next(q for q in ground_truth['questions'] if q['answerable'])
     texts = corpus.evidence_texts(sessions, question)
@@ -165,29 +180,37 @@ def test_evidence_texts_are_the_cited_messages_not_the_short_quotes(diary,
     assert any(quote in text for text in texts)
     assert sum(map(len, texts)) > len(quote)
 
-
-def test_evidence_texts_fall_back_to_quotes_for_unknown_sessions():
-    question = {'evidence': [{'session_id': 'nope', 'message_indices': [0],
-                              'quote': 'یه چیزی'}]}
-    assert corpus.evidence_texts({}, question) == ['یه چیزی']
+    unknown = {'evidence': [{'session_id': 'nope', 'message_indices': [0],
+                             'quote': 'یه چیزی'}]}
+    assert corpus.evidence_texts({}, unknown) == ['یه چیزی']
 
 
 def test_json_safe_replaces_undefined_metrics_with_null():
+    # this is a unit test
     assert evaluate.json_safe({'a': float('nan'), 'b': [1.0, float('nan')]}) == \
         {'a': None, 'b': [1.0, None]}
 
 
-def test_ragas_offline_metrics_score_a_retrieval(index, ground_truth):
+def test_an_offline_ragas_run_scores_a_retrieval_and_reports_no_decision(
+        smoke_index):
+    # this is an integration test
+    """The offline pair really scores what was retrieved — and, because it
+    cannot measure any of the four deciding metrics, says so with `None`
+    rather than a number that looks comparable to a judged run's."""
     pytest.importorskip('ragas')
     pytest.importorskip('rapidfuzz')
-    from raglab import ragas_eval
-    questions = [q for q in ground_truth['questions'] if q['answerable']][:3]
-    pairs = [(q, pipeline.retrieve(index, RetrievalConfig(k=5), q['question_fa'],
-                                   q['query_date'])) for q in questions]
-    report = ragas_eval.run(pairs, LAB_SETTINGS, index.embedder, mode='offline')
+    _, truth = datasets.load('smoke-mini')
+    questions = [q for q in truth['questions'] if q['answerable']][:3]
+    pairs = [(q, pipeline.retrieve(smoke_index.index, RetrievalConfig(k=5),
+                                   q['question_fa'], q['query_date']))
+             for q in questions]
+    report = ragas_eval.run(pairs, LAB_SETTINGS, smoke_index.index.embedder,
+                            mode='offline')
     assert report['n_samples'] == 3, report['notes']
     assert 'non_llm_context_recall' in report['metrics']
     assert 0.0 <= report['metrics']['non_llm_context_recall'] <= 1.0
+    assert report['decision'] is None
+    assert report['decision_metrics'] == list(ragas_eval.DECISION_METRICS)
 
 
 # --- the four metrics that decide the architecture -------------------------
@@ -196,7 +219,7 @@ def test_ragas_offline_metrics_score_a_retrieval(index, ground_truth):
 # generation (faithfulness, answer relevancy) failing to use what it fetched.
 
 def test_the_deciding_metrics_are_exactly_the_four_chosen_ones():
-    from raglab import ragas_eval
+    # this is a convention test
     assert ragas_eval.DECISION_METRICS == (
         'faithfulness', 'answer_relevancy',
         'llm_context_precision_with_reference', 'context_recall')
@@ -206,9 +229,9 @@ def test_the_deciding_metrics_are_exactly_the_four_chosen_ones():
 
 
 def test_the_decision_score_is_the_unweighted_mean_of_those_four():
+    # this is a unit test
     """Unweighted on purpose: any weighting would be a claim about relative
     importance this fixture cannot support."""
-    from raglab import ragas_eval
     score = ragas_eval.decision_score({
         'faithfulness': 1.0, 'answer_relevancy': 0.6,
         'llm_context_precision_with_reference': 0.4, 'context_recall': 0.0,
@@ -219,10 +242,10 @@ def test_the_decision_score_is_the_unweighted_mean_of_those_four():
 
 
 def test_the_decision_score_is_undefined_unless_all_four_are_present():
+    # this is a unit test
     """A mean over whichever metrics happened to succeed is not comparable
     between runs: an offline run would score on two metrics and outrank a judged
     run scored on four."""
-    from raglab import ragas_eval
     assert ragas_eval.decision_score({'faithfulness': 1.0}) is None
     assert ragas_eval.decision_score({}) is None
     assert ragas_eval.decision_score(
@@ -231,13 +254,13 @@ def test_the_decision_score_is_undefined_unless_all_four_are_present():
 
 
 def test_the_decision_score_carries_its_own_uncertainty():
+    # this is a unit test
     """A ranking of means with no spread cannot say whether it ranked
     anything, so the score ships with the standard error of the
     per-question composite beside it. Computed per question and then across
     questions, not per metric: the four are measured on the same answers and
     are correlated, so averaging four independent standard errors would
     understate the real spread."""
-    from raglab import ragas_eval
     rows = [{'faithfulness': 1.0, 'answer_relevancy': 1.0,
              'llm_context_precision_with_reference': 1.0, 'context_recall': 1.0},
             {'faithfulness': 0.0, 'answer_relevancy': 0.0,
@@ -259,44 +282,22 @@ def test_the_decision_score_carries_its_own_uncertainty():
 
 
 def test_every_ragas_report_carries_a_spread_even_when_it_measured_nothing():
+    # this is a unit test
     """A run that could not measure the four reports `n=0` rather than
     omitting the field — a missing key would make the frontend fall back to
     printing the bare mean."""
-    from raglab import ragas_eval
     report = ragas_eval.run([], LAB_SETTINGS, None, mode='off')
     assert report['decision_spread'] == {'n': 0, 'mean': None, 'stderr': None}
 
 
-def test_an_offline_ragas_run_reports_no_decision_score(index, ground_truth):
-    """The offline mode cannot measure any of the four, so it must say so
-    rather than produce a number that looks comparable to a judged run's."""
-    pytest.importorskip('ragas')
-    pytest.importorskip('rapidfuzz')
-    from raglab import ragas_eval
-    questions = [q for q in ground_truth['questions'] if q['answerable']][:2]
-    pairs = [(q, pipeline.retrieve(index, RetrievalConfig(k=5), q['question_fa'],
-                                   q['query_date'])) for q in questions]
-    report = ragas_eval.run(pairs, LAB_SETTINGS, index.embedder, mode='offline')
-    assert report['decision'] is None
-    assert report['decision_metrics'] == list(ragas_eval.DECISION_METRICS)
-
-
-def test_the_decision_score_explains_itself_like_every_other_number():
-    """It is the number the architecture was chosen by, so of everything on the
-    screen it is the one that must not be a bare figure."""
-    keys = {measure['key']: measure for measure in explain.measures()}
-    decision = keys.get('ragas_decision')
-    assert decision, 'the deciding score has no definition'
-    assert decision['formula'] and decision['library'] and decision['help']
-    for name in ('faithfulness', 'answer relevancy', 'context precision',
-                 'context recall'):
-        assert name in decision['help'].lower(), name
-    assert explain.topics()['metric.ragas_decision']
-
-
-def test_the_leaderboard_row_carries_the_deciding_score(index, ground_truth):
+def test_the_leaderboard_row_carries_the_deciding_score_and_its_error(
+        tmp_path, monkeypatch):
+    # this is an integration test
     """A leaderboard that ranks on a number it does not carry cannot be
-    checked against the run it came from."""
+    checked against the run it came from, and the error has to travel with
+    the mean or the row cannot say whether it beat the row below it. An
+    absent error is reported as absent, never as `± 0` — which would claim
+    the oldest rows were measured the most precisely."""
     result = evaluate.RunResult(
         run_id='x', label='y', config={}, index={},
         summary={'overall': {}, 'n_questions': 0},
@@ -304,15 +305,8 @@ def test_the_leaderboard_row_carries_the_deciding_score(index, ground_truth):
                'decision': 0.75, 'decision_metrics': [],
                'decision_spread': {'n': 24, 'mean': 0.75, 'stderr': 0.05}})
     assert result.brief()['ragas_decision'] == 0.75
-    # The error travels with the mean, or the row it lands in cannot say whether
-    # it beat the row below it.
     assert result.brief()['ragas_decision_stderr'] == 0.05
 
-
-def test_a_row_recorded_before_the_spread_existed_reports_no_error(tmp_path,
-                                                                  monkeypatch):
-    """An absent error must not be rendered as `± 0`, which would claim the
-    run was measured more precisely than ones that carry a real number."""
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     (tmp_path / '20260101-000000-abcdef.json').write_text(json.dumps({
         'run_id': '20260101-000000-abcdef', 'label': 'old',
@@ -329,6 +323,7 @@ def test_a_row_recorded_before_the_spread_existed_reports_no_error(tmp_path,
 # row that cannot be ranked at all, and a row that raises after 40 minutes.
 
 def test_every_candidate_is_selected_by_a_unique_letter():
+    # this is a unit test
     """`--only A F` and `--final G` select on `label.split()[0]`, so two
     candidates sharing a letter would run silently under the wrong label."""
     letters = [c.label.split()[0] for c in sweep.candidates()]
@@ -337,6 +332,7 @@ def test_every_candidate_is_selected_by_a_unique_letter():
 
 
 def test_every_candidate_holds_the_embedder_and_both_models_fixed():
+    # this is a unit test
     """The sweep's claim is that each row changes one thing — a row that
     moved the embedder or either model would be incomparable to every other
     row while looking like a knob result."""
@@ -350,6 +346,7 @@ def test_every_candidate_holds_the_embedder_and_both_models_fixed():
 
 
 def test_every_candidate_generates_an_answer_so_it_can_be_ranked():
+    # this is a unit test
     """All four deciding metrics need a response. A candidate that retrieved
     without answering would score `None`, drop to the bottom of the ranking as
     if it had lost, and cost a full run to say nothing."""
@@ -357,6 +354,7 @@ def test_every_candidate_generates_an_answer_so_it_can_be_ranked():
 
 
 def test_every_candidate_validates_before_the_sweep_starts():
+    # this is a unit test
     """`run_eval` raises on an invalid config. Candidate H is the eighth row, so
     a typo there would surface after an hour of paid judging."""
     for cfg in sweep.candidates():
@@ -364,6 +362,7 @@ def test_every_candidate_validates_before_the_sweep_starts():
 
 
 def test_no_two_candidates_are_the_same_configuration():
+    # this is a unit test
     """A duplicated row costs ten minutes and reads as reproducibility."""
     seen = {}
     for cfg in sweep.candidates():
@@ -373,6 +372,7 @@ def test_no_two_candidates_are_the_same_configuration():
 
 
 def test_the_final_run_refuses_to_start_without_a_judge(monkeypatch, tmp_path):
+    # this is a unit test
     """Without a key the LLM stages fall back to the offline fake, which
     would produce a full leaderboard row of meaningless scores under the
     winner's name. `RUNS_DIR` is redirected too, since an unguarded
@@ -385,118 +385,103 @@ def test_the_final_run_refuses_to_start_without_a_judge(monkeypatch, tmp_path):
 
 
 # --- what each number on the dashboard actually means -----------------------
-# A claim nobody can check is worse than no claim, so each metric carries
-# the same four facts (label, formula, library, help) from one registry.
+# A claim nobody can check is worse than no claim, so each metric carries the
+# same facts (label, step, formula, library, help) from one registry, and the
+# panel's step inks are that registry's own list rather than a palette the
+# frontend invents. Three parametrized pins instead of the thirteen separate
+# ones this section used to hold.
 
-def test_every_reported_metric_has_a_definition():
-    """The gate: `aggregate()` can report these keys, so the panel can show them,
-    so every one of them has to be explainable."""
-    defined = {measure.key for measure in metrics.MEASURES}
-    reported = set(metrics.AGGREGATED) | {'headline'}
-    assert reported <= defined, reported - defined
-    for measure in metrics.MEASURES:
+# key → the exact fragments its own definition must carry, and (under the
+# second table) the ones it must not. A measure may ship without a row here;
+# a row that stops matching is a definition that has drifted from the code it
+# names. Fragments are matched case-insensitively, as the originals were.
+PINNED = {
+    # The headline is a weighted sum invented here, so its weights are the
+    # formula.
+    'headline': {'formula': ('0.4', '0.3', '0.2', '0.1')},
+    'recall': {'formula': ('|gold ∩ top-k| / |gold|',),
+               'library': ('metrics.recall_at_k',)},
+    'mrr': {'formula': ('1 / rank',)},
+    'ndcg': {'formula': ('log2',)},
+    'quote_recall': {'formula': ('0.9',),         # the fuzzy fallback
+                     'library': ('difflib',)},
+    'answer_similarity': {'library': ('difflib',)},
+    # A deterministic metric must not claim to be a model, and vice versa.
+    'key_fact_coverage': {'library': ('llm',)},
+    # "Faithfulness" is RAGAS's word, not ours, so the panel says whose
+    # definition it is showing and which class computed it.
+    'faithfulness': {'library': ('Faithfulness', 'ragas'),
+                     'formula': ('supported claims', '/'),
+                     'help': ('claims',)},
+    'answer_relevancy': {'library': ('ResponseRelevancy',),
+                         'formula': ('cosine',)},
+    'factual_correctness(mode=f1)': {'library': ('FactualCorrectness',),
+                                     'formula': ('F1',)},
+    # The offline pair is string distance, not a model — and says so.
+    'non_llm_context_recall': {'library': ('NonLLMContextRecall', 'rapidfuzz')},
+    # The deciding score is the number the architecture was chosen by, so of
+    # everything on the screen it is the one that must not be a bare figure.
+    'ragas_decision': {'help': ('faithfulness', 'answer relevancy',
+                                'context precision', 'context recall')},
+}
+
+FORBIDDEN = {'recall': {'library': ('llm',)},
+             'non_llm_context_recall': {'formula': ('llm',)}}
+
+# Same three inks as the panels: a number about retrieval is green wherever it
+# appears, so the dashboard means one thing by a colour. Whole-pipeline numbers
+# carry '' rather than claiming a stage.
+PINNED_STEPS = {'recall': 'retrieval', 'ndcg': 'retrieval',
+                'answer_similarity': 'generation', 'latency_ms': ''}
+
+
+@pytest.mark.parametrize('registry', ['ours', 'ragas'])
+def test_every_measure_defines_itself(registry):
+    # this is a convention test
+    """Every number the panel can print carries the same facts from one
+    place: a label, a short caption, the arithmetic (not prose about it), the
+    module or RAGAS class that computed it *and* whether a model was
+    involved, the step whose ink it wears, and a paragraph in the one help
+    registry under `metric.<key>`."""
+    measures = (metrics.MEASURES if registry == 'ours'
+                else ragas_eval.RAGAS_MEASURES)
+    steps = {step.key for step in config.STEPS} | {''}
+    topics = explain.topics()
+    judged = set(ragas_eval.LLM_METRICS) | {'ragas_decision'}
+
+    for measure in measures:
         assert measure.label and measure.short, measure.key
         assert measure.formula and measure.library and measure.help, measure.key
+        assert measure.step in steps, measure.key
+        assert topics.get(f'metric.{measure.key}'), measure.key
+        if measure.key in PINNED_STEPS:
+            assert measure.step == PINNED_STEPS[measure.key], measure.key
+        for field, fragments in PINNED.get(measure.key, {}).items():
+            for fragment in fragments:
+                assert fragment.lower() in getattr(measure, field).lower(), \
+                    (measure.key, field, fragment)
+        for field, fragments in FORBIDDEN.get(measure.key, {}).items():
+            for fragment in fragments:
+                assert fragment.lower() not in getattr(measure, field).lower(), \
+                    (measure.key, field, fragment)
+        if registry == 'ragas':
+            # A number produced by a model is a number with variance, and the
+            # reader has to know which model. The decision score is judged
+            # too, being a mean of four judged metrics — a composite must not
+            # launder its inputs' variance by being an average.
+            if measure.key in judged:
+                assert 'RAGAS judge' in measure.library, measure.key
+            else:
+                assert 'no model' in measure.library.lower(), measure.key
 
 
-def test_a_metric_states_the_exact_formula_it_computes():
-    """Not prose about the idea — the arithmetic, matching the code above it."""
-    by_key = {measure.key: measure for measure in metrics.MEASURES}
-    assert '|gold ∩ top-k| / |gold|' in by_key['recall'].formula
-    assert '1 / rank' in by_key['mrr'].formula
-    assert 'log2' in by_key['ndcg'].formula
-    # The headline is a weighted sum invented here, so its weights are the formula.
-    headline = by_key['headline'].formula
-    for weight in ('0.4', '0.3', '0.2', '0.1'):
-        assert weight in headline, weight
-    assert '0.9' in by_key['quote_recall'].formula      # the fuzzy fallback
-
-
-def test_every_metric_names_the_library_that_computes_it():
-    by_key = {measure.key: measure for measure in metrics.MEASURES}
-    assert 'metrics.recall_at_k' in by_key['recall'].library
-    assert 'difflib' in by_key['quote_recall'].library
-    assert 'difflib' in by_key['answer_similarity'].library
-    # A deterministic metric must not claim to be a model, and vice versa.
-    assert 'llm' not in by_key['recall'].library.lower()
-    assert 'llm' in by_key['key_fact_coverage'].library.lower()
-
-
-def test_every_metric_says_which_step_it_grades():
-    """Same three inks as the panels: a number about retrieval is green wherever
-    it appears, so the dashboard means one thing by a colour."""
-    steps = {step.key for step in config.STEPS} | {''}
-    assert all(measure.step in steps for measure in metrics.MEASURES)
-    by_key = {measure.key: measure for measure in metrics.MEASURES}
-    assert by_key['recall'].step == 'retrieval'
-    assert by_key['ndcg'].step == 'retrieval'
-    assert by_key['answer_similarity'].step == 'generation'
-    assert by_key['latency_ms'].step == ''      # whole pipeline, no single step
-
-
-def test_the_ragas_definitions_cover_every_metric_ragas_can_report():
-    from raglab import ragas_eval
-    defined = {measure.key for measure in ragas_eval.RAGAS_MEASURES}
-    reported = set(ragas_eval.OFFLINE_METRICS) | set(ragas_eval.LLM_METRICS)
-    assert reported <= defined, reported - defined
-
-
-def test_a_ragas_metric_carries_ragas_own_class_definition_and_formula():
-    """"Faithfulness" is RAGAS's word, not ours, so the panel says whose
-    definition it is showing and which class computed it."""
-    from raglab import ragas_eval
-    by_key = {m.key: m for m in ragas_eval.RAGAS_MEASURES}
-    faith = by_key['faithfulness']
-    assert 'Faithfulness' in faith.library and 'ragas' in faith.library.lower()
-    assert 'claims' in faith.help.lower()
-    assert 'supported claims' in faith.formula and '/' in faith.formula
-    relevancy = by_key['answer_relevancy']
-    assert 'ResponseRelevancy' in relevancy.library
-    assert 'cosine' in relevancy.formula.lower()
-    f1 = by_key['factual_correctness(mode=f1)']
-    assert 'FactualCorrectness' in f1.library and 'F1' in f1.formula
-    offline = by_key['non_llm_context_recall']
-    assert 'NonLLMContextRecall' in offline.library
-    # The offline pair is string distance, not a model — and says so.
-    assert 'rapidfuzz' in offline.library and 'llm' not in offline.formula.lower()
-
-
-def test_a_judged_metric_says_which_model_judged_it():
-    """A number produced by a model is a number with variance, and the
-    reader has to know which model. The decision score is judged too, being
-    a mean of four judged metrics — a composite must not launder its
-    inputs' variance by being an average."""
-    from raglab import ragas_eval
-    judged = set(ragas_eval.LLM_METRICS) | {'ragas_decision'}
-    for measure in ragas_eval.RAGAS_MEASURES:
-        if measure.key in judged:
-            assert 'RAGAS judge' in measure.library, measure.key
-        else:
-            assert 'no model' in measure.library.lower(), measure.key
-
-
-def test_no_metric_ships_without_an_explainer():
-    """The counterpart of explain.missing() for the knobs: a metric added to
-    AGGREGATED or to the RAGAS list without a definition fails here."""
-    assert explain.missing_metrics() == []
-
-
-def test_metric_definitions_join_the_one_help_registry():
-    """Homogeneous by construction: the panel has one explainer mechanism, so a
-    metric's text lives with the knobs' text under 'metric.<key>'."""
-    topics = explain.topics()
-    for key in ('metric.recall', 'metric.quote_recall', 'metric.headline',
-                'metric.faithfulness', 'metric.non_llm_context_recall'):
-        assert topics.get(key), key
-
-
-# --- the three pipeline steps ----------------------------------------------
-# The panel groups and colours every control by the step it belongs to, so
-# the step list is a registry the lab owns, not a palette the frontend
-# invents. Colours stay in CSS; which step each knob serves is single-sourced
-# here.
-
-def test_the_pipeline_steps_are_named_once_in_pipeline_order():
+def test_the_registries_line_up():
+    # this is a convention test
+    """The step list is a registry the lab owns: it is the config groups in
+    pipeline order, every model role names one of them, every one of them
+    owns at least one model, and every key a run can report is defined. Any
+    of these drifting puts a control, a colour or a number somewhere nothing
+    explains it."""
     assert [step.key for step in config.STEPS] == ['index', 'retrieval',
                                                    'generation', 'agent']
     # Two names on purpose: the long one titles a panel, the short one tags a
@@ -504,61 +489,82 @@ def test_the_pipeline_steps_are_named_once_in_pipeline_order():
     assert all(step.label and step.short and step.note for step in config.STEPS)
     assert [step.short for step in config.STEPS] == ['Index', 'Retrieval',
                                                      'Generation', 'Agent']
-
-
-def test_the_steps_are_exactly_the_config_groups():
-    """A step is a config group with a colour, so the two lists cannot drift:
-    a fourth group would otherwise render in a panel nobody colours."""
-    assert {step.key for step in config.STEPS} == {group for group, _
-                                                   in explain.GROUPS}
-
-
-def test_every_model_role_says_which_step_it_serves():
+    # A step is a config group with a colour, so the two lists cannot drift: a
+    # fourth group would otherwise render in a panel nobody colours.
     steps = {step.key for step in config.STEPS}
+    assert steps == {group for group, _ in explain.GROUPS}
+
+    # The colour cannot disagree with where the value is stored: a role's step
+    # is the group of the field its dropdown writes to.
     assert all(role.step in steps for role in models.ROLES)
-    # The colour cannot disagree with where the value is stored: the step is the
-    # group of the field the dropdown writes to.
     assert all(role.step == role.field.split('.')[0] for role in models.ROLES)
+    # A step with no model in it is a legend entry pointing at nothing. The
+    # index step owns the *embedder* — not a chat role, but a model all the same.
+    assert {role.step for role in models.ROLES} | {'index'} == steps
+    # And the step travels with the role to the panel.
+    grade = next(role for role in models.ROLES if role.key == 'grade')
+    assert grade.as_dict()['step'] == 'retrieval'
 
+    # `aggregate()` can report these keys, so the panel can show them, so every
+    # one of them has to be explainable — on both sides of the dashboard.
+    defined = {measure.key for measure in metrics.MEASURES}
+    reported = set(metrics.AGGREGATED) | {'headline'}
+    assert reported <= defined, reported - defined
+    ragas_defined = {measure.key for measure in ragas_eval.RAGAS_MEASURES}
+    ragas_reported = (set(ragas_eval.OFFLINE_METRICS)
+                      | set(ragas_eval.LLM_METRICS))
+    assert ragas_reported <= ragas_defined, ragas_reported - ragas_defined
 
-def test_every_step_owns_at_least_one_model():
-    """A step with no model in it is a legend entry pointing at nothing.
-    The index step owns the *embedder* — not a chat role, but a model all
-    the same."""
-    served = {role.step for role in models.ROLES} | {'index'}
-    assert served == {step.key for step in config.STEPS}
-
-
-def test_a_model_role_is_serialised_with_its_step():
-    role = next(r for r in models.ROLES if r.key == 'grade')
-    assert role.as_dict()['step'] == 'retrieval'
+    # And every key the tables above pin still names a measure: the pins are
+    # applied by walking the registries, so a renamed metric would take its
+    # own pin out of the suite silently rather than failing.
+    pinned = set(PINNED) | set(FORBIDDEN) | set(PINNED_STEPS)
+    assert pinned <= defined | ragas_defined, pinned - (defined | ragas_defined)
 
 
 # ---------------------------------------------------------------------------
-# The HTTP surface — resource collections rather than action verbs.
+# The HTTP surface — resource collections rather than action verbs. The full
+# journey (index job → evaluation job → run file → ledger row → leaderboard)
+# is tests/test_e2e.py; what is here is what that journey does not assert.
 # ---------------------------------------------------------------------------
 
-def test_the_run_and_runs_collision_is_gone(client):
-    """The old singular/plural split meant two unrelated things at one
-    character apart. The new names are gone rather than aliased, since a
-    second name for one thing is the thing this rename was fixing."""
-    assert client.post('/api/run', json={}).status_code == 404
-    assert client.get('/api/runs').status_code == 404
-    assert client.post('/api/index', json={}).status_code == 404
-    assert client.post('/api/query', json={'question': 'x'}).status_code == 404
-
-
-def test_starting_work_creates_a_job_and_says_where_to_watch_it(client):
+def test_starting_work_creates_a_job_and_says_where_to_watch_it(client,
+                                                                monkeypatch):
+    # this is an integration test
     """202 rather than 200: the work has been accepted, not done — the response
     body is a receipt, not a result. `Location` points at the job so a caller
-    never has to build the polling url by string concatenation."""
+    never has to build the polling url by string concatenation. A query is one
+    of these too, for the same reason its siblings are: the index it builds
+    implicitly can outwait anything a spinner honestly promises.
+
+    The spy is here rather than in a second TestClient: if the query job does
+    not pass its reporter down to the registry, the bar sits on 'starting 0%'
+    for the whole implicit build. Recorded per route, not into one slot — a
+    single slot the other two legs also write to would still hold a callable
+    if the query route stopped building an index at all, which is exactly the
+    case the second app used to isolate."""
+    seen = {}
+    original = IndexRegistry.get
+    building = {}
+
+    def spy(self, cfg, progress=None, force=False):
+        seen[building['path']] = progress
+        return original(self, cfg, progress=progress, force=force)
+
+    monkeypatch.setattr(IndexRegistry, 'get', spy)
+
     for path, payload in (
-            ('/api/indexes', {'index': {'chunker': 'session',
-                                        'embedder': 'ascii-hash'}}),
-            ('/api/evaluations', {'index': {'chunker': 'session',
-                                            'embedder': 'ascii-hash'},
+            ('/api/indexes', {'index': dict(SMOKE_INDEX)}),
+            ('/api/evaluations', {'index': dict(SMOKE_INDEX),
                                   'generation': {'answerer': 'none'},
-                                  'limit': 1, 'ragas_mode': 'off'})):
+                                  'limit': 1, 'ragas_mode': 'off'}),
+            ('/api/queries', {'index': dict(SMOKE_INDEX),
+                              'retrieval': {'retriever': 'dense', 'k': 2},
+                              'generation': {'answerer': 'none'},
+                              'question': 'What broke in the kitchen?'})):
+        # Safe to key on: one job runs at a time and each is drained below
+        # before the next is posted.
+        building['path'] = path
         res = client.post(path, json=payload)
         assert res.status_code == 202, f'{path} -> {res.status_code}'
         job_id = res.json()['job_id']
@@ -566,123 +572,103 @@ def test_starting_work_creates_a_job_and_says_where_to_watch_it(client):
         assert res.headers['Location'] == f'/api/jobs/{job_id}'
         # And the url it points at is real.
         assert client.get(res.headers['Location']).status_code == 200
+        # Drained before the next iteration — the client is module-scoped and
+        # only one job runs at a time, so a leaked job here would hand the
+        # next post (or the next test) a spurious 409.
+        job = _finished(client, job_id)
+        assert job['state'] == 'done', job.get('error')
 
-
-def test_evaluations_lists_and_fetches_the_same_resource(client):
-    """One noun, three operations, no second spelling for any of them."""
-    assert 'runs' in client.get('/api/evaluations').json()
-    assert client.get('/api/evaluations/no-such-run').status_code == 404
-
-
-def test_a_query_is_a_job_like_its_sibling_collections(client):
-    """A query is accepted as a job — 202, a Location to poll,
-    stage/fraction/detail while it runs — like /api/indexes and
-    /api/evaluations, for the same reason: the work can outlive anything a
-    spinner honestly promises."""
-    res = client.post('/api/queries', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-        'retrieval': {'retriever': 'dense', 'k': 2},
-        'generation': {'answerer': 'none'},
-        'question': 'وام مسکن'})
-    assert res.status_code == 202
-    job_id = res.json()['job_id']
-    assert res.headers['Location'] == f'/api/jobs/{job_id}'
-    job = _finished(client, job_id)
+    # `job` is the last leg, the query: the one whose result is every stage.
     assert job['kind'] == 'query'
-    assert job['state'] == 'done', job.get('error')
     assert 'contexts' in job['result'] and 'diagnostics' in job['result']
+    assert callable(seen.get('/api/queries')), \
+        'the query job built its index without handing down its reporter'
     # The preconditions still refuse synchronously, and still say which one:
     # a bad payload is a 400 the panel shows at once, never a job that dies.
     assert client.post('/api/queries', json={}).status_code == 400
 
 
-def test_the_query_job_hands_its_reporter_to_the_index_build(monkeypatch):
-    """If the job does not pass its reporter down to the registry, the bar
-    sits on 'starting 0%' for the whole implicit index build."""
-    from fastapi.testclient import TestClient
-
-    from raglab.server import create_app
-    seen = {}
-    original = IndexRegistry.get
-
-    def spy(self, cfg, progress=None, force=False):
-        seen['progress'] = progress
-        return original(self, cfg, progress=progress, force=force)
-
-    monkeypatch.setattr(IndexRegistry, 'get', spy)
-    fresh = TestClient(create_app())
-    res = fresh.post('/api/queries', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-        'retrieval': {'retriever': 'bm25', 'k': 2},
-        'generation': {'answerer': 'none'},
-        'question': 'وام مسکن'})
-    assert res.status_code == 202
-    job = _finished(fresh, res.json()['job_id'])
-    assert job['state'] == 'done', job.get('error')
-    assert callable(seen.get('progress'))
-
-
-def test_a_second_job_is_refused_in_readable_english(client):
+def test_a_second_job_is_refused_in_readable_english(client, monkeypatch):
+    # this is an integration test
     """The refusal read 'a index job is still stopping' — wrong article, and
     'stopping' for a job that is running. A message describing the wrong state
-    sends the reader looking for a bug that is not there."""
-    first = client.post('/api/indexes', json={
-        'index': {'chunker': 'message', 'embedder': 'token-hash'}})
-    assert first.status_code == 202
-    second = client.post('/api/indexes', json={
-        'index': {'chunker': 'turn-pair', 'embedder': 'token-hash'}})
-    if second.status_code == 409:
+    sends the reader looking for a bug that is not there.
+
+    The race this pins used to be conditional on scheduling luck: the first
+    job could finish before the second post landed, and the test would pass
+    having exercised nothing. Held open on a `threading.Event`-blocked
+    chunker instead, so the first job is provably still running when the
+    second is posted."""
+    entered = threading.Event()
+    release = threading.Event()
+    original = index_module.chunk_session
+
+    def held(session, cfg, embedder):
+        entered.set()
+        release.wait(timeout=5)
+        return original(session, cfg, embedder)
+
+    monkeypatch.setattr(index_module, 'chunk_session', held)
+    try:
+        first = client.post('/api/indexes', json={
+            'index': {**SMOKE_INDEX, 'chunker': 'message'}})
+        assert first.status_code == 202
+        assert entered.wait(timeout=5), 'the first job never reached the chunker'
+
+        second = client.post('/api/indexes', json={
+            'index': {**SMOKE_INDEX, 'chunker': 'turn-pair'}})
+        assert second.status_code == 409
         detail = second.json()['detail']
         assert 'a index' not in detail
         assert 'an index job is already running' in detail
-    # Drained before returning, since the client is module-scoped: leaving a
-    # job running here would hand the next test a spurious 409.
-    for res in (first, second):
-        if res.status_code == 202:
-            _finished(client, res.json()['job_id'])
+    finally:
+        # Unblock the held job and drain it, since the client is module-scoped:
+        # leaving a job running here would hand the next test a spurious 409.
+        release.set()
+        drain_jobs(client)
 
 
-def test_jobs_index_lists_runs_with_their_config(client):
-    """The Inspector follows the lab by polling this index, so it has to
-    carry the config the job actually ran — `LabConfig`'s own normalised
+def test_the_index_job_reports_every_row_it_wrote_and_lists_what_it_ran(client):
+    # this is an integration test
+    """The Inspector follows the lab by polling `/api/jobs`, so a listed job
+    has to carry the config it actually ran — `LabConfig`'s own normalised
     form, not the raw posted body — and nothing heavier than
-    id/kind/state/config."""
+    id/kind/state/config.
+
+    And it holds no index of its own: it renders what the job returned, so a
+    build that wrote summary rows and reported only its leaves would make
+    them unreachable. `chunks` counts every row in the index, so leaves plus
+    summaries have to sum back to it — while a flat build says "none" with an
+    empty list rather than by leaving the key out, since "no hierarchy" and
+    "a hierarchy that found nothing" are different facts."""
+    # `louvain` rather than `metadata`, which groups by the storylines a
+    # corpus declares and smoke-mini declares none of, so it would write no
+    # summary at all. Over five densely-connected chunks louvain returns a
+    # single community of five — above the default `min_group=3`, so the
+    # build is guaranteed a group — and it is deterministic since the
+    # 2026-08-13 IDF tie-break fix. It also needs no scikit-learn import,
+    # which is what makes it ~6× faster here than `kmeans`.
     posted = client.post('/api/indexes', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'}})
+        'index': {**SMOKE_INDEX, 'hierarchy': 'louvain',
+                  'summarizer': 'centroid'}})
     assert posted.status_code == 202
-    job = _finished(client, posted.json()['job_id'])
+    job = _finished(client, posted.json()['job_id'], timeout=120.0)
     assert job['state'] == 'done', job.get('error')
+    result = job['result']
 
     entries = client.get('/api/jobs').json()['jobs']
     assert entries, 'expected at least one job listed'
     newest = entries[0]
     assert newest['id'] == job['id']
     assert newest['kind'] == 'index'
-    assert newest['config']['index']['chunker'] == 'session'
-    assert newest['config']['index']['embedder'] == 'ascii-hash'
+    assert newest['config']['index']['chunker'] == SMOKE_INDEX['chunker']
+    assert newest['config']['index']['embedder'] == SMOKE_INDEX['embedder']
+    assert newest['config']['index']['hierarchy'] == 'louvain'
     assert 'result' not in newest and '_cancel' not in newest
-
-    chunks_total = sum(len(g['chunks'])
-                       for g in job['result']['chunks_by_session'])
-    assert chunks_total == job['result']['chunks']
-
-
-def test_a_hierarchical_build_reports_the_summaries_it_wrote(client):
-    """The Inspector holds no index of its own — it renders what a job
-    returned — so a build that wrote summary rows and reported only its
-    leaves would make them unreachable. `chunks` counts every row in the
-    index, so leaves plus summaries have to sum back to it."""
-    posted = client.post('/api/indexes', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash',
-                  'hierarchy': 'metadata', 'summarizer': 'centroid'}})
-    assert posted.status_code == 202
-    job = _finished(client, posted.json()['job_id'], timeout=120.0)
-    assert job['state'] == 'done', job.get('error')
-    result = job['result']
 
     leaves = sum(len(g['chunks']) for g in result['chunks_by_session'])
     summaries = result['summaries']
-    assert summaries, 'a metadata hierarchy over this corpus has groups to summarise'
+    assert summaries, 'this grouping over this corpus has groups to summarise'
     assert leaves + len(summaries) == result['chunks'], (
         'every row in the index must be reachable from one of the two views')
     assert leaves == result['leaves'], \
@@ -695,13 +681,97 @@ def test_a_hierarchical_build_reports_the_summaries_it_wrote(client):
             assert key in summary, f'missing {key}'
         assert summary['members'] == len(summary['member_ids'])
 
-    # a flat build says "none", rather than leaving the key out and making the
-    # Inspector guess whether this lab is simply older than the feature
-    flat = client.post('/api/indexes', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'}})
+    flat = client.post('/api/indexes', json={'index': dict(SMOKE_INDEX)})
     flat_job = _finished(client, flat.json()['job_id'], timeout=120.0)
     assert flat_job['state'] == 'done', flat_job.get('error')
     assert flat_job['result']['summaries'] == []
+    assert sum(len(g['chunks']) for g in flat_job['result']['chunks_by_session']) \
+        == flat_job['result']['chunks']
+
+
+def test_both_run_routes_screen_the_models_the_backend_serves(client, monkeypatch):
+    # this is an integration test
+    """`/api/evaluations` refused a model the active backend does not serve;
+    `/api/queries` ran it. Two routes over the same pipeline disagreeing about
+    which configs are legal is a bug on its own, and it got worse the moment a
+    dead grade stage started raising: the panel's fastest feedback loop would
+    answer a bare 500 where the slow one answers a 400 naming the model."""
+    monkeypatch.setattr(models, 'provider_problems',
+                        lambda cfg, settings: ['model "qwen3.5:2b" is not served'])
+    payload = {'index': dict(SMOKE_INDEX), 'generation': {'answerer': 'none'},
+               'question': 'What broke in the kitchen?'}
+    for path in ('/api/queries', '/api/evaluations'):
+        res = client.post(path, json=payload)
+        assert res.status_code == 400, f'{path} -> {res.status_code}'
+        assert 'qwen3.5:2b' in res.json()['detail'], path
+
+
+def test_a_query_whose_gate_cannot_reach_its_model_says_so(client, monkeypatch):
+    # this is an integration test
+    """The route half of the `GradeUnavailable` rule (the refusal itself is
+    asserted directly below): refusing to score is only an improvement if the
+    refusal reaches the caller readably, so the job's error names the stage
+    that went missing — otherwise the reader blames retrieval for what the
+    grader did."""
+    def unreachable(*args, **kwargs):
+        raise ConnectionError('the model daemon is not running')
+
+    monkeypatch.setattr(retrieval, 'lab_chat', unreachable)
+    res = client.post('/api/queries', json={
+        'question': 'What broke in the kitchen?',
+        'index': dict(SMOKE_INDEX),
+        'retrieval': {'k': 4, 'grader': 'llm', 'grade_threshold': 0.4},
+        'generation': {'answerer': 'none'}})
+    assert res.status_code == 202, res.status_code
+    job = _finished(client, res.json()['job_id'])
+    assert job['state'] == 'error'
+    assert 'grade' in job['error'].lower() and 'not running' in job['error']
+
+
+def test_retrieval_only_covers_exactly_the_experiment_questions(client):
+    # this is an integration test
+    """Retrieve, for the questions the eval card has selected, and nothing
+    more: no answering, no judging, no run file. The selection has to be the
+    *same* selection `/api/evaluations` would score, or the Inspector shows
+    retrieval for questions the numbers were never about."""
+    _, truth = datasets.load('smoke-mini')
+    picked_type = truth['questions'][0]['type']
+    payload = {'index': dict(SMOKE_INDEX),
+               'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
+                             'grader': 'none', 'k': 3, 'rerank_depth': 20,
+                             'time_filter': False, 'multi_query': False},
+               'types': [picked_type], 'limit': 2, 'balance': 'stride'}
+    res = client.post('/api/retrievals', json=payload)
+    assert res.status_code == 202, res.text
+    job = _finished(client, res.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
+    assert job['kind'] == 'retrieve'
+
+    result = job['result']
+    expected = evaluate.select_questions(truth, [picked_type], 2, None, 'stride')
+    assert [q['question_id'] for q in result['questions']] == \
+        [q['id'] for q in expected]
+    assert result['selection']['n'] == 2
+
+    # The chunks it retrieved *from* travel with it. A run builds its index
+    # implicitly, so without this the Inspector's chunks window would keep
+    # showing whatever index job was last pressed — a different chunker than the
+    # one that produced these rows, with nothing on screen saying so.
+    groups = result['chunks_by_session']
+    assert sum(len(g['chunks']) for g in groups) == result['index']['chunks']
+
+    first = result['questions'][0]
+    assert first['question_fa'] == expected[0]['question_fa']
+    # retrieval only: the generation step never ran, so there is no answer to
+    # show and no run file to leave behind.
+    assert 'answer' not in first
+    candidates = first['trace']['candidates']
+    assert candidates
+    for key in ('dense_rank', 'bm25_rank', 'fused_rank', 'rerank_score',
+                'grade_score', 'kept'):
+        assert key in candidates[0], f'missing {key}'
+    # gold is marked per question, against that question's own evidence
+    assert all(isinstance(c['gold'], bool) for c in candidates)
 
 
 # ---------------------------------------------------------------------------
@@ -710,6 +780,7 @@ def test_a_hierarchical_build_reports_the_summaries_it_wrote(client):
 # ---------------------------------------------------------------------------
 
 def test_every_option_list_leads_with_the_default():
+    # this is a unit test
     """A default buried sixth reads as an exotic choice; this fails if a
     default moves without its list."""
     cfg = LabConfig()
@@ -730,6 +801,7 @@ def test_every_option_list_leads_with_the_default():
 
 
 def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something():
+    # this is a unit test
     """Each case is a knob the pipeline would ignore, so leaving it editable
     invites tuning a number that does nothing. `semantic-drift` is
     deliberately in the *enabled* set for chunk_chars: unlike
@@ -740,6 +812,11 @@ def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something
     drift = state(LabConfig(index=IndexConfig(chunker='semantic-drift')))
     assert drift['index.chunk_chars']['enabled']
     assert not drift['index.overlap']['enabled']
+    # Both directions, because only one of them is a *disabled* control: a
+    # rule that emptied `index.overlap`'s owner list would grey the knob out
+    # for every chunker, including the one whose whole point is the overlap.
+    assert state(LabConfig(index=IndexConfig(chunker='fixed-overlap'))
+                 )['index.overlap']['enabled']
 
     per_message = state(LabConfig(index=IndexConfig(chunker='message')))
     assert not per_message['index.chunk_chars']['enabled']
@@ -769,6 +846,7 @@ def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something
 
 
 def test_every_disabled_control_says_why():
+    # this is a convention test
     """A greyed-out control with no reason is indistinguishable from a broken
     one. Every rule carries the sentence the panel shows."""
     for key, rule in config.DEPENDENCIES.items():
@@ -777,29 +855,22 @@ def test_every_disabled_control_says_why():
             f'{key}: the panel completes "disabled because …", so no full stop')
 
 
-def test_the_panel_is_served_the_dependency_rules(client):
-    """Both frontends read this rather than each keeping a copy."""
-    served = client.get('/api/options').json()['dependencies']
-    assert served['index.overlap']['on'] == ['fixed-overlap']
-    assert 'semantic-drift' in served['index.chunk_chars']['on']
+# That both frontends are *served* these rules rather than each keeping a copy
+# is asserted where the rest of `/api/options` is —
+# tests/test_server.py::test_options_describe_the_corpus_the_knobs_and_the_metrics.
 
 
-def test_the_embedder_hints_render_in_the_same_order_as_the_embedders():
+def test_the_embedder_hints_describe_the_embedders_in_their_own_order():
+    # this is a convention test
     """The standalone panel builds its embedder dropdown from
     EMBEDDER_HINTS, not from EMBEDDERS — two lists describing one set of
     choices have to agree on order or the panel disagrees with itself about
-    what is recommended."""
+    what is recommended. And `hash` is retired in production *by name*, so a
+    hint calling `ascii-hash` "the brain default" would describe a
+    configuration that now raises at boot."""
     from raglab.embedding import EMBEDDER_HINTS
 
     assert [hint.kind for hint in EMBEDDER_HINTS] == list(config.EMBEDDERS)
-
-
-def test_no_hint_still_calls_a_hash_embedder_the_brain_default():
-    """`hash` is retired in production *by name*, so a hint calling
-    `ascii-hash` "the brain default" would describe a configuration that
-    now raises at boot."""
-    from raglab.embedding import EMBEDDER_HINTS
-
     for hint in EMBEDDER_HINTS:
         if hint.kind.endswith('-hash'):
             assert 'brain default' not in hint.label, hint.label
@@ -811,21 +882,27 @@ def test_no_hint_still_calls_a_hash_embedder_the_brain_default():
 # ---------------------------------------------------------------------------
 
 def test_a_gate_whose_model_call_fails_does_not_silently_pass_everything():
+    # this is a unit test
     """0.5 clears the default 0.4 threshold, so an unreachable model must
     not turn `grader='llm'` into a silent no-op — a row labelled
     `grader=llm` that was measured ungated is the one artefact this lab
-    must never produce. The parse fallback is a different thing and must
-    survive: a line the model wrote that we could not read is genuinely
-    'no opinion'."""
+    must never produce. It raises `GradeUnavailable` and names both the
+    stage and the model, so the reader is not left guessing which stage went
+    missing (the route half of the same rule is asserted above). The parse
+    fallback is a different thing and must survive: a line the model wrote
+    that we could not read is genuinely 'no opinion'."""
     class Unreachable:
         def invoke(self, messages, **kwargs):
             raise ConnectionError('the model daemon is not running')
 
-    with pytest.raises(Exception) as caught:
-        retrieval.llm_scores(Unreachable(), 'm', 'q', ['a', 'b', 'c'])
-    # And it names the cause, so the reader is not left guessing which stage
-    # went missing.
-    assert 'not running' in str(caught.value) or 'grade' in str(caught.value).lower()
+    with pytest.raises(retrieval.GradeUnavailable) as caught:
+        # A model name with no 'grade' in it, so the stage assertion below
+        # stands on its own rather than being entailed by the model name the
+        # message interpolates.
+        retrieval.llm_scores(Unreachable(), 'qwen3.5:2b', 'q', ['a', 'b', 'c'])
+    assert 'grade' in str(caught.value).lower()
+    assert 'qwen3.5:2b' in str(caught.value)
+    assert 'not running' in str(caught.value)
 
     # Unchanged: a reply that arrives but cannot be parsed is still no opinion.
     class Unparseable:
@@ -836,18 +913,24 @@ def test_a_gate_whose_model_call_fails_does_not_silently_pass_everything():
     assert list(scores) == [pytest.approx(0.5), pytest.approx(0.5)]
 
 
-def test_running_an_evaluation_leaves_the_repositorys_runs_directory_alone(
-        registry, ground_truth):
-    """`run_eval` ends in `save_run`, which writes to the module-level
-    RUNS_DIR. This test deliberately does *not* redirect it itself — that
-    the real directory stays untouched anyway is exactly what the autouse
-    fixture in conftest.py is under test for."""
+def test_no_test_in_this_suite_can_reach_the_real_runs_directory(smoke_lab):
+    # this is an integration test
+    """Both halves of the guard the autouse fixture in conftest.py exists
+    for. The structural half: whatever redirects `RUNS_DIR` has to apply to
+    every test, not to the ones whose author remembered. The behavioural
+    half: an actual `run_eval` — which ends in `save_run`, writing to the
+    module-level `RUNS_DIR` — deliberately does *not* redirect it here, and
+    the repository's real `.runs/` stays untouched anyway."""
+    assert evaluate.RUNS_DIR != config.RUNS_DIR, (
+        'evaluate.RUNS_DIR still points at the repository .runs/ during tests')
+
     real = config.RUNS_DIR
     before = {p.name for p in real.glob('*.json')} if real.exists() else set()
 
-    cfg = LabConfig(index=IndexConfig(chunker='session', embedder='ascii-hash'),
+    registry, truth = smoke_lab
+    cfg = LabConfig(index=IndexConfig(**SMOKE_INDEX),
                     generation=GenerationConfig(answerer='none'))
-    evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
+    evaluate.run_eval(registry, truth, cfg, LAB_SETTINGS,
                       limit=2, balance='difficulty', ragas_mode='off')
 
     after = {p.name for p in real.glob('*.json')} if real.exists() else set()
@@ -855,58 +938,10 @@ def test_running_an_evaluation_leaves_the_repositorys_runs_directory_alone(
         f'the suite wrote {sorted(after - before)} into the real .runs/')
 
 
-def test_no_test_in_this_suite_can_reach_the_real_runs_directory():
-    """The structural half. Whatever redirects RUNS_DIR has to apply to every
-    test, not to the ones whose author remembered — otherwise this returns the
-    next time someone adds a case that calls run_eval."""
-    assert evaluate.RUNS_DIR != config.RUNS_DIR, (
-        'evaluate.RUNS_DIR still points at the repository .runs/ during tests')
-
-
-def test_both_run_routes_screen_the_models_the_backend_serves(client, monkeypatch):
-    """`/api/evaluations` refused a model the active backend does not serve;
-    `/api/queries` ran it. Two routes over the same pipeline disagreeing about
-    which configs are legal is a bug on its own, and it got worse the moment a
-    dead grade stage started raising: the panel's fastest feedback loop would
-    answer a bare 500 where the slow one answers a 400 naming the model."""
-    monkeypatch.setattr(models, 'provider_problems',
-                        lambda cfg, settings: ['model "qwen3.5:2b" is not served'])
-    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-               'generation': {'answerer': 'none'}, 'question': 'چه خبر؟'}
-    for path in ('/api/queries', '/api/evaluations'):
-        res = client.post(path, json=payload)
-        assert res.status_code == 400, f'{path} -> {res.status_code}'
-        assert 'qwen3.5:2b' in res.json()['detail'], path
-
-
-def test_a_query_whose_gate_cannot_reach_its_model_says_so(client, monkeypatch):
-    """Refusing to score is only an improvement if the refusal reaches the
-    caller readably: the job's error must name the stage that went missing,
-    or the reader blames retrieval for what the grader did."""
-    def unreachable(*args, **kwargs):
-        raise ConnectionError('the model daemon is not running')
-
-    monkeypatch.setattr(retrieval, 'lab_chat', unreachable)
-    res = client.post('/api/queries', json={
-        'question': 'چه خبر؟',
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-        'retrieval': {'k': 4, 'grader': 'llm', 'grade_threshold': 0.4},
-        'generation': {'answerer': 'none'}})
-    assert res.status_code == 202, res.status_code
-    job = _finished(client, res.json()['job_id'])
-    assert job['state'] == 'error'
-    assert 'grade' in job['error'].lower() and 'not running' in job['error']
-
-
-# --- retrieval on its own, and the shipped assistant's own settings ---------
-# The panel could build an index and score a full judged run, but it had no way
-# to do the middle step alone: retrieve for the questions an experiment is
-# about, look at what came back, change one knob, look again. That is the loop
-# the Inspector (:9003) exists to serve, and it needs the lab to offer both a
-# retrieval-only run over the *selected* questions and a one-click preset that
-# is the shipped assistant rather than a taste.
+# --- the project's own RAG settings, in one click --------------------------
 
 def test_the_production_preset_is_a_declared_snapshot():
+    # this is a convention test
     """The lab no longer shares a repository with the brain, so these values
     are literals in `baseline.py` and this test pins them — including the
     two deliberate differences a careless re-snapshot would "fix"."""
@@ -939,117 +974,15 @@ def test_the_production_preset_is_a_declared_snapshot():
 
 
 def test_the_panel_serves_the_production_preset_for_its_button(client):
+    # this is an integration test
     """Served rather than written into the frontend, for the reason the mode
     dropdown is: a preset kept in a browser is a preset that will drift from
     the brain it claims to mirror."""
     assert client.get('/api/options').json()['production'] == config.PRODUCTION_CONFIG
 
 
-def test_retrieval_only_covers_exactly_the_experiment_questions(client,
-                                                                ground_truth):
-    """Retrieve, for the questions the eval card has selected, and nothing
-    more: no answering, no judging, no run file. The selection has to be the
-    *same* selection `/api/evaluations` would score, or the Inspector shows
-    retrieval for questions the numbers were never about."""
-    picked_type = ground_truth['questions'][0]['type']
-    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-               'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
-                             'grader': 'none', 'k': 3, 'rerank_depth': 20,
-                             'time_filter': False, 'multi_query': False},
-               'types': [picked_type], 'limit': 2, 'balance': 'stride'}
-    res = client.post('/api/retrievals', json=payload)
-    assert res.status_code == 202, res.text
-    job = _finished(client, res.json()['job_id'])
-    assert job['state'] == 'done', job.get('error')
-    assert job['kind'] == 'retrieve'
-
-    result = job['result']
-    expected = evaluate.select_questions(ground_truth, [picked_type], 2,
-                                        None, 'stride')
-    assert [q['question_id'] for q in result['questions']] == \
-        [q['id'] for q in expected]
-    assert result['selection']['n'] == 2
-
-    # The chunks it retrieved *from* travel with it. A run builds its index
-    # implicitly, so without this the Inspector's chunks window would keep
-    # showing whatever index job was last pressed — a different chunker than the
-    # one that produced these rows, with nothing on screen saying so.
-    groups = result['chunks_by_session']
-    assert sum(len(g['chunks']) for g in groups) == result['index']['chunks']
-
-    first = result['questions'][0]
-    assert first['question_fa'] == expected[0]['question_fa']
-    # retrieval only: the generation step never ran, so there is no answer to
-    # show and no run file to leave behind.
-    assert 'answer' not in first
-    candidates = first['trace']['candidates']
-    assert candidates
-    for key in ('dense_rank', 'bm25_rank', 'fused_rank', 'rerank_score',
-                'grade_score', 'kept'):
-        assert key in candidates[0], f'missing {key}'
-    # gold is marked per question, against that question's own evidence
-    assert all(isinstance(c['gold'], bool) for c in candidates)
-
-
-def test_a_traced_evaluation_scores_identically_and_leaves_traces_off_disk(
-        client, monkeypatch, tmp_path, registry, ground_truth):
-    """Two things must stay true: the scores may not move, since tracing is
-    a recording of the same retrieval, not a different one; and the traces
-    may not reach `.runs/`, the leaderboard's durable artifact, with data
-    no score is computed from."""
-    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-               'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
-                             'grader': 'none', 'k': 3, 'rerank_depth': 20,
-                             'time_filter': False, 'multi_query': False},
-               'generation': {'answerer': 'extractive'},
-               'limit': 2, 'balance': 'stride', 'ragas_mode': 'off'}
-    res = client.post('/api/evaluations', json=payload)
-    assert res.status_code == 202, res.text
-    job = _finished(client, res.json()['job_id'], timeout=120.0)
-    assert job['state'] == 'done', job.get('error')
-
-    result = job['result']
-    assert len(result['rows']) == 2
-    traces = result['traces']
-    assert [t['question_id'] for t in traces] == [row['id'] for row in result['rows']]
-    assert all(t['trace']['candidates'] for t in traces)
-
-    # The chunks this run retrieved from, for the same reason `/api/retrievals`
-    # carries them: an evaluation builds its index implicitly and creates no
-    # index job, so this is the only way the Inspector can show the chunks the
-    # scores were actually computed over instead of an unrelated earlier build.
-    groups = result['chunks_by_session']
-    assert sum(len(g['chunks']) for g in groups) == result['index']['chunks']
-
-    saved = json.loads((tmp_path / f"{result['run_id']}.json").read_text(
-        encoding='utf-8'))
-    assert 'traces' not in saved, 'traces must not reach the run file'
-    assert 'chunks_by_session' not in saved, 'chunk text must not reach the run file'
-    assert saved['rows'] == result['rows']
-
-    # The load-bearing half: the same config, untraced, produces the same rows
-    # and the same summary. Latency is dropped at every depth — it measures the
-    # machine, not the pipeline, so two runs of identical code never agree on it
-    # and comparing it would make this test flaky rather than strict.
-    def scores(value):
-        if isinstance(value, dict):
-            return {k: scores(v) for k, v in value.items() if 'latency' not in k}
-        if isinstance(value, list):
-            return [scores(v) for v in value]
-        return value
-
-    cfg = LabConfig.from_dict(payload)
-    untraced = evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
-                                 limit=2, balance='stride', ragas_mode='off')
-    assert not untraced.traces, 'trace=False must record nothing'
-    assert scores(untraced.rows) == scores(result['rows'])
-    assert scores(untraced.summary) == scores(result['summary'])
-
-
-# --- the project's own RAG settings, in one click --------------------------
-
 def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():
+    # this is a convention test
     """The panel's hint is one of three places this sentence is written;
     the other two are the entry points a sweep and a judge screen actually
     stop at. Read out of the source rather than triggered: `judged_settings`

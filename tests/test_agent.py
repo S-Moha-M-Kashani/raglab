@@ -10,16 +10,16 @@ Uses `token-hash`, not `ascii-hash`: the corpus is Farsi and ascii-hash embeds
 it to the zero vector."""
 import pytest
 
-from raglab import agent, config, explain, metrics, pipeline
+from raglab import agent, config, evaluate, explain, metrics, pipeline
 from raglab import models as models_mod
-from raglab.config import (AgentConfig, CRITICS, IndexConfig, LabConfig,
-                           LabSettings, RetrievalConfig, SCOPES,
+from raglab.config import (AgentConfig, CRITICS, GenerationConfig, IndexConfig,
+                           LabConfig, LabSettings, RetrievalConfig, SCOPES,
                            dependency_state)
 from raglab.corpus import load_diary, load_ground_truth
 from raglab.index import IndexRegistry
 from raglab.llm import FakeChat
 
-from conftest import _finished
+from conftest import SMOKE_INDEX, _finished
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
@@ -461,37 +461,20 @@ def test_a_model_the_agent_cannot_reach_abstains_and_says_why(
     assert outcome.diagnostics['agent_stop'] == 'error'
 
 
-def test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores(
-        index, ground_truth, query_date, monkeypatch):
-    # this is an integration test
-    """The agent fills the same `Outcome`, so scoring, RAGAS, the ledger and the
-    Inspector need no second idea of what a result is."""
-    monkeypatch.setattr(agent, '_ask',
-                        Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
-                             critique='SCORE: 0.9'))
-    asked = ground_truth['questions'][0]
-    outcome = agent.run(index, agent_cfg(scope='full'), asked['question_fa'],
-                        query_date, llm=FakeChat())
-    assert isinstance(outcome, pipeline.Outcome)
-    row = metrics.score_question(asked, outcome, k=3)
-    assert row['n_hops'] == 1
-    assert row['n_agent_calls'] >= 2
-    assert row['agent_stop'] == 'grounded'
-    assert 'n_contexts' in row and 'latency_ms' in row
-
-
 def test_agent_columns_join_the_runs_aggregate_and_its_notes_name_the_scope(
         index, ground_truth, query_date, monkeypatch):
     # this is an integration test
-    """The two distinct claims
-    `test_an_evaluation_with_a_scope_scores_records_and_names_the_loop` used
-    to prove over a full HTTP evaluation — that the run's notes name the
-    scope and its caps, and that `n_hops`/`n_agent_calls` ride the same
-    `AGGREGATED` tuple every other per-question number does and so reach the
-    run's overall means with no special case — direct, now: `agent.note_for`
-    on its own, then two `score_question` calls feeding `metrics.aggregate`.
-    No HTTP, no job, no ragas; the route-narrowing claim that test sat beside
-    is `test_the_retrieval_route_shows_the_loop_and_never_answers`, kept."""
+    """Three distinct claims, folded into one test since the second used to
+    be a strict superset of a since-deleted
+    `test_the_agent_returns_the_outcome_the_rest_of_the_lab_already_scores`
+    (its only additions were the `isinstance`/`n_contexts`/`latency_ms`
+    checks now inlined below): the agent fills the same `Outcome` so scoring
+    needs no second idea of what a result is; the run's notes name the scope
+    and its caps (`agent.note_for` on its own); and `n_hops`/`n_agent_calls`
+    ride the same `AGGREGATED` tuple every other per-question number does, so
+    they reach the run's overall means with no special case. No HTTP, no job,
+    no ragas; the route-narrowing claim these used to sit beside is
+    `test_the_retrieval_route_shows_the_loop_and_never_answers`, kept."""
     retrieving = agent.note_for(AgentConfig(scope='retrieve', max_hops=5))
     assert 'agent scope=retrieve' in retrieving and 'max_hops=5' in retrieving
     assert 'critic=' not in retrieving, 'retrieve owns no generation'
@@ -503,15 +486,48 @@ def test_agent_columns_join_the_runs_aggregate_and_its_notes_name_the_scope(
     monkeypatch.setattr(agent, '_ask',
                         Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
                              critique='SCORE: 0.9'))
-    rows = [metrics.score_question(
-                asked, agent.run(index, agent_cfg(scope='full'),
-                                 asked['question_fa'], query_date, llm=FakeChat()),
-                k=3)
-            for asked in ground_truth['questions'][:2]]
+    rows = []
+    for asked in ground_truth['questions'][:2]:
+        outcome = agent.run(index, agent_cfg(scope='full'), asked['question_fa'],
+                            query_date, llm=FakeChat())
+        assert isinstance(outcome, pipeline.Outcome)
+        row = metrics.score_question(asked, outcome, k=3)
+        assert 'n_contexts' in row and 'latency_ms' in row
+        rows.append(row)
     assert all(row['agent_scope'] == 'full' for row in rows)
     assert all(row['n_hops'] >= 1 and row['n_agent_calls'] >= 2 for row in rows)
     assert all(row['agent_stop'] for row in rows)
     assert metrics.aggregate(rows)['overall']['n_hops'] >= 1
+
+
+# Direct in-memory index (`agent_cfg`'s `LEAVES`/module `index` fixture) does
+# not fit here: `run_eval` builds its own index from `cfg.index`, so this one
+# needs its own smoke-corpus config instead.
+def test_an_agent_scoped_run_eval_traces_the_loop_and_notes_its_scope(
+        ground_truth, monkeypatch):
+    # this is an integration test
+    """`run_eval`'s agent branch (`if cfg.agent.scope: ... agent.run(...,
+    trace=tr)`) and `_assemble_notes`'s `if cfg.agent.scope:
+    notes.append(agent.note_for(cfg.agent))` are reachable only from an
+    agent-scoped `run_eval` call — `run_retrieval` calls neither, and the one
+    caller that used to exercise both, an HTTP `/api/evaluations` job, is
+    gone along with the deleted `test_an_evaluation_with_a_scope_scores_
+    records_and_names_the_loop`. Without a test calling `run_eval` itself with
+    `cfg.agent.scope` set, deleting that branch or its `trace=tr` argument
+    passes this file's suite. Direct: no HTTP, no job, no ragas."""
+    monkeypatch.setattr(agent, '_ask',
+                        Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
+                             critique='SCORE: 0.9'))
+    registry = IndexRegistry(LAB_SETTINGS)
+    cfg = LabConfig(index=IndexConfig(**SMOKE_INDEX),
+                    retrieval=RetrievalConfig(k=3, candidates=12, rerank_depth=6),
+                    generation=GenerationConfig(answerer='llm'),
+                    agent=AgentConfig(scope='full', max_hops=2))
+    result = evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
+                               limit=1, ragas_mode='off', trace=True)
+    assert result.rows[0]['agent_scope'] == 'full'
+    assert any('agent scope=full' in note for note in result.notes)
+    assert result.traces[0]['trace']['agent'][0]['node'] == 'plan'
 
 
 def test_the_loop_counters_are_explained_measures_not_bare_numbers():

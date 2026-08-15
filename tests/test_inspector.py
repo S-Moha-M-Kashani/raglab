@@ -1,4 +1,3 @@
-import time
 from pathlib import Path
 
 import pytest
@@ -215,7 +214,7 @@ def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
      True),
 ], ids=['flat', 'hierarchy'])
 def test_chunks_job_returns_sessions_and_any_summaries_beside_them(
-        monkeypatch, smoke_index, index_cfg, expect_summaries):
+        monkeypatch, tmp_path, smoke_index, index_cfg, expect_summaries):
     # this is an integration test
     """The manual build path serves both halves in one job, so the toggle
     needs no second request — and `total` keeps counting leaves, since that
@@ -223,13 +222,26 @@ def test_chunks_job_returns_sessions_and_any_summaries_beside_them(
     `metadata` for the hierarchy half: the smoke corpus's five sessions each
     declare their own single topic, so a metadata grouping never reaches
     `min_group` and writes no summary at all — measured empirically before
-    writing this test."""
+    writing this test. This build is also the real behavioural half of the
+    Inspector's no-ledger guard: `test_the_inspector_constructs_its_job_
+    table_with_no_recorder` pins the source that keeps it that way, but only
+    a real build asked to record and then checked can catch the Inspector
+    reaching `ledger.record` by some other spelling that pin cannot name. A
+    fresh `tmp_path` per parametrize case, never touched by anything else in
+    the suite, rather than the session-wide `RAGLAB_DB` redirection every
+    other test here shares — a file another test's real recording created
+    there would make this assert fail for the wrong reason."""
+    db = tmp_path / 'raglab.db'
+    monkeypatch.setenv('RAGLAB_DB', str(db))
     client = _client(monkeypatch)
     acc = client.post('/api/chunks', json={'index': index_cfg})
     assert acc.status_code == 202
     job = _finished(client, acc.json()['job_id'])
     assert job['state'] == 'done', job.get('error')
     result = job['result']
+
+    assert not db.exists(), (
+        'the Inspector must not even create the ledger file for a scratch build')
 
     groups = result['chunks_by_session']
     assert result['total'] == sum(len(g['chunks']) for g in groups)
@@ -267,6 +279,19 @@ def test_trace_job_marks_gold(monkeypatch):
     assert job['state'] == 'done', job.get('error')
     cands = job['result']['trace']['candidates']
     assert cands and all('gold' in c for c in cands)
+
+    # An invalid config must refuse synchronously, the same as /api/questions,
+    # rather than accept the job and fail it with state='error' — the
+    # Inspector's own route plumbing, which `test_query_rejects_an_unknown_
+    # strategy` (tests/test_server.py) does not exercise: that hits the lab's
+    # `/api/queries` on :9002, a different service whose route calls `screen()`
+    # before accepting a job for reasons CLAUDE.md records as having drifted
+    # from this one before (the board's proxy tests, the panel/Inspector split).
+    bad = client.post('/api/trace', json={
+        'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+        'retrieval': {'reranker': 'nope'}, 'question_id': gt_q['id']})
+    assert bad.status_code == 400
+    assert 'unknown reranker' in bad.json()['detail']
 
 
 # --- the served Inspector page's own conventions, as one table -------------
@@ -606,12 +631,16 @@ def _canned_lab(jobs: list[dict]):
 # FastAPI TestClient; the lab is a real thread over a real socket — the one
 # thing worth proving with one, since everything the transport carries is
 # proven directly below.
-def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab):
+def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab,
+                                                     request):
     # this is an integration test
     """`GET /api/follow` must answer HTTP 200 whether or not :9002 can be
     reached — an unreachable daemon is a normal state for the Inspector, not
-    an exception — and when it can, the query and index views it returns must
-    be exactly what the reachable lab's newest finished jobs said."""
+    an exception, and names no corpus rather than the diary — and when it
+    can, every key the page's `fetch('/api/follow')` reads must actually be
+    on the response: not just `lab`/`index`/`query` but `dataset` and the
+    set-wide `retrieval`/`generation` views, exactly what the reachable lab's
+    newest finished jobs said."""
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', 'http://127.0.0.1:9')
     client = _client(monkeypatch)
     res = client.get('/api/follow')
@@ -619,6 +648,7 @@ def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab):
     body = res.json()
     assert body['lab'] == 'down'
     assert body['index'] is None and body['query'] is None
+    assert body['dataset'] == ''
 
     monkeypatch.setenv('RAGLAB_INSPECTOR_LAB_URL', fake_lab)
     client = _client(monkeypatch)
@@ -630,6 +660,23 @@ def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab):
     assert body['query']['answer'] == 'یک جواب.'
     assert body['query']['question_id'] == 'q-001'
     assert body['query']['trace']['candidates'][0]['gold'] is True
+
+    # A run naming a corpus, reassigned so the lab-up block also proves
+    # `dataset` and the set-wide `retrieval`/`generation` views travel —
+    # not just `lab`/`index`/`query`, which is all the pre-review version of
+    # this test checked.
+    module = request.module
+    run_job_with_dataset = {
+        **FAKE_RUN_JOB,
+        'config': {**FAKE_RUN_JOB['config'],
+                  'index': {**FAKE_RUN_JOB['config']['index'],
+                            'dataset': 'smoke-mini'}}}
+    monkeypatch.setattr(module, 'FAKE_ORDER',
+                        [run_job_with_dataset, FAKE_INDEX_JOB])
+    body = client.get('/api/follow').json()
+    assert body['dataset'] == 'smoke-mini'
+    assert body['retrieval']['kind'] == 'run'
+    assert body['generation']['job_id'] == FAKE_RUN_JOB['id']
 
 
 def test_question_set_prefers_the_newest_finished_set_over_an_older_one(monkeypatch):
@@ -755,16 +802,23 @@ def test_followed_dataset_reads_the_newest_jobs_own_config():
     assert inspector._followed_dataset({'jobs': []}) == ''
 
 
-# FastAPI TestClient over the read-only app; a real in-memory index build,
-# through two genuinely different code paths — `pipeline.retrieve_traced`
-# (what the Inspector's own `/api/questions` route calls, to feed the
-# ladder) against plain `pipeline.retrieve` (what every evaluation calls) —
-# so the comparison below is not one call checked against itself.
+# FastAPI TestClient over the read-only app; a real in-memory index build and
+# one job round trip through the actual `/api/questions` route, compared
+# against a direct, untraced `pipeline.retrieve` call — two genuinely
+# different code paths, so the comparison below is not one call checked
+# against itself.
 def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch):
     # this is an integration test
     """A question you add by hand has to arrive scored exactly like the ones
     the experiment selected — same generation row, same metric keys — or the
-    two cannot be read side by side."""
+    two cannot be read side by side. Compared against the actual `/api/
+    questions` route's own row (one real job round trip), not a second
+    hand-written copy of its logic: an earlier version of this test computed
+    *both* sides itself by calling `retrieve_traced`/`answer`/`score_question`
+    directly, so the route's own generation branch — `run_question`'s work()
+    closure in inspector.py — was touched by nothing but the 404 check below,
+    and a row measured under the wrong `k` or missing its `pipeline.answer`
+    call would still have passed."""
     gt = corpus.load_ground_truth()
     gt_q = gt['questions'][0]
     query_date = gt['meta']['query_date']
@@ -778,25 +832,33 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     cfg = LabConfig.from_dict(config)
     index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(cfg.index)
 
-    # the added-question path: retrieve_traced feeds the ladder, then answer
-    # and score exactly as `/api/questions`'s own job does
-    quotes = [ev['quote'] for ev in gt_q.get('evidence', [])]
-    outcome_a, trace = pipeline.retrieve_traced(
-        index, cfg.retrieval, gt_q['question_fa'], query_date)
-    retrieval = evaluate.trace_row(
-        gt_q, trace, gold_present=present.gold_available(index, quotes))
-    outcome_a = pipeline.answer(outcome_a, cfg.generation)
-    row = evaluate.json_safe(
-        metrics.score_question(gt_q, outcome_a, cfg.retrieval.k))
-
     # the run's own path: every evaluation retrieves with the plain,
-    # untraced call — a genuinely different route through the same pipeline
+    # untraced call, computed directly — the reference the route's own row
+    # below is compared against
     outcome_b = pipeline.retrieve(index, cfg.retrieval, gt_q['question_fa'],
                                   query_date)
     outcome_b = pipeline.answer(outcome_b, cfg.generation)
     reference = metrics.score_question(gt_q, outcome_b, cfg.retrieval.k)
 
+    # the added-question path: the real route, over HTTP, through the job
+    # runner
+    client = _client(monkeypatch)
+    acc = client.post('/api/questions', json={**config, 'question_id': gt_q['id']})
+    assert acc.status_code == 202, acc.text
+    job = _finished(client, acc.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
+    result = job['result']
+
+    # the route's whole response shape — a rename or a dropped key in
+    # `run_question` would break the page's Add-question flow and, before
+    # this assert, no test would say so
+    assert set(result) >= {'config', 'retrieval', 'generation'}
+    # and it says which config produced it, because a row measured under other
+    # settings than its neighbours is worse than no row
+    assert result['config']['index']['chunker'] == 'fixed-overlap'
+
     # the retrieval half, shaped like a followed question
+    retrieval = result['retrieval']
     assert retrieval['question_id'] == gt_q['id']
     assert isinstance(retrieval['gold_available'], int)
     candidate = retrieval['trace']['candidates'][0]
@@ -805,15 +867,15 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
         assert key in candidate, f'missing {key}'
 
     # the generation half, shaped like an evaluation's row: same keys, so the
-    # added question shows the same metrics and no others
+    # added question shows the same metrics and no others — the route's own
+    # row against the direct reference, so a regression in either one shows
+    row = result['generation']
     assert set(row) == set(reference), (
         f"added row differs: only here {set(row) - set(reference)}, "
         f"only in the eval row {set(reference) - set(row)}")
     assert row['id'] == gt_q['id'] and row['answer']
 
-    # an unknown id refuses synchronously rather than dying inside a job —
-    # the one assertion that still needs the actual route
-    client = _client(monkeypatch)
+    # an unknown id refuses synchronously rather than dying inside a job
     assert client.post('/api/questions',
                        json={**config, 'question_id': 'q-nope'}).status_code == 404
 

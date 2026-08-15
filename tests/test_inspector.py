@@ -305,10 +305,15 @@ INSPECTOR_CONVENTIONS = [
      'the served shell must expose its chunks tab hook'),
     ('inspector.html', 'tab-retrieval', None,
      'the served shell must expose its retrieval tab hook'),
-    ('inspector.html', 'inspector-tab', None,
-     'the served shell must expose the tab-switching hook'),
-    ('inspector.html', 'retrieval-table', None,
-     'the served shell must expose the retrieval table hook'),
+    ('inspector.html', 'class="inspector-tab"', None,
+     'the served shell must expose the tab-switching hook — checked as the '
+     'quoted class value so the tab-strip wrapper (`class="inspector-tabs"`, '
+     'plural) cannot satisfy it by prefix collision'),
+    ('inspector.html', 'class="retrieval-table"', None,
+     'the served shell must expose the retrieval table hook — checked as the '
+     'quoted class value so the unrelated `<template '
+     'id="retrieval-table-template">` wrapper cannot satisfy it by prefix '
+     'collision'),
     ('inspector.html', 'inspector-active-config', None,
      "the followed view's config statement must be renderable"),
     ('inspector.html', 'inspector-answer', None,
@@ -331,8 +336,10 @@ INSPECTOR_CONVENTIONS = [
      'the reveal must open on hover, without a click'),
     ('inspector.html', 'add-question', None,
      'the question picker must expose the button that opens it'),
-    ('inspector.html', 'question-picker', None,
-     'the question picker must expose its own hook'),
+    ('inspector.html', 'id="question-picker"', None,
+     'the question picker must expose its own hook — checked as the quoted '
+     'id so its filter input and listbox (`id="question-picker-filter"`, '
+     '`id="question-picker-list"`) cannot satisfy it by prefix collision'),
     ('inspector.html', 'question-picker-list', None,
      'the question picker must expose the listbox hook'),
     ('inspector.css', '.q-option--hard', None,
@@ -349,8 +356,10 @@ INSPECTOR_CONVENTIONS = [
      'the picker must be reachable without a mouse'),
     ('inspector.html', 'aria-expanded', None,
      'the picker must state its open/closed state for assistive tech'),
-    ('inspector.html', 'chunks-mode', None,
-     'the chunks/summaries toggle must expose its own hook'),
+    ('inspector.html', 'id="chunks-mode"', None,
+     'the chunks/summaries toggle must expose its own hook — checked as the '
+     'quoted id so its two buttons (`id="chunks-mode-chunks"`, '
+     '`id="chunks-mode-summaries"`) cannot satisfy it by prefix collision'),
     ('inspector.html', 'chunks-mode-chunks', None,
      'the toggle must expose its chunks-half hook'),
     ('inspector.html', 'chunks-mode-summaries', None,

@@ -48,13 +48,20 @@ def panel_texts(client):
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 CONVENTIONS = [
-    ('panel.css', '--step-index', None,
+    ('panel.css', 'var(--step-index)', None,
      'the index-step ink token must ship in the served stylesheet, or the '
-     'colour convention has no token to draw from'),
-    ('panel.css', '--step-retrieval', None,
-     'the retrieval-step ink token must ship in the served stylesheet'),
-    ('panel.css', '--step-generation', None,
-     'the generation-step ink token must ship in the served stylesheet'),
+     'colour convention has no token to draw from — checked with the closing '
+     'paren so the `-lit` variant (`var(--step-index-lit)`) cannot satisfy it '
+     'by prefix collision'),
+    ('panel.css', 'var(--step-retrieval)', None,
+     'the retrieval-step ink token must ship in the served stylesheet — '
+     'checked with the closing paren so the `-lit` variant and the doc '
+     'comment a few lines above (which names the token in prose) cannot '
+     'satisfy it in place of the real declaration'),
+    ('panel.css', 'var(--step-generation)', None,
+     'the generation-step ink token must ship in the served stylesheet — '
+     'checked with the closing paren so the `-lit` variant '
+     '(`var(--step-generation-lit)`) cannot satisfy it by prefix collision'),
     ('index.html', 'data-step="index"', None,
      'the index card must be tagged with its step, so the ink and the stage '
      'cannot disagree'),

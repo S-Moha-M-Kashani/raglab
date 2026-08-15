@@ -208,6 +208,21 @@ def test_an_unreachable_daemon_claims_nothing_rather_than_refusing_everything(
     assert models.provider_problems(cfg, OLLAMA_SETTINGS) == []
 
 
+def test_a_remote_slug_is_never_refused_on_the_strength_of_a_listing(monkeypatch):
+    # this is a unit test
+    """OpenRouter's list is authoritative in one direction only: everything on it
+    works, but a slug missing from it may still be valid — the routing suffixes
+    (`:free`, `:floor`) do not appear as ids. Blocking runs that used to work is a
+    worse failure than the mislabelled row this guard exists to prevent, so the
+    refusal is scoped to the local backend, whose tag list *is* authoritative both
+    ways."""
+    keyed = replace(LAB_SETTINGS, openrouter_api_key='sk-x')
+    monkeypatch.setattr(models, 'openrouter_ids',
+                        lambda settings: frozenset({'openai/gpt-5-nano'}))
+    cfg = LabConfig(generation=GenerationConfig(ragas_model='openai/gpt-5-mini:floor'))
+    assert models.provider_problems(cfg, keyed) == []
+
+
 def test_the_local_tag_list_is_read_from_the_daemon_not_guessed(monkeypatch):
     # this is a unit test
     """Availability is verified, never inferred from the shape of a slug."""

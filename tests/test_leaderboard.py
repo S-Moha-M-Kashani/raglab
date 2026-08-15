@@ -2,6 +2,8 @@
 question set and judge before ranking anything."""
 import json
 
+import pytest
+
 from raglab import evaluate
 from raglab.llm_tools import leaderboard, sweep
 
@@ -20,52 +22,89 @@ def _row(run_id, label, decision, ids, judge, stderr=None):
                           'question_ids': ids}}
 
 
-def test_the_sweeps_own_ranking_applies_the_same_error_test():
-    """A lead inside the combined error must read as a tie in the sweep's
-    own printed ranking too, or the first thing anyone reads is the
-    conclusion the leaderboard's error test rejects."""
+def test_the_sweeps_own_ranking_reads_the_same_tie_leaderboard_verdict_would():
+    """A lead inside the combined error must read as a tie in the sweep's own
+    printed ranking too, or the first thing anyone reads is the conclusion
+    the leaderboard's own error test rejects. Asserted against the returned
+    data — the same group `leaderboard.verdict` computes 'tie' for, and the
+    exact combined-error arithmetic — with exactly one substring check left
+    for the wording, since the words are the one part a computed value cannot
+    stand in for."""
+    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
-    lines = sweep.ranking_verdict([
-        _row('r2', 'F llm relevance gate', 0.7375, ids, judge, stderr=0.0333),
-        _row('r1', 'A baseline', 0.7222, ids, judge, stderr=0.0341)])
-    text = '\n'.join(lines)
-    assert 'do not separate' in text or 'No winner' in text, text
-    assert '0.0477' in text or '0.048' in text, 'the error it was judged against'
+    rows = [_row('r2', 'F llm relevance gate', 0.7375, ids, judge, stderr=0.0333),
+            _row('r1', 'A baseline', 0.7222, ids, judge, stderr=0.0341)]
+    lines = sweep.ranking_verdict(rows)
+    assert len(lines) == 1, 'one comparability group, one line of verdict'
+    found, = leaderboard.group(rows)
+    assert leaderboard.verdict(found) == 'tie'
+    lead = 0.7375 - 0.7222
+    combined_error = (0.0333 ** 2 + 0.0341 ** 2) ** 0.5
+    assert f'{lead:.4f}' in lines[0]
+    assert f'{combined_error:.4f}' in lines[0]
+    assert 'do not separate' in lines[0]
 
 
 def test_the_sweeps_ranking_names_a_winner_when_there_is_one():
+    """Same shape as the tie test, on rows the leaderboard actually ranks."""
+    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
-    text = '\n'.join(sweep.ranking_verdict([
-        _row('r2', 'F', 0.90, ids, judge, stderr=0.01),
-        _row('r1', 'A', 0.50, ids, judge, stderr=0.01)]))
-    assert 'F' in text and 'Winner' in text
+    rows = [_row('r2', 'F', 0.90, ids, judge, stderr=0.01),
+            _row('r1', 'A', 0.50, ids, judge, stderr=0.01)]
+    lines = sweep.ranking_verdict(rows)
+    assert len(lines) == 1
+    found, = leaderboard.group(rows)
+    assert leaderboard.verdict(found) == 'F'
+    assert 'Winner: F' in lines[0]
 
 
-def test_rows_that_scored_different_questions_are_not_ranked_together():
-    """A row measured on 30 balanced questions must never read as beating
-    one measured on 24 strided ones — neither number bears on the other."""
+def _different_questions():
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
-    groups = leaderboard.group([
-        _row('r1', 'A', 0.61, ['q1', 'q2'], judge),
-        _row('r2', 'F', 0.72, ['q3', 'q4'], judge),
-    ])
-    assert len(groups) == 2, 'two samples are two measurements'
+    return [_row('r1', 'A', 0.61, ['q1', 'q2'], judge),
+            _row('r2', 'F', 0.72, ['q3', 'q4'], judge)]
+
+
+def _different_judges():
+    ids = ['q1', 'q2']
+    return [_row('r1', 'A', 0.61, ids, {'model': 'gemma4:e2b', 'provider': 'ollama'}),
+            _row('r2', 'F', 0.72, ids, {'model': 'openai/gpt-5-mini',
+                                        'provider': 'openrouter'})]
+
+
+def _different_unrecorded_counts():
+    judge = {'model': 'openai/gpt-5-mini', 'provider': 'openrouter'}
+    rows = [_row('r1', 'A 24q', 0.6385, [], judge),
+            _row('r2', 'A 3q', 0.5488, [], judge)]
+    rows[0]['n_questions'] = 24
+    rows[1]['n_questions'] = 3
+    for r in rows:
+        r['selection'] = {}
+    return rows
+
+
+@pytest.mark.parametrize('build_rows, reason', [
+    (_different_questions, 'two samples are two measurements'),
+    (_different_judges, 'a judge swap is a different measurement'),
+    (_different_unrecorded_counts, 'different counts, different samples'),
+], ids=['different-questions', 'different-judges', 'different-unrecorded-counts'])
+def test_rows_are_grouped_only_with_what_they_can_be_compared_against(build_rows,
+                                                                      reason):
+    """A decision score is comparable only against rows scored on the same
+    questions by the same judge: different question ids, a judge swap, or two
+    runs that never recorded which questions they scored (so they key on a
+    bare count instead — a row measured on 30 balanced questions must never
+    read as beating one measured on 24 strided ones) all land in separate
+    tables, never one ranked together."""
+    # this is a unit test
+    groups = leaderboard.group(build_rows())
+    assert len(groups) == 2, reason
     assert all(len(g.rows) == 1 for g in groups)
 
 
-def test_rows_scored_by_different_judges_are_not_ranked_together():
-    ids = ['q1', 'q2']
-    groups = leaderboard.group([
-        _row('r1', 'A', 0.61, ids, {'model': 'gemma4:e2b', 'provider': 'ollama'}),
-        _row('r2', 'F', 0.72, ids, {'model': 'openai/gpt-5-mini',
-                                    'provider': 'openrouter'}),
-    ])
-    assert len(groups) == 2, 'a judge swap is a different measurement'
-
-
 def test_a_group_ranks_by_decision_score_and_keeps_the_unranked_rows_last():
+    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
     group, = leaderboard.group([
@@ -81,6 +120,7 @@ def test_a_group_ranks_by_decision_score_and_keeps_the_unranked_rows_last():
 def test_a_lead_inside_the_error_is_reported_as_a_tie():
     """The margin has to be compared to the error, or the leaderboard
     manufactures conclusions a bare ranking cannot support."""
+    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     ids = ['q1', 'q2']
     group, = leaderboard.group([
@@ -95,53 +135,52 @@ def test_a_lead_inside_the_error_is_reported_as_a_tie():
     assert leaderboard.verdict(clear) == 'F'
 
 
-def test_runs_that_never_recorded_their_sample_are_not_treated_as_one_sample():
-    """Every run predating `RunResult.selection` has no question ids, so
-    keying on the ids alone would put runs of any size in one ranked table.
-    A missing sample is not evidence of a *shared* sample."""
-    judge = {'model': 'openai/gpt-5-mini', 'provider': 'openrouter'}
-    rows = [_row('r1', 'A 24q', 0.6385, [], judge),
-            _row('r2', 'A 3q', 0.5488, [], judge)]
-    rows[0]['n_questions'] = 24
-    rows[1]['n_questions'] = 3
-    for r in rows:
-        r['selection'] = {}
-    assert len(leaderboard.group(rows)) == 2, 'different counts, different samples'
-
-
-def test_an_unrecorded_sample_can_never_declare_a_winner():
-    """Two runs of 24 questions apiece may still be two *different* 24, and
-    nothing on those rows says which — so even with errors measured, the
-    comparison is not established."""
+def _unrecorded_sample_rows():
     judge = {'model': 'openai/gpt-5-mini', 'provider': 'openrouter'}
     rows = [_row('r1', 'D', 0.6501, [], judge, stderr=0.01),
             _row('r2', 'A', 0.5000, [], judge, stderr=0.01)]
     for r in rows:
         r['selection'] = {}
         r['n_questions'] = 24
-    found, = leaderboard.group(rows)
-    assert leaderboard.verdict(found) == 'unknown'
-    text = leaderboard.markdown([found])
-    assert 'not recorded' in text
-    # And no rank numbers, or the table contradicts the sentence above it.
-    assert '| 1 |' not in text, text
+    return rows
 
 
-def test_a_group_with_no_measured_error_cannot_claim_a_winner():
-    """`± 0` on the oldest rows would present them as the most precise."""
+def _no_measured_error_rows():
     judge = {'model': 'openai/gpt-5-mini', 'provider': 'openrouter'}
     ids = ['q1', 'q2']
-    group, = leaderboard.group([
-        _row('r1', 'A', 0.50, ids, judge, stderr=None),
-        _row('r2', 'F', 0.72, ids, judge, stderr=None),
-    ])
-    assert leaderboard.verdict(group) == 'unknown'
+    return [_row('r1', 'A', 0.50, ids, judge, stderr=None),
+            _row('r2', 'F', 0.72, ids, judge, stderr=None)]
+
+
+@pytest.mark.parametrize('build_rows, check_markdown', [
+    (_unrecorded_sample_rows, True),
+    (_no_measured_error_rows, False),
+], ids=['sample-not-recorded', 'no-measured-error'])
+def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows, check_markdown):
+    """Two different reasons a group refuses a winner. Two runs of 24
+    questions apiece may still be two *different* 24 — nothing on those rows
+    says which, so even with errors measured the comparison is not
+    established (`selection` predates `RunResult`, so equal counts are not a
+    shared sample). Or the rows recorded a sample but no error, and `± 0` on
+    the oldest rows would present them as the most precise. Both must read as
+    'unknown' rather than manufacturing a decision, and the unrecorded case
+    additionally must carry no rank numbers, since a numbered row is a rank
+    claim this data cannot support."""
+    # this is a unit test
+    found, = leaderboard.group(build_rows())
+    assert leaderboard.verdict(found) == 'unknown'
+    if check_markdown:
+        text = leaderboard.markdown([found])
+        assert 'not recorded' in text
+        # And no rank numbers, or the table contradicts the sentence above it.
+        assert '| 1 |' not in text, text
 
 
 def test_the_group_that_decides_something_is_printed_first():
     """Sorting by question count would put a group of unrecorded samples,
     which cannot be ranked at all, above the group that decides something —
     a reader opens this for the live decision."""
+    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     stale = _row('r0', 'old 100q', 0.61, [], judge)
     stale['selection'], stale['n_questions'] = {}, 100
@@ -153,6 +192,7 @@ def test_the_group_that_decides_something_is_printed_first():
 
 
 def test_every_judge_label_reads_as_a_noun_after_judged_by():
+    # this is a unit test
     judge = {'model': '', 'provider': ''}
     unjudged, = leaderboard.group([_row('r1', 'retrieval only', None,
                                         ['q1'], judge)])
@@ -162,6 +202,7 @@ def test_every_judge_label_reads_as_a_noun_after_judged_by():
 
 
 def test_the_markdown_names_the_sample_and_the_judge_on_every_group():
+    # this is a unit test
     judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
     text = leaderboard.markdown(leaderboard.group([
         _row('r1', 'A baseline', 0.61, ['q1', 'q2'], judge, stderr=0.02)]))
@@ -175,6 +216,7 @@ def test_the_run_list_carries_the_two_fields_comparability_needs(tmp_path,
                                                                  monkeypatch):
     """Writes its own run file rather than reading `.runs/`: a test that
     skips when the developer's disk happens to be empty is not coverage."""
+    # this is an integration test
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     (tmp_path / '20260731-120000-abc123.json').write_text(json.dumps({
         'run_id': '20260731-120000-abc123', 'label': 'A baseline',

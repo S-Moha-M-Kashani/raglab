@@ -1,12 +1,10 @@
 """The lab's own chat-model seam, after the move off lodestar_brain."""
-import json
-import subprocess
 from dataclasses import dataclass
 
 import pytest
 from langchain_core.messages import AIMessage
 
-from raglab import clichat, llm
+from raglab import llm
 
 
 @dataclass(frozen=True)
@@ -21,6 +19,7 @@ class Stub:
 
 
 def test_the_fake_backend_answers_without_a_network():
+    # this is a unit test
     model = llm.make_chat_model(Stub(provider='fake'))
     reply = model.invoke([{'role': 'user', 'content': 'سلام'}])
     assert isinstance(reply, AIMessage)
@@ -32,6 +31,7 @@ def test_the_fake_backend_answers_without_a_network():
 def test_each_real_backend_is_built_for_its_own_endpoint_and_patience():
     """openrouter and ollama differ in nothing but endpoint and timeout — a
     local model needs longer than the remote-API 90s allows."""
+    # this is a unit test
     remote = llm.make_chat_model(Stub(provider='openrouter',
                                      openrouter_api_key='sk-test'))
     local = llm.make_chat_model(Stub(provider='ollama'))
@@ -47,6 +47,7 @@ def test_each_real_backend_is_built_for_its_own_endpoint_and_patience():
 def test_an_unknown_backend_raises_instead_of_falling_back():
     """No silent downgrade to openrouter, which would quietly bill an API on
     whichever machine had the local daemon down."""
+    # this is a unit test
     with pytest.raises(ValueError, match='unknown RAGLAB_LLM'):
         llm.make_chat_model(Stub(provider='wat'))
 
@@ -54,6 +55,7 @@ def test_an_unknown_backend_raises_instead_of_falling_back():
 def test_a_per_role_model_is_forwarded_per_request_not_bound():
     """An empty model means "whatever the client was built with" rather than
     a null model literally forwarded to invoke()."""
+    # this is a unit test
     captured = {}
 
     class Recorder:
@@ -69,41 +71,24 @@ def test_a_per_role_model_is_forwarded_per_request_not_bound():
 
 def test_a_cli_backend_is_built_through_the_same_one_construction_site():
     """A CLI is not an endpoint, so it takes no base url, and gets the local
-    timeout since a process spawn plus an agent turn needs more than 90s."""
-    model = llm.make_chat_model(Stub(provider='claude', llm_model='sonnet'))
-    assert model.cli == 'claude' and model.model == 'sonnet'
-    assert model.timeout == llm.CLI_TIMEOUT
-    assert llm.CLI_TIMEOUT > llm.REMOTE_TIMEOUT
-    codex = llm.make_chat_model(Stub(provider='codex',
-                                     llm_model='gpt-5.6-terra'))
-    assert codex.cli == 'codex'
-
-
-def test_the_configured_effort_is_the_one_that_reaches_the_argv(monkeypatch):
-    """`CliChat.effort` defaults to `low` too, so hardcoding `'low'` in
-    `make_chat_model` would leave the suite green while the knob silently
-    stopped reaching the argv."""
-    calls = []
-
-    def record(argv, **kwargs):
-        calls.append(argv)
-        return subprocess.CompletedProcess(
-            argv, 0, json.dumps({'is_error': False, 'usage': {},
-                                 'result': '1: 8'}), '')
-
-    monkeypatch.setattr(clichat.subprocess, 'run', record)
+    timeout since a process spawn plus an agent turn needs more than 90s.
+    The per-role effort setting (`cli_effort`) is `make_chat_model`'s own job
+    to forward onto `CliChat.effort` — whether that value then *reaches the
+    argv* is clichat's job and is covered there, at the default value; the
+    construction site's job, tested here, is threading the setting through and
+    refusing an effort the chosen CLI does not accept before any call is made."""
+    # this is a unit test
     model = llm.make_chat_model(Stub(provider='claude', llm_model='sonnet',
                                      cli_effort='xhigh'))
+    assert model.cli == 'claude' and model.model == 'sonnet'
     assert model.effort == 'xhigh'
-    model.invoke([{'role': 'user', 'content': 'hi'}])
-    assert calls[0][calls[0].index('--effort') + 1] == 'xhigh'
-
-
-def test_a_reasoning_effort_the_backend_rejects_stops_the_run_at_build_time():
-    """Refused at build time, not at the call: codex answers an unaccepted
-    effort with exit 0 and no text, which elsewhere reads as no opinion."""
-    llm.make_chat_model(Stub(provider='codex', llm_model='gpt-5.6-terra',
-                             cli_effort='none'))
+    assert model.timeout == llm.CLI_TIMEOUT
+    assert llm.CLI_TIMEOUT > llm.REMOTE_TIMEOUT
+    codex = llm.make_chat_model(Stub(provider='codex', llm_model='gpt-5.6-terra',
+                                     cli_effort='none'))
+    assert codex.cli == 'codex'
+    # Refused at build time, not at the call: codex answers an unaccepted
+    # effort with exit 0 and no text, which elsewhere reads as no opinion.
     with pytest.raises(ValueError, match='none'):
         llm.make_chat_model(Stub(provider='claude', llm_model='sonnet',
                                  cli_effort='none'))

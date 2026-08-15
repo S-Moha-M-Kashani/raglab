@@ -44,11 +44,15 @@ RUN_FIXTURE = {
 }
 
 
-def test_the_difficulty_table_counts_answers_not_just_retrieval():
+def test_the_difficulty_table_counts_answers_and_evidence_separately():
     """The run files store no judged grade per question, so "correct" is
     evidence-based: an answerable question counts when the pipeline did not
     refuse *and* reached a gold session; an unanswerable one counts when it
-    did refuse."""
+    did refuse. Evidence reaching context and the answer using it are
+    different failures, so they are reported apart rather than collapsed —
+    and an unanswerable question has no evidence to find, so it must not be
+    averaged in as a miss."""
+    # this is a unit test
     table = export.difficulty_rates(RUN_FIXTURE['rows'])
     assert [row['difficulty'] for row in table] == ['easy', 'medium', 'hard']
     easy, medium, hard = table
@@ -58,22 +62,21 @@ def test_the_difficulty_table_counts_answers_not_just_retrieval():
     # The share is a share of that difficulty, so it needs the count beside it:
     # one hard question at 100% is not a finding.
     assert all('n' in row for row in table)
-
-
-def test_the_difficulty_table_reports_evidence_separately_from_answers():
-    """Retrieval reaching the evidence and the answer using it are different
-    failures, and collapsing them hides which half to fix."""
-    rows = export.difficulty_rates(RUN_FIXTURE['rows'])
-    easy = rows[0]
     assert easy['evidence_found'] == 0.0
     assert easy['quotes_in_context'] == 0.0
-    # An unanswerable question has no evidence to find, so it must not be
-    # averaged in as a miss.
-    assert rows[2]['evidence_found'] is None
+    assert hard['evidence_found'] is None
 
 
-def test_a_question_page_shows_reference_retrieval_response_and_grades(ground_truth):
-    """The four things you need to judge one question, in one file."""
+def test_a_question_page_shows_everything_needed_to_judge_one_question(
+        ground_truth):
+    """The four things you need to judge one question, in one file — plus the
+    two disclaimers a bare number would hide: the four deciding metrics are
+    run means only, and the retrieved context is session ids, never chunk
+    text the run never stored (runs store the retrieved session ids, not the
+    chunk text, so the page says what it has rather than reconstructing
+    chunks by re-running retrieval, which would document a different
+    retrieval than the one that was graded)."""
+    # this is a unit test
     question = next(q for q in ground_truth['questions'] if q['id'] == 'q-sh-001')
     row = next(r for r in RUN_FIXTURE['rows'] if r['id'] == 'q-sh-001')
     page = export.question_page(RUN_FIXTURE, question, row)
@@ -89,20 +92,16 @@ def test_a_question_page_shows_reference_retrieval_response_and_grades(ground_tr
     assert 'Recall@k' in page
     # And the run it came from, or the page cannot be traced back.
     assert RUN_FIXTURE['run_id'] in page and RUN_FIXTURE['label'] in page
-
-
-def test_a_question_page_says_which_grades_are_not_per_question(ground_truth):
-    """The four deciding metrics are stored as run means only; printed
-    unlabelled they would read as that question's own faithfulness."""
-    question = next(q for q in ground_truth['questions'] if q['id'] == 'q-sh-001')
-    row = next(r for r in RUN_FIXTURE['rows'] if r['id'] == 'q-sh-001')
-    page = export.question_page(RUN_FIXTURE, question, row)
+    # The four deciding metrics are stored as run means only; printed
+    # unlabelled they would read as that question's own faithfulness.
     assert 'run mean' in page.lower()
     assert 'not per question' in page.lower()
+    assert 'chunk text is not stored' in page.lower()
 
 
 def test_the_export_writes_one_file_per_question_plus_an_index(ground_truth,
                                                               tmp_path):
+    # this is an integration test
     written = export.write_run(RUN_FIXTURE, ground_truth, tmp_path)
     names = sorted(path.name for path in written)
     assert names == ['README.md', 'q-ab-001.md', 'q-hb-001.md', 'q-sh-001.md']
@@ -111,13 +110,3 @@ def test_the_export_writes_one_file_per_question_plus_an_index(ground_truth,
     assert RUN_FIXTURE['run_id'] in index
     # The index links the files, or a folder of 24 pages is unnavigable.
     assert '(q-sh-001.md)' in index
-
-
-def test_the_export_never_invents_the_context_text(ground_truth, tmp_path):
-    """Runs store the retrieved session ids, not the chunk text, so the page
-    says what it has rather than reconstructing chunks by re-running
-    retrieval — which would document a different retrieval than the one
-    that was graded."""
-    export.write_run(RUN_FIXTURE, ground_truth, tmp_path)
-    page = (tmp_path / 'q-sh-001.md').read_text(encoding='utf-8')
-    assert 'chunk text is not stored' in page.lower()

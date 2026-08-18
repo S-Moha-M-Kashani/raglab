@@ -11,7 +11,7 @@ corpus. Each file separates what the literature *measured* from what this lab
 has measured, and the final section of every skill says how the technique maps
 onto the knobs that already exist here.
 
-## The thirteen
+## The fourteen
 
 | Skill | The question it answers |
 | --- | --- |
@@ -28,12 +28,15 @@ onto the knobs that already exist here.
 | [`rag-use-case-architectures`](rag-use-case-architectures/SKILL.md) | Which architecture is the educated first guess for this use case? |
 | [`rag-experiment-methodology`](rag-experiment-methodology/SKILL.md) | How do you iterate — dev set, held-out test, error analysis — without fooling yourself? |
 | [`rag-research-radar`](rag-research-radar/SKILL.md) | Where does new research land, and how does a technique earn a file here? |
+| [`rag-source-watchlist`](rag-source-watchlist/SKILL.md) | Which sources carry news about *this project's* concerns, and what lands where? |
 
 The reading order for a new project: `rag-use-case-architectures` picks the
 starting candidate, `rag-experiment-methodology` runs the loop, `rag-evaluation`
 says what a number is allowed to mean, and the technique skills are the levers
 the loop reaches for. `rag-research-radar` keeps all of it current — it carries
-a dated frontier snapshot and the procedure for adding the next skill.
+a dated frontier snapshot and the procedure for adding the next skill — and
+`rag-source-watchlist` is that procedure's address book for this repository's
+own concerns.
 
 ## Why this format
 

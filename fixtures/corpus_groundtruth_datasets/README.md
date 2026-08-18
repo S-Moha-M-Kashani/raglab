@@ -4,6 +4,14 @@ Four corpora the lab can be pointed at, beside the bundled default (the Farsi
 diary). They are here to answer one question the lab could not answer with a
 single fixture: **is this finding about retrieval, or about Farsi diaries?**
 
+`diary_year_fa.json` in this folder is that built-in default — corpus and
+ground truth merged in one file since 2026-08-18 — and it is the **one file
+here that does not follow the import contract**: it keeps its native schema
+(`persona`, `threads`, `habits`, `groundtruth`), because those are fields the
+pipeline reads and the contract does not carry. Use any of the other four as
+the template for an import, never the diary; `datasets._files` skips it by
+path for the same reason.
+
 Each also stands in for a use case from the map in
 `skills/rag-use-case-architectures/SKILL.md`: the diary is the personal-memory
 row, `support-en` the customer-support row, `meetings-de` the meeting-notes

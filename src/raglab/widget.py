@@ -16,6 +16,7 @@ prebuilt loop under its pre-1.0 name, wired through `pre_model_hook`,
 version away.
 """
 import ast
+import json
 import os
 import re
 import sys
@@ -37,8 +38,9 @@ from langchain.agents.middleware import (after_agent, after_model,
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
+from . import skills
 from .clichat import CliChat, checked_effort, cli_available
-from .settings import PROVIDER_MODELS, load_env_file
+from .settings import PROVIDER_MODELS, ROOT, load_env_file
 
 # Read at build time, never at import: the suite runs offline, and a missing
 # variable must become a stated refusal rather than a KeyError at import.
@@ -71,7 +73,7 @@ KNOWLEDGE_BASE = {
     'purpose': 'The RAG lab is a generic retrieval workbench: chunking and '
                'retrieval choices for any use case are decided by measurement '
                'against a ground-truth corpus, which is itself a config '
-               'field. The bundled default is fixtures/diary_year_fa.json, '
+               'field. The bundled default is fixtures/corpus_groundtruth_datasets/diary_year_fa.json, '
                '167 sessions of synthetic Farsi diary chat — one case study '
                'among five shipped corpora, with imports supported.',
     'ports': 'The lab serves its panel on port 9002 '
@@ -232,16 +234,31 @@ MIDDLEWARE = [check_request, note_prompt, trim_and_call, log_tool_call,
               check_reply, close_the_log]
 
 
+# The model-facing text is data, not code (the skills-folder and
+# bilingual-pairs rule): every prompt lives under fixtures/prompts/, so
+# editing what the model reads is editing a fixture. The docstrings on the
+# tools below are for readers of this file; what the model sees is assigned
+# from widget_tools.yaml right after TOOLS.
+PROMPTS_DIR = ROOT / 'fixtures' / 'prompts'
+
+
+def _prompts(name: str) -> dict:
+    """One YAML page from the prompts folder, parsed at import — the pages
+    are small, and a missing key must fail loudly here rather than serve a
+    tool with no description."""
+    import yaml
+    return yaml.safe_load(
+        (PROMPTS_DIR / f'{name}.yaml').read_text(encoding='utf-8'))
+
+
+_PROMPTS = _prompts('widget')
+_TOOL_PROMPTS = _prompts('widget_tools')
+
+
 @tool
 def search_knowledge_base(query: str) -> str:
-    """Look up facts about the RAG lab project.
-
-    Use this for any question about what the lab is, its ports, commands,
-    architecture, metrics, storage or embedder.
-
-    Args:
-        query: A few keywords, e.g. "ports" or "decision metrics".
-    """
+    """Facts about this project, matched by keyword; the model-facing
+    prompt is fixtures/prompts/widget_tools.yaml's entry."""
     words = {w for w in re.findall(r'[a-z0-9]+', query.lower()) if len(w) > 2}
     hits = [f'{key}: {text}' for key, text in KNOWLEDGE_BASE.items()
             if any(w in key.lower() or w in text.lower() for w in words)]
@@ -257,11 +274,8 @@ _ALLOWED_NODES = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant,
 
 @tool
 def calculate(expression: str) -> str:
-    """Evaluate an arithmetic expression, e.g. "68000000 / 551695".
-
-    Args:
-        expression: Numbers and the operators + - * / // % ** only.
-    """
+    """Arithmetic over an AST whitelist, never `eval`; the model-facing
+    prompt is fixtures/prompts/widget_tools.yaml's entry."""
     # An AST whitelist, never `eval`: a tool handed to a model must not be a
     # Python prompt.
     try:
@@ -277,13 +291,149 @@ def calculate(expression: str) -> str:
     return str(eval(compile(parsed, '<widget>', 'eval'), {'__builtins__': {}}))
 
 
-TOOLS = [search_knowledge_base, calculate]
+# How many bodies one read_rag_skill call returns: the bodies are the
+# expensive layer, and a call asking for the whole corpus would put ~100 KB
+# into the loop.
+MAX_SKILL_READS = 3
 
-SYSTEM_PROMPT = (
-    'You are the RAG lab panel\'s helper. Answer questions about this '
-    'project using the search_knowledge_base tool, and use calculate for '
-    'any arithmetic. Answer briefly; say so when the knowledge base has no '
-    'answer rather than inventing one.')
+
+@tool
+def search_rag_skills(query: str) -> str:
+    """The skills catalogue's cheap layer, matched literally, whole index
+    on a miss; the model-facing prompt — including the search-again-on-thin-
+    hits guidance — is fixtures/prompts/widget_tools.yaml's entry."""
+    hits = skills.search(query)
+    if not hits:
+        return (f"No skill matches '{query}'.\n\n" + skills.index_text())
+    return '\n'.join(f'{name}: {description}' for name, description in hits)
+
+
+@tool
+def read_rag_skill(names: str) -> str:
+    """Full skill bodies, several per call but capped; the model-facing
+    prompt is fixtures/prompts/widget_tools.yaml's entry."""
+    catalogue = skills.index()
+    asked = [n for n in re.split(r'[,\s]+', names.strip()) if n]
+    known = [n for n in asked if n in catalogue]
+    unknown = [n for n in asked if n not in catalogue]
+    served, over_cap = known[:MAX_SKILL_READS], known[MAX_SKILL_READS:]
+    parts = [f'=== {name} ===\n{skills.body(name)}' for name in served]
+    if over_cap:
+        parts.append(f'At most {MAX_SKILL_READS} skills per call — not served: '
+                     + ', '.join(over_cap) + '. Ask again for them.')
+    if unknown:
+        parts.append('Not skills: ' + ', '.join(unknown)
+                      + '. The skills are: ' + ', '.join(sorted(catalogue)) + '.')
+    if not parts:
+        return 'No names given. The skills are: ' + ', '.join(sorted(catalogue)) + '.'
+    return '\n\n'.join(parts)
+
+
+# The bilingual probe's default instrument: twelve diary-like sentence pairs,
+# kept as a fixture rather than code — the skills-folder rule, so the pairs
+# can change without touching Python — and fixed between calls so two
+# measurements stay comparable.
+PAIRS_FILE = ROOT / 'fixtures' / 'bilingual_probe_pairs.json'
+
+# The shape a pairs payload must have, quoted by the tool's refusal and
+# stated to the model by its YAML prompt — the config.HELP['run.dataset-file']
+# pattern: the contract is announced where the data goes in.
+PAIRS_SHAPE = ('a JSON list of at least two [english, farsi] pairs, e.g. '
+               '[["I slept badly.", "بد خوابیدم."], '
+               '["It rained.", "باران آمد."]]')
+
+
+def _read_pairs(raw: str = ''):
+    """The probe's pairs: the caller's JSON, or the bundled fixture. Returns
+    (pairs, problem); a problem is a stated string the model can relay and
+    correct itself against, never an exception."""
+    source = raw.strip()
+    try:
+        data = json.loads(source) if source else json.loads(
+            PAIRS_FILE.read_text(encoding='utf-8'))
+    except Exception as error:
+        return None, f'unreadable pairs ({error}); expected {PAIRS_SHAPE}'
+    well_formed = (isinstance(data, list) and len(data) >= 2 and all(
+        isinstance(pair, list) and len(pair) == 2
+        and all(isinstance(text, str) and text.strip() for text in pair)
+        for pair in data))
+    if not well_formed:
+        return None, f'malformed pairs; expected {PAIRS_SHAPE}'
+    return [(en, fa) for en, fa in data], None
+
+# name -> loaded encoder; the _AGENTS pattern — a 2 GB checkpoint must not be
+# reloaded per question, and the cache dies with the process. Bounded,
+# unlike _AGENTS, because the keys come from a model or a user naming any
+# HuggingFace checkpoint: agents are a few kilobytes and four names, while
+# a handful of encoder probes at gigabytes each would exhaust the lab
+# process's memory.
+_ENCODERS: dict = {}
+MAX_ENCODERS = 2
+
+
+def _load_encoder(name: str):
+    """Lazy on both axes: the import needs the local-embeddings extra, and
+    neither it nor the checkpoint may cost anything at module import."""
+    from sentence_transformers import SentenceTransformer
+    if name not in _ENCODERS:
+        while len(_ENCODERS) >= MAX_ENCODERS:
+            _ENCODERS.pop(next(iter(_ENCODERS)))
+        _ENCODERS[name] = SentenceTransformer(name)
+    return _ENCODERS[name]
+
+
+@tool
+def measure_bilingual_alignment(model_name: str = '', pairs: str = '') -> str:
+    """The EN-Farsi alignment probe over a real encoder — pair cosine,
+    mixed-pool retrieval, a verdict; the model-facing prompt, including the
+    pairs contract, is fixtures/prompts/widget_tools.yaml's entry."""
+    name = model_name.strip() or 'heydariAI/persian-embeddings'
+    items, problem = _read_pairs(pairs)
+    if problem:
+        # Stated refusals the model can relay and correct against, not a
+        # dead loop: the shape, the extra or the checkpoint — whichever is
+        # missing is the whole answer.
+        return f'cannot measure: {problem}'
+    english = [en for en, _ in items]
+    farsi = [fa for _, fa in items]
+    try:
+        import numpy as np
+        encoder = _load_encoder(name)
+        vectors = np.asarray(encoder.encode(english + farsi,
+                                            normalize_embeddings=True))
+    except Exception as error:
+        return f'cannot measure {name}: {error}'
+    n = len(items)
+    sims = vectors[:n] @ vectors[n:].T
+    pairs = np.diag(sims)
+    mismatched = sims[~np.eye(n, dtype=bool)]
+    pool = vectors @ vectors.T
+    np.fill_diagonal(pool, -1.0)          # a query may not retrieve itself
+    en_wins = int((pool[:n].argmax(axis=1) == np.arange(n) + n).sum())
+    fa_wins = int((pool[n:].argmax(axis=1) == np.arange(n)).sum())
+    separation = float(pairs.mean() - mismatched.mean())
+    aligned = en_wins == n and fa_wins == n and separation >= 0.3
+    verdict = 'aligned' if aligned else 'weak or no alignment'
+    return (f'{name}, measured now on {n} English-Farsi sentence pairs: '
+            f'translation pairs mean cosine {pairs.mean():.3f} '
+            f'(min {pairs.min():.3f}), mismatched pairs mean '
+            f'{mismatched.mean():.3f} (max {mismatched.max():.3f}); in a '
+            f'mixed-language pool the English query finds its own Farsi '
+            f'translation {en_wins}/{n} times and the Farsi query its '
+            f'English one {fa_wins}/{n}. Verdict: {verdict}. This is a '
+            f'sentence-scale probe on {n} short sentence pairs — '
+            f'corpus-scale retrieval can still differ.')
+
+
+TOOLS = [search_knowledge_base, calculate, search_rag_skills, read_rag_skill,
+         measure_bilingual_alignment]
+
+# The YAML page is what the model reads; assigning it here makes the fixture
+# the single source, and the import fails on a tool the page does not name.
+for _each in TOOLS:
+    _each.description = _TOOL_PROMPTS[_each.name].strip()
+
+SYSTEM_PROMPT = _PROMPTS['system'].strip()
 
 
 class WidgetUnavailable(RuntimeError):
@@ -329,6 +479,16 @@ def _build_agent(model: str):
                         middleware=MIDDLEWARE)
 
 
+def _cli_system() -> str:
+    """The tool-less prompt: project facts in full, the skills corpus as its
+    index only. The full bodies cannot be inlined, so the prompt says what a
+    CLI can do — name the right skill — and what it cannot: read one. The
+    template is fixtures/prompts/widget.yaml's `cli_system`."""
+    facts = '\n'.join(f'- {key}: {text}' for key, text in KNOWLEDGE_BASE.items())
+    return _PROMPTS['cli_system'].format(facts=facts,
+                                         skills_index=skills.index_text())
+
+
 def _cli_answer(cli: str, message: str) -> str:
     """One CLI call, the knowledge base inlined: no tool loop exists here, so
     a prompt that does not carry the facts is a CLI answering about a project
@@ -337,10 +497,7 @@ def _cli_answer(cli: str, message: str) -> str:
         raise WidgetUnavailable(
             f'the {cli} command is not on this machine — install and log in, '
             'or pick an OpenRouter model')
-    facts = '\n'.join(f'- {key}: {text}' for key, text in KNOWLEDGE_BASE.items())
-    system = ('You are the RAG lab panel\'s helper. Answer briefly from the '
-              'knowledge base below; say so when it has no answer rather '
-              'than inventing one.\n\nThe knowledge base, in full:\n' + facts)
+    system = _cli_system()
     effort = checked_effort(cli, os.environ.get('RAGLAB_CLI_EFFORT', '').strip()
                             or 'low')
     chat = CliChat(cli=cli, model=PROVIDER_MODELS[cli], effort=effort)
@@ -368,9 +525,14 @@ def ask(message: str, model: str = '') -> str:
     try:
         # A real HumanMessage rather than a dict, so it carries an id that
         # `check_request` can write a capped question back over.
+        # Measured 2026-08-18: with the six middleware nodes a tool hop costs
+        # ~4 supersteps, so 12 allowed exactly one hop — a run that searched,
+        # then searched and read, then answered (13 steps) died *after* its
+        # final answer, one node short of close_the_log. 24 gives the loop
+        # about five hops, still a hard ceiling rather than a budget.
         result = _AGENTS[choice].invoke(
             {'messages': [HumanMessage(content=message)]},
-            config={'recursion_limit': 12})
+            config={'recursion_limit': 24})
     except WidgetUnavailable:
         raise
     except Exception as error:

@@ -5,7 +5,7 @@ retrieve against its questions, score what comes back, and keep the account of
 every experiment, so a RAG architecture for any use case can be chosen by
 measurement instead of by taste. The corpus is a config field, not an
 assumption: point `dataset` at any file matching the stated contract, or use
-one of the five that ship. The bundled default is `fixtures/diary_year_fa.json`,
+one of the five that ship. The bundled default is `fixtures/corpus_groundtruth_datasets/diary_year_fa.json`,
 a year of synthetic colloquial Farsi diary chat with ground-truth questions and
 cited evidence — one case study among the shipped corpora, not the project's
 scope.
@@ -51,7 +51,7 @@ complete by `tests/test_conventions.py`.
 ## Datasets
 
 The lab measures whatever corpus it is pointed at. Five ship with it: the
-default Farsi diary, and four controls in `fixtures/groundtruth_datasets/` —
+default Farsi diary, and four controls in `fixtures/corpus_groundtruth_datasets/` —
 English support tickets, German meeting notes, English research notes weighted
 to multi-hop, and a five-session smoke set. Each maps to a different use case,
 so a finding can be checked against a corpus of a different language, domain

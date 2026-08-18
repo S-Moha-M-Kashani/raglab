@@ -1,14 +1,18 @@
 # `skills/` — the advanced-RAG corpus
 
-Ten techniques from the current RAG literature, one folder each, written in the
+Fourteen skills, one folder each, written in the
 [Agent Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview)
-open format. They exist to be read by a person and, later, retrieved by the
-panel's widget — one copy, two consumers, no drift.
+open format: ten techniques from the current RAG literature, plus four working
+skills — the use-case → architecture map with its per-use-case experiment
+ladders, the experiment methodology, and the two research-tracking skills.
+They exist to be read by a person and, later, retrieved by the panel's widget
+— one copy, two consumers, no drift.
 
 They are **not** part of the measured seam. Nothing here is imported by
-`raglab/`, nothing here changes a number, and nothing here is a claim about this
-corpus. Each file separates what the literature *measured* from what this lab
-has measured, and the final section of every skill says how the technique maps
+`raglab/`, nothing here changes a number, and nothing here is a claim about
+any bundled corpus. Each file separates what the literature *measured* from
+what this lab has measured — findings are labelled by the corpus they were
+taken on — and the final section of every skill says how the technique maps
 onto the knobs that already exist here.
 
 ## The fourteen
@@ -63,9 +67,9 @@ costs nothing to adopt and is portable across runtimes.
 Three reasons it is the right choice here over a single `ADVANCED_RAG.md`:
 
 - **The description is a free retrieval index.** "What it does and when to use
-  it" is exactly the routing signal a search tool needs. A keyword match over ten
-  descriptions is cheap and honest; a keyword match over one 2000-line file
-  returns the file.
+  it" is exactly the routing signal a search tool needs. A keyword match over
+  fourteen descriptions is cheap and honest; a keyword match over one
+  2000-line file returns the file.
 - **Progressive disclosure.** The body is only paid for when the skill is
   actually opened. That is the same two-level retrieve-then-expand pattern as
   `drill-down` in `raglab/hierarchy.py` — search the summaries, expand the one
@@ -85,36 +89,41 @@ for d in skills/*/; do
 done
 ```
 
-## Feeding them to the widget — not done yet
+## Feeding them to the widget — designed, gated, not yet implemented
 
 `raglab/widget.py` currently answers from `KNOWLEDGE_BASE`, a dict of seven
 strings about this project, through a `search_knowledge_base` tool that keyword-
 matches keys and bodies. Making it a RAG expert means adding this corpus beside
-that dict. The shape that fits both the widget and this format:
+that dict. The design is pinned by `tests/test_skills.py` on the
+`feature/rag-skills` branch (a test-first gate: the test exists, the
+implementation follows its approval):
 
-- A loader that reads `skills/*/SKILL.md`, splits frontmatter from body, and
-  caches the result. Frontmatter only at import; bodies read on demand.
-- **Two tools, not one.** `search_rag_techniques(query)` returns names and
-  descriptions — ten short lines, always affordable. `read_rag_skill(name)`
-  returns one body. The model routes on the first and pays for the second only
-  when it commits. Collapsing them into one tool that returns matching bodies
-  puts several thousand tokens into the loop for a question that wanted one line.
-- A system prompt that keeps the two corpora distinct: `KNOWLEDGE_BASE` is *this
-  project*, `skills/` is *the field*. The widget must not answer "what does this
-  lab do" out of a technique paper, and must not present a literature claim as a
-  measurement taken here.
-
-Two things to decide before writing it, both of which are why this is a separate
-pass:
-
-- **Whether a keyword match is enough.** It is the honest first version — the
-  widget retrieves nothing today, and ten descriptions are small enough that
-  lexical matching works. Reaching for the lab's own embedder would put the
-  widget inside the measured seam, which the module header explicitly refuses.
-- **How the CLI backends see it.** `CliChat` has no `bind_tools`, so the two CLI
-  options answer in one call with the knowledge base inlined. Ten skill bodies
-  cannot be inlined. The CLI path would get the descriptions only, and the option
-  label has to say so — an option states what it can do.
+- **A loader, `raglab/skills.py`** — reads `skills/*/SKILL.md` from disk at
+  call time, splits frontmatter from body, caches in process memory by file
+  mtime. Nothing from the Markdown is copied into Python; the folder is the
+  source of truth, and a convention test holds the loader to serving exactly
+  the folders that exist. The one hand-written string is `DISTINCTIONS`, the
+  guide to how the near-neighbour skills differ, which the same test forces to
+  name every skill.
+- **Two tools, not one.** `search_rag_skills(query)` returns names and
+  descriptions — fourteen short lines, always affordable. `read_rag_skill(names)`
+  returns bodies, several per call but capped at three, reporting an unknown
+  name while still serving the known ones. The model routes on the first and
+  pays for the second only when it commits. Collapsing them into one tool that
+  returns matching bodies puts several thousand tokens into the loop for a
+  question that wanted one line.
+- **A keyword match, on purpose.** Fourteen descriptions are small enough that
+  lexical matching works, and reaching for the lab's own embedder would put
+  the widget inside the measured seam, which its module header refuses.
+- **A system prompt that keeps the two corpora distinct**: `KNOWLEDGE_BASE` is
+  *this project*, `skills/` is *the field*. The widget must not answer "what
+  does this lab do" out of a technique paper, and must not present a
+  literature claim as a measurement taken here.
+- **The CLI backends get the index only.** `CliChat` has no `bind_tools`, so
+  the two CLI options answer in one call with the knowledge base inlined.
+  Fourteen skill bodies cannot be inlined; the CLI prompt carries the names
+  and descriptions and says the bodies are out of reach there — an option
+  states what it can do.
 
 ## Keeping them honest
 

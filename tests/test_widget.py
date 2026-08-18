@@ -46,6 +46,105 @@ def test_calculate_refuses_anything_that_is_not_arithmetic():
         widget.calculate.func('__import__("os").getcwd()')
 
 
+# --- the six hooks, as middleware ----------------------------------------
+
+def test_before_agent_refuses_an_empty_question_and_caps_a_long_one():
+    # this is a unit test
+    """`_validate` is `check_request`'s work, factored out because the CLI
+    path has no graph to hang middleware on."""
+    with pytest.raises(ValueError):
+        widget._validate('   ')
+    assert widget._validate('  hello  ') == 'hello'
+    assert len(widget._validate('x' * 9000)) == widget.MAX_QUESTION
+
+
+def test_check_request_caps_by_replacing_the_question_not_appending_to_it():
+    # this is a unit test
+    """The capped question goes back with the same message id, so
+    `add_messages` overwrites it instead of asking twice."""
+    from langchain_core.messages import HumanMessage
+    asked = HumanMessage(content='x' * 9000)
+    update = widget.check_request.before_agent({'messages': [asked]}, None)
+    written = update['messages'][0]
+    assert written.id == asked.id
+    assert len(written.content) == widget.MAX_QUESTION
+    short = HumanMessage(content='which ports?')
+    assert widget.check_request.before_agent({'messages': [short]}, None) is None
+
+
+def test_trim_and_call_shortens_the_request_never_the_transcript():
+    # this is a unit test
+    """1.x has no `llm_input_messages`: the trim is an override on the request
+    handed to this hop, and the graph's own messages are left alone."""
+    seen = {}
+
+    class FakeRequest:
+        def __init__(self, messages):
+            self.messages = messages
+            self.model = type('M', (), {'model_name': 'openai/gpt-5-nano'})()
+
+        def override(self, **changes):
+            return FakeRequest(changes['messages'])
+
+    request = FakeRequest(list(range(widget.MAX_HISTORY + 5)))
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+    assert len(seen['messages']) == widget.MAX_HISTORY
+    assert len(request.messages) == widget.MAX_HISTORY + 5
+
+
+def test_check_reply_tells_a_tool_hop_from_an_answer():
+    # this is a unit test
+    from langchain_core.messages import AIMessage
+    widget.HOOK_LOG.clear()
+    widget.check_reply.after_model({'messages': [AIMessage(content='', tool_calls=[
+        {'name': 'calculate', 'args': {'expression': '1+1'}, 'id': 'a'}])]}, None)
+    widget.check_reply.after_model({'messages': [AIMessage(content='seven')]}, None)
+    widget.check_reply.after_model({'messages': [AIMessage(content='  ')]}, None)
+    assert 'calculate' in widget.HOOK_LOG[0]
+    assert 'answer' in widget.HOOK_LOG[1]
+    assert 'empty reply' in widget.HOOK_LOG[2]
+
+
+def test_log_tool_call_logs_the_call_and_lets_the_error_through():
+    # this is a unit test
+    """Logging, never swallowing: a widget tool that hid its own failure would
+    answer confidently from nothing."""
+    request = type('R', (), {'tool_call': {'name': 'calculate',
+                                           'args': {'expression': '1+1'}}})()
+    widget.HOOK_LOG.clear()
+    assert widget.log_tool_call.wrap_tool_call(request, lambda r: '2') == '2'
+    assert any('calculate' in line for line in widget.HOOK_LOG)
+    with pytest.raises(ValueError):
+        widget.log_tool_call.wrap_tool_call(
+            request, lambda r: (_ for _ in ()).throw(ValueError('boom')))
+    assert any('raised' in line for line in widget.HOOK_LOG)
+
+
+def test_all_six_hooks_are_registered_middleware():
+    # this is a unit test
+    """Each is the framework's own `AgentMiddleware`, not this module's
+    imitation of one — and `create_agent` is handed all six."""
+    from langchain.agents.middleware import AgentMiddleware
+    assert len(widget.MIDDLEWARE) == 6
+    assert all(isinstance(m, AgentMiddleware) for m in widget.MIDDLEWARE)
+    assert [m.name for m in widget.MIDDLEWARE] == [
+        'check_request', 'note_prompt', 'trim_and_call', 'log_tool_call',
+        'check_reply', 'close_the_log']
+
+
+def test_the_two_agent_level_hooks_bracket_a_cli_too(monkeypatch):
+    # this is a unit test
+    """A CLI has no tool loop for the middle four and no graph to hang
+    middleware on — but a request is still validated and a run accounted."""
+    monkeypatch.setattr(widget, 'cli_available', lambda cli: True)
+    monkeypatch.setattr(widget, '_cli_answer', lambda cli, message: 'from the cli')
+    widget.HOOK_LOG.clear()
+    widget.ask('which ports?', model='codex')
+    assert [line.split(':')[0] for line in widget.HOOK_LOG] == ['before_agent',
+                                                                'after_agent']
+
+
 # --- the model picker: four choices, each saying what it can do ----------
 
 def test_the_model_catalogue_offers_four_choices_and_each_names_its_kind():

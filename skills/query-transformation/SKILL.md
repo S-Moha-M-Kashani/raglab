@@ -108,7 +108,7 @@ unmeasured.
   conditional and expensive — and are worth reading side by side.
 - The lab has a Farsi time-scope filter on the query side already, which is a
   reminder that some query-side machinery is corpus-specific rather than general
-  — the four control corpora in `fixtures/groundtruth_datasets/` exist to tell
+  — the four control corpora in `fixtures/corpus_groundtruth_datasets/` exist to tell
   those two apart.
 - **Missing here**: step-back as its own knob, decomposition outside the agent
   loop, and conversational rewriting — the last because the lab evaluates

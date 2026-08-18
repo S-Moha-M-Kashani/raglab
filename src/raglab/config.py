@@ -69,7 +69,7 @@ STEPS = (
 class IndexConfig:
     """What gets indexed. Its fingerprint names the in-memory index."""
     # Which corpus. '' is the built-in Farsi diary; anything else names a file
-    # under fixtures/groundtruth_datasets/ or .datasets/ (see raglab/datasets.py).
+    # under fixtures/corpus_groundtruth_datasets/ or .datasets/ (see raglab/datasets.py).
     # It belongs here rather than beside the run controls because it decides what
     # is stored: an index built over one corpus must never be handed a question
     # from another, and the fingerprint is what makes that impossible.

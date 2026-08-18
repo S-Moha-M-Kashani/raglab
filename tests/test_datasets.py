@@ -146,7 +146,7 @@ def test_the_bundled_datasets_meet_their_contract_and_cover_the_failure_modes():
     loaded = {}
     for name in BUNDLED:
         path = datasets.BUNDLED_DIR / f'{name}.json'
-        assert path.exists(), f'{name} is missing from fixtures/groundtruth_datasets/'
+        assert path.exists(), f'{name} is missing from fixtures/corpus_groundtruth_datasets/'
         payload = json.loads(path.read_text(encoding='utf-8'))
         problems = datasets.validate(payload)
         assert problems == [], (name, problems)
@@ -403,7 +403,7 @@ def test_the_import_control_describes_a_shape_the_importer_really_enforces():
     # The rule that earns its cost is the one a reader must not discover from a
     # rejection, and the full contract is one line away.
     assert 'verbatim' in text
-    assert 'fixtures/groundtruth_datasets/' in text
+    assert 'fixtures/corpus_groundtruth_datasets/' in text
     # And each of the three top-level keys the text calls out is one
     # `validate` genuinely refuses the absence of.
     for key in ('dataset', 'sessions', 'questions'):

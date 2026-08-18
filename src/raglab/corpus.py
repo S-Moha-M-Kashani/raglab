@@ -1,20 +1,42 @@
-"""Fixture access: the year of diary sessions and its ground-truth questions."""
+"""Fixture access: the year of diary sessions and its ground-truth questions.
+
+One file since 2026-08-18 (they were `diary_year_fa.json` plus
+`diary_year_fa_groundtruth.json`): corpus and ground truth merged under the
+`groundtruth` key, in the folder every other corpus already lived in. The
+diary keeps its native schema rather than the import contract — `persona`,
+`threads` and `habits` are fields the pipeline reads and the contract does
+not carry — so `datasets._files` skips this file by path instead of parsing
+it as a bundled dataset.
+"""
 import json
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parents[2] / 'fixtures'
-DIARY_PATH = FIXTURES / 'diary_year_fa.json'
-GROUND_TRUTH_PATH = FIXTURES / 'diary_year_fa_groundtruth.json'
+DIARY_PATH = FIXTURES / 'corpus_groundtruth_datasets' / 'diary_year_fa.json'
+
+# path -> (mtime, parsed). The merge made both loaders read one ~1.4 MB file,
+# and every builtin `datasets.load` calls both — without this, two full
+# parses per call where the other corpora pay one per process. Mtime-keyed
+# like the skills loader, so an edited fixture is still served fresh.
+_CACHE: dict = {}
+
+
+def _read(path: Path) -> dict:
+    stamp = path.stat().st_mtime
+    cached = _CACHE.get(path)
+    if cached is None or cached[0] != stamp:
+        with open(path, encoding='utf-8') as f:
+            cached = (stamp, json.load(f))
+        _CACHE[path] = cached
+    return cached[1]
 
 
 def load_diary(path: Path = DIARY_PATH) -> dict:
-    with open(path, encoding='utf-8') as f:
-        return json.load(f)
+    return _read(path)
 
 
-def load_ground_truth(path: Path = GROUND_TRUTH_PATH) -> dict:
-    with open(path, encoding='utf-8') as f:
-        return json.load(f)
+def load_ground_truth(path: Path = DIARY_PATH) -> dict:
+    return _read(path)['groundtruth']
 
 
 def date_int(date: str) -> int:

@@ -66,7 +66,7 @@ def session(diary):
     return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
 
 
-# The smoke corpus (`fixtures/groundtruth_datasets/smoke-mini.json`, 5
+# The smoke corpus (`fixtures/corpus_groundtruth_datasets/smoke-mini.json`, 5
 # sessions, 6 questions) with `token-hash`, which needs no model download —
 # every integration test that needs *an* index rather than specifically the
 # 167-session Farsi diary reaches for this instead of building the big one.

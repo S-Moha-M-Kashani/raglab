@@ -71,8 +71,10 @@ HELP = {
         'highlighted spans and the offline context metrics are all computed '
         'against those strings, so a corpus that misquotes itself does not '
         'score worse — it scores confidently about text it never contained. '
-        'The four bundled samples in fixtures/groundtruth_datasets/ all meet '
-        'it and are the working reference.'),
+        'The four bundled samples in fixtures/corpus_groundtruth_datasets/ all meet '
+        'it and are the working reference — all but diary_year_fa.json in '
+        'that folder, which is the built-in corpus in its own native shape, '
+        'not a template for imports.'),
     'index.chunker': (
         'How a day of chat is cut into the pieces that get embedded. '
         '"fixed" packs 500 characters regardless of meaning; "message" keeps one '

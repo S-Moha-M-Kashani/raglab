@@ -3,7 +3,7 @@ surface, an index job, an evaluation job, a run file on disk, a ledger row
 and a leaderboard group. Everything else that proves itself by running the
 whole lab is rewritten as a direct call — see constraints.md.
 
-Smoke set (`fixtures/groundtruth_datasets/smoke-mini.json`, 5 sessions, 6
+Smoke set (`fixtures/corpus_groundtruth_datasets/smoke-mini.json`, 5 sessions, 6
 questions) with `token-hash` (no model download) and the conftest-pinned
 `fake` provider, so this stays fast."""
 from raglab import evaluate

@@ -2120,7 +2120,7 @@ wheels = [
 
 [[package]]
 name = "raglab"
-version = "0.9.0"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -2131,6 +2131,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "networkx" },
     { name = "numpy" },
+    { name = "pyyaml" },
     { name = "ragas" },
     { name = "rapidfuzz" },
     { name = "scikit-learn" },
@@ -2171,6 +2172,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "python-igraph", marker = "extra == 'graph-index'", specifier = ">=0.11" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "ragas", specifier = "==0.4.*" },
     { name = "rapidfuzz" },
     { name = "scikit-learn", specifier = ">=1.4" },

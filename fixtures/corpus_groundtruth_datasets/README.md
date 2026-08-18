@@ -1,8 +1,23 @@
 # Bundled datasets
 
-Four corpora the lab can be pointed at, beside the built-in Farsi diary. They
-are here to answer one question the lab could not answer with a single fixture:
-**is this finding about retrieval, or about Farsi diaries?**
+Four corpora the lab can be pointed at, beside the bundled default (the Farsi
+diary). They are here to answer one question the lab could not answer with a
+single fixture: **is this finding about retrieval, or about Farsi diaries?**
+
+`diary_year_fa.json` in this folder is that built-in default — corpus and
+ground truth merged in one file since 2026-08-18 — and it is the **one file
+here that does not follow the import contract**: it keeps its native schema
+(`persona`, `threads`, `habits`, `groundtruth`), because those are fields the
+pipeline reads and the contract does not carry. Use any of the other four as
+the template for an import, never the diary; `datasets._files` skips it by
+path for the same reason.
+
+Each also stands in for a use case from the map in
+`skills/rag-use-case-architectures/SKILL.md`: the diary is the personal-memory
+row, `support-en` the customer-support row, `meetings-de` the meeting-notes
+row, and `research-multihop` the multi-hop research row — so a row's suggested
+starting architecture can be tried against a corpus of its own shape without
+leaving the repository.
 
 They are read-only reference points. Anything imported through the panel lands
 in `.datasets/` instead, which is git-ignored.

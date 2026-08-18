@@ -8,18 +8,37 @@ must not: talk to OpenRouter through its own `ChatOpenAI`, and trace to
 LangSmith (the env variables below). The architecture is a first cut on
 purpose; promoting or removing it later touches this module and one route.
 
-`langchain.agents.create_agent` cannot install here — ragas 0.4 pins
-`langchain<1` — so the agent is langgraph's `create_react_agent`, the same
-prebuilt tool loop under its pre-1.0 name, from the `agent` extra.
+The agent is `langchain.agents.create_agent` with six middleware hooks, taken
+2026-08-18 when this project moved to langchain 1.x. Before that the pin said
+`langchain<1` and the agent was langgraph's `create_react_agent` — the same
+prebuilt loop under its pre-1.0 name, wired through `pre_model_hook`,
+`post_model_hook` and a callable model because `AgentMiddleware` was a major
+version away.
 """
 import ast
 import os
 import re
+import sys
+import time
 
+if __name__ == '__main__' and __package__ in (None, ''):
+    # A debugger's run-this-file button executes `python src/raglab/widget.py`,
+    # where a relative import has no package to be relative to — so stepping
+    # through this module died on line one. Naming the package here, before the
+    # imports below, is what makes `python -m raglab.widget` and the green
+    # arrow the same run.
+    import pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+    __package__ = 'raglab'
+
+from langchain.agents.middleware import (after_agent, after_model,
+                                         before_agent, before_model,
+                                         wrap_model_call, wrap_tool_call)
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
 from .clichat import CliChat, checked_effort, cli_available
-from .settings import PROVIDER_MODELS
+from .settings import PROVIDER_MODELS, load_env_file
 
 # Read at build time, never at import: the suite runs offline, and a missing
 # variable must become a stated refusal rather than a KeyError at import.
@@ -80,6 +99,130 @@ KNOWLEDGE_BASE = {
                 'Farsi to the zero vector and scores ~0.01 recall against '
                 '0.617 for the real encoder.',
 }
+
+
+# --- the six hooks, as middleware ----------------------------------------
+#
+# One decorator each, from `langchain.agents.middleware`, and the decorated
+# object *is* the middleware — the framework's own seam rather than this
+# module's imitation of one. They are declared here at import (measured: 0.07 s
+# on top of what this module already pays for langchain_core) and handed to
+# `create_agent` in `_build_agent`; the agent itself is still built on the
+# first request, which is the laziness that matters.
+#
+# One line of real work each: the point is that they are visible, and that each
+# has somewhere obvious to put a breakpoint.
+
+HOOKS_VERBOSE = False        # main() turns this on; the route leaves it off
+HOOK_LOG: list[str] = []     # what fired, in order — the whole run at a glance
+
+MAX_QUESTION = 500           # the longest request it will accept
+MAX_HISTORY = 20             # how much history one model call sees
+
+
+def _fired(hook: str, detail: str) -> None:
+    HOOK_LOG.append(f'{hook}: {detail}')
+    if HOOKS_VERBOSE:
+        print(f'      [{hook}] {detail}')
+
+
+def _validate(text: str) -> str:
+    """What `check_request` does, factored out because the CLI path has no
+    loop to hang middleware on and must still be able to do it."""
+    text = text.strip()
+    if not text:
+        raise ValueError('the widget was asked nothing')
+    text = text[:MAX_QUESTION]
+    _fired('before_agent', f'{len(text)} chars, {len(text.split())} words')
+    return text
+
+
+def _account(reply: str) -> str:
+    """Likewise `close_the_log`'s half."""
+    _fired('after_agent', f'{len(reply)} chars, {len(HOOK_LOG)} hooks fired')
+    return reply
+
+
+@before_agent
+def check_request(state, runtime):
+    """Before the agent starts: validate the request. It is the request that
+    is checked and not the answer, because an over-long question is the one
+    thing here that can cost real money. A capped question is written back as
+    a *replacement* — same message id, so `add_messages` overwrites it rather
+    than appending a second copy of the question."""
+    last = state['messages'][-1]
+    text = _validate(str(last.content))
+    if text == str(last.content):
+        return None
+    return {'messages': [last.model_copy(update={'content': text})]}
+
+
+@before_model
+def note_prompt(state, runtime):
+    """Before each LLM call: say what the loop is about to send. This is where
+    context injection would go; the trim itself belongs one hook further in,
+    where it can be applied to the request instead of to the transcript."""
+    _fired('before_model', f'{len(state["messages"])} messages in state')
+    return None
+
+
+@wrap_model_call
+def trim_and_call(request, handler):
+    """Around each LLM call: trim what this hop sees, name the model, and hand
+    it on. `request.override` is 1.x's non-destructive trim — langgraph's
+    `llm_input_messages` is gone, and writing `messages` from `before_model`
+    would delete the transcript rather than shorten a prompt."""
+    if len(request.messages) > MAX_HISTORY:
+        request = request.override(messages=request.messages[-MAX_HISTORY:])
+    name = getattr(request.model, 'model_name', type(request.model).__name__)
+    _fired('wrap_model_call', f'{name}, {len(request.messages)} messages')
+    return handler(request)
+
+
+@wrap_tool_call
+def log_tool_call(request, handler):
+    """Around each tool call: log it, and let an error through after saying so.
+    A widget tool that swallowed its own failure would answer confidently from
+    nothing, which is the one thing this module must not do."""
+    call = request.tool_call
+    _fired('wrap_tool_call', f'{call["name"]}({str(call["args"])[:60]})')
+    try:
+        result = handler(request)
+    except Exception as error:
+        _fired('wrap_tool_call', f'{call["name"]} raised {error}')
+        raise
+    _fired('wrap_tool_call',
+           f'{call["name"]} → {str(getattr(result, "content", result))[:60]}')
+    return result
+
+
+@after_model
+def check_reply(state, runtime):
+    """After each LLM response: look at what came back. A tool-calling hop and
+    a final answer are the two shapes, and an empty one is neither — the
+    `clichat` finding, stated where it can be seen rather than swallowed."""
+    last = state['messages'][-1]
+    calls = getattr(last, 'tool_calls', None) or []
+    text = str(last.content)
+    if calls:
+        shape = f'{len(calls)} tool call(s): ' + ', '.join(c['name'] for c in calls)
+    else:
+        shape = f'{len(text)} chars of answer' if text.strip() else 'empty reply'
+    _fired('after_model', shape)
+    return None
+
+
+@after_agent
+def close_the_log(state, runtime):
+    """After the agent completes: the analytics line. `HOOK_LOG` is the whole
+    account of the run, and this is where it is closed."""
+    _account(str(state['messages'][-1].content))
+    return None
+
+
+# Order is the order they nest in, and it is the order they are declared in.
+MIDDLEWARE = [check_request, note_prompt, trim_and_call, log_tool_call,
+              check_reply, close_the_log]
 
 
 @tool
@@ -165,16 +308,18 @@ def _build_agent(model: str):
     os.environ['LANGSMITH_PROJECT']
     os.environ['LANGSMITH_TRACING']
 
-    try:
-        from langgraph.prebuilt import create_react_agent
-    except ImportError as error:
-        raise WidgetUnavailable(
-            'langgraph is not installed — launch with --extra agent') from error
+    from langchain.agents import create_agent
     from langchain_openai import ChatOpenAI
 
     llm = ChatOpenAI(model=model, api_key=openrouter_api_key,
                      base_url=_openrouter_url())
-    return create_react_agent(llm, tools=TOOLS, prompt=SYSTEM_PROMPT)
+    # A static model, so `create_agent` binds the tools itself. It was a
+    # *callable* under langgraph's prebuilt loop, which binds tools only to the
+    # static kind — and the agent then answered from its own knowledge, called
+    # neither tool, and said nothing about it. Interception lives in
+    # `trim_and_call` now, which is where 1.x puts it.
+    return create_agent(llm, tools=TOOLS, system_prompt=SYSTEM_PROMPT,
+                        middleware=MIDDLEWARE)
 
 
 def _cli_answer(cli: str, message: str) -> str:
@@ -207,12 +352,17 @@ def ask(message: str, model: str = '') -> str:
         raise ValueError(f'{choice!r} is not a widget model; expected one of '
                          + ', '.join(repr(v) for v in WIDGET_MODELS))
     if kind == 'cli':
-        return _cli_answer(choice, message)
+        # The two agent-level hooks bracket a CLI too, through the halves they
+        # were factored into: a CLI has no loop for the middle four, and no
+        # graph to hang middleware on at all.
+        return _account(_cli_answer(choice, _validate(message)))
     if choice not in _AGENTS:
         _AGENTS[choice] = _build_agent(choice)
     try:
+        # A real HumanMessage rather than a dict, so it carries an id that
+        # `check_request` can write a capped question back over.
         result = _AGENTS[choice].invoke(
-            {'messages': [{'role': 'user', 'content': message}]},
+            {'messages': [HumanMessage(content=message)]},
             config={'recursion_limit': 12})
     except WidgetUnavailable:
         raise
@@ -224,4 +374,43 @@ def ask(message: str, model: str = '') -> str:
     if isinstance(reply, list):
         reply = ' '.join(part.get('text', '') if isinstance(part, dict) else str(part)
                          for part in reply)
+    # `close_the_log` already accounted for this run from inside the graph.
     return str(reply)
+
+
+# --- the end-to-end check -------------------------------------------------
+#
+#     uv run python -m raglab.widget [model] [question ...]
+#
+# or the file itself, under a debugger. Real calls: a live model over the
+# network, or a real CLI process. Not a console entry point and not a test —
+# the suite is offline, and this is the thing that is not.
+#
+# Nothing here catches or exits: a refusal should stop the debugger where it
+# was raised, and the two questions are the two tools.
+
+QUESTIONS = ('Which ports do the lab and the Inspector serve on?',
+             'What is 174 - 167?')
+
+
+def main(model: str = DEFAULT_MODEL, questions: tuple = QUESTIONS) -> None:
+    global HOOKS_VERBOSE
+    HOOKS_VERBOSE = True                 # hooks print as they fire
+    load_env_file()                      # the route's server did this already
+    kind, label = WIDGET_MODELS[model]
+    print(f'{label}  [{kind}]  tools: {[t.name for t in TOOLS]}\n')
+    for question in questions:
+        HOOK_LOG.clear()
+        started = time.perf_counter()
+        answer = ask(question, model)
+        print(f'\n  {question}\n  → {answer.strip()}'
+              f'\n  {time.perf_counter() - started:.1f}s, '
+              f'{len(HOOK_LOG)} hooks\n')
+
+
+if __name__ == '__main__':
+    # argv, not argparse: two optional positionals, and a debugger that runs
+    # this file with none of them gets the defaults.
+    main(sys.argv[1] if len(sys.argv) > 1 else DEFAULT_MODEL,
+         (' '.join(sys.argv[2:]),) if len(sys.argv) > 2 else QUESTIONS)
+

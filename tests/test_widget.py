@@ -13,6 +13,7 @@ from raglab import widget
 # --- the knowledge base and the two tools -------------------------------
 
 def test_the_knowledge_base_has_facts_and_they_are_strings():
+    # this is a unit test
     assert widget.KNOWLEDGE_BASE
     for key, value in widget.KNOWLEDGE_BASE.items():
         assert isinstance(key, str) and key
@@ -20,30 +21,134 @@ def test_the_knowledge_base_has_facts_and_they_are_strings():
 
 
 def test_search_finds_a_known_fact_by_keyword():
+    # this is a unit test
     reply = widget.search_knowledge_base.invoke({'query': 'ports'})
     assert '9002' in reply
 
 
 def test_search_says_so_when_nothing_matches():
+    # this is a unit test
     reply = widget.search_knowledge_base.invoke({'query': 'zeppelin'})
     assert 'no entry' in reply.lower()
 
 
 def test_calculate_does_arithmetic():
+    # this is a unit test
     reply = widget.calculate.invoke({'expression': '68000000 / 551695'})
     assert reply.startswith('123.2')
 
 
 def test_calculate_refuses_anything_that_is_not_arithmetic():
+    # this is a unit test
     """The expression is evaluated over an AST whitelist, never `eval` — a
     tool handed to a model must not be a Python prompt."""
     with pytest.raises(ValueError):
         widget.calculate.func('__import__("os").getcwd()')
 
 
+# --- the six hooks, as middleware ----------------------------------------
+
+def test_before_agent_refuses_an_empty_question_and_caps_a_long_one():
+    # this is a unit test
+    """`_validate` is `check_request`'s work, factored out because the CLI
+    path has no graph to hang middleware on."""
+    with pytest.raises(ValueError):
+        widget._validate('   ')
+    assert widget._validate('  hello  ') == 'hello'
+    assert len(widget._validate('x' * 9000)) == widget.MAX_QUESTION
+
+
+def test_check_request_caps_by_replacing_the_question_not_appending_to_it():
+    # this is a unit test
+    """The capped question goes back with the same message id, so
+    `add_messages` overwrites it instead of asking twice."""
+    from langchain_core.messages import HumanMessage
+    asked = HumanMessage(content='x' * 9000)
+    update = widget.check_request.before_agent({'messages': [asked]}, None)
+    written = update['messages'][0]
+    assert written.id == asked.id
+    assert len(written.content) == widget.MAX_QUESTION
+    short = HumanMessage(content='which ports?')
+    assert widget.check_request.before_agent({'messages': [short]}, None) is None
+
+
+def test_trim_and_call_shortens_the_request_never_the_transcript():
+    # this is a unit test
+    """1.x has no `llm_input_messages`: the trim is an override on the request
+    handed to this hop, and the graph's own messages are left alone."""
+    seen = {}
+
+    class FakeRequest:
+        def __init__(self, messages):
+            self.messages = messages
+            self.model = type('M', (), {'model_name': 'openai/gpt-5-nano'})()
+
+        def override(self, **changes):
+            return FakeRequest(changes['messages'])
+
+    request = FakeRequest(list(range(widget.MAX_HISTORY + 5)))
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+    assert len(seen['messages']) == widget.MAX_HISTORY
+    assert len(request.messages) == widget.MAX_HISTORY + 5
+
+
+def test_check_reply_tells_a_tool_hop_from_an_answer():
+    # this is a unit test
+    from langchain_core.messages import AIMessage
+    widget.HOOK_LOG.clear()
+    widget.check_reply.after_model({'messages': [AIMessage(content='', tool_calls=[
+        {'name': 'calculate', 'args': {'expression': '1+1'}, 'id': 'a'}])]}, None)
+    widget.check_reply.after_model({'messages': [AIMessage(content='seven')]}, None)
+    widget.check_reply.after_model({'messages': [AIMessage(content='  ')]}, None)
+    assert 'calculate' in widget.HOOK_LOG[0]
+    assert 'answer' in widget.HOOK_LOG[1]
+    assert 'empty reply' in widget.HOOK_LOG[2]
+
+
+def test_log_tool_call_logs_the_call_and_lets_the_error_through():
+    # this is a unit test
+    """Logging, never swallowing: a widget tool that hid its own failure would
+    answer confidently from nothing."""
+    request = type('R', (), {'tool_call': {'name': 'calculate',
+                                           'args': {'expression': '1+1'}}})()
+    widget.HOOK_LOG.clear()
+    assert widget.log_tool_call.wrap_tool_call(request, lambda r: '2') == '2'
+    assert any('calculate' in line for line in widget.HOOK_LOG)
+    with pytest.raises(ValueError):
+        widget.log_tool_call.wrap_tool_call(
+            request, lambda r: (_ for _ in ()).throw(ValueError('boom')))
+    assert any('raised' in line for line in widget.HOOK_LOG)
+
+
+def test_all_six_hooks_are_registered_middleware():
+    # this is a unit test
+    """Each is the framework's own `AgentMiddleware`, not this module's
+    imitation of one — and `create_agent` is handed all six."""
+    from langchain.agents.middleware import AgentMiddleware
+    assert len(widget.MIDDLEWARE) == 6
+    assert all(isinstance(m, AgentMiddleware) for m in widget.MIDDLEWARE)
+    assert [m.name for m in widget.MIDDLEWARE] == [
+        'check_request', 'note_prompt', 'trim_and_call', 'log_tool_call',
+        'check_reply', 'close_the_log']
+
+
+def test_the_two_agent_level_hooks_bracket_a_cli_too(monkeypatch):
+    # this is a unit test
+    """A CLI has no tool loop for the middle four and no graph to hang
+    middleware on — but a request is still validated and a run accounted."""
+    monkeypatch.setattr(widget, 'cli_available', lambda cli: True)
+    monkeypatch.setattr(widget, '_cli_answer', lambda cli, message: 'from the cli')
+    widget.HOOK_LOG.clear()
+    widget.ask('which ports?', model='codex')
+    assert [line.split(':')[0] for line in widget.HOOK_LOG] == ['before_agent',
+                                                                'after_agent']
+
+
 # --- the model picker: four choices, each saying what it can do ----------
 
 def test_the_model_catalogue_offers_four_choices_and_each_names_its_kind():
+    # this is a unit test
     """Two OpenRouter models that run the tool loop, two CLIs that cannot
     (`CliChat` has no `bind_tools`) — and the CLI labels say so, the
     catalogue rule that an option states what it can do."""
@@ -63,12 +168,14 @@ def test_the_model_catalogue_offers_four_choices_and_each_names_its_kind():
 
 
 def test_an_unknown_model_is_refused_by_name():
+    # this is a unit test
     with pytest.raises(ValueError) as caught:
         widget.ask('hello', model='gpt-4')
     assert 'gpt-4' in str(caught.value)
 
 
 def test_a_missing_cli_command_is_a_stated_refusal(monkeypatch):
+    # this is a unit test
     """Availability is the binary — there is nothing else to ask a CLI."""
     monkeypatch.setattr(widget, 'cli_available', lambda cli: False)
     with pytest.raises(widget.WidgetUnavailable) as caught:
@@ -77,6 +184,7 @@ def test_a_missing_cli_command_is_a_stated_refusal(monkeypatch):
 
 
 def test_the_cli_path_needs_no_key_and_carries_the_knowledge_base(monkeypatch):
+    # this is a unit test
     """The whole point of a CLI backend is no API key — so the five env
     variables are the OpenRouter path's requirement, not the widget's. And
     with no tool loop, the knowledge base must travel in the prompt or the
@@ -102,6 +210,7 @@ def test_the_cli_path_needs_no_key_and_carries_the_knowledge_base(monkeypatch):
 
 
 def test_the_widget_serves_its_own_model_list(client):
+    # this is an integration test
     """The panel keeps no list of its own — the rule both panels already
     follow for every other model dropdown."""
     data = client.get('/api/widget').json()
@@ -111,6 +220,7 @@ def test_the_widget_serves_its_own_model_list(client):
 
 
 def test_the_route_passes_the_chosen_model_through(client, monkeypatch):
+    # this is an integration test
     seen = {}
 
     def fake_ask(message, model=''):
@@ -127,6 +237,7 @@ def test_the_route_passes_the_chosen_model_through(client, monkeypatch):
 # --- laziness: importing the widget costs nothing ------------------------
 
 def test_importing_the_widget_builds_no_agent_and_reads_no_env():
+    # this is a unit test
     """The suite runs offline and a build must open no socket, so the agent
     exists only after the first request asks for it."""
     widget.reset()
@@ -134,6 +245,7 @@ def test_importing_the_widget_builds_no_agent_and_reads_no_env():
 
 
 def test_a_missing_env_variable_is_a_stated_refusal(monkeypatch):
+    # this is a unit test
     """The five variables the widget needs are read at build time, and the
     refusal names the one that is missing — the `GradeUnavailable` pattern,
     never a KeyError half way up a stack trace."""
@@ -146,6 +258,7 @@ def test_a_missing_env_variable_is_a_stated_refusal(monkeypatch):
 
 
 def test_the_openrouter_base_url_is_read_from_the_environment(monkeypatch):
+    # this is a unit test
     """`.env` already carries OPENROUTER_BASE_URL for the lab's own backend —
     the widget reads the same variable rather than keeping a second copy of
     the endpoint, and falls back to the public one when it is unset."""
@@ -156,6 +269,7 @@ def test_the_openrouter_base_url_is_read_from_the_environment(monkeypatch):
 
 
 def test_an_empty_env_variable_is_missing_too(monkeypatch):
+    # this is a unit test
     """`load_env` strips values, so a `KEY= ` line in .env lands as ''. An
     empty key would sail past a presence check and die inside the OpenAI
     client naming a variable this lab never reads (OPENAI_API_KEY) — found
@@ -173,6 +287,7 @@ def test_an_empty_env_variable_is_missing_too(monkeypatch):
 # --- the route -----------------------------------------------------------
 
 def test_the_route_answers_with_the_agents_reply(client, monkeypatch):
+    # this is an integration test
     monkeypatch.setattr(widget, 'ask',
                         lambda message, model='': f'echo: {message}')
     answer = client.post('/api/widget', json={'message': 'what is this lab?'})
@@ -181,11 +296,13 @@ def test_the_route_answers_with_the_agents_reply(client, monkeypatch):
 
 
 def test_the_route_refuses_an_empty_message(client):
+    # this is an integration test
     answer = client.post('/api/widget', json={'message': '   '})
     assert answer.status_code == 400
 
 
 def test_an_unavailable_widget_is_a_502_naming_the_reason(client, monkeypatch):
+    # this is an integration test
     """The lab is up, its widget is not — the same split `/api/queries` makes
     for an unreachable grade model."""
     def refuse(message, model=''):
@@ -199,6 +316,7 @@ def test_an_unavailable_widget_is_a_502_naming_the_reason(client, monkeypatch):
 # --- the real build, when the extra is installed --------------------------
 
 def test_the_agent_builds_offline_when_the_extra_is_present(monkeypatch):
+    # this is a unit test
     """Constructing the agent opens no socket — fake values are enough to
     build it, which is what keeps the lazy path testable at all."""
     pytest.importorskip('langgraph')

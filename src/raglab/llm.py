@@ -1,9 +1,9 @@
 """LabSettings -> a LangChain chat model, chosen by `RAGLAB_LLM`, plus the offline fake.
 
 'openrouter' and 'ollama' both build through `init_chat_model` as OpenAI-compatible
-endpoints rather than ChatOllama, which the `langchain-openai<1` pin ragas 0.4
-requires does not cover; `claude`/`codex` run a CLI subprocess instead (`clichat.py`)
-but arrive through this same function.
+endpoints rather than ChatOllama, which is one provider package this project does
+not carry; `claude`/`codex` run a CLI subprocess instead (`clichat.py`) but arrive
+through this same function.
 """
 from typing import Any, Optional, Sequence
 

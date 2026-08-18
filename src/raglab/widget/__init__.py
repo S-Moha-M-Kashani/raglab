@@ -1,0 +1,39 @@
+"""The panel's LLM widget: one self-contained package, deliberately outside
+`llm.py`'s measured seam.
+
+It answers questions about this project from a small knowledge base and a
+calculator — it retrieves nothing, judges nothing, and writes no run, no
+ledger row and no number. That is why it may do two things the measured path
+must not: talk to OpenRouter through its own `ChatOpenAI`, and trace to
+LangSmith (backends.REQUIRED_ENV). Removing the widget is deleting this
+folder and the one route in server.py; a convention test pins that no other
+lab module reaches in, and that this package reaches the lab only through
+its unmeasured edges (skills, clichat, settings).
+
+One module per concern: `prompts` loads the model-facing fixtures,
+`hooks` holds the six middleware, `tools` the five tools and their registry,
+`probe` the bilingual measurement those tools wrap, `backends` the catalogue
+and the two answer paths, `__main__` the real-call harness.
+
+The agent is `langchain.agents.create_agent` with six middleware hooks, taken
+2026-08-18 when this project moved to langchain 1.x. Before that the pin said
+`langchain<1` and the agent was langgraph's `create_react_agent` — the same
+prebuilt loop under its pre-1.0 name, wired through `pre_model_hook`,
+`post_model_hook` and a callable model because `AgentMiddleware` was a major
+version away.
+"""
+# The submodules stay reachable (widget.backends, widget.probe, ...) because
+# a test that monkeypatches an internal must patch the module that defines
+# it, not this package's re-export of it.
+from . import backends, hooks, probe, prompts, tools
+from .backends import (DEFAULT_MODEL, REQUIRED_ENV, WIDGET_MODELS,
+                       WidgetUnavailable, _AGENTS, _build_agent,
+                       _cli_system, _openrouter_url, ask, reset)
+from .hooks import (HOOK_LOG, MAX_HISTORY, MAX_QUESTION, MIDDLEWARE,
+                    _validate, check_reply, check_request, close_the_log,
+                    log_tool_call, note_prompt, trim_and_call)
+from .probe import _read_pairs
+from .prompts import KNOWLEDGE_BASE, PROMPTS_DIR, SYSTEM_PROMPT
+from .tools import (MAX_SKILL_READS, TOOLS, calculate,
+                    measure_bilingual_alignment, read_rag_skill,
+                    search_knowledge_base, search_rag_skills)

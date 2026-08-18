@@ -77,12 +77,15 @@ KNOWLEDGE_BASE = {
     'ports': 'The lab serves its panel on port 9002 '
              '(uv run --extra local-embeddings raglab); the read-only '
              'Inspector runs on port 9003 (uv run raglab-inspector).',
-    'architecture': 'The chosen retrieval architecture is candidate F, the '
-                    'gated pipeline: semantic-drift chunks, '
-                    'heydariAI/persian-embeddings, hybrid-RRF at k=8, lexical '
-                    'rerank, time filter, plus an LLM relevance gate '
-                    '(grader=llm, grade_threshold=0.4) between retrieval and '
-                    'generation.',
+    'architecture': 'The lab prescribes no single architecture: every stage '
+                    'is a config knob, and the right pipeline depends on the '
+                    'use case. For the bundled diary case study, the measured '
+                    'choice was candidate F, the gated pipeline: '
+                    'semantic-drift chunks, heydariAI/persian-embeddings, '
+                    'hybrid-RRF at k=8, lexical rerank, time filter, plus an '
+                    'LLM relevance gate (grader=llm, grade_threshold=0.4) '
+                    'between retrieval and generation — a finding about that '
+                    'corpus, not a default for others.',
     'metrics': 'Exactly four judged metrics choose the architecture: '
                'faithfulness, answer relevancy, LLM context precision and '
                'context recall. Their unweighted mean is the decision score, '
@@ -96,7 +99,9 @@ KNOWLEDGE_BASE = {
                 'sweep changes exactly one knob per candidate and refuses to '
                 'run on the fake backend.',
     'embedder': 'The default embedder is heydariAI/persian-embeddings over '
-                'sentence-transformers (the local-embeddings extra). The '
+                'sentence-transformers (the local-embeddings extra), because '
+                'the bundled default corpus is Farsi — a different corpus '
+                'wants an encoder verified on its own language. The '
                 'ascii-hash embedder is kept as a reference point: it embeds '
                 'Farsi to the zero vector and scores ~0.01 recall against '
                 '0.617 for the real encoder.',

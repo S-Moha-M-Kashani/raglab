@@ -1,11 +1,14 @@
 """The skills corpus and the widget tools that serve it.
 
-`skills/` holds thirteen SKILL.md files — frontmatter (name, description) plus
+`skills/` holds one SKILL.md per skill — frontmatter (name, description) plus
 a Markdown body. `raglab/skills.py` is the loader, and the widget gains two
 tools over it: `search_rag_skills` routes on the descriptions (the cheap
 layer), `read_rag_skill` pays for bodies only on commit, several at a time but
 capped. The same drill-down shape as `summary_scope='drill-down'`, one level
 up. Nothing here reaches a network; the corpus is files in this repository.
+The live probe that pays for a real CLI call lives in
+`tests/test_skills_live.py`; it skips under any broad sweep and runs only
+when named: `uv run pytest tests/test_skills_live.py -v -s`.
 """
 import os
 
@@ -95,7 +98,7 @@ def test_an_edited_skill_is_served_fresh(tmp_path):
 
 def test_the_distinctions_guide_names_every_skill():
     # this is a convention test
-    """The guide is what keeps thirteen near-neighbours apart for the model —
+    """The guide is what keeps the near-neighbour skills apart for the model —
     a skill it does not mention is a skill it cannot disambiguate."""
     for name in skills.index():
         assert name in skills.DISTINCTIONS, f'{name} missing from DISTINCTIONS'

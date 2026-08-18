@@ -46,6 +46,179 @@ def test_calculate_refuses_anything_that_is_not_arithmetic():
         widget.calculate.func('__import__("os").getcwd()')
 
 
+# --- the prompts are fixtures ---------------------------------------------
+
+def test_every_prompt_the_model_reads_is_the_yaml_fixture():
+    # this is a convention test
+    """The model-facing text lives under fixtures/prompts/ — one entry per
+    tool, plus the two system prompts — and what the running widget serves
+    is exactly what the pages say. A tool the page does not name would fail
+    the import itself; this pins the other directions: no orphan entries,
+    no drift, and the CLI template keeps both slots."""
+    import yaml
+    tools_page = yaml.safe_load(
+        (widget.PROMPTS_DIR / 'widget_tools.yaml').read_text(encoding='utf-8'))
+    assert set(tools_page) == {t.name for t in widget.TOOLS}
+    for t in widget.TOOLS:
+        assert t.description == tools_page[t.name].strip()
+    page = yaml.safe_load(
+        (widget.PROMPTS_DIR / 'widget.yaml').read_text(encoding='utf-8'))
+    assert widget.SYSTEM_PROMPT == page['system'].strip()
+    assert '{facts}' in page['cli_system']
+    assert '{skills_index}' in page['cli_system']
+
+
+# --- the bilingual probe tool ---------------------------------------------
+
+def test_the_widget_offers_the_bilingual_probe_tool():
+    # this is a unit test
+    assert 'measure_bilingual_alignment' in {t.name for t in widget.TOOLS}
+    assert 'measure_bilingual_alignment' in widget.SYSTEM_PROMPT
+
+
+def test_the_bundled_pairs_fixture_holds_the_shape_the_docstring_states():
+    # this is a convention test
+    """The tool's docstring states the pairs contract; the bundled fixture
+    is the first data measured against it, so it must satisfy it — a
+    default that fails its own shape is a tool no argument can fix."""
+    pairs, problem = widget._read_pairs('')
+    assert problem is None
+    assert len(pairs) >= 2
+    # and the contract itself is announced to the model, with an example
+    guide = widget.measure_bilingual_alignment.description
+    assert 'JSON list' in guide
+    assert '[english, farsi]' in guide
+    assert 'bilingual_probe_pairs.json' in guide
+
+
+def _fake_encoder(pairs, split: bool):
+    """One-hot fakes over the given pairs: `split=False` maps a sentence and
+    its translation to the same axis (perfect alignment), `split=True` to
+    orthogonal axes (plausible vectors, no cross-language geometry — the
+    silent failure the probe exists to catch)."""
+    import numpy as np
+    n = len(pairs)
+    where = {}
+    for i, (en, fa) in enumerate(pairs):
+        where[en] = i
+        where[fa] = n + i if split else i
+
+    class Fake:
+        def encode(self, texts, normalize_embeddings=True):
+            eye = np.eye(2 * n if split else n)
+            return np.stack([eye[where[t]] for t in texts])
+
+    return Fake()
+
+
+def test_the_probe_reads_an_aligned_encoder_as_aligned(monkeypatch):
+    # this is a unit test
+    """The fake keeps the suite offline while the real encoder run lives in
+    tests/test_skills_live.py."""
+    pairs, _ = widget._read_pairs('')
+    monkeypatch.setattr(widget, '_load_encoder',
+                        lambda name: _fake_encoder(pairs, split=False))
+    reply = widget.measure_bilingual_alignment.invoke({'model_name': 'fake'})
+    assert 'Verdict: aligned' in reply
+    # derived from the fixture, which is editable without touching Python
+    assert f'{len(pairs)}/{len(pairs)}' in reply
+
+
+def test_the_probe_reads_a_language_split_encoder_as_unaligned(monkeypatch):
+    # this is a unit test
+    pairs, _ = widget._read_pairs('')
+    monkeypatch.setattr(widget, '_load_encoder',
+                        lambda name: _fake_encoder(pairs, split=True))
+    reply = widget.measure_bilingual_alignment.invoke({'model_name': 'fake'})
+    assert 'weak or no alignment' in reply
+
+
+def test_the_probe_tells_two_models_apart_and_names_each(monkeypatch):
+    # this is a unit test
+    """`model_name` routes: two encoders measured in one process, opposite
+    verdicts, each reply opening with the model it measured — a reading
+    labelled one encoder that measured another is the worst artefact this
+    lab can produce, the embedder rule applied to the probe."""
+    pairs, _ = widget._read_pairs('')
+    encoders = {'good-encoder': _fake_encoder(pairs, split=False),
+                'bad-encoder': _fake_encoder(pairs, split=True)}
+    asked = []
+
+    def load(name):
+        asked.append(name)
+        return encoders[name]
+
+    monkeypatch.setattr(widget, '_load_encoder', load)
+    good = widget.measure_bilingual_alignment.invoke(
+        {'model_name': 'good-encoder'})
+    bad = widget.measure_bilingual_alignment.invoke(
+        {'model_name': 'bad-encoder'})
+    assert asked == ['good-encoder', 'bad-encoder']
+    assert good.startswith('good-encoder') and 'Verdict: aligned' in good
+    assert bad.startswith('bad-encoder') and 'weak or no alignment' in bad
+
+
+def test_an_empty_model_name_measures_the_lab_default(monkeypatch):
+    # this is a unit test
+    pairs, _ = widget._read_pairs('')
+    asked = []
+
+    def load(name):
+        asked.append(name)
+        return _fake_encoder(pairs, split=False)
+
+    monkeypatch.setattr(widget, '_load_encoder', load)
+    reply = widget.measure_bilingual_alignment.invoke({'model_name': ''})
+    assert asked == ['heydariAI/persian-embeddings']
+    assert reply.startswith('heydariAI/persian-embeddings')
+
+
+def test_the_probe_measures_pairs_the_caller_provides(monkeypatch):
+    # this is a unit test
+    """The pairs argument is the user's way in: their own sentences, in the
+    documented shape, measured instead of the bundled fixture."""
+    import json
+    own = [['I slept badly.', 'بد خوابیدم.'],
+           ['It rained all day.', 'تمام روز باران آمد.'],
+           ['We argued about money.', 'سر پول بحث کردیم.']]
+    monkeypatch.setattr(
+        widget, '_load_encoder',
+        lambda name: _fake_encoder([tuple(p) for p in own], split=False))
+    reply = widget.measure_bilingual_alignment.invoke(
+        {'model_name': 'fake', 'pairs': json.dumps(own, ensure_ascii=False)})
+    assert '3 English-Farsi sentence pairs' in reply
+    assert '3/3' in reply
+
+
+def test_malformed_pairs_are_refused_with_the_shape_stated(monkeypatch):
+    # this is a unit test
+    """The refusal quotes the contract, so the model can correct its next
+    call — and it fires before any encoder loads, so a bad shape costs
+    nothing."""
+    def never(name):
+        raise AssertionError('a malformed payload must not load an encoder')
+    monkeypatch.setattr(widget, '_load_encoder', never)
+    for bad in ('not json at all', '["one string"]',
+                '[["only one pair", "یک جفت"]]',
+                '[["", "خالی"], ["x", "y"]]'):
+        reply = widget.measure_bilingual_alignment.invoke(
+            {'model_name': 'fake', 'pairs': bad})
+        assert reply.startswith('cannot measure'), bad
+        assert '[english, farsi]' in reply, bad
+
+
+def test_a_probe_that_cannot_load_its_encoder_refuses_by_name(monkeypatch):
+    # this is a unit test
+    """The stated-refusal rule: a missing extra or checkpoint is the whole
+    answer, relayed to the model, never a dead tool loop."""
+    def boom(name):
+        raise ImportError('no module named sentence_transformers')
+    monkeypatch.setattr(widget, '_load_encoder', boom)
+    reply = widget.measure_bilingual_alignment.invoke({'model_name': 'x'})
+    assert reply.startswith('cannot measure x')
+    assert 'sentence_transformers' in reply
+
+
 # --- the six hooks, as middleware ----------------------------------------
 
 def test_before_agent_refuses_an_empty_question_and_caps_a_long_one():

@@ -1,0 +1,55 @@
+# The model-facing description of each widget tool — what the agent reads
+# when deciding whether and how to call it. One key per tool name; the
+# convention test holds this file and widget.TOOLS to the same set.
+search_knowledge_base: |-
+  Look up facts about the RAG lab project.
+
+  Use this for any question about what the lab is, its ports, commands,
+  architecture, metrics, storage or embedder.
+
+  Args:
+      query: A few keywords, e.g. "ports" or "decision metrics".
+calculate: |-
+  Evaluate an arithmetic expression, e.g. "68000000 / 551695".
+
+  Args:
+      expression: Numbers and the operators + - * / // % ** only.
+search_rag_skills: |-
+  Find RAG-technique skills — field knowledge about retrieval, chunking,
+  reranking, evaluation, methodology — relevant to a question.
+
+  Returns matching skill names with their descriptions. Matching is
+  literal keyword search, not semantic — a synonym finds nothing — so if
+  the hits look thin or off-topic, search again with different wording
+  before settling. Judge candidates by their descriptions, then follow up
+  with read_rag_skill for the full text of the ones that fit.
+
+  Args:
+      query: A few keywords, e.g. "reranking" or "judge screening".
+read_rag_skill: |-
+  Read the full text of one or more RAG skills, up to three per call.
+
+  Args:
+      names: Skill names from search_rag_skills, comma-separated,
+          e.g. "rag-evaluation, reranking-late-interaction".
+measure_bilingual_alignment: |-
+  Measure, live on this machine, whether an embedding model aligns
+  English with Farsi — i.e. whether one index could serve cross-language
+  search. Use this when asked whether an embedder handles both languages:
+  the answer is a measurement, never the model card's claim.
+
+  Runs each English sentence and its Farsi translation through the
+  encoder and reports translation-pair against mismatched-pair cosine,
+  plus retrieval in a pool mixing both languages (the same-language-bias
+  check).
+
+  Args:
+      model_name: A sentence-transformers checkpoint. Empty means the lab
+          default, heydariAI/persian-embeddings. A checkpoint not already
+          on this machine is downloaded first, possibly gigabytes — name
+          one only when the user asked for that model.
+      pairs: Optional probe data — a JSON list of at least two
+          [english, farsi] pairs, each a non-empty string, e.g.
+          [["I slept badly.", "بد خوابیدم."], ["It rained.", "باران آمد."]].
+          Pass sentences the user provides in this shape. Empty means the
+          bundled diary-like pairs (fixtures/bilingual_probe_pairs.json).

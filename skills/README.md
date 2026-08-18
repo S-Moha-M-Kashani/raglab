@@ -89,14 +89,14 @@ for d in skills/*/; do
 done
 ```
 
-## Feeding them to the widget — designed, gated, not yet implemented
+## Feeding them to the widget
 
-`raglab/widget.py` currently answers from `KNOWLEDGE_BASE`, a dict of seven
-strings about this project, through a `search_knowledge_base` tool that keyword-
-matches keys and bodies. Making it a RAG expert means adding this corpus beside
-that dict. The design is pinned by `tests/test_skills.py` on the
-`feature/rag-skills` branch (a test-first gate: the test exists, the
-implementation follows its approval):
+`raglab/widget.py` answers project questions from `KNOWLEDGE_BASE` (a dict of
+seven strings, through the `search_knowledge_base` tool) and field questions
+from this corpus, through `raglab/skills.py` and two tools. The design is
+pinned by `tests/test_skills.py`; the live probe that pays for a real model
+call is `tests/test_skills_live.py`, which skips under any broad sweep and
+runs only when named on the pytest command line:
 
 - **A loader, `raglab/skills.py`** — reads `skills/*/SKILL.md` from disk at
   call time, splits frontmatter from body, caches in process memory by file

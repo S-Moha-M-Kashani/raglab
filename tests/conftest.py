@@ -66,7 +66,7 @@ def session(diary):
     return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
 
 
-# The smoke corpus (`fixtures/groundtruth_datasets/smoke-mini.json`, 5
+# The smoke corpus (`fixtures/corpus_groundtruth_datasets/smoke-mini.json`, 5
 # sessions, 6 questions) with `token-hash`, which needs no model download —
 # every integration test that needs *an* index rather than specifically the
 # 167-session Farsi diary reaches for this instead of building the big one.
@@ -187,6 +187,18 @@ def _runs_dir_is_never_the_real_one(tmp_path_factory):
         module.RUNS_DIR = original
 
 
+#: The developer-secret variables no test may read from a real `.env`.
+#: `OPENROUTER_API_KEY` was the original hole; `LANGSMITH_TRACING` and
+#: `LANGSMITH_API_KEY` were added once the widget's restore re-sanctioned
+#: those four `.env` variables — `LANGSMITH_TRACING=true` makes tracing
+#: process-global the first time anything builds a LangChain/LangGraph
+#: object (the widget's own agent, or any of `tests/test_agent.py`'s real
+#: LangGraph invocations), and it is set the same `setdefault` way as the
+#: OpenRouter key, so it is exactly the same class of leak.
+_DEVELOPER_SECRET_ENV = ('OPENROUTER_API_KEY', 'LANGSMITH_TRACING',
+                         'LANGSMITH_API_KEY')
+
+
 @pytest.fixture(autouse=True, scope='session')
 def _no_test_reads_the_developers_real_key():
     """`settings.load_env_file` uses `os.environ.setdefault`, so a real
@@ -222,14 +234,28 @@ def _no_test_reads_the_developers_real_key():
     file is itself load-bearing — a future session-scoped autouse fixture
     declared *above* it that calls `create_app()` or `load_lab_settings()`
     would run before this pin took effect and reopen exactly the hole it
-    closes. It is safe today only because none of the other three does."""
-    saved = os.environ.get('OPENROUTER_API_KEY')
-    os.environ['OPENROUTER_API_KEY'] = ''
+    closes. It is safe today only because none of the other three does.
+
+    `LANGSMITH_TRACING` and `LANGSMITH_API_KEY` are pinned alongside the
+    OpenRouter key for the same reason, added once the widget's restore put
+    those variables back in `.env.example`: LangSmith's SDK batches traces on
+    its own background thread over `requests`, entirely outside the `httpx`
+    seam every other network guard in this suite watches, so a developer's
+    real `LANGSMITH_TRACING=true` would trace the ~10 real LangGraph
+    invocations in `tests/test_agent.py` (and any widget test that reaches
+    the OpenRouter agent path) to a real LangSmith project with nothing here
+    to notice. Pinning `LANGSMITH_TRACING` empty (falsy) is what actually
+    stops the SDK from tracing at all; `LANGSMITH_API_KEY` is pinned too so a
+    tracing call that somehow still fires cannot carry a real credential."""
+    saved = {name: os.environ.get(name) for name in _DEVELOPER_SECRET_ENV}
+    for name in _DEVELOPER_SECRET_ENV:
+        os.environ[name] = ''
     yield
-    if saved is None:
-        os.environ.pop('OPENROUTER_API_KEY', None)
-    else:
-        os.environ['OPENROUTER_API_KEY'] = saved
+    for name, value in saved.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 @pytest.fixture(autouse=True)

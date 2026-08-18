@@ -8,17 +8,27 @@ dependencies = [
   "uvicorn>=0.30",
   "numpy>=2.0",
   "httpx>=0.27",
-  # ragas 0.4 requires langchain-openai<1, which resolves langchain-core to
-  # 0.3.x. That was only ever a problem while this code shared an environment
-  # with Lodestar's langchain-1.x brain; it no longer does. Everything used here
-  # — BaseChatModel and .invoke() — exists in both majors.
+  # langchain 1.x, taken 2026-08-18. The old `<1` pins were attributed to ragas
+  # and were not ragas's: no ragas 0.4.x declares an upper bound on any
+  # langchain package (checked 0.4.0 through 0.4.3 on PyPI). What ragas 0.4.3
+  # really requires is one *module* — `ragas/llms/base.py` imports
+  # `langchain_community.chat_models.vertexai` at import time, and
+  # langchain-community 0.4 deleted it. So the constraint is a floor on
+  # langchain-core and a ceiling on langchain-community, and they do not
+  # conflict: community 0.3.31 declares `langchain-core<2`, which is what lets
+  # a 0.3-line community sit under a 1.x core.
   # `langchain` itself, not only -core: `init_chat_model` lives in
   # langchain.chat_models. It arrives transitively via langchain-community, and
   # an import that works by accident is one dependency resolution away from not.
-  "langchain<1",
-  "langchain-core",
-  "langchain-openai<1",
-  "langchain-community<0.4",
+  "langchain>=1,<2",
+  "langchain-core>=1,<2",
+  "langchain-openai>=1,<2",
+  # NOT `<0.4` for the reason the old comment gave (a 1.x brain in a shared
+  # environment) but for ragas's vertexai import above. It is the one pin here
+  # that holds a package back, and it is upstream's to lift: ragas's own main
+  # branch still carries that import (checked 2026-08-18), so a newer ragas is
+  # not waiting to be taken — 0.4.3 is the newest that exists.
+  "langchain-community>=0.3.31,<0.4",
   "ragas==0.4.*",
   # RAGAS's offline string-similarity context metrics need it.
   "rapidfuzz",
@@ -30,6 +40,12 @@ dependencies = [
   # that works by accident is one dependency resolution away from not.
   "networkx>=3.0",
   "scikit-learn>=1.4",
+  # The widget's prompts are YAML pages under fixtures/prompts/, read at
+  # import on the server's startup path. Already in the tree via
+  # langchain-core, and declared for the reason langchain is declared beside
+  # langchain-core: an import that works by accident is one dependency
+  # resolution away from not.
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -51,12 +67,15 @@ graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
 # served by the fixed pipeline — a row labelled `scope=full` that ran no agent is
 # exactly the artefact this lab exists not to produce.
 #
-# langgraph 1.0 resolves against the langchain-core 0.3.x that ragas 0.4 pins
-# (checked: 1.0.1 alongside core 0.3.86), so this costs no move on the caveat at
-# the top of this file. Nothing from `langsmith` is enabled: a lab that phones a
-# tracing service to explain its own numbers has put the account of a run
-# somewhere `.runs/` and the ledger are not.
-agent = ["langgraph>=1.0,<2"]
+# Since langchain 1.x this extra installs nothing new — langchain itself
+# requires `langgraph>=1.2.11`, so a plain `uv sync` already has it, and a scope
+# that used to be reported NA for a missing langgraph now never can be. It stays
+# declared for the reason `langchain` is declared beside `langchain-core`: an
+# import that works by accident is one dependency resolution away from not, and
+# `agent.py` names langgraph directly. Nothing from `langsmith` is enabled here:
+# a lab that phones a tracing service to explain its own numbers has put the
+# account of a run somewhere `.runs/` and the ledger are not.
+agent = ["langgraph>=1.2,<2"]
 
 [project.scripts]
 raglab = "raglab.cli.serve:panel"

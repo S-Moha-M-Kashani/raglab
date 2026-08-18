@@ -20,7 +20,7 @@ from .corpus import DIARY_PATH, load_diary, load_ground_truth
 from .metrics import TYPES
 
 # Shipped and read-only: a reference point that can be edited in place isn't one.
-BUNDLED_DIR = ROOT / 'fixtures' / 'groundtruth_datasets'
+BUNDLED_DIR = ROOT / 'fixtures' / 'corpus_groundtruth_datasets'
 # Imported through the panel. Git-ignored and machine-local, like `.runs/`.
 IMPORTED_DIR = ROOT / '.datasets'
 
@@ -76,6 +76,11 @@ def _files() -> list[tuple[str, Path]]:
         if not folder.exists():
             continue
         for path in sorted(folder.glob('*.json')):
+            # The built-in diary shares the folder but not the contract: its
+            # native schema would parse as a nameless bundled dataset and
+            # stand beside the builtin as a double.
+            if path == DIARY_PATH:
+                continue
             found.append((source, path))
     return found
 

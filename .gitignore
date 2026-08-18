@@ -9,7 +9,7 @@ __pycache__/
 .runs/
 
 # Datasets imported through the panel. The four bundled samples in
-# fixtures/groundtruth_datasets/ are part of the repository — they are reference
+# fixtures/corpus_groundtruth_datasets/ are part of the repository — they are reference
 # points, and the argument for a finding being general rather than true of Farsi
 # diaries. A corpus somebody uploaded is their material, not this repository's.
 .datasets/
@@ -33,3 +33,8 @@ ARCHITECTURE.md
 .screens/
 .env
 docs/
+
+# graphify's knowledge-graph output. Rebuilt from the source it describes,
+# machine-local like the runs — kept out until it earns a place.
+graphify-out/
+.ruff_cache/

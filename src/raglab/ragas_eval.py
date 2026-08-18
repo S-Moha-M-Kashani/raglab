@@ -138,7 +138,7 @@ def decision_spread(rows: list[dict]) -> dict:
 
 
 INSTALL_HINT = 'uv sync  (these are locked dependencies now: ' \
-    "ragas==0.4.*, langchain-community<0.4, langchain-openai<1, rapidfuzz)"
+    "ragas==0.4.*, langchain-community>=0.3.31,<0.4, rapidfuzz)"
 
 # RAGAS's metrics, under RAGAS's names, in the same shape as metrics.MEASURES.
 JUDGED = ', scored by the RAGAS judge model — a model\'s verdict, so it varies'

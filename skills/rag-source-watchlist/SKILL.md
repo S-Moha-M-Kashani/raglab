@@ -1,88 +1,94 @@
 ---
 name: rag-source-watchlist
-description: The named sources to search for new RAG information relevant to this project specifically — one watchlist entry per lab concern (conversational-memory retrieval, Persian embeddings, evaluation practice, the LangChain/ragas dependency stack, local judge models), each with the links to check and the query phrases that find its literature. Use when looking for new work on this lab's own problems rather than the field at large, when a dependency or model catalogue needs updating, or when a benchmark for diary-style memory is wanted. The generic sweep procedure and field-wide venues live in rag-research-radar; this skill is where that procedure points for this repository.
+description: The named sources to search for new RAG information, organised by use case — for each use case a project serves (conversational or agent memory, multilingual corpora, judged evaluation, and the always-on concerns of dependencies and local models), the links to check, the query phrases that find that literature, and which part of this repository a finding lands in. Use when looking for new work relevant to a specific use case rather than the field at large, when a model catalogue or dependency needs updating, or when a published benchmark matching a corpus shape is wanted. The generic sweep procedure and field-wide venues live in rag-research-radar; this skill is where that procedure points, per use case.
 ---
 
 # RAG Source Watchlist
 
 **What it is.** `rag-research-radar` answers "where does RAG research land and
-how is it triaged" — field-wide, corpus-agnostic. This skill is the other half:
-**this project's** concerns, each mapped to the sources that carry news about
-it and the query phrases that find that literature. The radar is the
-procedure; this is its address book for `raglab`.
+how is it triaged" — field-wide, use-case-agnostic. This skill is the other
+half: **per use case**, the sources that carry news about it, the query
+phrases that find its literature, and where a finding lands in this
+repository. The radar is the procedure; this is its address book. Watch the
+sections whose use cases this installation currently serves; skim the rest.
 
-## Concern 1 — conversational-memory retrieval (the lab's own problem)
+## For the use case of conversational / agent memory
 
-The diary fixture — timestamped multi-session chat plus questions requiring
-recall across sessions — is a recognised benchmark shape with its own
-literature, and it is the highest-value thing to watch, because findings there
-transfer to this lab almost without translation.
+Timestamped multi-session chat plus questions requiring recall across sessions
+— assistant memory, diaries, long-running support threads. The bundled default
+corpus (`diary_year_fa.json`) has exactly this shape, which is why these
+sources are first in the file, not because the lab is limited to them.
 
 - [LongMemEval](https://arxiv.org/abs/2410.10813) ([code](https://github.com/xiaowu0162/longmemeval),
   [site](https://xiaowu0162.github.io/long-mem-eval/)) — ICLR 2025; ~500
-  questions over timestamped chat histories, testing **five abilities:
+  questions over timestamped chat histories testing **five abilities:
   information extraction, multi-session reasoning, temporal reasoning,
-  knowledge updates, abstention**. That list is close to a taxonomy of this
-  lab's own question types, and its finding — commercial assistants drop ~30%
-  accuracy on sustained interaction — is the problem statement this lab works
-  on.
+  knowledge updates, abstention**. For any memory-shaped corpus that list is a
+  question-type checklist, and its headline finding — commercial assistants
+  drop ~30% accuracy over sustained interaction — is the use case's problem
+  statement.
 - [LoCoMo](https://www.emergentmind.com/topics/locomo) — 50 conversations, up
   to 35 sessions, ~300 turns each; single-hop, multi-hop, temporal and
-  open-domain questions over dialogue history. The nearest published analogue
-  to `diary_year_fa.json`'s design.
-- The memory-structured frontier tracked in `rag-research-radar`'s snapshot
-  (HGMem, xMemory, MemAdapter) — agent-memory systems whose retrieval half is
-  this lab's subject.
+  open-domain questions over dialogue history.
+- The memory-structured frontier in `rag-research-radar`'s snapshot (HGMem,
+  xMemory, MemAdapter) — agent-memory systems whose retrieval half is this use
+  case.
 
 Query phrases: *conversational memory retrieval*, *multi-session temporal
 reasoning QA*, *long-term memory chat assistant benchmark*, *lifelog / diary
-question answering*, plus citation alerts on the two benchmarks above.
+question answering*; citation alerts on the two benchmarks.
 
-## Concern 2 — Persian and multilingual embeddings
+## For the use case of a multilingual or non-English corpus
 
-The embedder is the lab's single most consequential component (the 60×
-finding), so a better Persian encoder is the one drop-in upgrade always worth
-checking for.
+Any corpus whose language an English-tuned component can fail on silently
+(see `multilingual-rag`). The bundled default is Farsi, which is why the lab
+carries a measured example of the failure (the 60× encoder finding).
 
-- [FaMTEB](https://arxiv.org/pdf/2502.11571) — the Persian MTEB; the benchmark
-  that should decide a Persian encoder, not a general leaderboard position.
 - [MTEB leaderboard](https://huggingface.co/spaces/mteb/leaderboard) — filter
-  by language; where new multilingual encoders surface first.
-- [heydariAI/persian-embeddings](https://huggingface.co/heydariAI/persian-embeddings)
-  — the current default's model page; its neighbours on the Hub are the
-  candidate pool.
-- [Advancing RAG for Persian (LREC 2026)](https://aclanthology.org/2026.lrec-1.580/)
-  — the Persian-RAG best-practice line, including MatinaSRoberta.
+  by the corpus's language; where new encoders surface first.
+- Language-specific MTEB variants where they exist —
+  [FaMTEB](https://arxiv.org/pdf/2502.11571) for Persian is the model: the
+  benchmark that should decide an encoder for that language, not a general
+  leaderboard position.
+- The default encoder's model page and its Hub neighbours
+  ([heydariAI/persian-embeddings](https://huggingface.co/heydariAI/persian-embeddings)
+  for the bundled corpus) — the candidate pool for the one drop-in upgrade
+  always worth checking.
+- Language-specific RAG best-practice lines where published —
+  [Advancing RAG for Persian (LREC 2026)](https://aclanthology.org/2026.lrec-1.580/)
+  is the bundled corpus's instance.
 
-Query phrases: *Persian text embedding benchmark*, *Farsi sentence
+Query phrases: *{language} text embedding benchmark*, *{language} sentence
 transformer*, *multilingual E5 successor*.
 
-## Concern 3 — evaluation practice and the judge
+## For any use case that ranks candidates (judged evaluation)
+
+Every use case, the moment two configurations are compared on judged metrics.
 
 - [ragas documentation](https://docs.ragas.io/) and
   [ragas releases](https://github.com/explodinggradients/ragas/releases) —
   watched for two reasons: metric changes (a changed judge prompt moves every
   judged number, silently) and **the pin**: ragas 0.4 requires
-  `langchain-openai<1`, which is why the lab holds to API present in both
-  langchain majors. A ragas release that lifts that pin retires a standing
+  `langchain-openai<1`, which is why this project holds to API present in both
+  langchain majors. A release that lifts that pin retires a standing
   constraint.
 - [Hamel Husain's blog](https://hamel.dev/) — where evaluation methodology
   (error analysis, judge calibration) moves; `rag-experiment-methodology` is
   built on it.
 
-Query phrases: *LLM judge calibration*, *faithfulness metric evaluation*,
-*RAG evaluation benchmark contamination*.
+Query phrases: *LLM judge calibration*, *faithfulness metric evaluation*, *RAG
+evaluation benchmark contamination*.
 
-## Concern 4 — the dependency stack
+## Always on: the dependency stack
 
-- [LangChain changelog](https://changelog.langchain.com/) — the lab moved to
-  langchain 1.x on 2026-08-18 and the widget rides `create_agent` middleware;
-  agent-API changes land here first.
+- [LangChain changelog](https://changelog.langchain.com/) — this project moved
+  to langchain 1.x on 2026-08-18 and the widget rides `create_agent`
+  middleware; agent-API changes land here first.
 - LangGraph releases — the agent extra's loop, `recursion_limit` semantics.
 - [fastembed's supported models](https://qdrant.github.io/fastembed/examples/Supported_Models/)
   and the sentence-transformers Hub — the two embedding backends' catalogues.
 
-## Concern 5 — local models that could judge or answer
+## Always on: local models that could judge or answer
 
 - [Ollama model library](https://ollama.com/library) — new local models worth
   screening. The standing rule: `.screens/` evidence has only ever been
@@ -107,15 +113,17 @@ rot:
 
 ## In this lab
 
-- This watchlist is scoped by the lab's own measured priorities: embedder
-  first (60×), evaluation second (the judged metrics decide everything),
-  memory-retrieval literature third (the problem itself), stack and models as
-  maintenance. A generic RAG feed inverts that order.
-- Concern 1 doubles as a roadmap source: LongMemEval's five abilities are a
-  checklist against `metrics.TYPES` — an ability the ground truth does not
-  test is a gap in the fixture, not just in the pipeline.
-- The radar's quarterly sweep should run this file's queries alongside its
-  generic ones; the two skills split what one oversized file would blur.
+- The ordering above follows the bundled default corpus: it is
+  memory-shaped and Farsi, so those two sections lead. Point
+  `IndexConfig.dataset` at a different use case's corpus and the reading
+  order changes with it — the evaluation and dependency sections are the
+  constant.
+- The memory section doubles as a fixture audit: LongMemEval's five abilities
+  against `metrics.TYPES` — an ability the ground truth does not test is a gap
+  in the fixture, not just in the pipeline.
+- The radar's quarterly sweep should run the query phrases of whichever
+  sections this installation's corpora make relevant, alongside its generic
+  ones.
 
 ## Sources
 

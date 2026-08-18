@@ -1,11 +1,14 @@
 # RAG lab
 
-A retrieval workbench. Build an index over synthetic diary chat, retrieve
-against ground-truth questions, score what comes back, and keep the account of
-every experiment, so a retrieval choice can be made by measurement instead of
-by taste. The default corpus is `fixtures/diary_year_fa.json`, a year of
-synthetic colloquial Farsi diary chat with ground-truth questions and cited
-evidence.
+A generic retrieval workbench. Build an index over a ground-truth corpus,
+retrieve against its questions, score what comes back, and keep the account of
+every experiment, so a RAG architecture for any use case can be chosen by
+measurement instead of by taste. The corpus is a config field, not an
+assumption: point `dataset` at any file matching the stated contract, or use
+one of the five that ship. The bundled default is `fixtures/diary_year_fa.json`,
+a year of synthetic colloquial Farsi diary chat with ground-truth questions and
+cited evidence — one case study among the shipped corpora, not the project's
+scope.
 
 ## Quick start
 

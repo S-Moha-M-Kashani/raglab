@@ -70,12 +70,93 @@ than the reverse.
   be measured on that 20% (`rag-evaluation`'s per-type rule), while the 80% pay
   their latency.
 
+## The experiment ladder, per use case
+
+The map gives candidate zero; this section gives the order of the experiments
+that follow — first try, then check, then add. Every rung obeys
+`rag-experiment-methodology`: one knob per candidate, error bars, and the next
+rung chosen by the dominant failure class, not by the ladder alone. The
+orderings encode where each use case's yield usually is, so they are educated
+guesses to be corrected by measurement, not scripts.
+
+**For the use case of personal / agent memory** (diary, assistant memory):
+first try session or turn chunking, a language-matched encoder verified on the
+script, dense retrieval, extractive answers. Then check recall per question
+type — the aggregate/counting tail fails differently from factoids. Then add
+hybrid-RRF (names, dates and numbers are literal tokens) and a time treatment
+— a time *filter* for "when did I", *recency* ranking for "current state" —
+measuring each alone. Then check recall@rerank_depth against recall@k before
+paying for any reranker; add one only if the gap is large. Then add a
+relevance gate if fabricated memories are the risk that matters. Only then a
+hierarchy, measured on the counting tail and never on the mean; only then an
+agent scope, against a widened top_k control.
+
+**For the use case of team meeting notes / organisational knowledge**: first
+try structure-aware chunks (one per agenda item or decision, speaker tags
+kept), hybrid retrieval from the start — project codes and names make BM25
+non-optional — and metadata filters on date, attendees, project. Then check
+follow-up questions separately from first questions; if follow-ups fail, add
+conversational rewriting before touching retrieval. Then add the
+corpus-declared (metadata) hierarchy — "all decisions about X" is a mainstream
+question here — and check it on exactly those questions. Then add recency
+ranking for "current status" questions. Keep index-time enrichment cheap: the
+corpus updates weekly, and every rebuild repays it.
+
+**For the use case of customer support / FAQ**: first try minimal or no
+chunking (units are already question-shaped), hybrid retrieval, strict
+grounding with abstention. Then check the false-answer rate before anything
+else — a wrong confident answer costs more than an escalation. Then add
+conversational rewriting (support is dialogue), then a reranker only if
+recall@20 is fine while top-3 is wrong.
+
+**For the use case of legal / regulated documents**: first try structure-aware
+chunking on the document's own units (clauses, sections), hybrid retrieval,
+and verbatim citation in the answer path. Then check retrieval on defined
+terms and cross-references — the characteristic failure. Then add a
+cross-encoder reranker (precision is the product here), then contextual
+enrichment of chunks — static header first, LLM blurb only if the static
+header measurably falls short, because the corpus is anaphoric enough to be
+the technique's best case.
+
+**For the use case of entity-dense financial text**: first try hybrid with the
+lexical arm weighted seriously (tickers, figures), table-aware parsing if
+tables carry the answers, and a static situating header (company, period) on
+every chunk. Then check top-20 failure rate — this is contextual retrieval's
+home corpus, and the header-vs-LLM-blurb comparison is worth running here if
+anywhere. Then add numeric-fidelity checks to evaluation before trusting any
+score.
+
+**For the use case of global sensemaking** (themes, trends, "what is this
+corpus about"): first try a hierarchy — flat retrieval cannot answer these at
+all, so the baseline is honest about failing them. Then check whether summary
+rows are actually retrieved for aggregate questions (`n_summaries` is the
+model: count it, per row). Then compare groupings against the two controls —
+the corpus's declared structure and naive clustering — before believing any
+graph method.
+
+**For the use case of multi-hop research questions**: first try query
+decomposition over a strong single-pass baseline. Then check where hops fail —
+evidence missing versus evidence unreachable by the first query's vocabulary.
+Then add an agentic retrieval loop with caps and stop reasons, always beside a
+widened-top_k control, because the loop must beat the cheap alternative before
+its cost is justified.
+
+Automating this ladder — a runner that walks candidates and records rows — is
+what a sweep is. **The sweep's interface here is deliberately not finalized**:
+it is planned as a widget tool, and until then the ladder is run by hand, one
+candidate at a time, which the methodology requires anyway.
+
 ## In this lab
 
-- The lab **is** the personal-memory row, built out: `session`/`turn-pair`/
-  `message` chunkers, `recency` reranker with `recency_half_life_days`, the
-  Farsi `time_filter`, a language-matched encoder, and `hierarchy` for the
-  counting tail — that row's whole recipe exists as knobs.
+- The lab is generic across these rows — the corpus is a config field — and
+  the bundled default corpus makes it the personal-memory row out of the box:
+  `session`/`turn-pair`/`message` chunkers, `recency` reranker with
+  `recency_half_life_days`, the time filter, a language-matched encoder, and
+  `hierarchy` for the counting tail. That row's recipe exists as knobs; the
+  other rows' recipes are the same knobs pointed at their corpora.
+- A per-use-case preset dropdown on the panel is planned, not built — the
+  production preset button (`#use-production`, fills and never runs) is the
+  pattern it would generalise, one preset per row of the map above.
 - The five questions above are answerable here with unusual precision because
   the ground truth carries `types` and `difficulty` per question: the question
   distribution is a query away, not a guess.

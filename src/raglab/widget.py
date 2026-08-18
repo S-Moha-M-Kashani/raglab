@@ -68,10 +68,12 @@ def _openrouter_url() -> str:
             or 'https://openrouter.ai/api/v1')
 
 KNOWLEDGE_BASE = {
-    'purpose': 'The RAG lab is a workbench for diary-memory retrieval: '
-               'chunking and retrieval choices are decided by measurement '
-               'against fixtures/diary_year_fa.json, 167 sessions of '
-               'synthetic Farsi diary chat with ground truth.',
+    'purpose': 'The RAG lab is a generic retrieval workbench: chunking and '
+               'retrieval choices for any use case are decided by measurement '
+               'against a ground-truth corpus, which is itself a config '
+               'field. The bundled default is fixtures/diary_year_fa.json, '
+               '167 sessions of synthetic Farsi diary chat — one case study '
+               'among five shipped corpora, with imports supported.',
     'ports': 'The lab serves its panel on port 9002 '
              '(uv run --extra local-embeddings raglab); the read-only '
              'Inspector runs on port 9003 (uv run raglab-inspector).',

@@ -111,9 +111,11 @@ already points.
   control requirement is `metadata`/`kmeans`'s role, the cost question is the
   fingerprint-versus-retrieval-knob split, the constraint check is the
   no-model-at-build rule and the Farsi zero-vector test.
-- The memory-structured group above is the one to watch closely: this lab *is*
-  an agent-memory retrieval bench, and HGMem-style structures are the first
-  frontier family aimed at its exact problem rather than at Wikipedia QA.
+- The memory-structured group above is the one to watch while the bundled
+  default corpus is the memory-shaped one: HGMem-style structures are the
+  first frontier family aimed at that use case rather than at Wikipedia QA.
+  A different active corpus promotes a different group — the per-use-case
+  reading order lives in `rag-source-watchlist`.
 - A sweep of this radar is manual today. If the widget grows a research tool
   later, this file's source list and triage rubric are its spec.
 

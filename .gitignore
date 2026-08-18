@@ -33,3 +33,7 @@ ARCHITECTURE.md
 .screens/
 .env
 docs/
+
+# graphify's knowledge-graph output. Rebuilt from the source it describes,
+# machine-local like the runs — kept out until it earns a place.
+graphify-out/

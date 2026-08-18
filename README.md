@@ -50,15 +50,26 @@ complete by `tests/test_conventions.py`.
 
 ## Datasets
 
-The built-in corpus is the Farsi diary. Four more ship as controls in
-`fixtures/groundtruth_datasets/`: English support tickets, German meeting
-notes, English research notes weighted to multi-hop, and a five-session smoke
-set.
+The lab measures whatever corpus it is pointed at. Five ship with it: the
+default Farsi diary, and four controls in `fixtures/groundtruth_datasets/` —
+English support tickets, German meeting notes, English research notes weighted
+to multi-hop, and a five-session smoke set. Each maps to a different use case,
+so a finding can be checked against a corpus of a different language, domain
+or question shape.
 
 Bring your own with **Import a dataset** in the panel, or `POST
 /api/datasets`. One JSON file; the panel states the shape it expects behind the
 `!` beside the file picker. The lab refuses a file that does not match it
 rather than repairing it, and names every problem it found.
+
+## Choosing an architecture
+
+The lab prescribes none — every pipeline stage is a config knob, and the right
+combination depends on the use case. `skills/` is the guidance layer: fourteen
+skill files covering the advanced-RAG technique landscape, a use-case →
+starting-architecture map with a per-use-case experiment ladder, the
+experiment methodology (dev/test discipline, error analysis), and the sources
+to watch for new work. Start at `skills/README.md`.
 
 ## What gets written where
 

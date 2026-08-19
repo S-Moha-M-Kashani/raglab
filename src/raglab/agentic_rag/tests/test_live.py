@@ -9,7 +9,7 @@ purpose: tests/conftest.py pins that suite offline and blanks the developer's
 keys, and this file exists to do the one thing that plumbing forbids — run
 the real loop against a real model with the real `.env`.
 
-    uv run pytest src/raglab/tests/test_live.py -v -s
+    uv run pytest src/raglab/agentic_rag/tests/test_live.py -v -s
 
 tests/test_agentic_rag.py holds the offline coverage (caps, stop reasons,
 graph shape, refusals — all against a scripted model); this file holds the

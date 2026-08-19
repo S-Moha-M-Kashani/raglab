@@ -7,7 +7,8 @@ One module per concern, the widget package's layout: `availability` holds the
 deferred langgraph imports and the can-this-installation-run-it answer,
 `prompts` the five node prompts, `verdicts` the conservative reading of a
 model's verdict, `shape` the graph's nodes and edges as data, `loop` the
-per-question loop itself, `runner` the `run()` seam callers use.
+per-question loop itself, `runner` the `run()` seam callers use. `tests/`
+holds the manual live probe, run only when named on the pytest command line.
 
 Unlike the widget, this package sits *inside* the measured seam: no LangSmith,
 no checkpointer, every hop through `pipeline.retrieve`, every row carrying its

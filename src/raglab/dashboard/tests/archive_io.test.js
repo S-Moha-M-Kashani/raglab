@@ -13,10 +13,30 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 
 const CONFIG = {
   label: 'imported experiment',
-  index: { dataset: 'smoke-mini', chunker: 'session', embedder: 'token-hash' },
-  retrieval: { grader: 'none', expansion_model: 'expand-model' },
-  generation: { answerer: 'extractive', model: 'answer-model' },
-  agent: { critic_model: 'critic-model', plan_model: 'plan-model' },
+  index: {
+    dataset: 'smoke-mini', chunker: 'session', chunk_chars: 500, overlap: 100,
+    contextual: true, embedder: 'token-hash', embed_model: '', hierarchy: '',
+    graph_source: 'hybrid', graph_knn: 8, granularity: 1, hierarchy_levels: 1,
+    min_group: 3, summarizer: 'centroid',
+  },
+  retrieval: {
+    retriever: 'hybrid-rrf', k: 8, candidates: 40, rrf_k: 60,
+    time_filter: true, multi_query: true, hyde: false,
+    expansion_model: 'expand-model', mmr_lambda: 1, reranker: 'lexical',
+    rerank_depth: 20, reranker_model: '', recency_half_life_days: 180,
+    agentic_weights: [1, 0.3, 0.2], grader: 'none', grade_threshold: 0,
+    grader_model: '', max_context_chars: 6000, summary_scope: 'mixed',
+    summary_boost: 1, summary_levels: '',
+  },
+  generation: {
+    answerer: 'extractive', model: 'answer-model', key_facts_judge: false,
+    judge_model: '', ragas_model: '',
+  },
+  agent: {
+    scope: '', max_hops: 3, rewrite: true, evidence_threshold: 0.5,
+    max_revisions: 1, critic: 'grounded', max_llm_calls: 12,
+    plan_model: 'plan-model', critic_model: 'critic-model',
+  },
 };
 const UI = { mode: '', ragas_mode: 'offline', limit: 1, ragas_limit: 0,
   types: ['single-hop'] };

@@ -1,5 +1,6 @@
 """One small, complete archive used by every import contract."""
 import copy
+import json
 
 from raglab.configuration.lab_config import (
     GenerationConfig,
@@ -9,11 +10,11 @@ from raglab.configuration.lab_config import (
 
 
 def completed_archive(run_id: str = 'imported-run-001') -> dict:
-    config = LabConfig(
+    config = json.loads(json.dumps(LabConfig(
         index=IndexConfig(dataset='smoke-mini', chunker='session',
                           embedder='token-hash'),
         retrieval=RetrievalConfig(grader='none'),
-        generation=GenerationConfig(answerer='extractive')).to_dict()
+        generation=GenerationConfig(answerer='extractive')).to_dict()))
     index_stats = {
         'collection': 'raglab-test', 'chunks': 1, 'leaves': 1,
         'avg_chars': 8, 'p95_chars': 8, 'embed_dim': 8,

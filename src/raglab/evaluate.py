@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable
 
-from . import (agent, corpus, datasets, embedding, metrics, models, pipeline,
+from . import (agentic_rag, corpus, datasets, embedding, metrics, models, pipeline,
                ragas_eval)
 from .config import (BALANCES, DIFFICULTIES, RUNS_DIR, LabConfig, LabSettings)
 from .index import IndexRegistry
@@ -344,12 +344,12 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     rows = []
     for i, question in enumerate(questions):
         check_cancelled()
-        if agent.owns_retrieval(cfg.agent.scope):
+        if agentic_rag.owns_retrieval(cfg.agent.scope):
             # Narrowed to the retrieval half of the scope and the answerer
             # forced off: this route retrieves and stops, and the drafting half
             # of `full` is an answering stage.
             trace = {}
-            _outcome = agent.run(
+            _outcome = agentic_rag.run(
                 index,
                 replace(cfg, agent=replace(cfg.agent, scope='retrieve'),
                         generation=replace(cfg.generation, answerer='none')),
@@ -387,7 +387,7 @@ def _assemble_notes(index, cfg: LabConfig, settings: LabSettings) -> list[str]:
     notes = list(index.stats.notes)
     notes.append(models.note_for(cfg, settings))
     if cfg.agent.scope:
-        notes.append(agent.note_for(cfg.agent))
+        notes.append(agentic_rag.note_for(cfg.agent))
     notes.append(embedding.language_note(
         cfg.index.embedder,
         embedding.resolve_model(cfg.index.embedder, settings,
@@ -489,8 +489,8 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
             # `pipeline.answer` itself — so `pipeline.answer` must not run again
             # below, or the row would describe neither call.
             tr = {} if trace else None
-            outcome = agent.run(index, cfg, asked, when, llm=llm, models=roles,
-                                trace=tr)
+            outcome = agentic_rag.run(index, cfg, asked, when, llm=llm,
+                                      models=roles, trace=tr)
         elif trace:
             outcome, tr = pipeline.retrieve_traced(
                 index, cfg.retrieval, asked, when, llm=llm, models=roles)

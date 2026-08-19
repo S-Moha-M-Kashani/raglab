@@ -273,7 +273,7 @@ class LabConfig:
         # A scope this installation cannot run is refused, never silently
         # served by the fixed pipeline.
         if self.agent.scope in SCOPES and self.agent.scope:
-            from .agent import AGENT_EXTRA, agent_available
+            from .agentic_rag import AGENT_EXTRA, agent_available
             if not agent_available():
                 bad.append(
                     f'agent scope {self.agent.scope!r} needs a package this '

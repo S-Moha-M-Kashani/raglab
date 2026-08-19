@@ -90,7 +90,7 @@ part that varies.
 
 ## In this lab
 
-Implemented as `raglab/agent.py`, `AgentConfig.scope`, behind `uv sync --extra
+Implemented as the `raglab/agentic_rag/` package, `AgentConfig.scope`, behind `uv sync --extra
 agent`, and built as the 2×2 above:
 
 - `''` fixed pipeline · `retrieve` retrieval loop · `generate` generation loop ·
@@ -104,14 +104,14 @@ agent`, and built as the 2×2 above:
 - `max_hops` / `max_revisions` bound the shape, `max_llm_calls` bounds the cost,
   and `agent_stop` names which fired, with `n_hops` and `n_agent_calls` beside it.
   LangGraph's `recursion_limit` is derived from the caps.
-- `agent.verdict()` returns `None` rather than a number for an unreadable verdict
+- `agentic_rag.verdict()` returns `None` rather than a number for an unreadable verdict
   — deliberately *not* reusing `retrieval.llm_scores`'s 0.5, which means something
   different in its own context.
 - A scope this installation cannot run is refused, never substituted;
   `generate` and `full` additionally require `answerer='llm'` rather than
   silently promoting it. A row labelled `scope=full` that ran no agent is the
   worst artefact the lab can produce.
-- `agent._shape` reports the graph's nodes and edges as data.
+- `agentic_rag.shape._shape` reports the graph's nodes and edges as data.
 - `/api/retrievals` narrows a retrieval-owning scope to its search half and forces
   the answerer off, since that route retrieves and stops.
 - **No LangSmith and no checkpointer** on this path. A lab that phones a tracing

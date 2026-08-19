@@ -1131,12 +1131,23 @@ function widgetSay(kind, text) {
   log.scrollTop = log.scrollHeight;
 }
 
+// One conversation per page: the id is minted when the script loads and sent
+// with every ask, so a follow-up lands in the same thread and a reloaded page
+// starts clean — nothing persisted, nothing shared between tabs.
+const widgetSession = crypto.randomUUID();
+
 async function widgetAsk(message) {
   widgetSay('you', message);
   $('widget-send').disabled = true;
   try {
-    const data = await api('/api/widget', { message, model: $('widget-model').value });
+    const data = await api('/api/widget',
+      { message, model: $('widget-model').value, session: widgetSession });
     widgetSay('bot', data.reply);
+    // The token account, when the backend reported one — an unreported
+    // account renders nothing rather than a made-up zero.
+    if (data.input_tokens != null) {
+      widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
+    }
   } catch (error) {
     widgetSay('err', error.message);
   } finally {

@@ -9,6 +9,7 @@ widget.probe), because a patch on the package's re-export would not reach
 the module the code actually reads.
 """
 import pytest
+from langchain_core.messages import AIMessage
 
 from raglab.agents import widget
 
@@ -404,7 +405,7 @@ def test_the_route_passes_the_chosen_model_through(client, monkeypatch):
     # this is an integration test
     seen = {}
 
-    def fake_ask(message, model=''):
+    def fake_ask(message, model='', session=''):
         seen['model'] = model
         return 'ok'
 
@@ -514,7 +515,7 @@ def test_an_empty_env_variable_is_missing_too(monkeypatch):
 def test_the_route_answers_with_the_agents_reply(client, monkeypatch):
     # this is an integration test
     monkeypatch.setattr(widget, 'ask',
-                        lambda message, model='': f'echo: {message}')
+                        lambda message, model='', session='': f'echo: {message}')
     answer = client.post('/api/widget', json={'message': 'what is this lab?'})
     assert answer.status_code == 200
     assert answer.json() == {'reply': 'echo: what is this lab?'}
@@ -530,7 +531,7 @@ def test_an_unavailable_widget_is_a_502_naming_the_reason(client, monkeypatch):
     # this is an integration test
     """The lab is up, its widget is not — the same split `/api/queries` makes
     for an unreachable grade model."""
-    def refuse(message, model=''):
+    def refuse(message, model='', session=''):
         raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
     monkeypatch.setattr(widget, 'ask', refuse)
     answer = client.post('/api/widget', json={'message': 'hello'})
@@ -551,3 +552,116 @@ def test_the_agent_builds_offline_when_the_extra_is_present(monkeypatch):
     agent = widget._build_agent('openai/gpt-5-nano')
     assert hasattr(agent, 'invoke')
     widget.reset()
+
+
+# --- session memory: a conversation the process remembers ------------------
+
+def test_the_agent_carries_a_checkpointer_so_a_session_can_continue(monkeypatch):
+    # this is a unit test
+    """One question in, one answer out was the whole contract until
+    2026-08-19; a helper that forgets the question before cannot be asked a
+    follow-up. The memory lives in the compiled graph — in process like the
+    index, dying with it, so nothing here writes a file."""
+    pytest.importorskip('langgraph')
+    widget.reset()
+    for name in widget.REQUIRED_ENV:
+        monkeypatch.setenv(name, 'test-value')
+    agent = widget._build_agent('openai/gpt-5-nano')
+    assert getattr(agent, 'checkpointer', None) is not None
+    widget.reset()
+
+
+def test_ask_threads_the_session_into_the_agent():
+    # this is a unit test
+    """`ask` takes a `session` and hands it to the graph as the thread id:
+    two turns of one browser page share a history, two pages never do. The
+    stub records what the real agent would have been asked."""
+    calls = []
+
+    class Stub:
+        def invoke(self, payload, config=None):
+            calls.append(config)
+            return {'messages': [AIMessage(content='ok')]}
+
+    widget.reset()
+    widget._AGENTS['openai/gpt-5-nano'] = Stub()
+    try:
+        widget.ask('hello', model='openai/gpt-5-nano', session='tab-one')
+        widget.ask('again', model='openai/gpt-5-nano', session='tab-one')
+        widget.ask('hello', model='openai/gpt-5-nano', session='tab-two')
+    finally:
+        widget.reset()
+    threads = [call['configurable']['thread_id'] for call in calls]
+    assert threads[0] == threads[1]
+    assert threads[2] != threads[0]
+    # the recursion cap is a hard ceiling and must survive the new config key
+    assert all(call.get('recursion_limit') for call in calls)
+
+
+def test_no_session_is_still_a_stateless_ask():
+    # this is a unit test
+    """A checkpointed graph demands a thread id, but an ask without a session
+    must stay what it always was — stateless. Each such call gets a thread of
+    its own, never a shared default that would leak one anonymous caller's
+    history into the next one's answer."""
+    calls = []
+
+    class Stub:
+        def invoke(self, payload, config=None):
+            calls.append(config)
+            return {'messages': [AIMessage(content='ok')]}
+
+    widget.reset()
+    widget._AGENTS['openai/gpt-5-nano'] = Stub()
+    try:
+        widget.ask('hello', model='openai/gpt-5-nano')
+        widget.ask('hello', model='openai/gpt-5-nano')
+    finally:
+        widget.reset()
+    threads = [call['configurable']['thread_id'] for call in calls]
+    assert all(threads)
+    assert threads[0] != threads[1]
+
+
+def test_a_cli_model_accepts_a_session_and_stays_stateless(monkeypatch):
+    # this is a unit test
+    """`CliChat` runs one process per call with no session persistence — by
+    design. A session passed with a CLI model is accepted and ignored, not an
+    error: the panel sends one either way."""
+    monkeypatch.setattr(widget.backends, '_cli_answer',
+                        lambda cli, message: 'ok')
+    assert widget.ask('hello', model='claude', session='tab-one') == 'ok'
+
+
+def test_reset_forgets_the_conversations_too(monkeypatch):
+    # this is a unit test
+    """`reset` exists for key changes and tests; a rebuilt agent must not
+    resurrect the old histories, so the memory belongs to the build, never
+    to the module."""
+    pytest.importorskip('langgraph')
+    widget.reset()
+    for name in widget.REQUIRED_ENV:
+        monkeypatch.setenv(name, 'test-value')
+    first = widget._build_agent('openai/gpt-5-nano').checkpointer
+    second = widget._build_agent('openai/gpt-5-nano').checkpointer
+    assert first is not second
+    widget.reset()
+
+
+def test_the_route_passes_the_session_through(client, monkeypatch):
+    # this is an integration test
+    """The session is the browser page's claim about itself; the route's job
+    is only to carry it — absent lands as '', the stateless ask."""
+    seen = {}
+
+    def fake_ask(message, model='', session=''):
+        seen['session'] = session
+        return 'ok'
+
+    monkeypatch.setattr(widget, 'ask', fake_ask)
+    answer = client.post('/api/widget', json={'message': 'hello',
+                                              'session': 'tab-one'})
+    assert answer.status_code == 200
+    assert seen['session'] == 'tab-one'
+    client.post('/api/widget', json={'message': 'hello'})
+    assert seen['session'] == ''

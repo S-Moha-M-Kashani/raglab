@@ -6,6 +6,7 @@ process per call with the knowledge base inlined, because `CliChat` has no
 `bind_tools`. Both paths enter through `ask`.
 """
 import os
+from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 
@@ -97,6 +98,7 @@ def _build_agent(model: str):
 
     from langchain.agents import create_agent
     from langchain_openai import ChatOpenAI
+    from langgraph.checkpoint.memory import InMemorySaver
 
     llm = ChatOpenAI(model=model, api_key=openrouter_api_key,
                      base_url=_openrouter_url())
@@ -105,8 +107,12 @@ def _build_agent(model: str):
     # static kind — and the agent then answered from its own knowledge, called
     # neither tool, and said nothing about it. Interception lives in
     # `trim_and_call` now, which is where 1.x puts it.
+    # The checkpointer is this build's own: in process like the index, dying
+    # with it — and with the build, so `reset()` forgets the conversations
+    # too. `trim_and_call` keeps the model's window at MAX_HISTORY however
+    # long a remembered thread grows.
     return create_agent(llm, tools=TOOLS, system_prompt=SYSTEM_PROMPT,
-                        middleware=MIDDLEWARE)
+                        middleware=MIDDLEWARE, checkpointer=InMemorySaver())
 
 
 def _cli_system() -> str:
@@ -137,9 +143,13 @@ def _cli_answer(cli: str, message: str) -> str:
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
 
 
-def ask(message: str, model: str = '') -> str:
+def ask(message: str, model: str = '', session: str = '') -> str:
     """One question in, one answer out. `model` picks from WIDGET_MODELS;
-    empty means the default. Agents build on first use, one per model."""
+    empty means the default. Agents build on first use, one per model.
+    `session` names the conversation to continue — the browser page's own
+    id, one thread per page; empty means a one-off ask on a throwaway
+    thread, because a checkpointed graph demands a thread id and a shared
+    default would leak one anonymous caller's history into the next."""
     choice = model or DEFAULT_MODEL
     kind, _ = WIDGET_MODELS.get(choice) or (None, None)
     if kind is None:
@@ -148,7 +158,9 @@ def ask(message: str, model: str = '') -> str:
     if kind == 'cli':
         # The two agent-level hooks bracket a CLI too, through the halves they
         # were factored into: a CLI has no loop for the middle four, and no
-        # graph to hang middleware on at all.
+        # graph to hang middleware on at all. One process per call means no
+        # memory either — the session is accepted and ignored, the label
+        # already says what a CLI cannot do.
         return _account(_cli_answer(choice, _validate(message)))
     if choice not in _AGENTS:
         _AGENTS[choice] = _build_agent(choice)
@@ -162,7 +174,8 @@ def ask(message: str, model: str = '') -> str:
         # about five hops, still a hard ceiling rather than a budget.
         result = _AGENTS[choice].invoke(
             {'messages': [HumanMessage(content=message)]},
-            config={'recursion_limit': 24})
+            config={'recursion_limit': 24,
+                    'configurable': {'thread_id': session or f'one-off-{uuid4()}'}})
     except WidgetUnavailable:
         raise
     except Exception as error:

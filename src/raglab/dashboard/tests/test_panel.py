@@ -457,3 +457,16 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it(client
         # problem rather than the fix.
         if provider and provider != 'fake':
             assert provider in hint[0], provider
+
+
+def test_the_widget_sends_one_session_id_per_page(panel_texts):
+    # this is a convention test
+    """The widget's memory is a browser page's: the client mints one id when
+    the script loads and sends it with every ask, so a follow-up lands in the
+    same thread and a reloaded page starts clean — nothing persisted, nothing
+    shared between tabs."""
+    block = panel_texts['panel.js (widget block)']
+    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bsession\b", block), (
+        'the widget POST must carry the session id')
+    assert 'crypto.randomUUID' in block, (
+        'one id, minted client-side, once per page load')

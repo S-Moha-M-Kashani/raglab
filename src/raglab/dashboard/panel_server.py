@@ -630,7 +630,11 @@ def create_app() -> FastAPI:
         if not message:
             raise HTTPException(400, 'message is empty')
         try:
-            return {'reply': widget.ask(message, (payload.get('model') or '').strip())}
+            # The session is the page's claim about itself; the route only
+            # carries it — absent lands as '', the stateless ask.
+            return {'reply': widget.ask(message,
+                                        (payload.get('model') or '').strip(),
+                                        session=(payload.get('session') or '').strip())}
         except widget.WidgetUnavailable as error:
             # The lab is up; its widget is not — the /api/queries split.
             raise HTTPException(502, str(error))

@@ -22,6 +22,7 @@ __pycache__/
 # Tooling scratch, none of it source.
 .claude
 .superpowers/
+.worktrees/
 .pytest_cache/
 
 # Notes, plans and reports. Kept on this machine, not in the repository.

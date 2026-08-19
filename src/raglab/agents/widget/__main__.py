@@ -41,9 +41,12 @@ def main(model: str = DEFAULT_MODEL, questions: tuple = QUESTIONS) -> None:
         HOOK_LOG.clear()
         started = time.perf_counter()
         answer = ask(question, model)
-        print(f'\n  {question}\n  → {answer.strip()}'
+        account = ('' if answer['input_tokens'] is None else
+                   f", {answer['input_tokens']} in / "
+                   f"{answer['output_tokens']} out tokens")
+        print(f"\n  {question}\n  → {answer['reply'].strip()}"
               f'\n  {time.perf_counter() - started:.1f}s, '
-              f'{len(HOOK_LOG)} hooks\n')
+              f'{len(HOOK_LOG)} hooks{account}\n')
 
 
 if __name__ == '__main__':

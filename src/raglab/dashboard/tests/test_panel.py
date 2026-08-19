@@ -470,3 +470,15 @@ def test_the_widget_sends_one_session_id_per_page(panel_texts):
         'the widget POST must carry the session id')
     assert 'crypto.randomUUID' in block, (
         'one id, minted client-side, once per page load')
+
+
+def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
+    # this is a convention test
+    """The account travels with the reply and the page shows it — a faint
+    meta line, only when the backend reported one: an unreported account
+    renders nothing rather than a made-up zero."""
+    block = panel_texts['panel.js (widget block)']
+    assert 'input_tokens' in block, (
+        'the widget must read the served token account')
+    assert 'output_tokens' in block, (
+        'both directions of the account, not just one')

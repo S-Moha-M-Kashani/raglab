@@ -112,11 +112,3 @@ to watch for new work. Start at `skills/README.md`.
 - `.screens/` — one JSON file per judge screen, the evidence for which model
   was allowed to grade the deciding metrics. Git-ignored, so keep it if you
   care which judge produced a number.
-
-## Background
-
-This code lived at `brain/tests/raglab/` in the Lodestar repository until
-2026-08-11, where it decided that project's retrieval architecture. The
-reasoning behind individual decisions is in `CLAUDE.md`. The measured argument
-with run ids, the design notes and the per-question walkthroughs are kept
-outside the repository.

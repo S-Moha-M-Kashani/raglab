@@ -20,8 +20,13 @@ from .tools import TOOLS
 # variable must become a stated refusal rather than a KeyError at import.
 # These are the *OpenRouter path's* requirement — the whole point of a CLI
 # backend is that it needs no key at all.
-REQUIRED_ENV = ('OPENROUTER_API_KEY', 'LANGSMITH_API_KEY',
-                'LANGSMITH_ENDPOINT', 'LANGSMITH_PROJECT', 'LANGSMITH_TRACING')
+REQUIRED_ENV = ('OPENROUTER_API_KEY',)
+
+# The LangSmith four exist only to serve tracing, so they are demanded only
+# when LANGSMITH_TRACING reads as on — requiring them with tracing off would
+# be requiring a credential for a disabled feature.
+TRACING_ENV = ('LANGSMITH_API_KEY', 'LANGSMITH_ENDPOINT',
+               'LANGSMITH_PROJECT', 'LANGSMITH_TRACING')
 
 # The widget's own catalogue: value -> (kind, label). The two OpenRouter
 # models run the tool loop; the two CLIs cannot (`CliChat` has no
@@ -59,20 +64,30 @@ def reset() -> None:
     _AGENTS.clear()
 
 
+def _tracing_on() -> bool:
+    # The spellings the LangSmith SDK itself reads as on; anything else —
+    # 'False', '0', '', or the variable simply not set — is off.
+    return os.environ.get('LANGSMITH_TRACING', '').strip().lower() in ('true', '1')
+
+
 def _build_agent(model: str):
     # `load_env` strips values, so a bare `KEY= ` line in .env lands here as
-    # '' — an empty variable is a missing one, not a present one.
-    for name in REQUIRED_ENV:
+    # '' — an empty variable is a missing one, not a present one. With
+    # tracing on the traces really leave the machine, so only then do the
+    # LangSmith four join the demand.
+    required = REQUIRED_ENV + (TRACING_ENV if _tracing_on() else ())
+    for name in required:
         if not os.environ.get(name, '').strip():
             raise WidgetUnavailable(
                 f'{name} is not set — the widget needs it in .env')
     # Present, and read the way the spec states them. LangSmith picks its
     # four up from the environment by itself; only the key is passed on.
     openrouter_api_key = os.environ['OPENROUTER_API_KEY']
-    os.environ['LANGSMITH_API_KEY']
-    os.environ['LANGSMITH_ENDPOINT']
-    os.environ['LANGSMITH_PROJECT']
-    os.environ['LANGSMITH_TRACING']
+    if _tracing_on():
+        os.environ['LANGSMITH_API_KEY']
+        os.environ['LANGSMITH_ENDPOINT']
+        os.environ['LANGSMITH_PROJECT']
+        os.environ['LANGSMITH_TRACING']
 
     from langchain.agents import create_agent
     from langchain_openai import ChatOpenAI

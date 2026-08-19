@@ -67,6 +67,22 @@ h1 .lab-mark {
 .chassis button.ghost:hover { background: var(--chassis-soft); color: #fff; }
 #productionNote { font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft);
                   align-self: center; max-width: 40ch; }
+.settings-popover {
+  inset: 3.4rem 1.4rem auto auto;
+  width: min(25rem, calc(100vw - 2rem));
+  margin: 0; padding: .8rem;
+  color: var(--ink); background: var(--plate);
+  border: 1px solid var(--rule); border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.settings-popover::backdrop { background: rgba(16, 22, 32, .18); }
+.settings-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: .65rem; padding-bottom: .45rem;
+  border-bottom: 1px solid var(--rule);
+}
+.settings-head span { color: var(--ink-soft); font: .72rem/1.4 var(--mono); }
+.settings-popover .actions { margin-top: .55rem; }
 
 /* Capability chips: what this installation can actually do, before you spend an
    hour finding out. Green edge = ready, brick = not. */

@@ -228,6 +228,14 @@ def test_the_panel_offers_the_key_field_and_never_stores_it_in_the_browser():
     stay out of that and out of localStorage."""
     from raglab.dashboard.panel_server import STATIC
     html = (STATIC / 'panel.html').read_text(encoding='utf-8')
+    header = html[html.index('<header'):html.index('</header>')]
+    model_card = html[html.index('id="modelCard"'):]
+    model_card = model_card[:model_card.index('</section>')]
+    assert 'id="app-settings"' in header
+    assert 'popovertarget="app-settings-panel"' in header
+    assert 'id="app-settings-panel"' in header and 'popover' in header
+    assert 'id="openrouter_key"' in header
+    assert 'id="openrouter_key"' not in model_card
     js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'id="openrouter_key"' in html
     assert '/api/credentials' in js

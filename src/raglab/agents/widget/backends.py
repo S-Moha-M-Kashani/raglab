@@ -6,6 +6,7 @@ process per call with the knowledge base inlined, because `CliChat` has no
 `bind_tools`. Both paths enter through `ask`.
 """
 import os
+from threading import RLock
 from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
@@ -83,11 +84,13 @@ class WidgetUnavailable(RuntimeError):
 # One cached agent per OpenRouter model — a CLI is a process per call and
 # caches nothing.
 _AGENTS: dict = {}
+_AGENTS_LOCK = RLock()
 
 
 def reset() -> None:
     """Drop the cached agents so the next ask() rebuilds (tests, key changes)."""
-    _AGENTS.clear()
+    with _AGENTS_LOCK:
+        _AGENTS.clear()
 
 
 def _tracing_on() -> bool:
@@ -199,8 +202,10 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
         used = getattr(answer, 'usage_metadata', None)
         return _accounted(_account(str(answer.content)),
                           [used] if used else [])
-    if choice not in _AGENTS:
-        _AGENTS[choice] = _build_agent(choice)
+    with _AGENTS_LOCK:
+        if choice not in _AGENTS:
+            _AGENTS[choice] = _build_agent(choice)
+        agent = _AGENTS[choice]
     try:
         # A real HumanMessage rather than a dict, so it carries an id that
         # `check_request` can write a capped question back over.
@@ -209,7 +214,7 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
         # then searched and read, then answered (13 steps) died *after* its
         # final answer, one node short of close_the_log. 24 gives the loop
         # about five hops, still a hard ceiling rather than a budget.
-        result = _AGENTS[choice].invoke(
+        result = agent.invoke(
             {'messages': [HumanMessage(content=message)]},
             config={'recursion_limit': 24,
                     'configurable': {'thread_id': session or f'one-off-{uuid4()}'}})

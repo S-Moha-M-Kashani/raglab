@@ -65,6 +65,10 @@ h1 .lab-mark {
 .lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
 .chassis button.ghost { color: var(--chassis-ink); border-color: #35424f; }
 .chassis button.ghost:hover { background: var(--chassis-soft); color: #fff; }
+.settings-popover button.ghost { color: var(--ink); border-color: var(--rule); }
+.settings-popover button.ghost:hover {
+  background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
+}
 #productionNote { font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft);
                   align-self: center; max-width: 40ch; }
 .settings-popover {

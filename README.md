@@ -45,8 +45,9 @@ Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
 
 - `ollama` (default) — a local model; a judged run can make hundreds of calls,
   so the default must never silently spend credit.
-- `openrouter` — a remote model; needs `OPENROUTER_API_KEY`, or type the key
-  into the panel.
+- `openrouter` — a remote model; set `OPENROUTER_API_KEY` in `.env`, or open
+  **Settings** in the panel masthead and enter it for the life of that process.
+  The corner helper defaults to the GPT-5 Nano OpenRouter tool agent.
 - `claude` / `codex` — drives a CLI already installed on this machine, no API
   key needed.
 - `fake` — offline, answers and judges without ever failing; for tests only.

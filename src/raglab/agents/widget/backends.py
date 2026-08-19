@@ -6,6 +6,7 @@ process per call with the knowledge base inlined, because `CliChat` has no
 `bind_tools`. Both paths enter through `ask`.
 """
 import os
+from threading import RLock
 from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
@@ -45,9 +46,7 @@ WIDGET_MODELS = {
     'claude': ('cli', 'claude · CLI, no key, no tools'),
     'codex': ('cli', 'codex · CLI, no key, no tools'),
 }
-# The codex CLI: gpt-5.6-luna, the lightest draw on the membership, no key
-# involved. Among the OpenRouter pair the cheaper nano leads the list.
-DEFAULT_MODEL = 'codex'
+DEFAULT_MODEL = 'openai/gpt-5-nano'
 
 
 def _openrouter_url() -> str:
@@ -57,6 +56,27 @@ def _openrouter_url() -> str:
             or 'https://openrouter.ai/api/v1')
 
 
+def _environment_key(environment_key: str = '') -> str:
+    return (environment_key or '').strip()
+
+
+_openrouter_key_resolver = _environment_key
+
+
+def set_openrouter_key_resolver(resolver=None) -> None:
+    """Set the panel's key resolver; standalone use reads the environment."""
+    global _openrouter_key_resolver
+    _openrouter_key_resolver = resolver or _environment_key
+
+
+def _openrouter_key() -> str:
+    key = _openrouter_key_resolver(os.environ.get('OPENROUTER_API_KEY', ''))
+    if not key:
+        raise WidgetUnavailable(
+            'OPENROUTER_API_KEY is not set — enter it under Settings or set it in .env')
+    return key
+
+
 class WidgetUnavailable(RuntimeError):
     """The lab is up; its widget is not. The route answers this as a 502."""
 
@@ -64,11 +84,13 @@ class WidgetUnavailable(RuntimeError):
 # One cached agent per OpenRouter model — a CLI is a process per call and
 # caches nothing.
 _AGENTS: dict = {}
+_AGENTS_LOCK = RLock()
 
 
 def reset() -> None:
     """Drop the cached agents so the next ask() rebuilds (tests, key changes)."""
-    _AGENTS.clear()
+    with _AGENTS_LOCK:
+        _AGENTS.clear()
 
 
 def _tracing_on() -> bool:
@@ -82,14 +104,14 @@ def _build_agent(model: str):
     # '' — an empty variable is a missing one, not a present one. With
     # tracing on the traces really leave the machine, so only then do the
     # LangSmith four join the demand.
-    required = REQUIRED_ENV + (TRACING_ENV if _tracing_on() else ())
+    required = TRACING_ENV if _tracing_on() else ()
     for name in required:
         if not os.environ.get(name, '').strip():
             raise WidgetUnavailable(
                 f'{name} is not set — the widget needs it in .env')
+    openrouter_api_key = _openrouter_key()
     # Present, and read the way the spec states them. LangSmith picks its
     # four up from the environment by itself; only the key is passed on.
-    openrouter_api_key = os.environ['OPENROUTER_API_KEY']
     if _tracing_on():
         os.environ['LANGSMITH_API_KEY']
         os.environ['LANGSMITH_ENDPOINT']
@@ -180,8 +202,10 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
         used = getattr(answer, 'usage_metadata', None)
         return _accounted(_account(str(answer.content)),
                           [used] if used else [])
-    if choice not in _AGENTS:
-        _AGENTS[choice] = _build_agent(choice)
+    with _AGENTS_LOCK:
+        if choice not in _AGENTS:
+            _AGENTS[choice] = _build_agent(choice)
+        agent = _AGENTS[choice]
     try:
         # A real HumanMessage rather than a dict, so it carries an id that
         # `check_request` can write a capped question back over.
@@ -190,7 +214,7 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
         # then searched and read, then answered (13 steps) died *after* its
         # final answer, one node short of close_the_log. 24 gives the loop
         # about five hops, still a hard ceiling rather than a budget.
-        result = _AGENTS[choice].invoke(
+        result = agent.invoke(
             {'messages': [HumanMessage(content=message)]},
             config={'recursion_limit': 24,
                     'configurable': {'thread_id': session or f'one-off-{uuid4()}'}})

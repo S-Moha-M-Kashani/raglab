@@ -12,6 +12,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from raglab.agents import widget
+from raglab.llm_backends import openrouter_key_memory as credentials
 
 
 # --- the knowledge base and the two tools -------------------------------
@@ -337,16 +338,28 @@ def test_the_model_catalogue_offers_four_choices_and_each_names_its_kind():
     assert set(widget.WIDGET_MODELS) == {'openai/gpt-5-nano',
                                          'openai/gpt-5-mini',
                                          'claude', 'codex'}
-    # The platform default is the codex CLI (gpt-5.6-luna — the lightest draw
-    # on the membership, and no key involved); among the OpenRouter pair the
-    # cheaper nano leads the list.
-    assert widget.DEFAULT_MODEL == 'codex'
+    # GPT-5 Nano leads because the widget is a small tool-calling helper; the
+    # Codex coding-agent CLI remains selectable but is too context-heavy as a default.
+    assert widget.DEFAULT_MODEL == 'openai/gpt-5-nano'
     assert next(iter(widget.WIDGET_MODELS)) == 'openai/gpt-5-nano'
     for kind, label in widget.WIDGET_MODELS.values():
         assert kind in ('openrouter', 'cli')
         assert label
     for cli in ('claude', 'codex'):
         assert 'no tools' in widget.WIDGET_MODELS[cli][1]
+
+
+def test_a_panel_key_satisfies_the_openrouter_widget_without_an_env_key(monkeypatch):
+    monkeypatch.delenv('OPENROUTER_API_KEY', raising=False)
+    previous = widget.backends._openrouter_key_resolver
+    widget.set_openrouter_key_resolver(credentials.active)
+    try:
+        credentials.set_key('sk-or-v1-widget-test-0123456789abcdef')
+        assert widget.backends._openrouter_key() == \
+            'sk-or-v1-widget-test-0123456789abcdef'
+    finally:
+        credentials.clear()
+        widget.set_openrouter_key_resolver(previous)
 
 
 def test_an_unknown_model_is_refused_by_name():

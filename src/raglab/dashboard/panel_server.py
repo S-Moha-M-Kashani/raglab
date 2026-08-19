@@ -320,6 +320,7 @@ class Jobs:
 
 
 def create_app() -> FastAPI:
+    widget.set_openrouter_key_resolver(credentials.active)
     boot_settings = load_lab_settings()
 
     def settings_now():
@@ -605,12 +606,14 @@ def create_app() -> FastAPI:
             credentials.set_key(payload.get('api_key') or '')
         except ValueError as error:
             raise HTTPException(400, str(error))
+        widget.reset()
         return credentials.state(settings_now())
 
     @app.delete('/api/credentials')
     def clear_credentials():
         """Forget the key this panel supplied; never unsets the environment's own."""
         credentials.clear()
+        widget.reset()
         return credentials.state(settings_now())
 
     @app.get('/api/widget')

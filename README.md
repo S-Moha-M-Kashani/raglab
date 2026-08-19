@@ -10,6 +10,12 @@ a year of synthetic colloquial Farsi diary chat with ground-truth questions and
 cited evidence — one case study among the shipped corpora, not the project's
 scope.
 
+**Who this is for:** anyone who has to choose a RAG architecture and wants the
+choice to rest on numbers — an engineer picking chunking and retrieval settings
+for a product, a researcher ablating one knob at a time, or a learner who wants
+to see what each advanced-RAG technique actually buys on a corpus with known
+answers.
+
 ## Quick start
 
 ```sh
@@ -47,6 +53,33 @@ Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
 
 Everything else the lab reads is in `.env.example`, commented out and kept
 complete by `tests/test_conventions.py`.
+
+## A first experiment
+
+1. Start the panel (`uv run --extra local-embeddings raglab`) and open
+   `http://localhost:9002`.
+2. Press **Load the shipped settings** — the measured preset, every knob
+   explained by the `!` beside it.
+3. In the **Index** card press **Build**. The first build downloads the
+   default embedding model (~2.2 GB); later builds with the same fingerprint
+   are reused.
+4. In the **Generation** card leave RAGAS on `offline` and press
+   **Run evaluation**. The default `ollama` backend answers locally; the
+   Readings card fills with the deterministic scores and the offline RAGAS
+   pair, and the run lands in **Every experiment**.
+5. Change exactly one knob — say k from 8 to 5 in the **Retrieval** card —
+   and run again. Both rows now sit in the experiments table for comparison.
+   Ranking by the four judged decision metrics needs a real judge: switch
+   RAGAS to `judged` with an `openrouter` backend (answerer and judge are
+   separate models on purpose), and the leaderboard shows
+   `decision score ± spread` per run.
+6. Trace any single question in the Inspector on :9003 — which chunks were
+   retrieved, which were gold, what the answer was graded.
+
+The **✳ Ask** widget in the panel's corner answers questions about the lab
+itself — a tool-calling agent over the project's knowledge base and the
+`skills/` corpus, deliberately outside the measured pipeline (it writes no
+run and no number).
 
 ## Datasets
 

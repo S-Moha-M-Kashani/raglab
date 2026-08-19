@@ -22,6 +22,7 @@ from raglab.agents.widget.prompts import (
     KNOWLEDGE_BASE,
     SYSTEM_PROMPT)
 from raglab.agents.widget.tools import TOOLS
+from raglab.llm_backends import openrouter_key_memory as credentials
 
 # Read at build time, never at import: the suite runs offline, and a missing
 # variable must become a stated refusal rather than a KeyError at import.
@@ -45,9 +46,7 @@ WIDGET_MODELS = {
     'claude': ('cli', 'claude · CLI, no key, no tools'),
     'codex': ('cli', 'codex · CLI, no key, no tools'),
 }
-# The codex CLI: gpt-5.6-luna, the lightest draw on the membership, no key
-# involved. Among the OpenRouter pair the cheaper nano leads the list.
-DEFAULT_MODEL = 'codex'
+DEFAULT_MODEL = 'openai/gpt-5-nano'
 
 
 def _openrouter_url() -> str:
@@ -55,6 +54,14 @@ def _openrouter_url() -> str:
     the widget reads the same variable rather than keeping a second copy."""
     return (os.environ.get('OPENROUTER_BASE_URL', '').strip()
             or 'https://openrouter.ai/api/v1')
+
+
+def _openrouter_key() -> str:
+    key = credentials.active(os.environ.get('OPENROUTER_API_KEY', ''))
+    if not key:
+        raise WidgetUnavailable(
+            'OPENROUTER_API_KEY is not set — enter it under Settings or set it in .env')
+    return key
 
 
 class WidgetUnavailable(RuntimeError):
@@ -82,14 +89,14 @@ def _build_agent(model: str):
     # '' — an empty variable is a missing one, not a present one. With
     # tracing on the traces really leave the machine, so only then do the
     # LangSmith four join the demand.
-    required = REQUIRED_ENV + (TRACING_ENV if _tracing_on() else ())
+    required = TRACING_ENV if _tracing_on() else ()
     for name in required:
         if not os.environ.get(name, '').strip():
             raise WidgetUnavailable(
                 f'{name} is not set — the widget needs it in .env')
+    openrouter_api_key = _openrouter_key()
     # Present, and read the way the spec states them. LangSmith picks its
     # four up from the environment by itself; only the key is passed on.
-    openrouter_api_key = os.environ['OPENROUTER_API_KEY']
     if _tracing_on():
         os.environ['LANGSMITH_API_KEY']
         os.environ['LANGSMITH_ENDPOINT']

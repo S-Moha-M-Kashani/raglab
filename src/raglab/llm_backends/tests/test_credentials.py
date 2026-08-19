@@ -44,6 +44,16 @@ def test_a_key_is_held_in_the_process_and_read_back_by_the_settings():
     assert credentials.apply(settings).llm_ready is True
 
 
+def test_the_active_key_prefers_the_panel_then_falls_back_to_the_environment():
+    environment = 'sk-or-from-the-shell-0123456789'
+    assert credentials.active(environment) == environment
+    credentials.set_key(KEY)
+    assert credentials.active(environment) == KEY
+    credentials.clear()
+    assert credentials.active(environment) == environment
+    assert credentials.active('') == ''
+
+
 def test_clearing_falls_back_directly_and_through_the_panels_own_route(client):
     # this is an integration test
     """Clear means "forget what I typed", never "unset the key" — checked

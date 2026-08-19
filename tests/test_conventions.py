@@ -222,6 +222,53 @@ def test_every_entry_point_resolves_to_something_callable():
             f'{command} points at {target}, which is not callable')
 
 
+def test_the_widget_package_is_a_deletable_leaf():
+    # this is a convention test
+    """The widget is a helper outside the measured seam, and removable:
+    deleting src/raglab/widget/ plus its one route must strand nothing.
+    Pinned in both directions with real import parsing rather than a regex,
+    so a parenthesised import list cannot slip past: only server.py imports
+    the widget, and the widget package reaches the lab only through its
+    unmeasured edges — skills, clichat, settings — never llm, pipeline,
+    evaluate or the stores."""
+    import ast
+    widget_dir = SRC / 'raglab' / 'widget'
+    allowed_into_lab = {'skills', 'clichat', 'settings'}
+    reachers, escapes = [], []
+    for path in _SRC_FILES:
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        inside = path.is_relative_to(widget_dir)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            if inside:
+                if isinstance(node, ast.Import):
+                    names = [alias.name.split('.')[1] for alias in node.names
+                             if alias.name.startswith('raglab.')]
+                else:
+                    module = node.module or ''
+                    if node.level == 1:
+                        names = []                      # its own package
+                    elif node.level == 2:               # from ..x / from .. import x
+                        names = ([module.split('.')[0]] if module
+                                 else [alias.name for alias in node.names])
+                    elif module == 'raglab':            # from raglab import x
+                        names = [alias.name for alias in node.names]
+                    elif module.startswith('raglab.'):  # from raglab.x import y
+                        names = [module.split('.')[1]]
+                    else:
+                        names = []                      # third-party
+                escapes += [f'{path.name} imports raglab.{name}'
+                            for name in names if name not in allowed_into_lab]
+            elif path.name != 'server.py':
+                touches = [node.module] if isinstance(node, ast.ImportFrom) else []
+                touches += [alias.name for alias in node.names]
+                if any('widget' in str(name) for name in touches if name):
+                    reachers.append(path.name)
+    assert not reachers, f'only server.py may import the widget: {reachers}'
+    assert not escapes, f'the widget escaped its unmeasured edges: {escapes}'
+
+
 @pytest.mark.parametrize('gate', ['missing', 'missing_metrics'])
 def test_nothing_ships_without_an_explainer(gate):
     # this is a convention test

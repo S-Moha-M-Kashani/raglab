@@ -1,0 +1,44 @@
+# The widget's knowledge base: the facts search_knowledge_base serves and
+# the CLI system prompt inlines. One key per topic; model-facing text, so a
+# fixture like every other prompt page — a stale fact is a YAML edit, not a
+# code change.
+purpose: >-
+  The RAG lab is a generic retrieval workbench: chunking and retrieval
+  choices for any use case are decided by measurement against a
+  ground-truth corpus, which is itself a config field. The bundled default
+  is fixtures/corpus_groundtruth_datasets/diary_year_fa.json, 167 sessions
+  of synthetic Farsi diary chat — one case study among five shipped
+  corpora, with imports supported.
+ports: >-
+  The lab serves its panel on port 9002
+  (uv run --extra local-embeddings raglab); the read-only Inspector runs
+  on port 9003 (uv run raglab-inspector).
+architecture: >-
+  The lab prescribes no single architecture: every stage is a config knob,
+  and the right pipeline depends on the use case. For the bundled diary
+  case study, the measured choice was candidate F, the gated pipeline:
+  semantic-drift chunks, heydariAI/persian-embeddings, hybrid-RRF at k=8,
+  lexical rerank, time filter, plus an LLM relevance gate (grader=llm,
+  grade_threshold=0.4) between retrieval and generation — a finding about
+  that corpus, not a default for others.
+metrics: >-
+  Exactly four judged metrics choose the architecture: faithfulness,
+  answer relevancy, LLM context precision and context recall. Their
+  unweighted mean is the decision score, and it never appears without its
+  standard error.
+storage: >-
+  The index lives in process memory (MemoryVectors, brute-force cosine)
+  and is discarded when the process ends. The durable artifacts are one
+  JSON file per run in .runs/ and one ledger row per job in
+  databases/raglab.db.
+commands: >-
+  Entry points: raglab (panel), raglab-inspector, raglab-lab,
+  raglab-sweep, raglab-judgescreen, raglab-leaderboard. The sweep changes
+  exactly one knob per candidate and refuses to run on the fake backend.
+embedder: >-
+  The default embedder is heydariAI/persian-embeddings over
+  sentence-transformers (the local-embeddings extra), because the bundled
+  default corpus is Farsi — a different corpus wants an encoder verified
+  on its own language. The ascii-hash embedder is kept as a reference
+  point: it embeds Farsi to the zero vector and scores ~0.01 recall
+  against 0.617 for the real encoder.

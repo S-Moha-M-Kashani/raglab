@@ -52,7 +52,7 @@ Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
 - `fake` — offline, answers and judges without ever failing; for tests only.
 
 Everything else the lab reads is in `.env.example`, commented out and kept
-complete by `tests/test_conventions.py`.
+complete by `test_conventions.py`.
 
 ## A first experiment
 
@@ -78,7 +78,7 @@ complete by `tests/test_conventions.py`.
 
 The **✳ Ask** widget in the panel's corner answers questions about the lab
 itself — a tool-calling agent over the project's knowledge base and the
-`skills/` corpus, deliberately outside the measured pipeline (it writes no
+`fixtures/skills/` corpus, deliberately outside the measured pipeline (it writes no
 run and no number).
 
 ## Datasets
@@ -98,11 +98,11 @@ rather than repairing it, and names every problem it found.
 ## Choosing an architecture
 
 The lab prescribes none — every pipeline stage is a config knob, and the right
-combination depends on the use case. `skills/` is the guidance layer: fourteen
+combination depends on the use case. `fixtures/skills/` is the guidance layer: fourteen
 skill files covering the advanced-RAG technique landscape, a use-case →
 starting-architecture map with a per-use-case experiment ladder, the
 experiment methodology (dev/test discipline, error analysis), and the sources
-to watch for new work. Start at `skills/README.md`.
+to watch for new work. Start at `fixtures/skills/README.md`.
 
 ## What gets written where
 

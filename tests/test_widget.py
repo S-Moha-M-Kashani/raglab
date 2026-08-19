@@ -365,8 +365,9 @@ def test_a_missing_cli_command_is_a_stated_refusal(monkeypatch):
 
 def test_the_cli_path_needs_no_key_and_carries_the_knowledge_base(monkeypatch):
     # this is a unit test
-    """The whole point of a CLI backend is no API key — so the five env
-    variables are the OpenRouter path's requirement, not the widget's. And
+    """The whole point of a CLI backend is no API key — so the OpenRouter
+    key (and, with tracing on, the LangSmith four) is the OpenRouter path's
+    requirement, not the widget's. And
     with no tool loop, the knowledge base must travel in the prompt or the
     CLI answers about a project it has never seen."""
     for name in widget.REQUIRED_ENV:
@@ -426,7 +427,7 @@ def test_importing_the_widget_builds_no_agent_and_reads_no_env():
 
 def test_a_missing_env_variable_is_a_stated_refusal(monkeypatch):
     # this is a unit test
-    """The five variables the widget needs are read at build time, and the
+    """The variables the widget needs are read at build time, and the
     refusal names the one that is missing — the `GradeUnavailable` pattern,
     never a KeyError half way up a stack trace."""
     widget.reset()
@@ -446,6 +447,50 @@ def test_the_openrouter_base_url_is_read_from_the_environment(monkeypatch):
     assert widget._openrouter_url() == 'http://localhost:9999/v1'
     monkeypatch.delenv('OPENROUTER_BASE_URL')
     assert widget._openrouter_url() == 'https://openrouter.ai/api/v1'
+
+
+def test_langsmith_env_is_required_only_when_tracing_is_on(monkeypatch):
+    # this is a unit test
+    """LANGSMITH_TRACING=False is a working configuration, not four missing
+    variables. The LangSmith four exist only to serve tracing, so with
+    tracing off — unset, or any spelling the tracer itself reads as off —
+    the OpenRouter key alone must build the agent; demanding a LangSmith
+    account then is requiring a credential for a disabled feature (found
+    2026-08-19, a real .env carrying LANGSMITH_TRACING=False)."""
+    pytest.importorskip('langgraph')
+    assert widget.REQUIRED_ENV == ('OPENROUTER_API_KEY',)
+    assert set(widget.TRACING_ENV) == {'LANGSMITH_API_KEY',
+                                       'LANGSMITH_ENDPOINT',
+                                       'LANGSMITH_PROJECT',
+                                       'LANGSMITH_TRACING'}
+    widget.reset()
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'test-value')
+    for name in widget.TRACING_ENV:
+        monkeypatch.delenv(name, raising=False)
+    # the tracer's own falsy spellings, plus the variable simply not set
+    for off in ('False', 'false', '0', ''):
+        monkeypatch.setenv('LANGSMITH_TRACING', off)
+        assert hasattr(widget._build_agent('openai/gpt-5-nano'), 'invoke'), (
+            f'LANGSMITH_TRACING={off!r} must not demand a LangSmith account')
+    monkeypatch.delenv('LANGSMITH_TRACING')
+    assert hasattr(widget._build_agent('openai/gpt-5-nano'), 'invoke')
+    widget.reset()
+
+
+def test_tracing_switched_on_still_demands_the_langsmith_variables(monkeypatch):
+    # this is a unit test
+    """The old contract survives exactly where it was true: with tracing on
+    the traces really leave the machine, so a missing LangSmith variable is
+    a stated refusal naming it, before anything is built or sent."""
+    widget.reset()
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'test-value')
+    for name in widget.TRACING_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('LANGSMITH_TRACING', 'true')
+    with pytest.raises(widget.WidgetUnavailable) as caught:
+        widget._build_agent('openai/gpt-5-nano')
+    assert 'LANGSMITH_API_KEY' in str(caught.value)
+    widget.reset()
 
 
 def test_an_empty_env_variable_is_missing_too(monkeypatch):

@@ -5,7 +5,8 @@ It answers questions about this project from a small knowledge base and a
 calculator — it retrieves nothing, judges nothing, and writes no run, no
 ledger row and no number. That is why it may do two things the measured path
 must not: talk to OpenRouter through its own `ChatOpenAI`, and trace to
-LangSmith (backends.REQUIRED_ENV). Removing the widget is deleting this
+LangSmith when tracing is switched on (backends.TRACING_ENV). Removing the
+widget is deleting this
 folder and the one route in server.py; a convention test pins that no other
 lab module reaches in, and that this package reaches the lab only through
 its unmeasured edges (skills, clichat, settings).
@@ -26,9 +27,9 @@ version away.
 # a test that monkeypatches an internal must patch the module that defines
 # it, not this package's re-export of it.
 from . import backends, hooks, probe, prompts, tools
-from .backends import (DEFAULT_MODEL, REQUIRED_ENV, WIDGET_MODELS,
-                       WidgetUnavailable, _AGENTS, _build_agent,
-                       _cli_system, _openrouter_url, ask, reset)
+from .backends import (DEFAULT_MODEL, REQUIRED_ENV, TRACING_ENV,
+                       WIDGET_MODELS, WidgetUnavailable, _AGENTS,
+                       _build_agent, _cli_system, _openrouter_url, ask, reset)
 from .hooks import (HOOK_LOG, MAX_HISTORY, MAX_QUESTION, MIDDLEWARE,
                     _validate, check_reply, check_request, close_the_log,
                     log_tool_call, note_prompt, trim_and_call)

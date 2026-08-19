@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from raglab.llm_backends import openrouter_key_memory as credentials
+from raglab.agents import widget
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import service_experiment_ledger as ledger
 from raglab.llm_backends import model_role_catalogue as models
@@ -133,6 +134,38 @@ def test_the_panel_can_set_a_key_and_the_options_never_carry_it(client):
     state = body.json()['capabilities']['openrouter_key']
     assert state['set'] is True and state['source'] == 'panel'
     assert state['hint'].endswith(KEY[-4:])
+
+
+def test_saving_a_valid_key_drops_cached_widget_agents(client):
+    widget._AGENTS['openai/gpt-5-nano'] = object()
+    try:
+        response = client.post('/api/credentials', json={'api_key': KEY})
+        assert response.status_code == 200
+        assert widget._AGENTS == {}
+    finally:
+        widget.reset()
+
+
+def test_clearing_a_panel_key_drops_cached_widget_agents(client):
+    credentials.set_key(KEY)
+    widget._AGENTS['openai/gpt-5-nano'] = object()
+    try:
+        response = client.delete('/api/credentials')
+        assert response.status_code == 200
+        assert widget._AGENTS == {}
+    finally:
+        widget.reset()
+
+
+def test_a_rejected_key_keeps_the_working_widget_agent(client):
+    sentinel = object()
+    widget._AGENTS['openai/gpt-5-nano'] = sentinel
+    try:
+        response = client.post('/api/credentials', json={'api_key': 'nope'})
+        assert response.status_code == 400
+        assert widget._AGENTS['openai/gpt-5-nano'] is sentinel
+    finally:
+        widget.reset()
 
 
 def test_no_artefact_a_run_leaves_behind_contains_the_key():

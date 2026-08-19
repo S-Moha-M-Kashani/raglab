@@ -320,6 +320,7 @@ class Jobs:
 
 
 def create_app() -> FastAPI:
+    widget.set_openrouter_key_resolver(credentials.active)
     boot_settings = load_lab_settings()
 
     def settings_now():

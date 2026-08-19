@@ -22,7 +22,6 @@ from raglab.agents.widget.prompts import (
     KNOWLEDGE_BASE,
     SYSTEM_PROMPT)
 from raglab.agents.widget.tools import TOOLS
-from raglab.llm_backends import openrouter_key_memory as credentials
 
 # Read at build time, never at import: the suite runs offline, and a missing
 # variable must become a stated refusal rather than a KeyError at import.
@@ -56,8 +55,21 @@ def _openrouter_url() -> str:
             or 'https://openrouter.ai/api/v1')
 
 
+def _environment_key(environment_key: str = '') -> str:
+    return (environment_key or '').strip()
+
+
+_openrouter_key_resolver = _environment_key
+
+
+def set_openrouter_key_resolver(resolver=None) -> None:
+    """Set the panel's key resolver; standalone use reads the environment."""
+    global _openrouter_key_resolver
+    _openrouter_key_resolver = resolver or _environment_key
+
+
 def _openrouter_key() -> str:
-    key = credentials.active(os.environ.get('OPENROUTER_API_KEY', ''))
+    key = _openrouter_key_resolver(os.environ.get('OPENROUTER_API_KEY', ''))
     if not key:
         raise WidgetUnavailable(
             'OPENROUTER_API_KEY is not set — enter it under Settings or set it in .env')

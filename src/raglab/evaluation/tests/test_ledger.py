@@ -21,6 +21,7 @@ from raglab.configuration.lab_config import (
 from raglab.dashboard.panel_server import Jobs, _with_backend
 
 from raglab.conftest import LAB_SETTINGS
+from raglab.evaluation.tests.archive_examples import completed_archive
 
 
 def _run_to_terminal(jobs: Jobs, job_id: str, timeout: float = 30.0) -> dict:
@@ -209,3 +210,17 @@ def test_the_ledger_is_not_kept_beside_the_code_that_writes_it():
     assert 'src' not in default.parts
     # Overridable, which is what lets the suite guard itself in conftest.
     assert ledger.db_path(env={'RAGLAB_DB': '/tmp/x.db'}) == Path('/tmp/x.db')
+
+
+def test_an_imported_archive_is_inserted_once_without_overwriting(tmp_path):
+    path = tmp_path / 'raglab.db'
+    original = completed_archive('same-id')
+    assert ledger.insert_archive(original, path=path) == 'created'
+    changed = completed_archive('same-id')
+    changed['evaluation']['result']['label'] = 'must not overwrite'
+    changed['settings']['config']['label'] = 'must not overwrite'
+    assert ledger.insert_archive(changed, path=path) == 'existing'
+    found = ledger.experiment('same-id', path=path)
+    assert found['label'] == 'imported experiment'
+    assert found['detail'] == original
+    assert ledger.load_archive('same-id', path=path) == original

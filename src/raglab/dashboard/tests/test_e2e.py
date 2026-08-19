@@ -6,7 +6,11 @@ whole lab is rewritten as a direct call — see constraints.md.
 Smoke set (`fixtures/corpus_groundtruth_datasets/smoke-mini.json`, 5 sessions, 6
 questions) with `token-hash` (no model download) and the conftest-pinned
 `fake` provider, so this stays fast."""
+import json
+
+from raglab.configuration import explainer_assembly as explain
 from raglab.evaluation import run_evaluation as evaluate
+from raglab.llm_backends import model_role_catalogue as models
 from raglab.agents.extra_tools import leaderboard
 
 from raglab.conftest import SMOKE_INDEX, _finished
@@ -45,6 +49,22 @@ def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):
     selection = result['selection']
     assert selection['n'] == 3
     assert len(selection['question_ids']) == 3
+    evidence = result['archive_evidence']
+    assert evidence['execution']['provider'] == 'fake'
+    assert set(evidence['execution']['models']) == {
+        role.key for role in models.ROLES}
+    assert evidence['metric_catalogue'] == explain.measures()
+    assert evidence['inspector']['dataset']['id'] == result['dataset']
+    assert evidence['inspector']['dataset']['corpus']['sessions']
+    assert evidence['inspector']['dataset']['ground_truth']['questions']
+    assert evidence['inspector']['chunks_by_session'] == result['chunks_by_session']
+    assert evidence['inspector']['summaries'] == result['summaries']
+    assert evidence['inspector']['traces'] == result['traces']
+    assert [row['question_id'] for row in evidence['inspector']['traces']] \
+        == result['selection']['question_ids']
+    saved = json.loads((evaluate.RUNS_DIR / f"{result['run_id']}.json").read_text())
+    assert 'archive_evidence' not in saved
+    assert 'traces' not in saved
 
     # 3. exactly one new file appeared in the (conftest-redirected) runs
     # dir, and it round-trips through `evaluate.list_runs`.

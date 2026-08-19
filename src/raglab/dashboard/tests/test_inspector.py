@@ -9,6 +9,7 @@ from raglab.corpora import diary_corpus_loader as corpus
 from raglab.dashboard import inspector_server as inspector
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.dashboard import service_presentation as present
+from raglab.evaluation.tests.archive_examples import completed_archive
 from raglab.configuration.lab_config import (
     IndexConfig,
     LabConfig,
@@ -19,6 +20,8 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.conftest import _finished
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
+INSPECTOR_JS = inspector.STATIC / 'inspector.js'
+INSPECTOR_HTML = inspector.STATIC / 'inspector.html'
 
 
 def test_evidence_spans_and_mark_gold_agree_on_the_same_quote_either_direction():
@@ -196,6 +199,33 @@ def _client(monkeypatch):
     # Pin the offline/fake backend so no test needs a key or a network.
     monkeypatch.setattr(inspector, 'load_lab_settings', lambda: LAB_SETTINGS)
     return TestClient(inspector.create_inspector_app())
+
+
+def test_follow_advertises_only_the_active_archive_id(monkeypatch):
+    calls = []
+
+    def lab_get(path):
+        calls.append(path)
+        if path == '/api/imported-archives/active':
+            return {'archive_id': 'imported-run-001'}
+        return {'jobs': []}
+
+    monkeypatch.setattr(inspector, '_lab_get', lab_get)
+    body = _client(monkeypatch).get('/api/follow').json()
+    assert body['archive_id'] == 'imported-run-001'
+    assert 'evaluation' not in body
+
+
+def test_inspector_proxies_one_archive_and_return_to_live(monkeypatch):
+    full = completed_archive()
+    monkeypatch.setattr(inspector, '_lab_get',
+                        lambda path: full if path.endswith('imported-run-001') else None)
+    deleted = []
+    monkeypatch.setattr(inspector, '_lab_delete', lambda path: deleted.append(path) or {})
+    client = _client(monkeypatch)
+    assert client.get('/api/imported-archives/imported-run-001').json() == full
+    assert client.delete('/api/imported-archives/active').status_code == 200
+    assert deleted == ['/api/imported-archives/active']
 
 
 # FastAPI TestClient over the read-only app.
@@ -464,6 +494,23 @@ def test_the_served_inspector_page_keeps_its_conventions(
         assert must_contain in text, reason
     if must_not_contain is not None:
         assert must_not_contain not in text, reason
+
+
+def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
+    source = INSPECTOR_JS.read_text()
+    function = source[source.index('async function followImportedArchive'):
+                      source.index('function renderFollow')]
+    assert 'if (archiveId === activeArchiveId) return;' in function
+    assert 'const archive = await archiveRequest(' in function
+    assert "'/api/imported-archives/' + encodeURIComponent(archiveId)" in function
+    render = source[source.index('function renderImportedArchive'):
+                    source.index('async function followImportedArchive')]
+    for call in ('renderGroundTruth(', 'renderChunkGroups(',
+                 'renderQuestionTables(', 'renderGeneration('):
+        assert call in render
+    html = INSPECTOR_HTML.read_text()
+    assert 'id="archive-state"' in html
+    assert 'id="archive-return-live"' in html
 
 
 def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():

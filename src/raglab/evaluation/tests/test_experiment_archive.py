@@ -51,6 +51,15 @@ def test_broken_question_chunk_and_span_references_are_refused():
     mutations = [
         (lambda full: full['evaluation']['result']['rows'][0].update(id='missing'),
          'rows.*missing'),
+        (lambda full: full['evaluation']['inspector']['dataset']['ground_truth']
+         ['questions'][0]['evidence'][0].update(session_id='missing-session'),
+         'evidence.*session_id.*missing-session'),
+        (lambda full: full['evaluation']['inspector']['dataset']['ground_truth']
+         ['questions'][0]['evidence'][0].update(message_indices=[1]),
+         'evidence.*message_indices.*1'),
+        (lambda full: full['evaluation']['inspector']['traces'][0]
+         .update(question_id='missing-question'),
+         'traces.*question_id.*missing-question'),
         (lambda full: full['evaluation']['inspector']['traces'][0]
          ['trace']['candidates'][0].update(chunk_id='missing'), 'chunk_id.*missing'),
         (lambda full: full['evaluation']['inspector']['traces'][0]

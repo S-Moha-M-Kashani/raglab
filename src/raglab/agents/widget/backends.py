@@ -138,18 +138,33 @@ def _cli_answer(cli: str, message: str) -> str:
                             or 'low')
     chat = CliChat(cli=cli, model=PROVIDER_MODELS[cli], effort=effort)
     try:
-        return str(chat.invoke([('system', system), ('user', message)]).content)
+        # The whole message, not its text: `CliChat` puts the CLI's own token
+        # report on `usage_metadata`, and the account travels with the reply.
+        return chat.invoke([('system', system), ('user', message)])
     except Exception as error:
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
 
 
-def ask(message: str, model: str = '', session: str = '') -> str:
-    """One question in, one answer out. `model` picks from WIDGET_MODELS;
-    empty means the default. Agents build on first use, one per model.
-    `session` names the conversation to continue — the browser page's own
-    id, one thread per page; empty means a one-off ask on a throwaway
-    thread, because a checkpointed graph demands a thread id and a shared
-    default would leak one anonymous caller's history into the next."""
+def _accounted(reply: str, used: list) -> dict:
+    """The reply with its token account. No usage reported lands as None,
+    never 0 — "0 tokens" is a claim about the bill, None says the backend
+    did not account for it."""
+    return {'reply': reply,
+            'input_tokens': (sum(u.get('input_tokens') or 0 for u in used)
+                             if used else None),
+            'output_tokens': (sum(u.get('output_tokens') or 0 for u in used)
+                              if used else None)}
+
+
+def ask(message: str, model: str = '', session: str = '') -> dict:
+    """One question in, one answer out: `{'reply', 'input_tokens',
+    'output_tokens'}` — the account read from the `usage_metadata` LangChain
+    puts on every AI message. `model` picks from WIDGET_MODELS; empty means
+    the default. Agents build on first use, one per model. `session` names
+    the conversation to continue — the browser page's own id, one thread per
+    page; empty means a one-off ask on a throwaway thread, because a
+    checkpointed graph demands a thread id and a shared default would leak
+    one anonymous caller's history into the next."""
     choice = model or DEFAULT_MODEL
     kind, _ = WIDGET_MODELS.get(choice) or (None, None)
     if kind is None:
@@ -161,7 +176,10 @@ def ask(message: str, model: str = '', session: str = '') -> str:
         # graph to hang middleware on at all. One process per call means no
         # memory either — the session is accepted and ignored, the label
         # already says what a CLI cannot do.
-        return _account(_cli_answer(choice, _validate(message)))
+        answer = _cli_answer(choice, _validate(message))
+        used = getattr(answer, 'usage_metadata', None)
+        return _accounted(_account(str(answer.content)),
+                          [used] if used else [])
     if choice not in _AGENTS:
         _AGENTS[choice] = _build_agent(choice)
     try:
@@ -182,9 +200,20 @@ def ask(message: str, model: str = '', session: str = '') -> str:
         # A UI helper's failure is a stated 502, never a bare 500 — but the
         # reason travels with it.
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
-    reply = result['messages'][-1].content
+    messages = result['messages']
+    # This turn's messages are the ones after the question just sent: under
+    # memory the state carries every earlier turn too, and an account summing
+    # the whole thread would bill the old turns again on every ask.
+    turn = messages
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            turn = messages[i + 1:]
+            break
+    used = [m.usage_metadata for m in turn
+            if getattr(m, 'usage_metadata', None)]
+    reply = messages[-1].content
     if isinstance(reply, list):
         reply = ' '.join(part.get('text', '') if isinstance(part, dict) else str(part)
                          for part in reply)
     # `close_the_log` already accounted for this run from inside the graph.
-    return str(reply)
+    return _accounted(str(reply), used)

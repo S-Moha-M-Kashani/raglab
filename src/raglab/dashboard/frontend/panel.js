@@ -1143,6 +1143,11 @@ async function widgetAsk(message) {
     const data = await api('/api/widget',
       { message, model: $('widget-model').value, session: widgetSession });
     widgetSay('bot', data.reply);
+    // The token account, when the backend reported one — an unreported
+    // account renders nothing rather than a made-up zero.
+    if (data.input_tokens != null) {
+      widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
+    }
   } catch (error) {
     widgetSay('err', error.message);
   } finally {

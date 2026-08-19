@@ -319,7 +319,8 @@ def test_the_two_agent_level_hooks_bracket_a_cli_too(monkeypatch):
     """A CLI has no tool loop for the middle four and no graph to hang
     middleware on — but a request is still validated and a run accounted."""
     monkeypatch.setattr(widget.backends, 'cli_available', lambda cli: True)
-    monkeypatch.setattr(widget.backends, '_cli_answer', lambda cli, message: 'from the cli')
+    monkeypatch.setattr(widget.backends, '_cli_answer',
+                        lambda cli, message: AIMessage(content='from the cli'))
     widget.HOOK_LOG.clear()
     widget.ask('which ports?', model='codex')
     assert [line.split(':')[0] for line in widget.HOOK_LOG] == ['before_agent',
@@ -386,7 +387,7 @@ def test_the_cli_path_needs_no_key_and_carries_the_knowledge_base(monkeypatch):
             return AIMessage(content='from the cli')
 
     monkeypatch.setattr(widget.backends, 'CliChat', FakeCli)
-    assert widget.ask('which ports?', model='codex') == 'from the cli'
+    assert widget.ask('which ports?', model='codex')['reply'] == 'from the cli'
     assert seen['cli'] == 'codex'
     assert '9002' in str(seen['messages'])
 
@@ -515,10 +516,13 @@ def test_an_empty_env_variable_is_missing_too(monkeypatch):
 def test_the_route_answers_with_the_agents_reply(client, monkeypatch):
     # this is an integration test
     monkeypatch.setattr(widget, 'ask',
-                        lambda message, model='', session='': f'echo: {message}')
+                        lambda message, model='', session='': {
+                            'reply': f'echo: {message}',
+                            'input_tokens': None, 'output_tokens': None})
     answer = client.post('/api/widget', json={'message': 'what is this lab?'})
     assert answer.status_code == 200
-    assert answer.json() == {'reply': 'echo: what is this lab?'}
+    assert answer.json() == {'reply': 'echo: what is this lab?',
+                             'input_tokens': None, 'output_tokens': None}
 
 
 def test_the_route_refuses_an_empty_message(client):
@@ -629,8 +633,9 @@ def test_a_cli_model_accepts_a_session_and_stays_stateless(monkeypatch):
     design. A session passed with a CLI model is accepted and ignored, not an
     error: the panel sends one either way."""
     monkeypatch.setattr(widget.backends, '_cli_answer',
-                        lambda cli, message: 'ok')
-    assert widget.ask('hello', model='claude', session='tab-one') == 'ok'
+                        lambda cli, message: AIMessage(content='ok'))
+    answer = widget.ask('hello', model='claude', session='tab-one')
+    assert answer['reply'] == 'ok'
 
 
 def test_reset_forgets_the_conversations_too(monkeypatch):
@@ -665,3 +670,80 @@ def test_the_route_passes_the_session_through(client, monkeypatch):
     assert seen['session'] == 'tab-one'
     client.post('/api/widget', json={'message': 'hello'})
     assert seen['session'] == ''
+
+
+# --- token usage: the account travels with the reply -----------------------
+
+def test_ask_returns_the_reply_with_its_token_account():
+    # this is a unit test
+    """A tool-loop run is several model calls; the account is their sum,
+    read from the `usage_metadata` LangChain already puts on every AI
+    message. The reply stops being a bare string and becomes the one dict
+    the route can serve unchanged."""
+    class Stub:
+        def invoke(self, payload, config=None):
+            return {'messages': [
+                AIMessage(content='searching', usage_metadata={
+                    'input_tokens': 10, 'output_tokens': 5,
+                    'total_tokens': 15}),
+                AIMessage(content='ok', usage_metadata={
+                    'input_tokens': 30, 'output_tokens': 7,
+                    'total_tokens': 37}),
+            ]}
+
+    widget.reset()
+    widget._AGENTS['openai/gpt-5-nano'] = Stub()
+    try:
+        answer = widget.ask('hello', model='openai/gpt-5-nano')
+    finally:
+        widget.reset()
+    assert answer['reply'] == 'ok'
+    assert answer['input_tokens'] == 40
+    assert answer['output_tokens'] == 12
+
+
+def test_a_backend_that_reports_no_usage_is_a_stated_none():
+    # this is a unit test
+    """No usage reported must land as None, never 0 — "0 tokens" is a claim
+    about the bill, None says the backend did not account for it. The
+    refusal-over-substitution rule, applied to a number nobody measured."""
+    class Stub:
+        def invoke(self, payload, config=None):
+            return {'messages': [AIMessage(content='ok')]}
+
+    widget.reset()
+    widget._AGENTS['openai/gpt-5-nano'] = Stub()
+    try:
+        answer = widget.ask('hello', model='openai/gpt-5-nano')
+    finally:
+        widget.reset()
+    assert answer['reply'] == 'ok'
+    assert answer['input_tokens'] is None
+    assert answer['output_tokens'] is None
+
+
+def test_a_cli_reply_carries_its_account_too(monkeypatch):
+    # this is a unit test
+    """`CliChat` already builds `usage_metadata` from the CLI's own token
+    report; the CLI path hands back the message so `ask` can read it the
+    same way it reads the agent's."""
+    monkeypatch.setattr(
+        widget.backends, '_cli_answer',
+        lambda cli, message: AIMessage(content='ok', usage_metadata={
+            'input_tokens': 100, 'output_tokens': 20, 'total_tokens': 120}))
+    answer = widget.ask('hello', model='claude', session='tab-one')
+    assert answer['reply'] == 'ok'
+    assert answer['input_tokens'] == 100
+    assert answer['output_tokens'] == 20
+
+
+def test_the_route_serves_the_reply_and_the_account_unchanged(client, monkeypatch):
+    # this is an integration test
+    monkeypatch.setattr(widget, 'ask',
+                        lambda message, model='', session='': {
+                            'reply': f'echo: {message}',
+                            'input_tokens': 40, 'output_tokens': 12})
+    answer = client.post('/api/widget', json={'message': 'hello'})
+    assert answer.status_code == 200
+    assert answer.json() == {'reply': 'echo: hello',
+                             'input_tokens': 40, 'output_tokens': 12}

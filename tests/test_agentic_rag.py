@@ -1,7 +1,7 @@
 """The scoped RAG agent: what each scope owns, what it refuses, and what every
 row it produces has to say.
 
-Offline throughout, via a stub for `agent._ask` — the seam every node calls
+Offline throughout, via a stub for `loop._ask` — the seam every node calls
 and none bypasses. Two tests skip the stub and run against the real
 `FakeChat`, because the conservative reading of an *unparsable* reply is the
 safety property under test there.
@@ -10,7 +10,8 @@ Uses `token-hash`, not `ascii-hash`: the corpus is Farsi and ascii-hash embeds
 it to the zero vector."""
 import pytest
 
-from raglab import agent, config, evaluate, explain, metrics, pipeline
+from raglab import agentic_rag, config, evaluate, explain, metrics, pipeline
+from raglab.agentic_rag import loop as agent_loop
 from raglab import models as models_mod
 from raglab.config import (AgentConfig, CRITICS, GenerationConfig, IndexConfig,
                            LabConfig, LabSettings, RetrievalConfig, SCOPES,
@@ -29,7 +30,7 @@ LEAVES = dict(chunker='session', embedder='token-hash', contextual=False)
 @pytest.fixture(scope='module')
 def ground_truth():
     """The five-session smoke corpus's own ground truth, not the diary's —
-    every loop test below scripts `agent._ask`, so the corpus only has to
+    every loop test below scripts `loop._ask`, so the corpus only has to
     exist, never carry the specific evidence one diary question needs."""
     from raglab import datasets
     _, gt = datasets.load('smoke-mini')
@@ -62,7 +63,7 @@ def agent_cfg(**kwargs) -> LabConfig:
 
 
 class Stub:
-    """A scripted `agent._ask`: canned text per node, and a record of the order.
+    """A scripted `loop._ask`: canned text per node, and a record of the order.
 
     Answers are per *node*, not per call index, so a test states "assess says
     0.9" without also having to know how many times the graph asks.
@@ -114,10 +115,10 @@ def test_the_four_scopes_are_the_two_by_two_and_nothing_else():
     """`retrieve` and `generate` own one stage each; `full` owns both. A fifth
     value would be a mechanism with no cell in the table."""
     assert SCOPES == ('', 'retrieve', 'generate', 'full')
-    assert agent.owns_retrieval('retrieve') and agent.owns_retrieval('full')
-    assert not agent.owns_retrieval('generate') and not agent.owns_retrieval('')
-    assert agent.owns_generation('generate') and agent.owns_generation('full')
-    assert not agent.owns_generation('retrieve') and not agent.owns_generation('')
+    assert agentic_rag.owns_retrieval('retrieve') and agentic_rag.owns_retrieval('full')
+    assert not agentic_rag.owns_retrieval('generate') and not agentic_rag.owns_retrieval('')
+    assert agentic_rag.owns_generation('generate') and agentic_rag.owns_generation('full')
+    assert not agentic_rag.owns_generation('retrieve') and not agentic_rag.owns_generation('')
 
 
 # --- what is refused -------------------------------------------------------
@@ -128,7 +129,7 @@ def test_a_scope_this_installation_cannot_run_is_refused_never_substituted(
     """The `leiden` rule. A row labelled `scope=full` that was actually served
     by the fixed pipeline is the worst artefact this lab can produce, because no
     other field on it disagrees."""
-    monkeypatch.setattr(agent, 'agent_available', lambda: False)
+    monkeypatch.setattr(agentic_rag, 'agent_available', lambda: False)
     problems = agent_cfg(scope='retrieve').validate()
     assert len(problems) == 1
     assert 'uv sync --extra agent' in problems[0]
@@ -233,8 +234,8 @@ def test_a_sufficient_first_hop_stops_and_names_why(index, question, query_date,
                                                     monkeypatch):
     # this is an integration test
     stub = Stub(plan='the diary entries about this', assess='SCORE: 0.9')
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='retrieve', max_hops=3),
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    outcome = agentic_rag.run(index, agent_cfg(scope='retrieve', max_hops=3),
                         question, query_date, llm=FakeChat())
     assert outcome.diagnostics['agent_stop'] == 'evidence-sufficient'
     assert outcome.diagnostics['agent_hops'] == 1
@@ -249,7 +250,7 @@ def test_a_sufficient_first_hop_stops_and_names_why(index, question, query_date,
 # never computed from `config_delta`. `threshold` needs a contrast (same
 # score, two thresholds) to show the threshold decides anything at all, so it
 # is two rows rather than one. On the five-session smoke index rather than
-# the 167-session diary: every case scripts `agent._ask`, so the corpus only
+# the 167-session diary: every case scripts `loop._ask`, so the corpus only
 # has to exist, never carry any one question's specific evidence.
 LOOP_BOUND_CASES = [
     dict(id='hop-cap', config_delta=dict(max_hops=3),
@@ -287,8 +288,8 @@ def test_the_retrieval_loop_stops_for_a_different_reason_per_config(
     call-cap, each asserted on the exact diagnostics field the original test
     checked."""
     stub = Stub(**case['answers'])
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='retrieve', **case['config_delta']),
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    outcome = agentic_rag.run(index, agent_cfg(scope='retrieve', **case['config_delta']),
                         question, query_date, llm=FakeChat())
     for key, expected in case['diagnostics'].items():
         assert outcome.diagnostics[key] == expected, key
@@ -313,8 +314,8 @@ def test_every_hop_retrieves_through_the_measured_pipeline(
         return real(idx, cfg, *args, **kwargs)
 
     monkeypatch.setattr(pipeline, 'retrieve', spy)
-    monkeypatch.setattr(agent, '_ask', Stub(plan='...', assess='SCORE: 0.1'))
-    outcome = agent.run(index, agent_cfg(scope='retrieve', max_hops=2,
+    monkeypatch.setattr(agent_loop, '_ask', Stub(plan='...', assess='SCORE: 0.1'))
+    outcome = agentic_rag.run(index, agent_cfg(scope='retrieve', max_hops=2,
                                          retrieval={'k': 4, 'candidates': 10}),
                         question, query_date, llm=FakeChat())
     assert len(seen) == 2, 'one retrieval per hop'
@@ -328,8 +329,8 @@ def test_a_grounded_draft_ships_without_revision(index, question, query_date,
                                                  monkeypatch):
     # this is an integration test
     stub = Stub(draft='جواب فارسی [s001]', critique='SCORE: 0.9')
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='generate'), question,
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    outcome = agentic_rag.run(index, agent_cfg(scope='generate'), question,
                         query_date, llm=FakeChat())
     assert outcome.answer == 'جواب فارسی [s001]'
     assert outcome.diagnostics['agent_revisions'] == 0
@@ -341,8 +342,8 @@ def test_a_refused_draft_is_revised_up_to_the_cap(index, question, query_date,
                                                   monkeypatch):
     # this is an integration test
     stub = Stub(draft=['first', 'second'], critique='SCORE: 0.1')
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='generate', max_revisions=1),
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    outcome = agentic_rag.run(index, agent_cfg(scope='generate', max_revisions=1),
                         question, query_date, llm=FakeChat())
     assert outcome.diagnostics['agent_revisions'] == 1
     assert outcome.diagnostics['agent_stop'] == 'revision-cap'
@@ -356,8 +357,8 @@ def test_the_critic_off_ships_the_draft_and_calls_no_critic(
     a `generate` row that beats `critic='none'` beat the critique, not the
     prompt."""
     stub = Stub(draft='جواب', critique='SCORE: 0.0')
-    monkeypatch.setattr(agent, '_ask', stub)
-    outcome = agent.run(index, agent_cfg(scope='generate', critic='none'),
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    outcome = agentic_rag.run(index, agent_cfg(scope='generate', critic='none'),
                         question, query_date, llm=FakeChat())
     assert stub.count('critique') == 0
     assert outcome.answer == 'جواب'
@@ -368,15 +369,15 @@ def test_the_both_critic_also_asks_whether_the_answer_answers_the_question(
         index, question, query_date, monkeypatch):
     # this is an integration test
     stub = Stub(draft='جواب', critique='SCORE: 0.9', completeness='SCORE: 0.9')
-    monkeypatch.setattr(agent, '_ask', stub)
-    agent.run(index, agent_cfg(scope='generate', critic='both'), question,
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    agentic_rag.run(index, agent_cfg(scope='generate', critic='both'), question,
               query_date, llm=FakeChat())
     assert stub.count('critique') == 1
     assert stub.count('completeness') == 1
     # ...and 'grounded' asks only the first question.
     stub = Stub(draft='جواب', critique='SCORE: 0.9', completeness='SCORE: 0.9')
-    monkeypatch.setattr(agent, '_ask', stub)
-    agent.run(index, agent_cfg(scope='generate', critic='grounded'), question,
+    monkeypatch.setattr(agent_loop, '_ask', stub)
+    agentic_rag.run(index, agent_cfg(scope='generate', critic='grounded'), question,
               query_date, llm=FakeChat())
     assert stub.count('completeness') == 0
 
@@ -394,11 +395,11 @@ def test_only_the_full_scope_retrieves_again_after_a_bad_critique(
         real = pipeline.retrieve
         monkeypatch.setattr(pipeline, 'retrieve',
                             lambda *a, **k: (calls.append('r'), real(*a, **k))[1])
-        monkeypatch.setattr(agent, '_ask',
+        monkeypatch.setattr(agent_loop, '_ask',
                             Stub(plan='...', assess='SCORE: 0.9',
                                  draft='جواب', critique='SCORE: 0.1',
                                  rewrite='دوباره'))
-        outcome = agent.run(index, agent_cfg(scope=scope, max_hops=2,
+        outcome = agentic_rag.run(index, agent_cfg(scope=scope, max_hops=2,
                                              max_revisions=1),
                             question, query_date, llm=FakeChat())
         return len(calls), outcome
@@ -419,7 +420,7 @@ def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
     An unreadable sufficiency verdict must mean *insufficient*, never a
     number that clears the threshold, or an unreachable model turns the loop
     into a silent no-op."""
-    outcome = agent.run(index, agent_cfg(scope='full', max_hops=2,
+    outcome = agentic_rag.run(index, agent_cfg(scope='full', max_hops=2,
                                          max_revisions=1),
                         question, query_date, llm=FakeChat())
     assert outcome.diagnostics['agent_hops'] == 2, 'never stopped early'
@@ -429,14 +430,14 @@ def test_an_unreadable_verdict_keeps_working_rather_than_declaring_success(
 
 def test_the_verdict_parser_reads_a_score_and_refuses_to_invent_one():
     # this is a unit test
-    assert agent.verdict('SCORE: 0.8') == pytest.approx(0.8)
-    assert agent.verdict('score 8/10') == pytest.approx(0.8)
-    assert agent.verdict('YES') == 1.0
-    assert agent.verdict('NO') == 0.0
+    assert agentic_rag.verdict('SCORE: 0.8') == pytest.approx(0.8)
+    assert agentic_rag.verdict('score 8/10') == pytest.approx(0.8)
+    assert agentic_rag.verdict('YES') == 1.0
+    assert agentic_rag.verdict('NO') == 0.0
     # Prose, an echo, and an empty reply are all *no opinion* — never a value.
-    assert agent.verdict('FAKE: سؤال: چند بار ...') is None
-    assert agent.verdict('') is None
-    assert agent.verdict('it depends on what you mean by 0.9') is None
+    assert agentic_rag.verdict('FAKE: سؤال: چند بار ...') is None
+    assert agentic_rag.verdict('') is None
+    assert agentic_rag.verdict('it depends on what you mean by 0.9') is None
 
 
 # --- cost, failure, and what the row says ----------------------------------
@@ -450,9 +451,9 @@ def test_a_model_the_agent_cannot_reach_abstains_and_says_why(
     a run that has paid for twenty-nine others, and it must never quietly fall
     back to the fixed pipeline — that produces a row labelled with an agent that
     never ran."""
-    monkeypatch.setattr(agent, '_ask',
+    monkeypatch.setattr(agent_loop, '_ask',
                         Stub(plan=RuntimeError('daemon is down')))
-    outcome = agent.run(index, agent_cfg(scope='full'), question, query_date,
+    outcome = agentic_rag.run(index, agent_cfg(scope='full'), question, query_date,
                         llm=FakeChat())
     assert outcome.abstained
     assert outcome.answer == pipeline.REFUSAL
@@ -469,25 +470,25 @@ def test_agent_columns_join_the_runs_aggregate_and_its_notes_name_the_scope(
     (its only additions were the `isinstance`/`n_contexts`/`latency_ms`
     checks now inlined below): the agent fills the same `Outcome` so scoring
     needs no second idea of what a result is; the run's notes name the scope
-    and its caps (`agent.note_for` on its own); and `n_hops`/`n_agent_calls`
+    and its caps (`agentic_rag.note_for` on its own); and `n_hops`/`n_agent_calls`
     ride the same `AGGREGATED` tuple every other per-question number does, so
     they reach the run's overall means with no special case. No HTTP, no job,
     no ragas; the route-narrowing claim these used to sit beside is
     `test_the_retrieval_route_shows_the_loop_and_never_answers`, kept."""
-    retrieving = agent.note_for(AgentConfig(scope='retrieve', max_hops=5))
+    retrieving = agentic_rag.note_for(AgentConfig(scope='retrieve', max_hops=5))
     assert 'agent scope=retrieve' in retrieving and 'max_hops=5' in retrieving
     assert 'critic=' not in retrieving, 'retrieve owns no generation'
-    full_note = agent.note_for(AgentConfig(scope='full', critic='both',
+    full_note = agentic_rag.note_for(AgentConfig(scope='full', critic='both',
                                            max_revisions=2))
     assert 'agent scope=full' in full_note
     assert 'critic=both' in full_note and 'max_revisions=2' in full_note
 
-    monkeypatch.setattr(agent, '_ask',
+    monkeypatch.setattr(agent_loop, '_ask',
                         Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
                              critique='SCORE: 0.9'))
     rows = []
     for asked in ground_truth['questions'][:2]:
-        outcome = agent.run(index, agent_cfg(scope='full'), asked['question_fa'],
+        outcome = agentic_rag.run(index, agent_cfg(scope='full'), asked['question_fa'],
                             query_date, llm=FakeChat())
         assert isinstance(outcome, pipeline.Outcome)
         row = metrics.score_question(asked, outcome, k=3)
@@ -505,16 +506,16 @@ def test_agent_columns_join_the_runs_aggregate_and_its_notes_name_the_scope(
 def test_an_agent_scoped_run_eval_traces_the_loop_and_notes_its_scope(
         ground_truth, monkeypatch):
     # this is an integration test
-    """`run_eval`'s agent branch (`if cfg.agent.scope: ... agent.run(...,
+    """`run_eval`'s agent branch (`if cfg.agent.scope: ... agentic_rag.run(...,
     trace=tr)`) and `_assemble_notes`'s `if cfg.agent.scope:
-    notes.append(agent.note_for(cfg.agent))` are reachable only from an
+    notes.append(agentic_rag.note_for(cfg.agent))` are reachable only from an
     agent-scoped `run_eval` call — `run_retrieval` calls neither, and the one
     caller that used to exercise both, an HTTP `/api/evaluations` job, is
     gone along with the deleted `test_an_evaluation_with_a_scope_scores_
     records_and_names_the_loop`. Without a test calling `run_eval` itself with
     `cfg.agent.scope` set, deleting that branch or its `trace=tr` argument
     passes this file's suite. Direct: no HTTP, no job, no ragas."""
-    monkeypatch.setattr(agent, '_ask',
+    monkeypatch.setattr(agent_loop, '_ask',
                         Stub(plan='...', assess='SCORE: 0.9', draft='جواب [s001]',
                              critique='SCORE: 0.9'))
     registry = IndexRegistry(LAB_SETTINGS)
@@ -555,13 +556,13 @@ def test_a_traced_agent_records_every_node_and_moves_no_number(
         return Stub(plan='...', assess='SCORE: 0.1', rewrite='...',
                     draft='جواب', critique='SCORE: 0.9')
 
-    monkeypatch.setattr(agent, '_ask', scripted())
-    plain = agent.run(index, agent_cfg(scope='full', max_hops=2), question,
+    monkeypatch.setattr(agent_loop, '_ask', scripted())
+    plain = agentic_rag.run(index, agent_cfg(scope='full', max_hops=2), question,
                       query_date, llm=FakeChat())
 
     trace: dict = {}
-    monkeypatch.setattr(agent, '_ask', scripted())
-    traced = agent.run(index, agent_cfg(scope='full', max_hops=2), question,
+    monkeypatch.setattr(agent_loop, '_ask', scripted())
+    traced = agentic_rag.run(index, agent_cfg(scope='full', max_hops=2), question,
                        query_date, llm=FakeChat(), trace=trace)
 
     nodes = [visit['node'] for visit in trace['agent']]
@@ -588,12 +589,12 @@ def test_the_loop_is_a_compiled_langgraph_with_the_edge_full_alone_has():
     the graph has, which is the thing a reader can check against the design."""
     pytest.importorskip('langgraph')
     for scope in ('retrieve', 'generate', 'full'):
-        nodes = agent.graph_nodes(agent_cfg(scope=scope).agent)
-        assert ('retrieve' in nodes) == agent.owns_retrieval(scope)
-        assert ('critique' in nodes) == agent.owns_generation(scope)
-    edges = agent.graph_edges(agent_cfg(scope='full').agent)
+        nodes = agentic_rag.graph_nodes(agent_cfg(scope=scope).agent)
+        assert ('retrieve' in nodes) == agentic_rag.owns_retrieval(scope)
+        assert ('critique' in nodes) == agentic_rag.owns_generation(scope)
+    edges = agentic_rag.graph_edges(agent_cfg(scope='full').agent)
     assert ('critique', 'retrieve') in edges
-    assert ('critique', 'retrieve') not in agent.graph_edges(
+    assert ('critique', 'retrieve') not in agentic_rag.graph_edges(
         agent_cfg(scope='generate').agent)
 
 
@@ -642,10 +643,10 @@ def test_the_retrieval_route_shows_the_loop_and_never_answers(client,
     runs through an HTTP job and traces come back; its one distinct claim,
     that the agent's columns join the run's aggregate, now has its own direct
     test beside `test_the_loop_counters_are_explained_measures_not_bare_
-    numbers`, and its notes claim has its own direct test on `agent.note_for`.)"""
+    numbers`, and its notes claim has its own direct test on `agentic_rag.note_for`.)"""
     stub = Stub(plan='...', assess='SCORE: 0.1', rewrite='دوباره',
                 draft='این نباید اجرا شود')
-    monkeypatch.setattr(agent, '_ask', stub)
+    monkeypatch.setattr(agent_loop, '_ask', stub)
     payload = agent_cfg(scope='full', max_hops=2).to_dict() | {'limit': 1}
     res = client.post('/api/retrievals', json=payload)
     assert res.status_code == 202, res.text
@@ -662,8 +663,8 @@ def test_a_scope_the_backend_cannot_run_is_a_400_on_both_run_routes(
         client, monkeypatch):
     # this is an integration test
     """Both run routes apply the same screen — the rule `/api/queries` and
-    `/api/evaluations` already share about models, applied to the agent."""
-    monkeypatch.setattr(agent, 'agent_available', lambda: False)
+    `/api/evaluations` already share about models, applied to the agentic_rag."""
+    monkeypatch.setattr(agentic_rag, 'agent_available', lambda: False)
     payload = agent_cfg(scope='retrieve').to_dict() | {'limit': 1}
     for route in ('/api/evaluations', '/api/retrievals', '/api/queries'):
         body = payload | ({'question': 'چطور بودم؟'} if 'queries' in route else {})
@@ -795,8 +796,8 @@ def test_every_agent_node_reads_the_evidence_the_answerer_reads(monkeypatch):
         seen[node] = user
         return 'SCORE: 0.9'
 
-    monkeypatch.setattr(agent, '_ask', spy)
-    outcome = agent.run(diary_index, agent_cfg(scope='full', critic='both'),
+    monkeypatch.setattr(agent_loop, '_ask', spy)
+    outcome = agentic_rag.run(diary_index, agent_cfg(scope='full', critic='both'),
                         question, query_date, llm=FakeChat())
     handed = pipeline.context_blocks(outcome)
     assert len(handed) > 900, 'a shorter corpus than this cannot show the fault'

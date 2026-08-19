@@ -1,92 +1,22 @@
-"""The scoped RAG agent: a bounded LangGraph loop around the pipeline's own
-stages. `AgentConfig.scope` picks retrieve/generate/full; the loop always calls
-`pipeline.retrieve` with the run's own `RetrievalConfig`, never its own retrieval.
-"""
-import re
+"""One question's loop: the guard around every node, the one seam every model
+call routes through, the nodes and routers, and the finalize that turns the
+loop's last state into the `Outcome` shape the fixed pipeline returns."""
 import time
-from typing import Any, TypedDict
+from typing import Any
 
-from . import pipeline
-from .config import AgentConfig, LabConfig
-from .llm import lab_chat
-from .models import Roles
-
-AGENT_EXTRA = 'uv sync --extra agent'
+from .. import pipeline
+from ..config import AgentConfig, LabConfig
+from ..llm import lab_chat
+from ..models import Roles
+from .availability import _stategraph
+from .prompts import (ASSESS_PROMPT, COMPLETENESS_PROMPT, CRITIQUE_PROMPT,
+                      PLAN_PROMPT, REWRITE_PROMPT)
+from .shape import State, graph_nodes, owns_generation, owns_retrieval
+from .verdicts import verdict
 
 # A constant, not a knob: the critic answers a yes/no question, and the "how hard should it try" knob already exists as `evidence_threshold`.
 CRITIC_BAR = 0.5
 
-
-def agent_available() -> bool:
-    """Verified by import, not read off a list, so NA means one thing: this installation cannot load it."""
-    try:
-        import langgraph                                    # noqa: F401
-        from langgraph.graph import StateGraph              # noqa: F401
-    except Exception:
-        return False
-    return True
-
-
-def _stategraph():
-    """The one place `_Loop.build_graph` reaches into langgraph. Deferred like
-    `agent_available`'s own import above rather than a module-level import, so
-    `import raglab.agent` still succeeds when the `agent` extra is not
-    installed — only a call to `run` needs this, and `LabConfig.validate()`
-    already refused a scope this installation cannot run before `run` is
-    ever reached."""
-    from langgraph.graph import END, StateGraph
-    return END, StateGraph
-
-
-def available() -> dict:
-    """Every scope → whether this installation can run it, and what to install if not."""
-    from .config import SCOPES
-    ready = agent_available()
-    return {scope: {'available': True if not scope else ready,
-                    'install': '' if not scope else AGENT_EXTRA}
-            for scope in SCOPES}
-
-
-def owns_retrieval(scope: str) -> bool:
-    return scope in ('retrieve', 'full')
-
-
-def owns_generation(scope: str) -> bool:
-    return scope in ('generate', 'full')
-
-
-# --- reading a model's verdict ---------------------------------------------
-
-_YES = ('yes', 'بله', 'آری')
-_NO = ('no', 'خیر', 'نه')
-_NUMBER = re.compile(r'^\s*(?:score|verdict|rating)?\s*[:=]?\s*'
-                     r'(\d+(?:\.\d+)?)\s*(?:/\s*(\d+(?:\.\d+)?))?')
-
-
-def verdict(text: str) -> float | None:
-    """A model's verdict in [0,1], or None when it gave none. Unlike
-    `retrieval.llm_scores`'s 0.5, never defaulted to a number: a single verdict
-    deciding whether the loop stops cannot be split that way."""
-    if not text:
-        return None
-    head = text.strip().lower()
-    if any(head.startswith(word) for word in _YES):
-        return 1.0
-    if any(head.startswith(word) for word in _NO):
-        return 0.0
-    match = _NUMBER.match(head)
-    if not match:
-        return None
-    value = float(match.group(1))
-    if match.group(2):                      # '8/10'
-        scale = float(match.group(2)) or 1.0
-        value = value / scale
-    elif value > 1.0:                       # '8' on the 0-10 scale the prompts ask for
-        value = value / 10.0
-    return max(0.0, min(1.0, value))
-
-
-# --- the one model seam ----------------------------------------------------
 
 class _Exhausted(Exception):
     """The per-question call ceiling was reached; reported as `agent_stop='call-cap'`."""
@@ -101,89 +31,12 @@ def _ask(llm, model: str, node: str, system: str, user: str) -> str:
     return (turn.content or '').strip()
 
 
-PLAN_PROMPT = (
-    'You plan retrieval over a personal Farsi diary. In one short sentence, say '
-    'what evidence would answer the question — dates, names, events to look for. '
-    'Do not answer the question itself.')
-ASSESS_PROMPT = (
-    'You judge whether retrieved diary excerpts are enough to answer a question. '
-    'Reply with exactly one line: "SCORE: n" where n is 0-10 — 10 means the '
-    'excerpts fully answer it, 0 means they are irrelevant. No other text.')
-REWRITE_PROMPT = (
-    'Rewrite a search query over a Farsi personal diary so it retrieves the '
-    'missing evidence. Reply with the query only — keywords in Farsi, no '
-    'explanation, no question words.')
-CRITIQUE_PROMPT = (
-    'You check a Farsi answer against the diary excerpts it was written from. '
-    'Reply with exactly one line: "SCORE: n" where n is 0-10 — 10 means every '
-    'claim in the answer is supported by the excerpts, 0 means it is invented. '
-    'No other text.')
-COMPLETENESS_PROMPT = (
-    'You check whether a Farsi answer actually answers the question that was '
-    'asked. Reply with exactly one line: "SCORE: n" where n is 0-10 — 10 means '
-    'it answers it directly and completely, 0 means it does not answer it. No '
-    'other text.')
-
-
 def _contexts_block(outcome) -> str:
     """Exactly what the answerer is handed (`pipeline.context_blocks`), so every
     node judges the same text rather than a truncated view."""
     if outcome is None or not outcome.contexts:
         return '(nothing retrieved)'
     return pipeline.context_blocks(outcome)
-
-
-# --- the graph's shape, as data -------------------------------------------
-
-class State(TypedDict, total=False):
-    question: str
-    query: str
-    plan: str
-    # LangGraph reads this class to know its channels; an update naming an undeclared key is refused.
-    last: Any
-    hops: int
-    rewrites: int
-    revisions: int
-    calls: int
-    unparsed: int
-    sufficient: bool
-    draft: str
-    stop: str
-    error: str
-
-
-def _shape(cfg: AgentConfig) -> tuple[tuple[str, ...],
-                                      tuple[tuple[str, str], ...]]:
-    """This scope's nodes/edges as data for `graph_nodes`/`graph_edges`; `_Loop.build_graph` hand-wires its own edges rather than reading this table, and the two genuinely disagree on one declared-but-unreachable path-map entry (`rewrite=True`'s unconditional `'retrieve'` from `assess`) — so trust the hand-wiring, not this table, if they ever seem to disagree."""
-    nodes: list[str] = []
-    edges: list[tuple[str, str]] = []
-    if owns_retrieval(cfg.scope):
-        nodes += ['plan', 'retrieve', 'assess']
-        edges += [('plan', 'retrieve'), ('retrieve', 'assess')]
-        if cfg.rewrite:
-            nodes.append('rewrite')
-            edges += [('assess', 'rewrite'), ('rewrite', 'retrieve')]
-        else:
-            edges.append(('assess', 'retrieve'))
-    if owns_generation(cfg.scope):
-        nodes.append('draft')
-        if owns_retrieval(cfg.scope):
-            edges.append(('assess', 'draft'))
-        if cfg.critic != 'none':
-            nodes.append('critique')
-            edges += [('draft', 'critique'), ('critique', 'draft')]
-            if owns_retrieval(cfg.scope):
-                # The interaction term: only `full` can answer a bad critique with different evidence rather than rewording.
-                edges.append(('critique', 'retrieve'))
-    return tuple(nodes), tuple(edges)
-
-
-def graph_nodes(cfg: AgentConfig) -> tuple[str, ...]:
-    return _shape(cfg)[0]
-
-
-def graph_edges(cfg: AgentConfig) -> tuple[tuple[str, str], ...]:
-    return _shape(cfg)[1]
 
 
 def _guard(fn):
@@ -364,8 +217,8 @@ class _Loop:
 
     def build_graph(self):
         """The hand-wiring `run` used to do inline, one edge per line, kept
-        exactly as measured — see `_shape`'s docstring for why this is not
-        driven from `_shape`'s own edge table."""
+        exactly as measured — see `shape._shape`'s docstring for why this is
+        not driven from `_shape`'s own edge table."""
         end, StateGraph = _stategraph()
         self.end = end
         agent_cfg = self.agent_cfg
@@ -469,46 +322,6 @@ class _Loop:
             self.trace['agent'] = self.visits
             self.trace['agent_hop'] = self.best['hop']
         return outcome
-
-
-def run(index, cfg: LabConfig, question: str, query_date: str, llm=None,
-        models: Roles | None = None, trace: dict | None = None):
-    """One question through the scoped loop, returning the same `Outcome`
-    shape the fixed pipeline returns, so an agent row is comparable with a
-    pipeline row on every metric the lab already computes."""
-    if not cfg.agent.scope:
-        raise ValueError(
-            'agent.run needs a scope — the fixed pipeline is pipeline.retrieve. '
-            'A caller that reaches here with no scope would produce a row '
-            'labelled with an agent that never ran.')
-    started = time.perf_counter()
-    loop = _Loop(index, cfg, question, query_date, llm, models or Roles(), trace)
-
-    if not owns_retrieval(loop.agent_cfg.scope):
-        loop.fixed_retrieve()
-
-    if loop.best['outcome'] is not None and not loop.best['outcome'].contexts:
-        # Nothing to draft or critique from — the same rule pipeline.answer applies to an abstained outcome.
-        final: State = dict(loop.initial) | {'stop': 'abstained'}
-    else:
-        final = loop.invoke(loop.build_graph())
-
-    return loop.finalize(final, started)
-
-
-def note_for(cfg: AgentConfig) -> str:
-    """One line describing the loop for a run's notes. Caps are named, not just
-    the scope, since they move the numbers while leaving the label identical."""
-    parts = [f'agent scope={cfg.scope}']
-    if owns_retrieval(cfg.scope):
-        parts.append(f'max_hops={cfg.max_hops}')
-        parts.append('rewrite' if cfg.rewrite else 'no rewrite')
-        parts.append(f'evidence>={cfg.evidence_threshold}')
-    if owns_generation(cfg.scope):
-        parts.append(f'critic={cfg.critic}')
-        parts.append(f'max_revisions={cfg.max_revisions}')
-    parts.append(f'<={cfg.max_llm_calls} calls/question')
-    return ', '.join(parts)
 
 
 def _terminal(cfg: AgentConfig, state: dict) -> str:

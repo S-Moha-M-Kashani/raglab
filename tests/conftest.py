@@ -192,7 +192,7 @@ def _runs_dir_is_never_the_real_one(tmp_path_factory):
 #: `LANGSMITH_API_KEY` were added once the widget's restore re-sanctioned
 #: those four `.env` variables — `LANGSMITH_TRACING=true` makes tracing
 #: process-global the first time anything builds a LangChain/LangGraph
-#: object (the widget's own agent, or any of `tests/test_agent.py`'s real
+#: object (the widget's own agent, or any of `tests/test_agentic_rag.py`'s real
 #: LangGraph invocations), and it is set the same `setdefault` way as the
 #: OpenRouter key, so it is exactly the same class of leak.
 _DEVELOPER_SECRET_ENV = ('OPENROUTER_API_KEY', 'LANGSMITH_TRACING',
@@ -242,7 +242,7 @@ def _no_test_reads_the_developers_real_key():
     its own background thread over `requests`, entirely outside the `httpx`
     seam every other network guard in this suite watches, so a developer's
     real `LANGSMITH_TRACING=true` would trace the ~10 real LangGraph
-    invocations in `tests/test_agent.py` (and any widget test that reaches
+    invocations in `tests/test_agentic_rag.py` (and any widget test that reaches
     the OpenRouter agent path) to a real LangSmith project with nothing here
     to notice. Pinning `LANGSMITH_TRACING` empty (falsy) is what actually
     stops the SDK from tracing at all; `LANGSMITH_API_KEY` is pinned too so a

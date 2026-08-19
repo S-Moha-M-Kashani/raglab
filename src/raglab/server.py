@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import (agent, credentials, datasets, embedding, evaluate, explain,
+from . import (agentic_rag, credentials, datasets, embedding, evaluate, explain,
                ledger, metrics, models, pipeline, ragas_eval, retrieval,
                widget)
 from .config import (ANSWERERS, BALANCES, CHUNKERS, CRITICS, DEPENDENCIES,
@@ -77,7 +77,7 @@ def _agent_options() -> dict:
     return {
         'scopes': list(SCOPES),
         'critics': list(CRITICS),
-        'agent_support': agent.available(),
+        'agent_support': agentic_rag.available(),
     }
 
 
@@ -505,8 +505,8 @@ def create_app() -> FastAPI:
             # the fast and slow paths cannot disagree about what a config does.
             if cfg.agent.scope:
                 trace = {}
-                outcome = agent.run(index, cfg, question, query_date, llm=llm,
-                                    models=roles, trace=trace)
+                outcome = agentic_rag.run(index, cfg, question, query_date,
+                                          llm=llm, models=roles, trace=trace)
                 report('answering', 0.9)
             else:
                 outcome, trace = pipeline.retrieve_traced(

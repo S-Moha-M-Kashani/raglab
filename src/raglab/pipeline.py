@@ -439,7 +439,7 @@ def _extractive_answer(outcome: Outcome, limit: int = 3) -> str:
 def context_blocks(outcome: Outcome) -> str:
     """The retrieved evidence as the answerer sees it: labelled, dated, never
     truncated here — `_fit_budget` already dropped whole contexts to the
-    character budget. Shared with `agent.py` so every node judges identical evidence."""
+    character budget. Shared with `agentic_rag.loop` so every node judges identical evidence."""
     return '\n\n'.join(
         f'[{context.session_id or context.chunk_id} | {context.date}]\n'
         f'{context.text}' for context in outcome.contexts)

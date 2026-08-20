@@ -590,16 +590,19 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
     # this is a convention test
-    """The bar, the context scope, the banner, the actions row and main each set
-    their own max-width. They are the same band and must read from the same
-    token, or one of them drifts the next time a band is added. Counted over
-    both sheets the page loads, since the bands the two surfaces share sit in
-    the shared one — a band that moved there is still a band on this page."""
-    css = panel_texts['panel.css'] + panel_texts['chrome.css']
-    assert 'max-width: var(--measure)' in css
-    assert css.count('max-width: var(--measure)') >= 5, (
-        'every band that centres on the page measure must name the token; '
-        f"found {css.count('max-width: var(--measure)')} of the 5 bands")
+    """Six page-level bands set their own max-width: the banner, the status
+    rail, the capability chips and main in panel.css, the top bar and the
+    context scope in chrome.css. They are one band at six widths and must read
+    from one token, or the next one added drifts. Counted per sheet, each
+    against its own number: a count over both sheets together passes with one
+    band gone and another added, which is the failure this pins."""
+    bands = {'panel.css': 4, 'chrome.css': 2}
+    for sheet, expected in bands.items():
+        found = panel_texts[sheet].count('max-width: var(--measure)')
+        assert found == expected, (
+            f'{sheet} centres {found} bands on the page measure, not '
+            f'{expected} — a band either stopped naming the token or a new one '
+            'arrived that this test has not been told about')
 
 
 def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
@@ -949,6 +952,77 @@ def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
     assert 'onApply' in js
 
 
+def test_the_context_popover_says_where_it_opens(panel_texts):
+    # this is a convention test
+    """A popover opens where its sheet says, on both surfaces: the lab page puts
+    the trigger under the top bar and the board puts it mid-card, and the
+    browser's own default with `margin: 0` is the viewport's top-left corner for
+    both — over the lab's identity and the surface switcher. The other two
+    popovers on these pages each state an inset; this one states its trigger."""
+    css = panel_texts['chrome.css']
+    detail = css.split('.context-detail {', 1)[1].split('}', 1)[0]
+    assert 'inset:' in detail, (
+        'without a placement the popover lands where nobody put it')
+    assert 'position-anchor: --context-scope' in css, (
+        'the two surfaces put the trigger in different places, so the box is '
+        'placed against the trigger rather than at one literal offset')
+    assert 'anchor-name: --context-scope' in css
+
+
+def test_the_settings_reveal_wraps_what_the_cells_around_it_do_not(panel_texts):
+    # this is a convention test
+    """The reveal hangs off a table cell, and `white-space: nowrap` on those
+    cells inherits into it. Unreset, an embedding model's path or a question-set
+    id runs off the side of a box that was opened to read it."""
+    css = panel_texts['chrome.css']
+    reveal = css.split('.settings-reveal {', 1)[1].split('}', 1)[0]
+    assert 'white-space: normal' in reveal
+    assert 'overflow-wrap: anywhere' in reveal, (
+        'a knob value with no spaces in it wraps nowhere without this')
+
+
+def test_the_frozen_identity_column_sorts_on_the_sentence_it_shows(panel_texts):
+    # this is a convention test
+    """The pipeline cell carries the settings reveal, so the cell's own text is
+    the sentence plus every knob and value of the recorded config. Sorted on
+    that, the column orders by a payload the reader cannot see — and two rows
+    whose sentences share a prefix are ordered by the knobs alone. `data-sort`
+    carries the sentence, which is what the sorter reads instead."""
+    js = panel_texts['leaderboard.js']
+    assert 'data-sort="${escapeHtml(sentenceText(row))}"' in js
+    assert "const sentenceText" in js, (
+        'the sort key is the sentence as text, derived from the same '
+        '`row.pipeline` the visible fragments are, so the two cannot disagree')
+
+
+def test_the_board_names_its_dataset_the_way_the_picker_does(panel_texts):
+    # this is a convention test
+    """The heading and the button under it name the same corpus, so they say
+    the same name — a heading reading `diary-fa` over a button reading `Farsi
+    diary` makes the reader work out that they are one thing."""
+    js = panel_texts['leaderboard.js']
+    assert 'shownOption(CURRENT, body.datasets || []).name' in js
+    assert 'const shownOption' in js and 'const optionsFor' in js, (
+        'both the heading and the picker read one list of options, or the two '
+        'can drift apart again')
+
+
+def test_the_board_leads_with_what_decides(panel_texts):
+    # this is a convention test
+    """Exactly four judged metrics decide, and the frozen identity column is
+    wide enough to push whatever follows it off the screen. So `decision`, its
+    error and those four come before the descriptive columns rather than after
+    them."""
+    js = panel_texts['leaderboard.js']
+    order = [js.index(f"key: '{key}'") for key in
+             ('decision', 'spread', 'faithfulness', 'answer_relevancy',
+              'llm_context_precision_with_reference', 'context_recall',
+              'kind', 'when', 'label')]
+    assert order == sorted(order), (
+        'the four deciding metrics must sit between the frozen sentence and '
+        'the descriptive columns, not behind them')
+
+
 def test_the_board_colours_a_fragment_by_its_pipeline_step(panel_texts):
     # this is a convention test
     """Colour means pipeline step on both surfaces and is defined once. The
@@ -971,11 +1045,18 @@ def test_the_settings_reveal_opens_to_a_keyboard_as_well_as_a_mouse(panel_texts)
     # this is a convention test
     """Hover alone is what this project already removed from these pages twice:
     a reveal that answers only a pointer publishes to a mouse and to nothing
-    else. So `:focus-within` opens it too, and the cell takes focus."""
-    css = panel_texts['chrome.css']
-    assert ':focus-within .settings-reveal' in css
-    assert ':hover .settings-reveal' in css
-    assert 'tabindex="0"' in panel_texts['leaderboard.js']
+    else. So focus opens it too, and the cell takes focus. Which reveal is open
+    is decided in the script rather than by two CSS rules, because the box has
+    to be shown into the top layer — so this is where both states are named."""
+    js = panel_texts['leaderboard.js']
+    for kind in ('mouseover', 'mouseout', 'focusin', 'focusout'):
+        assert f"'{kind}'" in js, (
+            f'without {kind} the reveal either never opens or never closes for '
+            'one of the two ways into it')
+    assert 'HOVERED' in js and 'FOCUSED' in js, (
+        'the two states are tracked apart, so a reveal opened by a keyboard '
+        'does not close because the mouse moved')
+    assert 'tabindex="0"' in js
 
 
 def test_the_reveal_escapes_the_scroll_region_that_would_clip_it(panel_texts):
@@ -986,6 +1067,12 @@ def test_the_reveal_escapes_the_scroll_region_that_would_clip_it(panel_texts):
     placed by script. One implementation, in the file both pages load."""
     assert 'position: fixed' in panel_texts['chrome.css']
     assert 'placeReveal' in panel_texts['lab.js']
+    # And out of the cell's paint order as well as its clip: the cell is
+    # `position: sticky`, which is a stacking context whatever its z-index, so a
+    # reveal that flips up across the sticky header was painted underneath it.
+    # The top layer is the only place outside every stacking context on a page.
+    assert 'popover="manual"' in panel_texts['leaderboard.js']
+    assert 'showPopover' in panel_texts['leaderboard.js']
 
 
 def test_the_board_names_no_winner(panel_texts):

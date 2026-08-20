@@ -133,8 +133,12 @@ function fakeHeader(text) {
   };
 }
 
-function fakeCell(text) {
-  const attrs = {};
+// A cell is either a string or `[text, told]`, where `told` is the `data-sort`
+// the renderer wrote — the leaderboard's frozen identity cell carries one,
+// because its own text holds the settings reveal as well as the sentence.
+function fakeCell(spec) {
+  const [text, told] = Array.isArray(spec) ? spec : [spec, null];
+  const attrs = told === null ? {} : { 'data-sort': told };
   return {
     textContent: text,
     getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name)
@@ -232,3 +236,30 @@ test('a column can say which way it opens, because "best" is not always highest'
   assert.equal(SortTable.opening(th({}), true), -1);
   assert.equal(SortTable.opening(th({}), false), 1);
 });
+
+// This is a unit test.
+test('a cell that says what it sorts as is sorted by that, not by its text',
+  () => {
+    // The leaderboard's pipeline cell shows a sentence and holds the whole
+    // recorded config beside it, in the reveal that opens on hover. Both are
+    // the cell's text, so sorting on the text sorts by the config: here row
+    // 'a' comes first by sentence (it is a prefix of the other two) and last
+    // by text, because its config dump starts with a z.
+    const sentences = ['session', 'session · llm', 'session · llm · lexical'];
+    const dumps = ['zebra 1', 'alpha 2', 'kilo 3'];
+    const table = buildTable(['pipeline'], sentences.map((s, i) =>
+      [[s + dumps[i], s]]));
+    const order = () => Array.from(
+      table.tBodies[0].rows, (r) => r.cells[0].getAttribute('data-sort'));
+    SortTable.make(table);
+    const [pipelineHead] = table.tHead.rows[0].cells;
+    pipelineHead.click();
+    assert.deepStrictEqual(order(), sentences);
+    // And what the reader would have got without it: keyed on the full text,
+    // the row whose sentence sorts first is the row that sorts last.
+    const bare = buildTable(['pipeline'], sentences.map((s, i) => [s + dumps[i]]));
+    SortTable.make(bare);
+    bare.tHead.rows[0].cells[0].click();
+    assert.equal(bare.tBodies[0].rows.at(-1).cells[0].textContent,
+      'sessionzebra 1');
+  });

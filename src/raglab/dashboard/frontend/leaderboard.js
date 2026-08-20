@@ -22,15 +22,19 @@ const COLUMNS = [
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
     title: 'every step this experiment ran · hover or focus for all of it' },
   { key: 'rank', label: '#', nosort: true, title: 'position in the current sort' },
-  { key: 'kind', label: 'kind', text: true, title: 'index, retrieve, run or query' },
-  { key: 'when', label: 'when', text: true, title: 'when it started' },
-  { key: 'label', label: 'label', text: true },
+  // The deciding score, its error and the four metrics it is the mean of come
+  // straight after the identity: they are the only columns that decide anything,
+  // and a wide frozen sentence is exactly what would push them off the screen.
+  // The descriptive columns wait behind the scroll instead.
   { key: 'decision', label: 'decision', title: 'unweighted mean of the four judged metrics' },
   { key: 'spread', label: '±', title: 'standard error of the decision score' },
   { key: 'faithfulness', label: 'faith', step: 'generation' },
   { key: 'answer_relevancy', label: 'ans rel', step: 'generation' },
   { key: 'llm_context_precision_with_reference', label: 'ctx prec', step: 'retrieval' },
   { key: 'context_recall', label: 'ctx recall', step: 'retrieval' },
+  { key: 'kind', label: 'kind', text: true, title: 'index, retrieve, run or query' },
+  { key: 'when', label: 'when', text: true, title: 'when it started' },
+  { key: 'label', label: 'label', text: true },
   { key: 'judge', label: 'judge', text: true, step: 'generation',
     title: 'which model graded — rows graded differently are not comparable' },
   { key: 'questions', label: 'questions',
@@ -55,6 +59,10 @@ const judgeOf = (row) => {
   const judge = row.judge || {};
   return judge.model ? `${judge.model} via ${judge.provider || '?'}` : '—';
 };
+
+// The same sentence as plain text, which is what the column sorts on.
+const sentenceText = (row) =>
+  (row.pipeline || []).map((f) => f.text).join(' · ');
 
 // The sentence, each fragment inked with its own step. `data-step` is how every
 // other coloured thing on these pages takes its ink, and the four inks are
@@ -135,8 +143,15 @@ function renderTable(dataset, rows) {
     // The settings reveal hangs off the pipeline cell, which is the cell that
     // shows the short form of the same thing. The cell takes focus so there is
     // a keyboard way to it and not only a pointer one.
+    // And it says what it sorts as, because the reveal it carries is part of the
+    // cell's text: sorted on that, the column reads the whole recorded config
+    // after the sentence, and two rows whose sentences share a prefix are
+    // ordered by knobs the reader cannot see. `data-sort` is what the sorter
+    // reads instead when a renderer knows better than its own text.
     const reveal = col.key === 'pipeline' ? settingsReveal(row) : '';
-    return `<td${cls ? ` class="${cls}"` : ''}`
+    const sortAs = col.key === 'pipeline'
+      ? ` data-sort="${escapeHtml(sentenceText(row))}"` : '';
+    return `<td${cls ? ` class="${cls}"` : ''}${sortAs}`
       + `${col.key === 'pipeline' ? ' tabindex="0"' : ''}>`
       + `${cell(row, col.key)}${reveal}</td>`;
   }).join('')).map((cells) => `<tr>${cells}</tr>`).join('');
@@ -166,21 +181,33 @@ function settingsReveal(row) {
         `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`).join('')
       + '</div>').join('');
   return blocks
-    ? `<div class="settings-reveal">${blocks}</div>`
+    ? `<div class="settings-reveal" popover="manual">${blocks}</div>`
     : '';
 }
 
 // Which corpus is on screen. The same affordance the lab page uses for its
 // corpus scope, down to the classes and the native `popover` — the browser owns
 // show, hide, light-dismiss and Escape, so there is no second implementation of
-// one control across two pages and no positioning CSS nobody wrote.
+// one control across two pages. Where the box opens is the shared sheet's, said
+// once against the button that opens it, so both surfaces get it.
+const optionsFor = (datasets) => [
+  ...datasets.map((d) => ({ id: d.id, name: d.name || d.id })),
+  { id: EVERY, name: 'every experiment' }];
+
+// One list of names for one set of corpora: a heading that printed the id while
+// the button under it printed the corpus's name would be two names for the same
+// thing, and the reader would have to work out that they are one.
+const shownOption = (dataset, datasets) => {
+  const options = optionsFor(datasets);
+  return options.find((o) => o.id === dataset) || options[0];
+};
+
 function renderPicker(dataset, datasets) {
-  const options = [...datasets.map((d) => ({ id: d.id, name: d.name || d.id })),
-    { id: EVERY, name: 'every experiment' }];
-  const shown = options.find((o) => o.id === dataset) || options[0];
+  const options = optionsFor(datasets);
+  const shown = shownOption(dataset, datasets);
   return `
     <div class="board-bar">
-      <button class="context-scope" id="pickScope" type="button"
+      <button class="context-scope" type="button"
               popovertarget="pick-list">
         <span class="context-label">Dataset</span>
         <span>${escapeHtml(shown.name)}</span>
@@ -218,7 +245,8 @@ async function loadBoard(dataset) {
   const { html, rankAt } = renderTable(CURRENT, body.rows || []);
   box.innerHTML = `
     <section class="card">
-      <div class="card-head"><h2>${escapeHtml(CURRENT === EVERY ? 'Every experiment' : CURRENT)}</h2>
+      <div class="card-head">
+        <h2>${escapeHtml(shownOption(CURRENT, body.datasets || []).name)}</h2>
         <span class="section-meta right">${(body.rows || []).length} recorded</span>
       </div>
       ${renderPicker(CURRENT, body.datasets || [])}
@@ -255,35 +283,81 @@ function wirePicker() {
   });
 }
 
-// The reveal is `position: fixed`, so it has to be told where to go — and told
-// at the moment it opens, because its row may have been scrolled anywhere
-// inside the region since the table was built, and re-told while anything under
-// it scrolls, because a fixed box does not travel with its cell. The scroll
-// listener is capturing so it hears the region as well as the page: a wheel
-// scroll does not end a hover, and a reveal left where it opened would drift
-// away from the row that owns it.
+// Which reveal is open is a question about hover and focus, and the two answer
+// it together: hover alone is what these pages already removed twice — a reveal
+// that answers only a pointer publishes to a mouse and to nothing else, and the
+// settings would have no keyboard way in at all. The two states are tracked
+// separately because they are separate: a reveal opened by focus does not close
+// because the mouse went somewhere else.
 //
-// Delegated at the document and registered once, because the whole board is
-// rebuilt on every pick and a listener added per render would stack.
+// The box is a `popover`, which is the only way it can be seen over the sticky
+// header: it lives in a `position: sticky` cell, a sticky element is a stacking
+// context whatever its z-index, and no z-index lifts a descendant out of its own
+// stacking context. So showing it is script's job, not a CSS rule's. Once shown
+// it still has to be told where to go, because it is `fixed` and does not travel
+// with its cell.
+//
+// Which cell an event is about is read from the event's own target, not from
+// `:hover` — the pointer moving onto the panel is not the pointer leaving the
+// row (the panel scrolls, so it has to be reachable), and the panel is a
+// descendant of the cell in the document however far out of it the top layer
+// paints, so `closest` answers that on its own. `:hover` cannot: it is
+// recomputed on its own schedule, and reading it in a listener is a race.
+let OPEN = null;
+let HOVERED = null;
+let FOCUSED = null;
+
+// A board rebuilt under an open reveal leaves both of these pointing at cells
+// that are no longer in the document.
+const live = (cell) => (cell && cell.isConnected ? cell : null);
+
 const revealCell = (node) => (node && node.closest
   ? node.closest('td.freeze-1') : null);
-document.addEventListener('mouseover',
-  event => placeReveal(revealCell(event.target), '.settings-reveal'));
-document.addEventListener('focusin',
-  event => placeReveal(revealCell(event.target), '.settings-reveal'));
-document.addEventListener('scroll', () => {
-  for (const cell of document.querySelectorAll(
-    'td.freeze-1:hover, td.freeze-1:focus-within')) {
-    placeReveal(cell, '.settings-reveal');
+
+function syncReveal() {
+  const cell = live(HOVERED) || live(FOCUSED);
+  const reveal = cell ? cell.querySelector('.settings-reveal') : null;
+  if (OPEN && OPEN !== reveal) {
+    // Taking an open popover out of the document closes it, so this asks
+    // rather than assumes — and one is open at a time, because two panels of
+    // settings on screen say nothing about which row you are reading.
+    if (OPEN.matches(':popover-open')) OPEN.hidePopover();
+    OPEN = null;
   }
-}, true);
+  if (reveal && !OPEN) { reveal.showPopover(); OPEN = reveal; }
+  if (OPEN) placeReveal(cell, '.settings-reveal');
+}
+
+// Delegated at the document and registered once, because the whole board is
+// rebuilt on every pick and a listener added per render would stack.
+document.addEventListener('mouseover', (event) => {
+  HOVERED = revealCell(event.target);
+  syncReveal();
+});
+// A pointer that leaves the window enters nothing, so there is no `mouseover`
+// to say the row was left.
+document.addEventListener('mouseout', (event) => {
+  if (!event.relatedTarget) { HOVERED = null; syncReveal(); }
+});
+document.addEventListener('focusin', (event) => {
+  FOCUSED = revealCell(event.target);
+  syncReveal();
+});
+document.addEventListener('focusout', (event) => {
+  if (revealCell(event.target)) { FOCUSED = null; syncReveal(); }
+});
+// Capturing, so it hears the scroll region as well as the page: a wheel scroll
+// does not end a hover, and a reveal left where it opened would drift away from
+// the row that owns it.
+document.addEventListener('scroll', syncReveal, true);
 
 // Why a row is not `done` is the reason that row is degraded, so it goes through
 // the same '!' the lab page uses rather than a `title` — a reason published to a
 // mouse and to nothing else is a reason half the readers never get. Delegated at
 // the document because the whole board is rebuilt on every pick.
 document.addEventListener('click', (event) => {
-  const mark = event.target.closest('.why');
+  const mark = event.target && event.target.closest
+    ? event.target.closest('.why') : null;
   if (!mark) return;
   const open = mark.parentElement.nextElementSibling;
   if (open && open.classList.contains('explain')) { open.remove(); return; }

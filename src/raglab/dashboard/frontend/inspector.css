@@ -194,8 +194,8 @@ select { font: inherit; color: inherit; }
   font: 600 var(--t-sm)/1.4 var(--sans);
   background: var(--card); color: var(--ink);
   border: 1px solid var(--rule); border-radius: var(--radius-sm);
-  /* .38rem: this button's own vertical padding, tuned between --s-2 (.5rem)
-     and --s-3 (.75rem) rather than snapped to either — left literal because
+  /* .38rem: this button's own vertical padding, tuned between --s-1 (.25rem)
+     and --s-2 (.5rem) rather than snapped to either — left literal because
      no ramp step lands here. */
   padding: .38rem var(--s-3);
 }

@@ -329,8 +329,10 @@ def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
     not depend on a trailing `/` to notice a hand-set size — that gap is
     exactly how `.findings code` and `.prose code` slipped past review once
     already. Proven against the seven forms the panel conversion actually
-    produced: three token forms the guard must leave alone, and the three
-    literal shorthand forms plus the no-line-height form it must catch."""
+    produced (three token forms the guard must leave alone, and three
+    literal shorthand forms plus the no-line-height form it must catch), plus
+    four forms the unit alternation used to miss entirely: a percentage, a
+    viewport unit, a point size and a `calc(...)` value."""
     not_flagged = [
         'font: var(--t-sm)/1.45 var(--mono)',
         'font: 700 var(--t-sm)/1 var(--mono)',
@@ -341,6 +343,13 @@ def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
         'font: .72rem var(--mono)',
         'font: 12.5px/1.45 var(--mono)',
         'font: 600 1.32rem/1 var(--slab)',
+        # The unit alternation used to stop at rem|px|em, which is an open
+        # path back to a literal size in every other CSS unit and in any
+        # computed value — these four are exactly that gap.
+        'font-size: 90%',
+        'font-size: 1.2vw',
+        'font-size: 11pt',
+        'font-size: calc(1rem + 2px)',
     ]
     for css in not_flagged:
         assert _font_size_literals(css) == [], css
@@ -360,19 +369,32 @@ def test_radius_literals_catches_shorthand_and_ignores_the_named_tokens():
     # this is a unit test
     """A regex matching nothing at all would pass the convention test above
     just as well as a correct one, so this proves the guard actually guards:
-    fed the three literal forms the panel conversion had to remove, plus the
-    four token forms — including the shorthand and the two shape tokens —
-    the conversion had to leave alone."""
+    fed the three literal shorthand forms the panel conversion had to
+    remove, the eight corner-longhand forms (four physical, four logical)
+    the shorthand-only pin used to miss entirely, plus the five token forms
+    — including the shorthand, a longhand and the two shape tokens — every
+    one of these must leave alone."""
     flagged = [
         'a{border-radius: 3px;}',
         'a{border-radius: 999px;}',
         'a{border-radius: 0 3px 3px 0;}',
+        # The shorthand-only pin missed every corner longhand — physical and
+        # logical alike, which is exactly the gap this proves closed.
+        'a{border-top-left-radius: 4px;}',
+        'a{border-top-right-radius: 4px;}',
+        'a{border-bottom-left-radius: 4px;}',
+        'a{border-bottom-right-radius: 4px;}',
+        'a{border-start-start-radius: 6px;}',
+        'a{border-start-end-radius: 6px;}',
+        'a{border-end-start-radius: 6px;}',
+        'a{border-end-end-radius: 6px;}',
     ]
     not_flagged = [
         'a{border-radius: var(--radius-sm);}',
         'a{border-radius: 0 var(--radius-sm) var(--radius-sm) 0;}',
         'a{border-radius: var(--radius-pill);}',
         'a{border-radius: var(--radius-circle);}',
+        'a{border-top-left-radius: var(--radius-sm);}',
     ]
     for css in flagged:
         assert _radius_literals(css) != [], css

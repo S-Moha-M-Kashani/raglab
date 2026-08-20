@@ -47,6 +47,12 @@ body {
   font-family: var(--sans);
   color: var(--ink);
   background-color: var(--plate);
+  /* --t-md is 1rem (16px) — the browser default this page always inherited
+     from, now stated on purpose rather than left implicit. That is one step
+     above the panel's own base, --t-base (14px); this line is a deliberate
+     no-op today, so a later reader can change the Inspector's base size on
+     purpose instead of rediscovering it by accident. */
+  font-size: var(--t-md);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
@@ -101,7 +107,8 @@ select { font: inherit; color: inherit; }
   color: var(--chassis-ink-soft);
   border: 1px solid currentColor;
   border-radius: var(--radius-pill);
-  /* .08rem: not in Table B's replace-list; left literal rather than invented. */
+  /* .08rem: a sub-pixel nudge for this pill's vertical padding; no ramp
+     step sits below 2px (--s-px), so this stays literal. */
   padding: .08rem var(--s-2);
   overflow-wrap: anywhere;
 }
@@ -152,12 +159,12 @@ select { font: inherit; color: inherit; }
 
 /* --- views ---------------------------------------------------------------- */
 /* max-width/margin: the shared measure, centred — this page never was.
-   Vertical padding raised one step past Table B's --s-4 mapping for
-   1.1rem, matching the panel's own main padding: this band's breathing room
-   is what the old header was stealing, so the choice is deliberately
-   up-scale rather than mapped. Horizontal padding is the shared page gutter
-   (--gutter), not a ramp step — it must match the header's own left/right
-   edge once that edge moves. */
+   Vertical padding is --s-5, one step above the ramp's exact match for the
+   old 1.1rem value (--s-4), matching the panel's own main padding: this
+   band's breathing room is what the old header was stealing, so the choice
+   is deliberately up-scale rather than a literal unit-for-unit swap.
+   Horizontal padding is the shared page gutter (--gutter), not a ramp step
+   — it must match the header's own left/right edge once that edge moves. */
 .inspector-view { max-width: var(--measure); margin: 0 auto;
                   padding: var(--s-5) var(--gutter) var(--s-7); }
 
@@ -187,7 +194,9 @@ select { font: inherit; color: inherit; }
   font: 600 var(--t-sm)/1.4 var(--sans);
   background: var(--card); color: var(--ink);
   border: 1px solid var(--rule); border-radius: var(--radius-sm);
-  /* .38rem: not in Table B's replace-list; left literal rather than invented. */
+  /* .38rem: this button's own vertical padding, tuned between --s-2 (.5rem)
+     and --s-3 (.75rem) rather than snapped to either — left literal because
+     no ramp step lands here. */
   padding: .38rem var(--s-3);
 }
 .inspector-controls button:hover { background: var(--chassis); color: #fff;
@@ -473,8 +482,9 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   letter-spacing: .04em; text-transform: uppercase;
   color: var(--step-index);
   border: 1px solid currentColor; border-radius: var(--radius-sm);
-  /* .3em, relative to this badge's own mono size: em is outside Table B's
-     rem-only ramp, so left literal rather than invented. */
+  /* .3em, relative to this badge's own mono font-size: the spacing ramp is
+     rem-based (fixed relative to the page root), so a value meant to scale
+     with this element's own type size falls outside it — left literal. */
   padding: 0 .3em; cursor: help;
 }
 .chunk-preview {
@@ -527,7 +537,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 
 .gen-metrics {
   display: flex; flex-wrap: wrap;
-  /* 1.3rem: not in Table B's replace-list; left literal rather than invented. */
+  /* 1.3rem: the column gap between metric badges; no ramp step lands on
+     this value, so it stays literal while the row gap (--s-1) does not. */
   gap: var(--s-1) 1.3rem;
   font-family: var(--mono); font-size: var(--t-xs);
   padding-top: var(--s-2); border-top: 1px dotted var(--rule);

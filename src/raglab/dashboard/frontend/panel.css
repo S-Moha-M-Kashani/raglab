@@ -24,9 +24,9 @@
 * { box-sizing: border-box; }
 body {
   margin: 0;
-  /* 5rem: clearance for the fixed widget-launch button. Not in Table B's
-     replace-list for any ramp step (the ramp tops out at --s-7, 3rem), so
-     left literal rather than inventing a mapping. */
+  /* 5rem: clearance for the fixed widget-launch button. The spacing ramp
+     tops out at --s-7 (3rem), so this value sits above every step on it —
+     left literal rather than inventing a bigger step for one use. */
   padding: 0 0 5rem; background: var(--plate); color: var(--ink);
   font: var(--t-base)/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
@@ -104,10 +104,11 @@ h1 .lab-mark {
   .archive-status { flex-basis: 100%; max-width: none; }
 }
 .settings-popover {
-  /* 3.4rem: clears the chassis header's current height, not a ramp step —
-     not in Table B's replace-list; left literal rather than invented.
-     Phase 2's --bar-h (3.5rem) is the token this should read once the top
-     bar exists, but Table C marks that token unused this phase. */
+  /* 3.4rem: clears the chassis header's current height, not a ramp step.
+     Close to but not the same value as --bar-h (3.5rem, tokens.css), which
+     is sized for the top bar a later phase adds — once that bar exists this
+     inset should read --bar-h instead of repeating a close-but-not-equal
+     literal. */
   inset: 3.4rem var(--gutter) auto auto;
   width: min(25rem, calc(100vw - 2rem));
   margin: 0; padding: var(--s-3);
@@ -130,8 +131,8 @@ h1 .lab-mark {
          max-width: var(--measure); }
 .chip {
   font: var(--t-2xs)/1.5 var(--mono);
-  /* .05rem: a fine vertical nudge for the pill shape, not a ramp step — not
-     in Table B's replace-list; left literal. */
+  /* .05rem: a sub-pixel nudge for the pill shape's vertical padding; no
+     ramp step sits below 2px (--s-px), so this stays literal. */
   padding: .05rem var(--s-2); border-radius: var(--radius-sm);
   background: var(--chassis-soft); color: var(--chassis-ink-soft);
   border-left: 2px solid transparent;
@@ -188,9 +189,10 @@ h1 .lab-mark {
 .spine-caption .right { margin-left: auto; }
 
 /* ── the bench ───────────────────────────────────────────────────────────── */
-/* Vertical padding raised one step past Table B's --s-4 mapping for 1.2rem:
-   this band's breathing room is what the old header was stealing, so the
-   choice is deliberately up-scale rather than mapped. */
+/* Vertical padding is --s-5, one step above the ramp's exact match for the
+   old 1.2rem value (--s-4): this band's breathing room is what the old
+   header was stealing, so the choice is deliberately up-scale rather than a
+   literal unit-for-unit swap. */
 main { max-width: var(--measure); margin: 0 auto;
        padding: var(--s-5) var(--gutter); }
 .bench {
@@ -251,10 +253,10 @@ select, input[type=number], input[type=text], input[type=password], textarea {
 input[type=number], input[type=password] { font-family: var(--mono); font-size: var(--t-sm); }
 select:hover, input:hover { border-color: var(--ink-soft); }
 textarea { min-height: 3.2rem; resize: vertical; }
-/* Row-gap raised deliberately, not mapped: Table B's literal match for .1rem
+/* Row-gap raised deliberately, not mapped: the old .1rem's exact ramp match
    is --s-px (2px), but that gap is why the checkbox grid clumps into an
    unreadable block once it wraps — raised one step to --s-2. Column-gap
-   maps normally: .9rem is --s-3. */
+   maps normally: the old .9rem is --s-3. */
 .switches { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); margin-top: var(--s-2); }
 .switches label {
   display: flex; align-items: center; gap: var(--s-1); margin: 0; font-weight: 400;
@@ -419,11 +421,12 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 
 /* --- the LLM widget: a corner helper, not a stage — chassis, no step ink --- */
 .widget-launch {
-  /* right/bottom left literal (not var(--s-4)): a pre-existing convention
-     test pins these anchors' exact real-value string (`right: 1rem; bottom:
-     1rem;`) to guard against silent deletion, and this dispatch is not
-     authorised to edit that test — only Task 4's own new row. 1rem is --s-4
-     by Table B; only the token substitution is deferred, not the value. */
+  /* right/bottom left literal (not var(--s-4)): test_panel.py pins these
+     anchors' exact string (`right: 1rem; bottom: 1rem;`) to guard against
+     silent deletion. 1rem is the same value as --s-4, so the token swap
+     would cost nothing on its own — it is left literal because a later
+     phase moves both anchors above the new footer rail, and the token
+     substitution can happen alongside that move instead of before it. */
   position: fixed; right: 1rem; bottom: 1rem; z-index: 40;
   background: var(--chassis); color: var(--chassis-ink);
   border: 1px solid var(--rule); border-radius: var(--radius-pill);
@@ -432,11 +435,12 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 }
 .widget-launch:hover { background: var(--chassis-soft); }
 .widget-window {
-  /* right left literal for the same reason as .widget-launch above (a
-     pre-existing convention test pins the exact string `right: 1rem;
-     bottom: 3.6rem;`). bottom: 3.6rem clears the launch button's own box
-     (height plus its offset from the viewport edge) and is separately not
-     in Table B's replace-list regardless. */
+  /* right left literal for the same reason as .widget-launch above:
+     test_panel.py pins the exact string `right: 1rem; bottom: 3.6rem;`, and
+     a later phase moves this anchor too when the footer rail lands.
+     bottom: 3.6rem clears the launch button's own box (its height plus its
+     offset from the viewport edge) and has no matching ramp step regardless
+     of the pin. */
   position: fixed; right: 1rem; bottom: 3.6rem; z-index: 41;
   width: min(22rem, calc(100vw - 2rem));
   display: flex; flex-direction: column;

@@ -16,17 +16,23 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
 RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 
-# A length in a font-size declaration, e.g. ".72rem" or "12.5px" — but not a
+# A length or percentage in a font-size declaration, e.g. ".72rem", "12.5px",
+# "90%", "1.2vw" or "11pt" — or a computed `calc(...)` value — but not a
 # var() reference and not a bare 0. Shared by test_panel.py and
 # test_inspector.py, both of which check their sheet's type scale against
-# the same claim, so the pattern is named once here rather than twice.
-_SIZE_LITERAL = re.compile(r'font-size:\s*[0-9]*\.?[0-9]+(?:rem|px|em)')
+# the same claim, so the pattern is named once here rather than twice. The
+# unit alternation stays wide on purpose: `rem|px|em` alone missed every
+# other CSS length unit and every percentage, which is exactly the kind of
+# hand-set size this guard exists to catch.
+_SIZE_UNIT = r'(?:rem|px|em|vw|vh|vmin|vmax|pt|pc|in|cm|mm|ex|ch)'
+_SIZE_LITERAL = re.compile(
+    r'font-size:\s*(?:calc\(|[0-9]*\.?[0-9]+(?:%|' + _SIZE_UNIT + r'\b))')
 # The shorthand carries the size after any weight/style keywords and before
 # an optional `/line-height`: `font: 600 1.32rem/1 var(--slab)` as much as
 # `font: .72rem var(--mono)`, which has no line-height and so no slash — a
 # form the guard must not go blind to just because it comes without one.
 _FONT_SHORTHAND_LITERAL = re.compile(
-    r'font:\s*(?:[a-z0-9]+\s+)*?[0-9]*\.?[0-9]+(?:rem|px|em)\b')
+    r'font:\s*(?:[a-z0-9]+\s+)*?(?:calc\(|[0-9]*\.?[0-9]+(?:%|' + _SIZE_UNIT + r'\b))')
 
 
 def _font_size_literals(css: str) -> list[str]:
@@ -41,9 +47,13 @@ def _font_size_literals(css: str) -> list[str]:
 # A hand-spelled corner radius, longhand or shorthand alike — but not a
 # var() reference. Shared by test_panel.py and test_inspector.py, both of
 # which check their sheet's radius scale against the same claim, so the
-# pattern is named once here rather than twice.
+# pattern is named once here rather than twice. `border(?:-[a-z]+)*-radius:`
+# matches the shorthand (`border-radius:`), the four physical corner
+# longhands (`border-top-left-radius:` and siblings) and the logical corner
+# longhands (`border-start-start-radius:` and siblings) alike — pinning only
+# the shorthand missed every one of those other forms.
 _RADIUS_LITERAL = re.compile(
-    r'border-radius:[^;]*?(?<![-\w])[0-9]*\.?[0-9]+(?:rem|px|%)')
+    r'border(?:-[a-z]+)*-radius:[^;]*?(?<![-\w])[0-9]*\.?[0-9]+(?:rem|px|%)')
 
 
 def _radius_literals(css: str) -> list[str]:

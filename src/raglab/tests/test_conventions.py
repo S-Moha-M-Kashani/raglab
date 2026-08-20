@@ -46,6 +46,35 @@ _SRC_FILES = [p for p in _PY_FILES
 with open(ROOT / 'pyproject.toml', 'rb') as _fh:
     _SCRIPTS = tomllib.load(_fh)['project']['scripts']
 
+# The served stylesheets. Read from disk rather than over a route because this
+# guard spans both surfaces at once — the routes belong to two different apps,
+# and the claim is about the shared scale rather than about either page.
+_SHEETS = SRC / 'raglab' / 'dashboard' / 'frontend'
+
+
+def test_every_step_of_the_shared_scale_has_a_user():
+    # this is a convention test
+    """A step nobody reads is exactly what tokens.css exists to remove. It
+    shipped with a --t-2xl (32px) reserved for a top bar that had not been built
+    yet; the bar was built, it wanted --t-md, and the step sat there unread —
+    which is how the last set of hand-set sizes started, one value kept "for
+    later". If a step is worth having, something reads it now; if nothing does,
+    the decision it records is a guess."""
+    sheets = '\n'.join((_SHEETS / name).read_text(encoding='utf-8') for name in
+                       ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'))
+    tokens = (_SHEETS / 'tokens.css').read_text(encoding='utf-8')
+    declared = dict.fromkeys(re.findall(r'^\s*(--[a-z0-9-]+):', tokens, re.M))
+    scale = [t for t in declared
+             if re.match(r'--(s-|t-|radius-)|--(measure|gutter|bar-h|rail-h)$', t)]
+    assert len(scale) > 15, (
+        f'the scale regex matched only {len(scale)} steps — tokens.css was '
+        'renamed or restructured and this guard is now passing vacuously')
+    unread = [t for t in scale if f'var({t})' not in sheets]
+    assert unread == [], (
+        f'these steps of the shared scale are read by nothing: {unread}. Use '
+        'them or delete them — a step kept for a future phase is a decision '
+        'nothing has tested')
+
 
 def test_the_tree_walk_finds_a_plausible_number_of_files():
     # this is a convention test

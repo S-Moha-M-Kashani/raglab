@@ -424,9 +424,15 @@ select { font: inherit; color: inherit; }
 .q-tally { color: var(--ink-soft); }
 
 /* --- the table ------------------------------------------------------------ */
+/* --t-sm, the same step the lab's tables and the leaderboard read. The two
+   pages answered "11 or 12 or 13?" differently for the same concept — this
+   table was --t-xs where the lab's were --t-sm — which is what happens when a
+   ramp offers three indiscriminable choices exactly where every decision gets
+   made. One table step, decided here, because this is the file where the two
+   answers met. */
 .retrieval-table {
   width: 100%; border-collapse: collapse;
-  font-family: var(--mono); font-size: var(--t-xs);
+  font-family: var(--mono); font-size: var(--t-sm);
 }
 /* Every column is centred, header and cells together, so a label never sits
    over the wrong end of its own column. */
@@ -590,6 +596,17 @@ select { font: inherit; color: inherit; }
   background: transparent; color: var(--ink-soft);
   border: 1px solid var(--rule); border-radius: var(--radius-pill); padding: .12em .34em;
   margin-left: .35em;
+  position: relative;
+}
+/* Same affordance as the lab's `button.why`, so the same 24×24 target and the
+   same reason for taking it from a pseudo-element: the mark sits at the end of
+   a small label and a 24px disc would set that row's line height. The two
+   implementations are still two — different classes, different explainer
+   mechanics — and unifying them is worth doing; the floor is not waiting on
+   that. */
+.inspector-why::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: 24px; height: 24px; transform: translate(-50%, -50%);
 }
 .inspector-why:hover { border-color: var(--alert); color: var(--alert); }
 .inspector-why-text {
@@ -620,7 +637,10 @@ select { font: inherit; color: inherit; }
   .inspector-tab { font-size: var(--t-xs); }
   .inspector-view { padding: var(--s-3) var(--s-3) var(--s-7); }
   .chunk-cell { width: auto; min-width: 11rem; }
-  .retrieval-table { font-size: var(--t-2xs); }
+  /* No smaller type at this width. The table used to drop to --t-2xs here,
+     which is under the readable floor this design set — and what a narrow
+     screen needs is not smaller letters but a table that scrolls, which it
+     now has at every width. */
   /* The region scrolls at every width now — it is the shared component, and
      the reveal it used to clip is fixed to the viewport rather than trapped
      inside it. What this breakpoint still needs is a chunk column that can be

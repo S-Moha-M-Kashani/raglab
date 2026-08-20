@@ -49,11 +49,15 @@
   --s-5: 1.5rem;
   --s-6: 2rem;
   --s-7: 3rem;
-  /* Eight type steps in one unit, replacing 38 literals in three units. The
+  /* Seven type steps in one unit, replacing 38 literals in three units. The
      base is 14px: at the old 13px the tables only fit because the type sat
      under the readable floor, and a scale that preserves that is no scale.
-     --t-2xl has no user of its own yet — reserved for the next phase's top
-     bar, the way --bar-h and --rail-h are. */
+     Tables read --t-sm on both surfaces — settled here rather than left to
+     each page, which had answered 12-or-13 differently for the same concept.
+     There was a --t-2xl (32px) reserved for the top bar; the bar was built and
+     wanted --t-md, so the step is gone. A step with no user is the thing this
+     file exists to remove, and keeping one "for later" is how the last set of
+     hand-set sizes started. */
   --t-2xs: 0.6875rem;
   --t-xs: 0.75rem;
   --t-sm: 0.8125rem;
@@ -61,7 +65,6 @@
   --t-md: 1rem;
   --t-lg: 1.25rem;
   --t-xl: 1.5rem;
-  --t-2xl: 2rem;
   /* Two radii and two shapes. Six hand-set values collapse to these. */
   --radius-sm: 3px;
   --radius-md: 6px;

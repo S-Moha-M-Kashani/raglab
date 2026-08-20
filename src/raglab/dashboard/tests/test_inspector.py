@@ -369,6 +369,18 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.css', 'font-size: var(--t-sm)', None,
+     'one table step for both surfaces: this table read --t-xs where the '
+     "lab's read --t-sm, which is what a ramp offering three indiscriminable "
+     'choices does to two pages written months apart'),
+    ('inspector.css', None, '.retrieval-table { font-size: var(--t-2xs); }',
+     'and no smaller type on a narrow screen — that step is under the '
+     'readable floor, and what a narrow screen needs is a table that scrolls, '
+     'which it now has at every width'),
+    ('inspector.css', '.inspector-why::after', None,
+     "the Inspector's '!' is the same affordance as the lab's and clears the "
+     'same 24×24 floor, from a pseudo-element for the same reason: a 24px '
+     'disc at the end of a small label would set that row\'s line height'),
     ('inspector.html', 'id="chunks-status" aria-live="polite"', None,
      'a build that finished, or failed, must say so — this span is the only '
      'place it is reported'),

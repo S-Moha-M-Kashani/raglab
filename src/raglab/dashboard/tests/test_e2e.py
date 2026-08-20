@@ -156,6 +156,105 @@ def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
         rebuilt_job['result']['chunks_by_session'][0]['chunks'][0]['text']
 
 
+def test_dataset_replacement_waits_for_a_standalone_index_build(
+        client, monkeypatch, tmp_path):
+    monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
+    monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')
+    datasets.forget()
+
+    def payload(question_id, text):
+        return {
+            'dataset': {'id': 'archive-build-race', 'name': 'Archive build race',
+                        'language': 'en'},
+            'sessions': [{'session_id': 's1', 'date': '2026-08-19',
+                          'messages': [{'role': 'user', 'content': text}]}],
+            'questions': [{'id': question_id, 'type': 'single-hop',
+                           'difficulty': 'easy', 'answerable': True,
+                           'question': 'What was recorded?', 'answer': text,
+                           'evidence': [{'session_id': 's1',
+                                         'message_indices': [0], 'quote': text}]}],
+        }
+
+    original = payload('old-question', 'old standalone evidence')
+    replacement = payload('replacement-question', 'replacement standalone evidence')
+    assert client.post('/api/datasets', json=original).status_code == 200
+    index = {'dataset': 'archive-build-race', 'chunker': 'session',
+             'embedder': 'token-hash'}
+    entered_index = threading.Event()
+    release_index = threading.Event()
+    entered_import = threading.Event()
+    release_import = threading.Event()
+    replacement_done = threading.Event()
+    replacement_response = {}
+
+    from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
+
+    original_get = IndexRegistry.get
+
+    def paused_get(self, cfg, *args, **kwargs):
+        if cfg.dataset == 'archive-build-race' and not entered_index.is_set():
+            entered_index.set()
+            assert release_index.wait(2), 'test did not release standalone index work'
+        return original_get(self, cfg, *args, **kwargs)
+
+    original_import = datasets.import_dataset
+
+    def paused_import(body):
+        entered_import.set()
+        assert release_import.wait(2), 'test did not release dataset replacement'
+        return original_import(body)
+
+    monkeypatch.setattr(IndexRegistry, 'get', paused_get)
+    monkeypatch.setattr(datasets, 'import_dataset', paused_import)
+
+    started = client.post('/api/indexes', json={'index': index})
+    assert started.status_code == 202, started.text
+    assert entered_index.wait(1), 'standalone build never acquired its dataset index'
+
+    def replace_dataset():
+        try:
+            replacement_response['response'] = client.post('/api/datasets',
+                                                             json=replacement)
+        finally:
+            replacement_done.set()
+
+    thread = threading.Thread(target=replace_dataset)
+    thread.start()
+    try:
+        assert not entered_import.wait(0.2), (
+            'replacement entered dataset import while standalone index build '
+            'still owned registry acquisition')
+        release_index.set()
+        built = _finished(client, started.json()['job_id'])
+        assert built['state'] == 'done', built.get('error')
+        assert entered_import.wait(1), (
+            'replacement did not proceed after standalone index build')
+        release_import.set()
+        thread.join(2)
+        assert not thread.is_alive(), 'replacement request did not finish'
+    finally:
+        release_index.set()
+        release_import.set()
+        thread.join(2)
+
+    assert replacement_done.is_set()
+    assert replacement_response['response'].status_code == 200
+    started = client.post('/api/evaluations', json={
+        'index': index, 'retrieval': {'k': 1, 'reranker': 'none', 'grader': 'none'},
+        'generation': {'answerer': 'extractive'}, 'ragas_mode': 'off', 'limit': 1})
+    assert started.status_code == 202, started.text
+    evaluated = _finished(client, started.json()['job_id'])
+    assert evaluated['state'] == 'done', evaluated.get('error')
+    result = evaluated['result']
+    evidence = result['archive_evidence']['inspector']['dataset']
+    assert evidence['corpus']['sessions'][0]['messages'][0]['content'] == \
+        'replacement standalone evidence'
+    assert 'replacement standalone evidence' in \
+        result['chunks_by_session'][0]['chunks'][0]['text']
+    assert result['index']['reused'] is False
+
+
 def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):
     # this is an end-to-end test
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))

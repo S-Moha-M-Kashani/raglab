@@ -56,54 +56,39 @@ body {
   border-bottom: 1px solid var(--step-generation); padding-bottom: 2px;
 }
 .lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
-.topbar button.ghost { color: var(--chassis-ink); border-color: #35424f; }
-.topbar button.ghost:hover { background: var(--chassis-soft); color: #fff; }
+/* The ghost buttons all sit inside the Settings popover now, which stands on
+   the plate rather than on the chassis — so they take the page's ink, not the
+   bar's. The `.topbar button.ghost` pair that used to light them for the dark
+   band is gone with the buttons that needed it; nothing in the bar is a ghost
+   any more, only the disc. */
 .settings-popover button.ghost { color: var(--ink); border-color: var(--rule); }
 .settings-popover button.ghost:hover {
   background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
 }
-.archive-exchange {
-  display: flex; align-items: center; gap: var(--s-2); min-width: 0;
-  padding-left: var(--s-2); border-left: 1px solid #35424f;
-}
-.archive-actions { display: flex; flex-wrap: nowrap; gap: var(--s-2); }
+/* Import and Export moved into the popover with everything else about this
+   installation. The rule that separated them from Settings in the bar went
+   with the move: inside the popover the group heading above them does that
+   job, and a second divider two lines under the first reads as a mistake. */
+.archive-exchange { display: flex; align-items: center; min-width: 0; }
+.archive-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+/* A <label> standing in for a button, because the control it fronts is a file
+   input — so it has to be drawn to match `button.ghost` beside it rather than
+   inherit anything from it. */
 .archive-button {
   display: inline-block; margin: 0; padding: var(--s-2) var(--s-3);
-  color: var(--chassis-ink); border: 1px solid #35424f; border-radius: var(--radius-sm);
+  color: var(--ink); background: transparent;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
   font: 600 var(--t-sm)/1.4 var(--sans); text-transform: none;
   letter-spacing: 0; cursor: pointer; white-space: nowrap;
 }
-.archive-button:hover { background: var(--chassis-soft); color: #fff; }
+.archive-button:hover { background: var(--rule-soft); border-color: var(--ink-soft); }
 /* The archive message now reports from the banner under the bar, which carries
    its own tone inks — the caution colour is never a step token, because the
    exchange is a helper and step colour is reserved for the four cards. */
 .archive-status { overflow-wrap: anywhere; }
-@media (max-width: 720px) {
-  .archive-exchange { width: 100%; margin-left: 0;
-                      align-items: flex-start; flex-wrap: wrap;
-                      padding: var(--s-2) 0 0;
-                      border-left: 0; border-top: 1px solid #35424f; }
-}
-.settings-popover {
-  /* 3.4rem: clears the chassis header's current height, not a ramp step.
-     Close to but not the same value as --bar-h (3.5rem, tokens.css), which
-     is sized for the top bar a later phase adds — once that bar exists this
-     inset should read --bar-h instead of repeating a close-but-not-equal
-     literal. */
-  inset: 3.4rem var(--gutter) auto auto;
-  width: min(25rem, calc(100vw - 2rem));
-  margin: 0; padding: var(--s-3);
-  color: var(--ink); background: var(--plate);
-  border: 1px solid var(--rule); border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-}
-.settings-popover::backdrop { background: rgba(16, 22, 32, .18); }
-.settings-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: var(--s-2); padding-bottom: var(--s-2);
-  border-bottom: 1px solid var(--rule);
-}
-.settings-head span { color: var(--ink-soft); font: var(--t-xs)/1.4 var(--mono); }
+/* The popover itself, its heading and its groups moved to chrome.css when the
+   Inspector gained the same button. What stays here is only what this page
+   puts inside it — the key field's ghost buttons and their row. */
 .settings-popover .actions { margin-top: var(--s-2); }
 
 /* ── the context bar ─────────────────────────────────────────────────────────
@@ -182,9 +167,12 @@ body {
    count is in the label, so the meaning never rests on colour alone. */
 .status-dot {
   width: 7px; height: 7px; border-radius: var(--radius-circle);
-  background: var(--good); flex: 0 0 auto;
+  /* Lifted, on both themes: this dot sits on the rail, and the rail is the
+     chassis whichever theme is on. The unlifted inks are tuned for porcelain,
+     which this has never been. */
+  background: var(--good-lit); flex: 0 0 auto;
 }
-.status-pill.warn .status-dot { background: var(--alert); }
+.status-pill.warn .status-dot { background: var(--alert-lit); }
 .status-pill.warn { color: #e6b4ad; }
 .status-popover {
   inset: auto var(--gutter) calc(var(--rail-h) + var(--s-1)) auto;
@@ -316,16 +304,29 @@ textarea { min-height: 3.2rem; resize: vertical; }
 }
 input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+/* A primary button is a filled chip, and what fills it is the one thing that
+   genuinely differs between the themes: on Day the chassis, near-black against
+   porcelain; on Night the chassis would vanish into the card, so the fill
+   becomes the generation ink and the text becomes the chassis. Written as
+   three tokens rather than as a second set of rules under a media query —
+   which is what this was, and it meant every later button rule had to be
+   thought about twice. The tokens make `button.step-action`'s own dark-mode
+   override unnecessary too: it takes the same ink as every other button. */
 button {
   font: 600 var(--t-sm)/1.4 var(--sans); padding: var(--s-2) var(--s-3); cursor: pointer;
-  color: #fff; background: var(--chassis); border: 1px solid var(--chassis);
+  color: var(--button-ink); background: var(--button-face);
+  border: 1px solid var(--button-face);
   border-radius: var(--radius-sm);
 }
-button:hover { background: var(--chassis-soft); }
+button:hover { background: var(--button-face-hover); border-color: var(--button-face-hover); }
 button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
-button.ghost:hover { background: var(--plate); border-color: var(--ink-soft); }
+/* One rule-step off the card, which is a step down on Day and a step up on
+   Night — `--rule-soft` already means exactly that on both themes, so the
+   hover needs no fork. It used to read `--plate`, whose Night value is darker
+   than the card, so hovering a ghost button there pushed it backwards. */
+button.ghost:hover { background: var(--rule-soft); border-color: var(--ink-soft); }
 button.step-action { background: var(--step); border-color: var(--step); }
-button.step-action:hover { filter: brightness(1.12); }
+button.step-action:hover { filter: brightness(1.12); border-color: var(--step); }
 button:disabled { opacity: .4; cursor: default; }
 
 /* A knob the current pipeline would ignore: dimmed and locked, but its reason
@@ -484,19 +485,47 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 
 /* Only the tokens move: every rule above is written in them, so there is no
    second stylesheet to keep in step with the Inspector's own dark theme.
-   The shared tokens' own dark values live in tokens.css; only the panel's
-   own tokens are redefined here. */
+   The shared palette's Night values live in tokens.css; the three below are
+   the panel's own, so they are named and assigned here in the same shape — the
+   values once, the two selectors assigning them. See the long note in
+   tokens.css for why the shape is what it is.
+
+   `--good-lit` is new and is a fix, not a theme: `.status-dot` sits on the
+   status rail, which is the chassis on both themes, and it was drawing a
+   0.49-lightness verdigris there — 2.6:1, a green dot you had to look for on
+   the one element whose whole job is to be seen from across the room. The
+   panel already had this exact pattern for step inks on dark bands a few rules
+   up; the dot simply never got it. */
+:root {
+  --night-alert-wash: #482e29;
+  --night-ink-off: #7a8694;
+  --night-button-face: var(--step-generation);
+  --night-button-face-hover: oklch(0.83 0.10 258);
+  --night-button-ink: var(--chassis);
+  --good-lit: oklch(0.75 0.11 168);
+  /* Day's own half of the button tokens, beside Night's so the pair is read
+     in one place rather than found in two. */
+  --button-face: var(--chassis);
+  --button-face-hover: var(--chassis-soft);
+  --button-ink: #fff;
+}
+:root[data-theme="night"] {
+  --alert-wash: var(--night-alert-wash);
+  --ink-off: var(--night-ink-off);
+  --good: var(--good-lit);
+  --button-face: var(--night-button-face);
+  --button-face-hover: var(--night-button-face-hover);
+  --button-ink: var(--night-button-ink);
+}
 @media (prefers-color-scheme: dark) {
-  :root {
-    --alert-wash: #2a1d1b;
-    --ink-off: #6c7987;
+  :root:not([data-theme="day"]) {
+    --alert-wash: var(--night-alert-wash);
+    --ink-off: var(--night-ink-off);
+    --good: var(--good-lit);
+    --button-face: var(--night-button-face);
+    --button-face-hover: var(--night-button-face-hover);
+    --button-ink: var(--night-button-ink);
   }
-  button { background: var(--step-generation); border-color: var(--step-generation);
-           color: var(--chassis); }
-  button:hover { filter: brightness(1.1); background: var(--step-generation); }
-  button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
-  button.ghost:hover { background: var(--rule-soft); }
-  button.step-action { color: var(--chassis); }
 }
 
 /* --- the LLM widget: a corner helper, not a stage — chassis, no step ink --- */

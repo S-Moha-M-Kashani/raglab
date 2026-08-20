@@ -4,8 +4,18 @@
    each page's own stylesheet, so a page's overrides still win. A property
    only one page reads stays in that page's own sheet instead — `--good` on
    the panel and `--farsi`/`--evidence`/`--row-plain`/`--ink-amber` and
-   siblings on the Inspector, among others. */
+   siblings on the Inspector, among others.
+
+   Two themes, Day and Night, and a third setting — Auto — that is the absence
+   of a choice rather than a theme of its own. Day is what this bare `:root`
+   block says; Night is the `--night-*` palette at the foot of it, assigned by
+   the two blocks below. */
 :root {
+  /* Auto: no choice stored, so the browser keeps drawing its own controls —
+     the knob surface's selects, the archive file picker, every scrollbar — to
+     match the machine, exactly as the palette does. Each theme restates this
+     when it is chosen. */
+  color-scheme: light dark;
   /* the machine */
   --chassis: #101620;
   --chassis-soft: #1c2734;
@@ -30,6 +40,12 @@
   --step-retrieval-lit: oklch(0.75 0.11 168);
   --step-generation-lit: oklch(0.76 0.11 258);
   --step-agent-lit: oklch(0.77 0.12 318);
+  /* Alert gets a lifted variant for the same reason the steps do, and for one
+     more: the status rail is the chassis on both themes, so the dot that warns
+     from it was drawing a 0.485-lightness brick on near-black — 2.9:1, on the
+     one mark whose entire job is to be noticed. Night then takes this as its
+     `--alert` outright, since on Night every surface needs the lifted weight. */
+  --alert-lit: oklch(0.72 0.13 29);
   /* A slab serif for the machine's own voice, a plain sans for instructions,
      and a tabular mono for every number — three faces, three jobs. All
      resolve locally: both services run offline and must never wait on a font. */
@@ -105,25 +121,84 @@
      themselves, so that phase touches no shared file. */
   --bar-h: 3.5rem;
   --rail-h: 1.75rem;
+
+  /* ── Night, written once ─────────────────────────────────────────────────
+     Night has to be reachable two ways — as an explicit choice, and through
+     `prefers-color-scheme` for a reader on Auto — and CSS offers no way to put
+     one declaration block behind both an attribute selector and a media query.
+     Spelled the obvious way, the whole palette exists twice and the two copies
+     drift, which is not a hypothetical: `--step-agent` had already drifted
+     between the panel and the Inspector under exactly that pressure. So the
+     values live here, once, and the two blocks below only assign them.
+
+     The Day palette is a dark chassis holding lit porcelain plates. The
+     temptation on Night is to darken everything, which is what the old block
+     did — and it put the plate at #151b24 against a #101620 chassis, 1.05:1,
+     so the top bar dissolved into the page it was supposed to frame. Night
+     keeps the chassis exactly where Day has it, because the machine's casing
+     is the one thing that does not change with the light, and lifts the plates
+     off it instead: chassis, plate, card, each one equal step of lightness
+     apart (0.199 → 0.252 → 0.305 in OKLCH, close to Day's own 0.046 step from
+     plate to card). Three planes you can tell apart, in the same order as Day.
+     Rules invert, as they must — a hairline is darker than white paper and
+     lighter than a dark card — at the same distances from the card that Day
+     uses. Every value below was derived from those rules rather than picked. */
+  --night-plate: #1c232b;
+  --night-card: #27303a;
+  --night-rule-soft: #343f4c;
+  --night-rule: #414e5d;
+  --night-ink: #e3e9ef;
+  --night-ink-soft: #97a4b3;
+  --night-alert: var(--alert-lit);
+  /* Two layers here as well. The old Night shadow dropped to one, so a card
+     had an edge and no lift — but the lift is what says "card"; the previous
+     palette had no room for it because the card sat 1.15:1 off its plate and
+     no shadow can rescue that. With the planes a step apart the shadow only
+     has to confirm what the lightness already says, so it stays quiet. */
+  --night-shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 10px 24px -18px rgba(0, 0, 0, .85);
 }
+
+/* Night, chosen. */
+:root[data-theme="night"] {
+  color-scheme: dark;
+  --plate: var(--night-plate);
+  --card: var(--night-card);
+  --rule: var(--night-rule);
+  --rule-soft: var(--night-rule-soft);
+  --ink: var(--night-ink);
+  --ink-soft: var(--night-ink-soft);
+  --alert: var(--night-alert);
+  --shadow: var(--night-shadow);
+  --step-index: var(--step-index-lit);
+  --step-retrieval: var(--step-retrieval-lit);
+  --step-generation: var(--step-generation-lit);
+  --step-agent: var(--step-agent-lit);
+}
+
+/* Night, inherited from the machine — unless Day was chosen. The `:not()` is
+   the whole of what makes the switch a switch: without it the machine outranks
+   the reader, and picking Day on a machine set to dark would change nothing.
+   The list below must stay identical to the one above; a test asserts it. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --plate: #151b24;
-    --card: #1e2733;
-    --rule: #33404f;
-    --rule-soft: #2c3745;
-    --ink: #e3e9ef;
-    --ink-soft: #97a4b3;
-    --alert: #d98376;
-    /* Against a dark plate a wash of the plate's own colour is invisible; the
-       lift has to come from black. */
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
-    /* On this theme every surface is the chassis, so a step reads at the
-       weight the chassis needs. `--step-agent` is deliberately absent here:
-       the panel never re-lit it in dark mode and the Inspector always did —
-       a pre-existing per-page difference this file must not erase. */
+  :root:not([data-theme="day"]) {
+    color-scheme: dark;
+    --plate: var(--night-plate);
+    --card: var(--night-card);
+    --rule: var(--night-rule);
+    --rule-soft: var(--night-rule-soft);
+    --ink: var(--night-ink);
+    --ink-soft: var(--night-ink-soft);
+    --alert: var(--night-alert);
+    --shadow: var(--night-shadow);
     --step-index: var(--step-index-lit);
     --step-retrieval: var(--step-retrieval-lit);
     --step-generation: var(--step-generation-lit);
+    --step-agent: var(--step-agent-lit);
   }
 }
+
+/* Day, chosen. Every value is already on the bare `:root` above, so there is
+   nothing here to assign — except the one property that is not a value of
+   ours. Auto leaves the browser's own widgets following the machine, which is
+   right for Auto and wrong the moment somebody picks Day on a dark machine. */
+:root[data-theme="day"] { color-scheme: light; }

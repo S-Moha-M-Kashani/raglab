@@ -46,8 +46,9 @@ Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
 - `ollama` (default) — a local model; a judged run can make hundreds of calls,
   so the default must never silently spend credit.
 - `openrouter` — a remote model; set `OPENROUTER_API_KEY` in `.env`, or open
-  **Settings** in the panel masthead and enter it for the life of that process.
-  The corner helper defaults to the GPT-5 Nano OpenRouter tool agent.
+  **⚙** at the right of the panel masthead and enter it there, for the life of
+  that process. The corner helper defaults to the GPT-5 Nano OpenRouter tool
+  agent.
 - `claude` / `codex` — drives a CLI already installed on this machine, no API
   key needed.
 - `fake` — offline, answers and judges without ever failing; for tests only.
@@ -55,11 +56,16 @@ Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
 Everything else the lab reads is in `.env.example`, commented out and kept
 complete by `test_conventions.py`.
 
+**⚙** also holds the theme: **Day**, **Night**, or **Auto**, which follows the
+machine and is the default. The choice is remembered per service, so the panel
+on :9002 and the Inspector on :9003 are set separately.
+
 ## A first experiment
 
 1. Start the panel (`uv run --extra local-embeddings raglab`) and open
    `http://localhost:9002`.
-2. Press **Import JSON** and pick `fixtures/loadstar-rag-setting.json` — the
+2. Open **⚙** at the right of the masthead and press **Import JSON** under
+   *Experiment archive*, then pick `fixtures/loadstar-rag-setting.json` — the
    measured preset as a settings-only archive: it restores every knob (each
    explained by the `!` beside it) and nothing else — no database row, no
    run, no job started.
@@ -78,14 +84,14 @@ complete by `test_conventions.py`.
    `decision score ± spread` per run.
 6. Trace any single question in the Inspector on :9003 — which chunks were
    retrieved, which were gold, what the answer was graded.
-7. Press **Export experiment** to write the whole experiment to one JSON
-   archive. Until an evaluation has completed under the current settings the
-   file carries settings only; after one it also carries the result and the
-   Inspector evidence. A completed archive contains the corpus text, ground
-   truth, generated answers and traces — share it as carefully as the data
-   inside it. Importing a completed archive renders its results read-only and
-   lands it once in **Every experiment**; it never enters the ranked
-   leaderboard.
+7. Back under **⚙** → *Experiment archive*, press **Export experiment** to
+   write the whole experiment to one JSON archive. Until an evaluation has
+   completed under the current settings the file carries settings only; after
+   one it also carries the result and the Inspector evidence. A completed
+   archive contains the corpus text, ground truth, generated answers and
+   traces — share it as carefully as the data inside it. Importing a completed
+   archive renders its results read-only and lands it once in **Every
+   experiment**; it never enters the ranked leaderboard.
 
 The **✳ Ask** widget in the panel's corner answers questions about the lab
 itself — a tool-calling agent over the project's knowledge base and the

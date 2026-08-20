@@ -74,12 +74,118 @@
 .topnav .port { color: var(--chassis-ink-soft); font: var(--t-2xs)/1 var(--mono); }
 .topnav a[aria-current="page"] .port { color: var(--chassis-ink); }
 
-/* The page's own actions, pushed right. Contents differ per surface: the lab
-   carries Settings, Import and Export; the Inspector carries only what it can
-   actually do. */
+/* The page's own actions, pushed right. One item on every surface now — the
+   Settings button — because everything that used to sit loose here turned out
+   to be the same kind of thing. */
 .topbar-actions {
   margin-left: auto; display: flex; align-items: center; gap: var(--s-2);
   min-width: 0;
+}
+
+/* ── Settings ──────────────────────────────────────────────────────────────
+   Three controls used to sit loose in this corner — Settings, Import JSON,
+   Export experiment — three rectangles competing with the surface switcher for
+   the same edge, on the surface that has the most controls of any page here.
+   What they have in common is what they are not: none of them is about the
+   experiment on screen. They are about this installation — its key, its
+   archives, and now the light it is read in. So they are one button, and the
+   button is a disc rather than a fourth rectangle, because it is the one thing
+   in the bar that opens rather than goes somewhere.
+
+   The disc is 2rem inside a 3.5rem bar, which leaves it visibly smaller than
+   the nav items beside it — deliberately: it is chrome for the chrome, and the
+   switcher is what the eye should find first. The gear is drawn at --t-md so
+   the glyph fills the disc rather than floating in it. */
+.settings-button {
+  appearance: none; flex: 0 0 auto;
+  width: 2rem; height: 2rem; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--chassis-soft); color: var(--chassis-ink);
+  border: 1px solid transparent; border-radius: var(--radius-circle);
+  font-size: var(--t-md); line-height: 1; cursor: pointer;
+}
+.settings-button:hover { background: var(--chassis); color: #fff; border-color: var(--chassis-ink-soft); }
+
+/* ── the theme control ─────────────────────────────────────────────────────
+   Three choices, so a two-state toggle cannot say it: Day, Night, and Auto,
+   which is not a third theme but the absence of a choice — the page follows
+   the machine, including when the machine changes its mind at sunset. A
+   segmented control states all three at once, which is the only honest shape
+   for a setting whose default is "I have not decided".
+
+   Radio inputs, visually hidden, with the labels doing the drawing: keyboard
+   users get arrow keys between the three and a real focus ring for free, and
+   the checked state is the browser's rather than a class the script has to
+   remember to move. The selected segment takes the index ink — the same ink
+   the brand mark and the current-surface underline already use for "this one",
+   so the control reads as chrome and never as a pipeline step. */
+.theme-control { display: flex; gap: 0; }
+.theme-control input {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+.theme-control label {
+  flex: 1 1 0; text-align: center; cursor: pointer;
+  padding: var(--s-1) var(--s-2);
+  font: var(--label-font); letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--ink-soft); background: var(--card);
+  border: 1px solid var(--rule);
+  /* One shared edge between neighbours, so the three read as one control
+     rather than three buttons that happen to touch. */
+  margin-left: -1px;
+}
+.theme-control label:first-of-type {
+  margin-left: 0;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.theme-control label:last-of-type { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.theme-control label:hover { color: var(--ink); border-color: var(--ink-soft); z-index: 1; }
+.theme-control input:checked + label {
+  color: var(--chassis); background: var(--step-index);
+  border-color: var(--step-index); z-index: 2;
+}
+/* The ring goes on the label, because the input it belongs to is a pixel
+   hidden in the corner and a focus ring there points at nothing. */
+.theme-control input:focus-visible + label {
+  outline: 2px solid var(--step-generation); outline-offset: 2px; z-index: 3;
+}
+
+/* The panel wrote this sheet when it was the only surface with a Settings
+   button; the Inspector wears the same button now, so the popover it opens is
+   drawn once, here, beside the button itself.
+
+   The old inset was a 3.4rem literal under a comment saying it should read
+   --bar-h once a real top bar existed. The bar exists. */
+.settings-popover {
+  inset: var(--bar-h) var(--gutter) auto auto;
+  width: min(25rem, calc(100vw - 2rem));
+  margin: 0; padding: var(--s-3);
+  color: var(--ink); background: var(--plate);
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+.settings-popover::backdrop { background: rgba(16, 22, 32, .18); }
+.settings-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: var(--s-2); padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--rule);
+}
+.settings-head span { color: var(--ink-soft); font: var(--t-xs)/1.4 var(--mono); }
+
+/* A group inside the Settings popover: a heading in the same small uppercase
+   label the rest of both surfaces uses, and a rule between groups rather than
+   around each, so three unrelated settings read as a list and not as three
+   boxes. Only the popover's own children, since both surfaces put other
+   things in `.field`. */
+.settings-group + .settings-group {
+  margin-top: var(--s-3); padding-top: var(--s-3);
+  border-top: 1px solid var(--rule);
+}
+.settings-group > h3 {
+  margin: 0 0 var(--s-2);
+  font: var(--label-font); letter-spacing: var(--label-track);
+  text-transform: uppercase; color: var(--ink-soft);
 }
 
 /* ── the progress line ─────────────────────────────────────────────────────
@@ -202,7 +308,14 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
    ragged-left — the worst alignment there is for scanning down a column. */
 .data-table th.text, .data-table td.text { text-align: left; }
 .data-table tbody tr:nth-child(even) td { background: var(--rule-soft); }
-.data-table tbody tr:hover td { background: var(--plate); }
+/* Hover is one rule-step past the stripe, in whichever direction that theme's
+   rules run: darker than paper on Day, lighter than a dark card on Night. It
+   used to be `--plate`, which is the page behind the table — on Day that is a
+   twelfth of a step off the stripe, so hovering an even row did nothing
+   visible, and on Night the plate is darker than every row, so the hovered row
+   read as a hole punched in the table rather than as the row under the
+   pointer. One token, one direction, both themes. */
+.data-table tbody tr:hover td { background: var(--rule); }
 
 /* The row's identity survives scrolling right. Without this the run's date
    leaves the viewport and every remaining number belongs to nothing.
@@ -215,6 +328,13 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 .data-table tbody tr:nth-child(even) .freeze-1,
 .data-table tbody tr:nth-child(even) .freeze-2 { background: var(--rule-soft); }
 .data-table thead .freeze-1, .data-table thead .freeze-2 { z-index: 4; background: var(--plate); }
+/* The frozen pair has to take the hover too, and after the striping rule above
+   it, which matches at the same specificity and would otherwise keep its
+   stripe. Without this a hovered even row is two-tone: its identity columns
+   stay striped while everything right of them lights up — invisible on Day
+   only because the two colours involved were a hundredth of a step apart. */
+.data-table tbody tr:hover .freeze-1,
+.data-table tbody tr:hover .freeze-2 { background: var(--rule); }
 .data-table .freeze-1 { left: 0; width: 3rem; min-width: 3rem; }
 .data-table .freeze-2 {
   left: 3rem; width: 10rem; min-width: 10rem;

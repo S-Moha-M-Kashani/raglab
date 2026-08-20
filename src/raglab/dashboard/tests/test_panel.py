@@ -76,6 +76,10 @@ def panel_texts(client):
         # started scanning there would still pass with the feature gutted.
         'panel.css (widget block)': _scope(css, '.widget-launch'),
         'panel.js (widget block)': _scope(js, 'widgetSay'),
+        # The shared script, over its own route for the same reason as
+        # tokens.css and chrome.css: all three surfaces link it, so what it
+        # holds is a claim about every surface rather than about this one.
+        'lab.js': client.get('/lab.js').text,
         'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
     }
 
@@ -441,6 +445,46 @@ CONVENTIONS = [
      'the page measure is a token, not a number typed in five places — the '
      'five copies are exactly how the panel and the Inspector came to '
      'disagree about how wide a page is'),
+    # --- Day and Night --------------------------------------------------
+    ('tokens.css', ':root[data-theme="night"]', None,
+     'Night must be reachable as an explicit choice, not only as a guess at '
+     'what the operating system wants — the switch sets this attribute and '
+     'nothing else'),
+    ('tokens.css', ':root:not([data-theme="day"])', None,
+     'and Day must be able to win against the machine: without this guard on '
+     'the media query, picking Day on a machine set to dark would leave the '
+     'query in charge and the choice would do nothing'),
+    ('tokens.css', 'color-scheme', None,
+     'the theme must reach the controls the browser draws itself — a select, '
+     'a file picker, a scrollbar. Without this the page is Night and every '
+     'native widget on it is still Day'),
+    ('lab.js', 'raglab-theme', None,
+     'the choice outlives the page, under one key both surfaces know'),
+    ('lab.js', 'removeAttribute', None,
+     'Auto is not a stored value, it is the absence of one — choosing it must '
+     'clear the attribute rather than write a third name. Store "auto" and the '
+     'guarded media query never fires, so Auto would silently mean Day; and '
+     'the page would stop following a machine that changes its mind at sunset, '
+     'which is the one thing Auto is for'),
+    # --- Settings, gathered ---------------------------------------------
+    ('index.html', 'id="theme-control"', None,
+     'the theme control must keep its script hook'),
+    ('index.html', 'aria-label="Settings"', None,
+     'the round button carries no text, so it must carry a name'),
+    ('chrome.css', '.settings-button', None,
+     'the round Settings button is chrome both surfaces wear, so it is drawn '
+     'once in the shared sheet rather than per page'),
+    ('chrome.css', '.theme-control', None,
+     'and so is the control inside it — the Inspector offers the same three '
+     'choices from the same markup'),
+    # --- the surface switcher -------------------------------------------
+    ('index.html', None, 'Inspector <span class="port">:9003</span>',
+     'the Inspector link drops its port: the reader is on :9002 looking at a '
+     'link, not at a terminal, and the port was never the thing they were '
+     'choosing'),
+    ('leaderboard.html', None, 'Inspector <span class="port">:9003</span>',
+     'and the leaderboard drops it for the same reason — the two surfaces '
+     'wear one switcher, so a port shown on one and not the other is drift'),
 ]
 
 
@@ -971,3 +1015,171 @@ def test_the_column_sorter_keeps_header_semantics_and_survives_a_restore():
         'restore produces a table that looks sortable and is inert')
     assert 'dataset.sortWired' not in source, (
         'the DOM flag that survived innerHTML must not come back')
+
+
+# --- Day and Night ----------------------------------------------------------
+#
+# The page had a dark theme before this: a `prefers-color-scheme` block that
+# read the machine's setting and offered no way to disagree with it. What is
+# new is the disagreeing — an explicit choice, stored, that outranks the
+# machine — and the tests below are about the two failure modes that come with
+# it: a theme that arrives a frame late, and a palette that has to be written
+# twice because a media query and an attribute selector cannot share a block.
+
+THEME_KEY = 'raglab-theme'
+SURFACES = ('index.html', 'leaderboard.html')
+
+
+@pytest.mark.parametrize('surface', SURFACES)
+def test_every_surface_stamps_the_stored_theme_before_it_paints(panel_texts, surface):
+    # this is a convention test
+    """A theme applied by the page's own script arrives after the first paint,
+    so a reader who chose Night sees a white page flash on every navigation —
+    on this lab, across three surfaces that link to each other, that is a
+    flash per click. The fix is the one thing that cannot be deferred: a
+    blocking script in the head, before anything renders, whose whole job is
+    to copy the stored choice onto the root element. It is inline rather than
+    in lab.js for the same reason — a separate file is a request, and the
+    flash is exactly as long as that request."""
+    head = panel_texts[surface].split('</head>')[0]
+    assert THEME_KEY in head, (
+        'the stored choice must be read in the head: read it from lab.js at '
+        'the foot of the page and every navigation flashes the other theme')
+    assert 'documentElement' in head, (
+        'and stamped on the root element, which is what both the attribute '
+        'selector and the guarded media query in tokens.css hang off')
+
+
+def test_the_night_palette_is_written_once_and_read_twice(panel_texts):
+    # this is a convention test
+    """Night has to be reachable two ways — as `[data-theme="night"]`, the
+    explicit choice, and through the media query, for a reader on Auto whose
+    machine is dark. CSS gives no way to put one declaration block behind both
+    selectors, so the obvious spelling duplicates the whole palette, and the
+    two copies then drift the way `--step-agent` already drifted between the
+    panel and the Inspector. Instead the values live once, on bare `:root`, as
+    `--night-*`; the two selectors only assign them. This pins that: every
+    Night value appears exactly once in the sheet, and both selectors read
+    them through `var()` rather than restating them."""
+    tokens = panel_texts['tokens.css']
+    values = re.findall(r'--night-[a-z-]+:\s*([^;]+);', tokens)
+    assert values, 'the Night palette must be named as --night-* tokens'
+    for value in values:
+        assert tokens.count(value.strip()) == 1, (
+            f'{value.strip()!r} is written more than once — a Night value '
+            'restated under the second selector is the drift this shape exists '
+            'to prevent')
+    assigned = []
+    for selector in (':root[data-theme="night"]', ':root:not([data-theme="day"])'):
+        block = tokens[tokens.index(selector):]
+        block = block[:block.index('}')]
+        assert 'var(--night-' in block, (
+            f'{selector} must read the named palette, not restate it')
+        assigned.append(sorted(re.findall(r'(--[a-z-]+):\s*([^;]+);', block)))
+    chosen, inherited = assigned
+    assert chosen == inherited, (
+        'the two Night blocks must assign the same tokens to the same values. '
+        'Naming the palette once stops the values drifting; only this stops '
+        'one block gaining a token the other never got — which is the same '
+        'bug wearing a different hat, and it would show up only for readers '
+        'on Auto, or only for readers who picked Night, never for both')
+
+
+@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css'))
+def test_no_dark_block_outranks_an_explicit_choice(panel_texts, sheet):
+    # this is a convention test
+    """Every `prefers-color-scheme: dark` block on either surface has to carry
+    the `:not([data-theme="day"])` guard. An unguarded one is worse than no
+    theming at all: the switch would appear to work everywhere except the few
+    tokens that block happens to hold, so choosing Day on a dark machine would
+    give a light page with, say, dark-mode alert washes still on it — a bug
+    that only shows up on one theme on one machine. The guard is not optional
+    decoration; it is what makes the choice a choice."""
+    css = panel_texts[sheet]
+    for match in re.finditer(r'@media\s*\(prefers-color-scheme:\s*dark\)\s*\{', css):
+        block = css[match.end():match.end() + 200]
+        assert ':not([data-theme="day"])' in block, (
+            f'an unguarded dark block in {sheet} at character {match.start()} — '
+            'the machine would outrank the reader for whatever tokens it holds')
+
+
+def test_each_theme_says_which_way_the_browser_should_draw_its_own_controls(panel_texts):
+    # this is a convention test
+    """`color-scheme` is the only thing a page can say about the widgets it
+    does not draw: the select menus on the knob surface, the archive file
+    picker, the scrollbars on every table region. Style them all you like and
+    they stay light until this property says otherwise — which on Night means
+    a page of dark cards holding white dropdowns. Auto gets `light dark` so
+    the browser keeps following the machine, exactly as the palette does."""
+    tokens = panel_texts['tokens.css']
+    assert re.search(r':root\s*\{[^}]*color-scheme:\s*light\s+dark', tokens, re.S), (
+        'Auto must hand the decision back to the browser with `light dark`')
+    night = tokens[tokens.index(':root[data-theme="night"]'):]
+    assert 'color-scheme: dark' in night[:night.index('}')], (
+        'Night must say dark, or its native controls stay light')
+    day = tokens[tokens.index(':root[data-theme="day"]'):]
+    assert 'color-scheme: light' in day[:day.index('}')], (
+        'and Day must say light, or Night controls survive the switch back')
+
+
+def test_the_settings_popover_gathers_every_installation_level_control(panel_texts):
+    # this is a convention test
+    """Three unrelated controls used to sit loose in the top bar — Settings,
+    Import JSON, Export experiment — competing for the same corner as the
+    surface switcher. They have one thing in common: none of them is about the
+    experiment on screen, they are about this installation. So they are one
+    button now, and this pins that the archive pair actually moved inside the
+    popover rather than merely surviving somewhere on the page. The ids are
+    unchanged on purpose: panel.js and archive_io.js reach for them by id, and
+    a move that renames its hooks is a rewrite, not a move."""
+    html = panel_texts['index.html']
+    popover = html[html.index('id="app-settings-panel"'):]
+    popover = popover[:popover.index('</header>')]
+    for hook in ('id="theme-control"', 'id="openrouter_key"',
+                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+        assert hook in popover, (
+            f'{hook} must live inside the Settings popover — a control left '
+            'loose in the bar is the crowding this replaces')
+
+
+@pytest.mark.parametrize('surface', SURFACES)
+def test_the_surface_switcher_reads_lab_inspector_leaderboard(panel_texts, surface):
+    # this is a convention test
+    """The Inspector reads what the Laboratory just produced; the Leaderboard
+    ranks across every run there has ever been. So the switcher runs
+    Laboratory, Inspector, Leaderboard — nearest first, widest last — rather
+    than the order the three surfaces happened to be built in. Checked as
+    positions in the nav rather than as a substring of it, because the nav's
+    markup differs per surface (each page marks its own entry current)."""
+    nav = panel_texts[surface]
+    nav = nav[nav.index('<nav class="topnav"'):]
+    nav = nav[:nav.index('</nav>')]
+    order = [nav.index(name) for name in ('Laboratory', 'Inspector', 'Leaderboard')]
+    assert order == sorted(order), (
+        'the switcher must run Laboratory, Inspector, Leaderboard')
+
+
+def test_a_hovered_row_lights_up_whole_and_in_one_direction(panel_texts):
+    # this is a convention test
+    """Two defects that Night made visible and Day had been hiding. The hover
+    background was `--plate`, the page behind the table: on Day that is a
+    hundredth of a step off the even-row stripe, so hovering half the rows did
+    nothing you could see; on Night the plate is darker than every row, so the
+    hovered row read as a hole punched in the table. And the rule never covered
+    the two frozen identity columns, whose striping selector matches at the same
+    specificity — so a hovered even row lit up everywhere except the columns
+    saying which run it was. `--rule` fixes the first (one step past the stripe,
+    in whichever direction that theme's rules run) and the pair of frozen
+    selectors, placed after the striping rule, fixes the second."""
+    css = panel_texts['chrome.css']
+    hover = css[css.index('.data-table tbody tr:hover td'):]
+    hover = hover[:hover.index('}')]
+    assert 'var(--rule)' in hover and 'var(--plate)' not in hover, (
+        'row hover must be a step past the stripe, not the page behind the table')
+    frozen = '.data-table tbody tr:hover .freeze-1,\n.data-table tbody tr:hover .freeze-2'
+    assert frozen in css, (
+        'the frozen columns must take the hover too, or a hovered even row is '
+        'two-tone — its run id keeps the stripe while the numbers light up')
+    assert css.index('nth-child(even) .freeze-1') < css.index(frozen), (
+        'and after the striping rule: the two match at the same specificity, so '
+        'order is the only thing deciding which one wins')

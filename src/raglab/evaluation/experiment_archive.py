@@ -35,6 +35,7 @@ _MODEL_FIELDS = (
     ('agent', 'critic_model'),
 )
 _STAGES = ('index', 'retrieval', 'generation', 'agent', 'overall')
+_UNSAFE_METRIC_KEYS = frozenset(('__proto__', 'prototype', 'constructor'))
 
 
 class ArchiveError(ValueError):
@@ -144,6 +145,27 @@ def _json_value(value):
     return json.loads(json.dumps(value, allow_nan=False))
 
 
+def _json_equal(left, right) -> bool:
+    """Compare JSON values without Python's bool/number equality coercion."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and left == right
+    if isinstance(left, (int, float)) or isinstance(right, (int, float)):
+        return (isinstance(left, (int, float))
+                and not isinstance(left, bool)
+                and isinstance(right, (int, float))
+                and not isinstance(right, bool)
+                and left == right)
+    if isinstance(left, dict) or isinstance(right, dict):
+        return (isinstance(left, dict) and isinstance(right, dict)
+                and left.keys() == right.keys()
+                and all(_json_equal(left[key], right[key]) for key in left))
+    if isinstance(left, list) or isinstance(right, list):
+        return (isinstance(left, list) and isinstance(right, list)
+                and len(left) == len(right)
+                and all(_json_equal(a, b) for a, b in zip(left, right)))
+    return type(left) is type(right) and left == right
+
+
 def _shape(value, expected, path: str) -> None:
     if isinstance(expected, dict):
         value = _dict(value, path)
@@ -250,7 +272,7 @@ def _validate_metric_catalogue(value) -> list[dict]:
     for index, row in enumerate(rows):
         path = f'evaluation.metric_catalogue[{index}]'
         row = _dict(row, path)
-        key = _string(row.get('key'), f'{path}.key', nonempty=True)
+        key = _metric_key(row.get('key'), f'{path}.key')
         if key in found:
             raise ArchiveError(f'evaluation.metric_catalogue: duplicate key {key}')
         found.add(key)
@@ -261,6 +283,19 @@ def _validate_metric_catalogue(value) -> list[dict]:
             if field in row:
                 _string(row[field], f'{path}.{field}')
     return rows
+
+
+def _metric_key(value, path: str) -> str:
+    value = _string(value, path, nonempty=True)
+    if value in _UNSAFE_METRIC_KEYS:
+        raise ArchiveError(f'{path}: unsafe metric key {value}')
+    return value
+
+
+def _metric_items(value, path: str):
+    value = _dict(value, path)
+    for key, metric in value.items():
+        yield _metric_key(key, f'{path}.{key}'), metric
 
 
 def _validate_dataset(inspector_dataset: dict, limits: dict) -> dict[str, dict]:
@@ -381,7 +416,7 @@ def _validate_completed(evaluation, settings: dict, limits: dict) -> None:
     for field in ('run_id', 'label', 'dataset', 'started_at'):
         _string(result[field], f'evaluation.result.{field}',
                 nonempty=field in ('run_id', 'dataset'))
-    if result['config'] != settings['config']:
+    if not _json_equal(result['config'], settings['config']):
         raise ArchiveError(
             'evaluation.result.config: must equal settings.config')
     for field in ('index', 'summary', 'ragas', 'selection'):
@@ -499,7 +534,7 @@ def _validate_completed(evaluation, settings: dict, limits: dict) -> None:
             f'settings dataset {dataset_id}')
 
     projected = stage_results(result, catalogue)
-    if evaluation['stage_results'] != projected:
+    if not _json_equal(evaluation['stage_results'], projected):
         raise ArchiveError(
             'evaluation.stage_results: must equal the derived metric projection')
 
@@ -523,9 +558,9 @@ def validate_archive(payload, *, encoded_size=None, limits=None) -> dict:
         raise ArchiveError(
             f'archive.format {payload.get("format")!r}: expected {FORMAT!r}')
     version = payload.get('version')
-    if isinstance(version, bool) or version != VERSION:
+    if type(version) is not int or version != VERSION:
         raise ArchiveError(
-            f'archive.version {version!r}: expected version {VERSION}')
+            f'archive.version {version!r}: expected integer version {VERSION}')
     settings = _validate_settings(payload.get('settings'), bounds)
     if 'evaluation' in payload:
         _validate_completed(payload['evaluation'], settings, bounds)
@@ -537,11 +572,21 @@ def stage_results(result: dict, metric_catalogue: list[dict]) -> dict:
               for step in ('retrieval', 'generation', 'agent', 'overall')}
     groups['index'] = {'statistics': copy.deepcopy(result['index']),
                        'metrics': {}}
-    values = dict(result['summary'].get('overall') or {})
-    values.update((result.get('ragas') or {}).get('metrics') or {})
-    steps = {row['key']: row.get('step') or 'overall'
-             for row in metric_catalogue}
-    for key, value in values.items():
+    steps = {}
+    for index, row in enumerate(metric_catalogue):
+        key = _metric_key(row.get('key'),
+                          f'metric_catalogue[{index}].key')
+        step = row.get('step') or 'overall'
+        if step not in _STAGES:
+            raise ArchiveError(
+                f'metric_catalogue[{index}].step: unknown stage {step!r}')
+        steps[key] = step
+    values = list(_metric_items(
+        result['summary'].get('overall') or {}, 'result.summary.overall'))
+    values.extend(_metric_items(
+        (result.get('ragas') or {}).get('metrics') or {},
+        'result.ragas.metrics'))
+    for key, value in values:
         groups[steps.get(key, 'overall')]['metrics'][key] = value
     return groups
 

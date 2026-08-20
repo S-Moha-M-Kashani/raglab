@@ -13,6 +13,7 @@ const ArchiveIO = (() => {
   ]);
   const DIFFICULTIES = Object.freeze(['easy', 'medium', 'hard']);
   const STAGES = Object.freeze(['index', 'retrieval', 'generation', 'agent', 'overall']);
+  const UNSAFE_METRIC_KEYS = Object.freeze(['__proto__', 'prototype', 'constructor']);
   const RESULT_KEYS = Object.freeze([
     'run_id', 'label', 'config', 'dataset', 'index', 'summary', 'rows',
     'ragas', 'seconds', 'started_at', 'notes', 'selection',
@@ -156,6 +157,11 @@ const ArchiveIO = (() => {
       fail(`${path}: number must be finite or null`);
     }
   };
+  const metricKey = (value, path) => {
+    string(value, path, true);
+    if (UNSAFE_METRIC_KEYS.includes(value)) fail(`${path}: unsafe metric key ${value}`);
+    return value;
+  };
 
   const validateConfig = config => {
     shape(config, CONFIG_TEMPLATE, 'settings.config');
@@ -167,6 +173,10 @@ const ArchiveIO = (() => {
     });
     MODEL_FIELDS.forEach(([group, field]) => string(
       config[group][field], `settings.config.${group}.${field}`));
+    if (!['fastembed', 'sentence-transformers'].includes(config.index.embedder)
+        && config.index.embed_model !== '') {
+      fail('settings.config.index.embed_model: must be empty for an embedder without a model');
+    }
     integer(config.retrieval.k, 'settings.config.retrieval.k', 1);
     if (config.index.hierarchy) {
       integer(config.index.hierarchy_levels, 'settings.config.index.hierarchy_levels', 1);
@@ -250,7 +260,9 @@ const ArchiveIO = (() => {
     if (!sessions.length) fail('evaluation.inspector.dataset.corpus.sessions: non-empty list required');
     const sessionById = unique(sessions, 'session_id', 'evaluation.inspector.dataset.corpus.sessions');
     sessionById.forEach((session, sessionId) => {
-      string(session.date, `evaluation.inspector.dataset.corpus.sessions.${sessionId}.date`, true);
+      const datePath = `evaluation.inspector.dataset.corpus.sessions.${sessionId}.date`;
+      const date = string(session.date, datePath, true);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail(`${datePath}: expected YYYY-MM-DD`);
       const messages = array(session.messages,
         `evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages`);
       if (!messages.length) fail(`evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages: non-empty list required`);
@@ -312,7 +324,7 @@ const ArchiveIO = (() => {
     array(catalogue, 'evaluation.metric_catalogue').forEach((row, index) => {
       const path = `evaluation.metric_catalogue[${index}]`;
       object(row, path);
-      const key = string(row.key, `${path}.key`, true);
+      const key = metricKey(row.key, `${path}.key`);
       if (found.has(key)) fail(`evaluation.metric_catalogue: duplicate key ${key}`);
       found.add(key);
       const step = row.step || 'overall';
@@ -329,13 +341,24 @@ const ArchiveIO = (() => {
       agent: { metrics: {} }, overall: { metrics: {} },
     };
     groups.index = { statistics: copy(result.index), metrics: {} };
-    const values = Object.assign({}, result.summary.overall || {},
-      (result.ragas || {}).metrics || {});
-    const steps = {};
-    metricCatalogue.forEach(row => { steps[row.key] = row.step || 'overall'; });
-    Object.entries(values).forEach(([key, value]) => {
-      groups[steps[key] || 'overall'].metrics[key] = value;
+    const steps = Object.create(null);
+    metricCatalogue.forEach((row, index) => {
+      const key = metricKey(row.key, `metric_catalogue[${index}].key`);
+      const step = row.step || 'overall';
+      if (!STAGES.includes(step)) {
+        fail(`metric_catalogue[${index}].step: unknown stage ${step}`);
+      }
+      steps[key] = step;
     });
+    const addValues = (source, path) => {
+      object(source, path);
+      Object.entries(source).forEach(([key, value]) => {
+        metricKey(key, `${path}.${key}`);
+        groups[steps[key] || 'overall'].metrics[key] = value;
+      });
+    };
+    addValues(result.summary.overall || {}, 'result.summary.overall');
+    addValues((result.ragas || {}).metrics || {}, 'result.ragas.metrics');
     return groups;
   };
 
@@ -525,7 +548,7 @@ const ArchiveIO = (() => {
   const stableValue = value => {
     if (Array.isArray(value)) return value.map(stableValue);
     if (value !== null && typeof value === 'object') {
-      const out = {};
+      const out = Object.create(null);
       Object.keys(value).sort().forEach(key => { out[key] = stableValue(value[key]); });
       return out;
     }

@@ -59,14 +59,24 @@ const SortTable = (() => {
     return hasNumbers ? -1 : 1;
   }
 
+  // Which tables already have listeners. Deliberately NOT a `data-` attribute:
+  // a flag in the DOM survives `innerHTML` round-trips, and several places here
+  // save a card's markup and put it back. A restored table came back carrying
+  // `data-sort-wired="1"`, its `.sortable` class, its focus rings and its
+  // arrows — and no listeners, because `make` saw the flag and returned. It
+  // looked sortable and did nothing. A WeakSet is not serialised, so a restored
+  // table is correctly seen as new, and the entry for the discarded element is
+  // collected with it.
+  const wired = new WeakSet();
+
   // Wire one table. Safe to call again on the same element — a re-rendered table
   // is a new element, and a second call on the same one would stack listeners.
   function make(table) {
-    if (!table || table.dataset.sortWired) return;
+    if (!table || wired.has(table)) return;
     const head = table.tHead && table.tHead.rows[table.tHead.rows.length - 1];
     const body = table.tBodies[0];
     if (!head || !body || !body.rows.length) return;
-    table.dataset.sortWired = '1';
+    wired.add(table);
     table.classList.add('sortable');
     // Captured once: this is the order the service sent, and the third click
     // restores exactly it.
@@ -86,7 +96,12 @@ const SortTable = (() => {
       heads[at], served.some((row) => keyOf(row, at).number !== null));
 
     function apply() {
-      for (const th of heads) th.removeAttribute('aria-sort');
+      // 'none' rather than removing it: a sortable column that is not currently
+      // the sort key still needs to announce that it can be sorted, and the
+      // absence of the attribute says nothing at all.
+      for (const th of heads) {
+        if (!th.hasAttribute('data-nosort')) th.setAttribute('aria-sort', 'none');
+      }
       let rows = served;
       if (column >= 0) {
         rows = served
@@ -106,7 +121,13 @@ const SortTable = (() => {
       if (th.hasAttribute('data-nosort')) return;
       th.classList.add('sort-col');
       th.tabIndex = 0;
-      th.setAttribute('role', 'button');
+      // No `role="button"` here. It overrode the implicit `columnheader` role,
+      // so a screen reader stopped announcing column position — on an
+      // eighteen-column table, which is precisely where that announcement is
+      // the only thing keeping a cell attached to its heading. Sortability is
+      // conveyed by `aria-sort` instead, which is what it is for, and the
+      // keydown handler below keeps the column operable from the keyboard.
+      th.setAttribute('aria-sort', 'none');
       th.title = 'sort by this column · again to reverse · a third time for the '
         + 'order it was served in';
       const cycle = () => {

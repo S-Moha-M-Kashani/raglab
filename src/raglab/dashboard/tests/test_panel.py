@@ -750,3 +750,29 @@ def test_every_served_script_actually_parses():
         assert done.returncode == 0, (
             f'{script.name} does not parse, so the page it belongs to is dead '
             f'on arrival:\n{done.stderr.strip()}')
+
+
+def test_the_column_sorter_keeps_header_semantics_and_survives_a_restore():
+    # this is a convention test
+    """Two defects this file guards against, both invisible to a text check
+    that only asks whether sorting exists at all.
+
+    `role="button"` on a `<th>` overrides the implicit `columnheader` role, so
+    a screen reader stops announcing which column a cell is in — worst exactly
+    where the tables are widest. Sortability belongs to `aria-sort`.
+
+    And the "already wired" flag must not live in the DOM: several places here
+    save a card's markup and put it back, and a `data-` flag survives that
+    round-trip. A restored table came back with the flag, the `.sortable`
+    class, the focus rings and the arrows — and no listeners, because `make`
+    saw the flag and returned early. It looked sortable and did nothing."""
+    source = (RAGLAB_DIR / 'dashboard' / 'frontend' / 'sorttable.js').read_text(
+        encoding='utf-8')
+    assert "setAttribute('role', 'button')" not in source, (
+        'a sortable th must keep its columnheader role')
+    assert "aria-sort" in source, 'sortability is announced with aria-sort'
+    assert 'WeakSet' in source, (
+        'the wired-already flag must not be a DOM attribute, or an innerHTML '
+        'restore produces a table that looks sortable and is inert')
+    assert 'dataset.sortWired' not in source, (
+        'the DOM flag that survived innerHTML must not come back')

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -557,6 +558,34 @@ INSPECTOR_CONVENTIONS = [
     ('inspector.html', 'data-nosort', None,
      "the ranks column draws a shape the same three numbers already follow, "
      "so sorting on the picture would sort on nothing"),
+    # --- Day and Night, and the line that reports the lab -----------------
+    ('inspector.js', 'Laboratory on', None,
+     'the header reports the lab as a state, not as a sentence with a URL in '
+     'it: the reader is being told whether there is anything to follow, and '
+     'the address they would need if there were is already the link above'),
+    ('inspector.js', 'Laboratory disconnected', None,
+     'and the same shape when there is not — one word apart from the reachable '
+     'case, so which one is showing is read at the dot rather than parsed'),
+    ('inspector.js', None, 'following the lab at',
+     'the old sentence must go: it spent a whole line on an address that is '
+     'the same address on every installation that has ever run this page'),
+    ('inspector.js', None, 'cannot reach the lab at',
+     'and so must its twin'),
+    ('inspector.css', None, '#e07a6c',
+     "the down state's red was the one colour on this page typed as a literal, "
+     'so it was the one colour that could not follow the theme — it reads '
+     '--alert now, which Night re-lights along with everything else'),
+    ('inspector.css', None, '--step-agent: var(--step-agent-lit)',
+     'plum is re-lit for Night in the shared sheet with the other three, so '
+     'this page keeps no private answer to a question both pages ask — the '
+     'panel had gone without the re-light entirely, which on Night put a '
+     'near-black plum on a near-black plate'),
+    ('inspector.html', 'id="theme-control"', None,
+     'the Inspector offers the same three choices the lab does: a reader who '
+     'set Night on :9002 and found Day on :9003 would be right to call that '
+     'broken, and these are separate origins, so the choice cannot travel'),
+    ('inspector.html', 'aria-label="Settings"', None,
+     'the round button carries no text, so it must carry a name'),
 ]
 
 
@@ -1287,3 +1316,58 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     assert body['chosen']['retrieval']['retriever'] in body['retrievers']
     assert body['chosen']['retrieval']['reranker'] in body['rerankers']
     assert body['chosen']['retrieval']['grader'] in body['graders']
+
+
+# --- Day and Night, from the Inspector's side -------------------------------
+
+def test_the_inspector_stamps_the_stored_theme_before_it_paints(inspector_texts):
+    # this is a convention test
+    """Same guard as the lab's, and needed more here: the Inspector is the
+    surface a reader arrives at from a link on :9002, so a flash of the wrong
+    theme lands on every crossing between the two. The choice itself does not
+    cross — :9002 and :9003 are separate origins and neither can read the
+    other's storage — so this page stores and reads its own."""
+    head = inspector_texts['inspector.html'].split('</head>')[0]
+    assert 'raglab-theme' in head and 'documentElement' in head, (
+        'the stored choice must be read and stamped in the head, before the '
+        'first paint, or crossing from the lab flashes the other theme')
+
+
+def test_no_dark_block_on_the_inspector_outranks_an_explicit_choice(inspector_texts):
+    # this is a convention test
+    """The lab's half of this rule lives in test_panel.py over tokens.css and
+    panel.css; this is the Inspector's own sheet, which carries four page-local
+    tokens of its own (the ground-truth row, and the three that draw the
+    evidence highlighter). An unguarded block here would leave a reader who
+    chose Day on a dark machine with a light page and dark-mode highlighting on
+    it — the worst kind of bug, visible on one theme on one machine."""
+    css = inspector_texts['inspector.css']
+    for match in re.finditer(r'@media\s*\(prefers-color-scheme:\s*dark\)\s*\{', css):
+        block = css[match.end():match.end() + 200]
+        assert ':not([data-theme="day"])' in block, (
+            'an unguarded dark block in inspector.css at character '
+            f'{match.start()} — the machine would outrank the reader')
+
+
+def test_the_status_line_reports_the_lab_as_a_state_not_a_sentence(inspector_texts):
+    # this is a convention test
+    """Two things share this line, and they are not alternatives: the lab is
+    reachable or it is not, and — separately, and at the same time — this page
+    may be showing an imported archive instead of live evidence. So the lab
+    keeps the dot-and-phrase, whose whole content is now the dot plus one word,
+    and the archive keeps the bordered pill it already had. Reading a dot is
+    faster than reading a URL, and the URL was the same URL on every
+    installation that has ever run this page — the switcher above links there
+    anyway, which is where somebody who wants the address will look."""
+    css = inspector_texts['inspector.css']
+    assert '.follow-state[data-lab="up"]::before' in css
+    assert '.follow-state[data-lab="down"]::before' in css
+    down = css[css.index('.follow-state[data-lab="down"]::before'):]
+    assert 'var(--alert-lit)' in down[:down.index('}')], (
+        'the down dot must read the lifted alert ink: this line sits on the '
+        'chassis, which is the chassis on both themes, so the porcelain-tuned '
+        '--alert would be too dark here and a literal would follow neither')
+    js = inspector_texts['inspector.js']
+    assert 'Imported archive · read-only' in js, (
+        'and the archive keeps its own words, unchanged: it says what it is '
+        'and that you cannot change it, which is the whole of read-only here')

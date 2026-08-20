@@ -30,21 +30,40 @@
   --evidence: #a9e6b0;
   --evidence-rule: #3f8a4c;
   --evidence-ink: #10240f;
+
+  /* This page's own four, on Night. Same shape as the shared palette in
+     tokens.css — the values here once, the two selectors below assigning them
+     — and for the same reason: a media query and an attribute selector cannot
+     share a block, so the alternative is two copies that drift.
+
+     `--step-agent` used to be re-lit here and nowhere else, on the grounds
+     that the panel had never re-lit it. That was a bug being preserved as a
+     convention: the panel does ink things with plum, and on the old dark
+     theme they came out near-black on a near-black plate. All four steps are
+     re-lit together in tokens.css now, so this page keeps no private answer
+     to a question both pages ask.
+
+     Each value below sits at the distance from Night's card that its Day
+     counterpart sits from Day's paper — the row a step back, the wash far
+     enough to read as a wash, the ink far enough to read on it. */
+  --night-row-plain: #191e25;
+  --night-evidence: #1f542a;
+  --night-evidence-rule: #73b87d;
+  --night-evidence-ink: #e2f4e3;
 }
 
+:root[data-theme="night"] {
+  --row-plain: var(--night-row-plain);
+  --evidence: var(--night-evidence);
+  --evidence-rule: var(--night-evidence-rule);
+  --evidence-ink: var(--night-evidence-ink);
+}
 @media (prefers-color-scheme: dark) {
-  :root {
-    /* The shared tokens' own dark values live in tokens.css. `--step-agent`
-       is the one step ink tokens.css does not re-lit for dark mode — the
-       panel never did either, but this page's agent ladder wants it, so the
-       override stays here rather than in the shared file. */
-    --step-agent: var(--step-agent-lit);
-    /* Well below --card, not a shade beside it, so the row-verdict distinction
-       still reads against the darker card. */
-    --row-plain: #121821;
-    --evidence: #2f6a3a;
-    --evidence-rule: #86b08c;
-    --evidence-ink: #eafbe8;
+  :root:not([data-theme="day"]) {
+    --row-plain: var(--night-row-plain);
+    --evidence: var(--night-evidence);
+    --evidence-rule: var(--night-evidence-rule);
+    --evidence-ink: var(--night-evidence-ink);
   }
 }
 
@@ -150,7 +169,9 @@ select { font: inherit; color: inherit; }
   vertical-align: .05rem;
 }
 .follow-state[data-lab="up"]::before { background: var(--step-retrieval-lit); }
-.follow-state[data-lab="down"]::before { background: #e07a6c; }
+/* The chassis is the chassis on both themes, so both dots take a lifted
+   ink — the down one was the last colour literal on this page. */
+.follow-state[data-lab="down"]::before { background: var(--alert-lit); }
 
 /* --- tabs: the pipeline, left to right ------------------------------------ */
 /* Each tab is inked by its step; only the selected one carries its pen at full

@@ -809,13 +809,15 @@ function showLabDown(el) {
 }
 
 // One line in the header, so an empty view never leaves the reader guessing
-// whether nothing ran or nothing is listening.
+// whether nothing ran or nothing is listening. Two words and a dot: the line
+// used to spend itself on `body.lab_url`, which is the same address on every
+// installation that has ever run this page, and which the surface switcher
+// directly above already links to. What is actually being reported is one bit,
+// and one bit reads faster as a coloured dot than as a sentence to parse.
 function setFollowState(body) {
   const el = document.getElementById('follow-state');
   el.dataset.lab = body.lab;
-  el.textContent = body.lab === 'up'
-    ? `following the lab at ${body.lab_url}`
-    : `cannot reach the lab at ${body.lab_url}`;
+  el.textContent = body.lab === 'up' ? 'Laboratory on' : 'Laboratory disconnected';
 }
 
 let activeArchiveId = null;

@@ -4,6 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RAG Lab · Inspector</title>
+  <!-- The stored theme, stamped before anything paints. The lab on :9002 does
+       the same, but this is a separate origin: neither can read the other's
+       storage, so this surface remembers its own choice. -->
+  <script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <!-- lab.js owns the switch itself and loads at the foot of the page, the
+       way the panel's does. -->
   <!-- Design tokens shared with the panel on :9002; before inspector.css so
        its overrides still win. -->
   <link rel="stylesheet" href="/tokens.css">
@@ -22,9 +28,25 @@
       <a class="brand" href="http://localhost:9002/"><span class="lab-mark">RL</span>RAG Lab</a>
       <nav class="topnav" aria-label="Surfaces">
         <a href="http://localhost:9002/">Laboratory <span class="port">:9002</span></a>
-        <a href="http://localhost:9002/leaderboard">Leaderboard <span class="port">:9002</span></a>
         <a href="/" aria-current="page">Inspector</a>
+        <a href="http://localhost:9002/leaderboard">Leaderboard <span class="port">:9002</span></a>
       </nav>
+      <div class="topbar-actions">
+        <button class="settings-button" id="app-settings" type="button"
+          popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
+        <div class="settings-popover" id="app-settings-panel" popover
+             aria-label="Settings">
+          <div class="settings-head">
+            <b>Settings</b>
+            <span>This installation</span>
+          </div>
+          <div class="settings-group">
+            <h3 id="theme-control-label">Theme</h3>
+            <div class="theme-control" id="theme-control"
+                 aria-labelledby="theme-control-label"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </header>
 

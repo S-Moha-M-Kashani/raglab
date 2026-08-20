@@ -51,11 +51,16 @@ def held() -> bool:
     return bool(_key)
 
 
+def active(environment_key: str = '') -> str:
+    """The panel-held key, otherwise the environment key, stripped."""
+    return _key or (environment_key or '').strip()
+
+
 def apply(settings: LabSettings) -> LabSettings:
     """`settings`, carrying the panel's key if one is held — the one place that decides which key wins."""
-    if not _key:
-        return settings
-    return replace(settings, openrouter_api_key=_key)
+    key = active(settings.openrouter_api_key)
+    return settings if key == settings.openrouter_api_key \
+        else replace(settings, openrouter_api_key=key)
 
 
 def hint(key: str) -> str:

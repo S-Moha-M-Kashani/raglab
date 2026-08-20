@@ -20,13 +20,36 @@
   <div class="masthead">
     <h1><span class="lab-mark">RL</span>RAG Lab</h1>
     <span class="pill" id="corpus"></span>
-    <!-- Fills every control from /api/options → production; belongs to the
-         whole page, not any one card. Settings only — the run buttons are on
-         the cards below. -->
     <div class="chassis-right">
-      <button class="ghost" id="use-production"
-        title="Fill every setting with the architecture the Assistant ships: chunking, embedder, retrieval, reranking, the relevance gate and the answerer. Nothing runs until you press a run button.">Load the shipped settings</button>
-      <span id="productionNote"></span>
+      <button class="ghost" id="app-settings" type="button"
+        popovertarget="app-settings-panel">Settings</button>
+      <div class="settings-popover" id="app-settings-panel" popover
+           aria-label="OpenRouter settings">
+        <div class="settings-head">
+          <b>OpenRouter</b>
+          <span>Session settings</span>
+        </div>
+        <div class="field" id="keyField">
+          <label for="openrouter_key">API key <span class="muted">· held until the lab restarts</span></label>
+          <input type="password" id="openrouter_key" placeholder="sk-or-…"
+                 autocomplete="off" spellcheck="false" aria-describedby="keyState">
+          <div class="actions">
+            <button class="ghost" id="save-key" type="button">Save key</button>
+            <button class="ghost" id="clear-key" type="button">Clear</button>
+          </div>
+          <div id="keyState" class="muted"></div>
+        </div>
+      </div>
+      <div class="archive-exchange" aria-label="Experiment archive exchange">
+        <div class="archive-actions">
+          <label class="archive-button" id="archive-import" for="archive-file"
+                 role="button" tabindex="0">Import JSON</label>
+          <button class="ghost" id="archive-export" type="button">Export experiment</button>
+          <input id="archive-file" class="hidden" type="file"
+                 accept="application/json,.json">
+        </div>
+        <span id="archive-status" class="archive-status" aria-live="polite"></span>
+      </div>
     </div>
   </div>
   <div class="chips" id="caps"></div>
@@ -283,19 +306,6 @@
       <label>Backend</label>
       <select id="mode"></select>
     </div>
-    <!-- Held for this process only: a credential is not part of an
-         experiment's configuration, so it goes to its own route, is never
-         recorded on a run, and never touches localStorage. -->
-    <div class="field" id="keyField">
-      <label>OpenRouter key <span class="muted">· held until the lab restarts</span></label>
-      <input type="password" id="openrouter_key" placeholder="sk-or-…"
-             autocomplete="off" spellcheck="false" aria-describedby="keyState">
-      <div class="actions">
-        <button class="ghost" id="save-key">Save key</button>
-        <button class="ghost" id="clear-key">Clear</button>
-      </div>
-      <div id="keyState" class="muted"></div>
-    </div>
     <div class="step" data-step="index">
       <span class="step-tag">Index</span>
       <div class="field">
@@ -398,6 +408,7 @@
   </form>
 </div>
 
+<script src="/archive_io.js"></script>
 <script src="/panel.js"></script>
 </body>
 </html>

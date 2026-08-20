@@ -173,7 +173,10 @@ function fillDatasets() {
     + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.sessions} `
     + `sessions · ${d.questions} questions`
     + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
-  $('dataset').onchange = describeDataset;
+  $('dataset').onchange = () => {
+    describeDataset();
+    syncArchiveViewOnlyFromDataset();
+  };
 }
 
 const datasetOf = (id) => (OPTIONS.datasets || []).find(
@@ -289,7 +292,7 @@ function decorateExplainers() {
     if (!btn) return;
     const open = btn.parentElement.nextElementSibling;
     if (open && open.classList.contains('explain')) { open.remove(); return; }
-    const text = (OPTIONS.help || {})[btn.dataset.topic] || '';
+    const text = btn.dataset.help || (OPTIONS.help || {})[btn.dataset.topic] || '';
     btn.parentElement.insertAdjacentHTML('afterend',
       `<p class="explain">${escapeHtml(text)}</p>`);
   });
@@ -305,11 +308,13 @@ function selected(host) {
   return [...host.querySelectorAll('input:checked')].map((el) => el.value);
 }
 
-async function api(path, body) {
-  const res = await fetch(path, body ? {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  } : undefined);
+async function api(path, body, method = body ? 'POST' : 'GET') {
+  const options = method === 'GET' ? undefined : {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  };
+  const res = await fetch(path, options);
   const data = await res.json().catch(() => ({ detail: res.statusText }));
   if (!res.ok) throw new Error(data.detail || res.statusText);
   return data;
@@ -319,10 +324,13 @@ async function api(path, body) {
 // `max_context_chars`) — carried through so applying a preset that sets them
 // can't silently drop them to the lab's own defaults. A real control always wins.
 let UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
+let CURRENT_ARCHIVE = null;
+let ARCHIVE_VIEW_ONLY = false;
+let ARCHIVE_EVENTS_BOUND = false;
 
 // Remember the parts of a config the controls cannot express, having applied it.
 function keepUnshown(applied) {
-  const shown = readConfig();
+  const shown = readShownConfig();
   UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
   for (const group of ['index', 'retrieval', 'generation', 'agent']) {
     for (const [key, value] of Object.entries(applied[group] || {})) {
@@ -331,7 +339,7 @@ function keepUnshown(applied) {
   }
 }
 
-function readConfig() {
+function readShownConfig() {
   const cfg = {
     label: $('label').value,
     index: {
@@ -373,6 +381,11 @@ function readConfig() {
     const [group, field] = select.dataset.field.split('.');
     cfg[group][field] = select.value;
   }
+  return cfg;
+}
+
+function readConfig() {
+  const cfg = readShownConfig();
   // Under the controls, never over them: a value you can see and change is
   // always the one that runs.
   for (const group of ['index', 'retrieval', 'generation', 'agent']) {
@@ -444,6 +457,7 @@ function controlFor(path) {
 }
 
 function applyDefaults(d) {
+  $('label').value = d.label || '';
   $('dataset').value = d.index.dataset || '';
   $('chunker').value = d.index.chunker; $('chunk_chars').value = d.index.chunk_chars;
   $('overlap').value = d.index.overlap; $('contextual').checked = d.index.contextual;
@@ -564,6 +578,7 @@ async function boot() {
   fillModels();
   fillModes();
   applyDefaults(startingConfig(o.defaults));
+  keepUnshown(startingConfig(o.defaults));
   applyDependencies();
   describeDataset();
   decorateExplainers();
@@ -573,6 +588,20 @@ async function boot() {
   // clicking away would remember the stale k=8.
   for (const event of ['change', 'input']) {
     document.addEventListener(event, () => remember(SAVED_CONFIG, readConfig()));
+  }
+  if (!ARCHIVE_EVENTS_BOUND) {
+    const experimentControls = document.querySelector('main');
+    for (const event of ['change', 'input']) {
+      experimentControls.addEventListener(event, (change) => {
+        if (!CURRENT_ARCHIVE || !change.target.matches('input, select, textarea')
+            || change.target.id === 'dataset-file') return;
+        CURRENT_ARCHIVE = null;
+        setArchiveStatus(
+          'Readings belong to the previous settings; export will contain settings only.',
+          'warning');
+      });
+    }
+    ARCHIVE_EVENTS_BOUND = true;
   }
 
   renderCapabilities();
@@ -589,15 +618,20 @@ async function boot() {
 async function refreshOptions() {
   const cfg = readConfig();
   const mode = $('mode').value;
+  const archivedOption = $('dataset').querySelector('option[data-archive-view-only]');
+  const archivedText = archivedOption && archivedOption.textContent;
+  const wasViewOnly = ARCHIVE_VIEW_ONLY;
   OPTIONS = await api('/api/options');
   fillEmbedders();
   fillDatasets();
+  if (wasViewOnly) addArchivedDatasetOption(cfg.index.dataset, archivedText);
   fillModels();
   fillModes();
   $('mode').value = mode;
   applyDefaults(cfg);
   applyDependencies();
   describeDataset();
+  setArchiveViewOnly(wasViewOnly);
   renderCapabilities();
 }
 
@@ -796,15 +830,35 @@ async function doBuild(force) {
 }
 
 $('run').onclick = async () => {
-  const body = Object.assign(readConfig(), pickedProvider(), {
-    ragas_mode: $('ragas_mode').value,
-    limit: +$('limit').value || null,
-    ragas_limit: +$('ragas_limit').value || null,
-    types: selected($('types')),
+  const requested = archiveSettings();
+  const body = Object.assign({}, requested.settings.config, pickedProvider(), {
+    ragas_mode: requested.settings.ui.ragas_mode,
+    limit: requested.settings.ui.limit || null,
+    ragas_limit: requested.settings.ui.ragas_limit || null,
+    types: requested.settings.ui.types,
   });
   try {
     const { job_id } = await api('/api/evaluations', body);
-    poll(job_id, (result) => { renderResult(result); loadBoard(); });
+    poll(job_id, (result) => {
+      const evidence = result.archive_evidence;
+      const canonical = Object.assign({}, result);
+      delete canonical.archive_evidence;
+      const completed = ArchiveIO.completed(
+        requested.settings.config, requested.settings.ui, canonical, evidence);
+      CURRENT_ARCHIVE = ArchiveIO.equal(requested, archiveSettings())
+        ? completed : null;
+      renderResult(canonical);
+      if (CURRENT_ARCHIVE) {
+        setArchiveStatus(
+          'Private evidence included: corpus, ground truth, answers, chunks, and traces.',
+          'warning');
+      } else {
+        setArchiveStatus(
+          'Readings belong to the previous settings; export will contain settings only.',
+          'warning');
+      }
+      loadBoard();
+    });
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
 
@@ -843,33 +897,11 @@ $('retrieve-selected').onclick = async () => {
   catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
 
-$('use-production').onclick = async () => {
-  const preset = OPTIONS.production;
-  if (!preset) return;
-  applyDefaults(preset);
-  $('label').value = preset.label || '';
-  applyDependencies();
-  // The parts of it this panel has no control for, so the run posts the whole
-  // architecture rather than the visible two thirds of it.
-  keepUnshown(preset);
-  // Stated on screen rather than left implicit: the button claims to be the
-  // real system, so it has to say what it just filled in.
-  const { index: idx, retrieval: ret } = preset;
-  $('productionNote').textContent =
-    `${idx.chunker} ${idx.chunk_chars}/${idx.overlap} · ${idx.embedder} · ` +
-    `${ret.retriever} k=${ret.k} · ${ret.reranker} rerank · ` +
-    `${ret.grader} gate @ ${ret.grade_threshold}`;
-  // Settings only — building/retrieving here would download a 2.2 GB encoder
-  // on first use. The three run buttons live on the cards above, where a run
-  // belongs; pressing this one changes what the panel says and nothing else.
-  remember(SAVED_CONFIG, readConfig());
-};
-
 $('cancel').onclick = async () => {
   const jobId = $('cancel').dataset.jobId;
   if (!jobId) return;
   $('cancel').disabled = true;
-  try { await api('/api/jobs/' + jobId + '/cancel', { method: 'POST' }); }
+  try { await api('/api/jobs/' + jobId + '/cancel', undefined, 'POST'); }
   catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
 
@@ -880,43 +912,364 @@ $('stopPoll').onclick = () => { boot(); };
 // about a metric is written twice, so no number on this page can end up with a
 // name its definition does not carry.
 const measures = () => OPTIONS.metrics || [];
-const measureOf = (key) => measures().find((m) => m.key === key)
+const measureOf = (key, catalogue = measures()) => catalogue.find((m) => m.key === key)
   || { key, label: key, short: '', step: '' };
-const measureWhy = (key) =>
-  `<button type="button" class="why" data-topic="metric.${key}" `
-  + `aria-label="What is ${escapeHtml(measureOf(key).label)}?">!</button>`;
+const measureWhy = (key, catalogue = measures()) => {
+  const metric = measureOf(key, catalogue);
+  const topic = `metric.${key}`;
+  return `<button type="button" class="why" data-topic="${escapeHtml(topic)}" `
+    + `data-help="${escapeHtml(metric.help || '')}" `
+    + `aria-label="What is ${escapeHtml(metric.label)}?">!</button>`;
+};
 
-function renderResult(result) {
+// --- portable experiment exchange -----------------------------------------
+
+function archiveSettings() {
+  return ArchiveIO.settings(readConfig(), {
+    mode: $('mode').value,
+    ragas_mode: $('ragas_mode').value,
+    limit: +$('limit').value,
+    ragas_limit: +$('ragas_limit').value,
+    types: selected($('types')),
+  });
+}
+
+const configValue = (config, path) => {
+  const [group, field] = path.split('.');
+  return config[group][field];
+};
+
+function validateAgainstPanelOptions(imported) {
+  const config = imported.settings.config;
+  const ui = imported.settings.ui;
+  ArchiveIO.datasetDisposition(imported, OPTIONS.datasets.map((row) => row.id));
+
+  const choices = [
+    ['index.chunker', OPTIONS.chunkers],
+    ['index.embedder', (OPTIONS.embedder_hints || []).map((row) => row.kind)],
+    ['index.hierarchy', OPTIONS.hierarchies],
+    ['index.graph_source', OPTIONS.graph_sources],
+    ['index.summarizer', OPTIONS.summarizers],
+    ['retrieval.retriever', OPTIONS.retrievers],
+    ['retrieval.reranker', OPTIONS.rerankers],
+    ['retrieval.grader', OPTIONS.graders],
+    ['retrieval.summary_scope', OPTIONS.summary_scopes],
+    ['generation.answerer', OPTIONS.answerers],
+    ['agent.scope', OPTIONS.scopes],
+    ['agent.critic', OPTIONS.critics],
+  ];
+  for (const [path, values] of choices) {
+    const value = configValue(config, path);
+    if (!(values || []).includes(value)) {
+      throw new Error(`settings.config.${path}: ${value} is not served by this lab`);
+    }
+  }
+
+  const modes = ['', ...(OPTIONS.modes || []).map((row) => row.key)];
+  if (!modes.includes(ui.mode)) {
+    throw new Error(`settings.ui.mode: ${ui.mode} is not served by this lab`);
+  }
+  if (![...$('ragas_mode').options].some((option) => option.value === ui.ragas_mode)) {
+    throw new Error(`settings.ui.ragas_mode: ${ui.ragas_mode} is not available`);
+  }
+  const questionTypes = new Set(OPTIONS.question_types || []);
+  for (const type of ui.types) {
+    if (!questionTypes.has(type)) {
+      throw new Error(`settings.ui.types: ${type} is not served by this lab`);
+    }
+  }
+
+  const embedModels = new Set((OPTIONS.embed_models || []).map((row) => row.id));
+  if (config.index.embed_model && !embedModels.has(config.index.embed_model)) {
+    throw new Error(`settings.config.index.embed_model: ${config.index.embed_model} is not served by this lab`);
+  }
+  const mode = (OPTIONS.modes || []).find((row) => row.key === ui.mode);
+  const modelIds = new Set(((mode && mode.models) || OPTIONS.models || [])
+    .map((row) => row.id));
+  for (const role of OPTIONS.model_roles || []) {
+    const value = configValue(config, role.field);
+    if (value && !modelIds.has(value)) {
+      throw new Error(`settings.config.${role.field}: ${value} is not served in ${ui.mode || 'boot'} mode`);
+    }
+  }
+
+  const numericControls = [
+    ['chunk_chars', 'index.chunk_chars'], ['overlap', 'index.overlap'],
+    ['graph_knn', 'index.graph_knn'], ['granularity', 'index.granularity'],
+    ['hierarchy_levels', 'index.hierarchy_levels'], ['min_group', 'index.min_group'],
+    ['k', 'retrieval.k'], ['candidates', 'retrieval.candidates'],
+    ['rerank_depth', 'retrieval.rerank_depth'],
+    ['recency_half_life_days', 'retrieval.recency_half_life_days'],
+    ['mmr_lambda', 'retrieval.mmr_lambda'],
+    ['grade_threshold', 'retrieval.grade_threshold'],
+    ['summary_boost', 'retrieval.summary_boost'],
+    ['max_hops', 'agent.max_hops'],
+    ['evidence_threshold', 'agent.evidence_threshold'],
+    ['max_revisions', 'agent.max_revisions'],
+    ['max_llm_calls', 'agent.max_llm_calls'],
+    ['limit', 'ui.limit'], ['ragas_limit', 'ui.ragas_limit'],
+  ];
+  for (const [id, path] of numericControls) {
+    const control = $(id);
+    const value = path.startsWith('ui.') ? ui[path.slice(3)] : configValue(config, path);
+    const minimum = control.min === '' ? null : Number(control.min);
+    const maximum = control.max === '' ? null : Number(control.max);
+    if ((minimum !== null && value < minimum) || (maximum !== null && value > maximum)) {
+      throw new Error(`settings.${path}: ${value} is outside the panel range`);
+    }
+  }
+}
+
+function removeArchivedDatasetOptions() {
+  for (const option of $('dataset').querySelectorAll('option[data-archive-view-only]')) {
+    option.remove();
+  }
+}
+
+function addArchivedDatasetOption(value, text) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = text || `${value} — archived · view-only`;
+  option.dataset.archiveViewOnly = 'true';
+  $('dataset').appendChild(option);
+  return option;
+}
+
+function setArchiveViewOnly(active) {
+  if (active) ARCHIVE_VIEW_ONLY = true;
+  else ARCHIVE_VIEW_ONLY = false;
+  $('build').disabled = ARCHIVE_VIEW_ONLY;
+  $('rebuild').disabled = ARCHIVE_VIEW_ONLY;
+  $('retrieve-selected').disabled = ARCHIVE_VIEW_ONLY;
+  $('run').disabled = ARCHIVE_VIEW_ONLY;
+  if (ARCHIVE_VIEW_ONLY) {
+    $('corpus').textContent = `${$('dataset').value} · archived evidence`;
+    $('datasetInfo').textContent =
+      'This dataset is embedded in the archive but is not installed here. '
+      + 'The completed evidence is view-only; import the dataset separately to run it.';
+  }
+}
+
+function syncArchiveViewOnlyFromDataset() {
+  const option = $('dataset').selectedOptions[0];
+  const viewOnly = Boolean(option && option.dataset.archiveViewOnly === 'true');
+  setArchiveViewOnly(viewOnly);
+  if (!viewOnly) removeArchivedDatasetOptions();
+}
+
+function writeArchiveSettings(imported, restoration = null) {
+  const value = ArchiveIO.normalize(imported);
+  const config = value.settings.config;
+  const ui = value.settings.ui;
+  const disposition = restoration || ArchiveIO.datasetDisposition(
+    value, OPTIONS.datasets.map((row) => row.id));
+
+  removeArchivedDatasetOptions();
+  if (disposition.viewOnly) {
+    addArchivedDatasetOption(config.index.dataset,
+      restoration && restoration.optionText
+        ? restoration.optionText : `${disposition.dataset} — archived · view-only`);
+  }
+  $('mode').value = ui.mode;
+  fillModels();
+  applyDefaults(config);
+  keepUnshown(config);
+  $('ragas_mode').value = ui.ragas_mode;
+  $('limit').value = ui.limit;
+  $('ragas_limit').value = ui.ragas_limit;
+  const wantedTypes = new Set(ui.types);
+  for (const input of $('types').querySelectorAll('input')) {
+    input.checked = wantedTypes.has(input.value);
+  }
+  applyDependencies();
+  setArchiveViewOnly(disposition.viewOnly);
+  if (!disposition.viewOnly) describeDataset();
+
+  const expected = ArchiveIO.settings(config, ui);
+  if (!ArchiveIO.equal(archiveSettings(), expected)) {
+    throw new Error('Imported settings could not be represented exactly by this panel');
+  }
+}
+
+function snapshotDashboard() {
+  const archivedOption = $('dataset').querySelector('option[data-archive-view-only]');
+  return {
+    settings: archiveSettings(),
+    currentArchive: CURRENT_ARCHIVE,
+    resultHtml: $('resultCard').innerHTML,
+    archiveViewOnly: ARCHIVE_VIEW_ONLY,
+    archivedOption: archivedOption ? {
+      value: archivedOption.value, text: archivedOption.textContent,
+    } : null,
+    statusText: $('archive-status').textContent,
+    statusClass: $('archive-status').className,
+  };
+}
+
+function restoreDashboard(before) {
+  writeArchiveSettings(before.settings, {
+    dataset: before.settings.settings.config.index.dataset || 'diary-fa',
+    viewOnly: before.archiveViewOnly,
+    optionText: before.archivedOption && before.archivedOption.text,
+  });
+  CURRENT_ARCHIVE = before.currentArchive;
+  $('resultCard').innerHTML = before.resultHtml;
+  for (const tableElement of $('resultCard').querySelectorAll('table')) {
+    SortTable.make(tableElement);
+  }
+  $('archive-status').textContent = before.statusText;
+  $('archive-status').className = before.statusClass;
+}
+
+function setArchiveStatus(message, tone = '') {
+  $('archive-status').textContent = message;
+  $('archive-status').className = `archive-status${tone ? ' ' + tone : ''}`;
+}
+
+function databaseMessage(disposition) {
+  return disposition === 'created'
+    ? 'Imported archive saved in Every experiment; leaderboard unchanged.'
+    : 'Database already contained this id; existing record unchanged. '
+      + 'Inspector preview shows the selected file.';
+}
+
+async function importArchiveFile(file) {
+  try {
+    // Keep the policy visible at the integration boundary as well as in the
+    // codec: reading an oversized file is already too late.
+    const archiveByteLimit = 32 * 1024 * 1024;
+    if (ArchiveIO.MAX_BYTES !== archiveByteLimit) {
+      throw new Error('Archive size policy mismatch');
+    }
+    ArchiveIO.assertFileSize(file.size);
+    const imported = ArchiveIO.parse(await file.text());
+    const before = snapshotDashboard();
+    let savedArchive = null;
+    try {
+      ArchiveIO.transact(imported, {
+        read: archiveSettings,
+        validate: validateAgainstPanelOptions,
+        write: (next) => writeArchiveSettings(next,
+          ArchiveIO.equal(next, before.settings) ? {
+            dataset: before.settings.settings.config.index.dataset || 'diary-fa',
+            viewOnly: before.archiveViewOnly,
+            optionText: before.archivedOption && before.archivedOption.text,
+          } : null),
+      });
+      if (imported.evaluation) {
+        renderResult(imported.evaluation.result,
+          { remember: false, imported: true,
+            metric_catalogue: imported.evaluation.metric_catalogue });
+        savedArchive = await api('/api/imported-archives', imported);
+      } else {
+        await api('/api/imported-archives/active', undefined, 'DELETE');
+      }
+    } catch (error) {
+      restoreDashboard(before);
+      throw error;
+    }
+    CURRENT_ARCHIVE = imported.evaluation ? imported : null;
+    remember(SAVED_CONFIG, readConfig());
+    if (savedArchive) {
+      let message = databaseMessage(savedArchive.database)
+        + ' Private evidence included: corpus, ground truth, answers, chunks, and traces.';
+      if (ARCHIVE_VIEW_ONLY) {
+        message += ' Dataset unavailable here; completed evidence is view-only.';
+      }
+      setArchiveStatus(message, ARCHIVE_VIEW_ONLY ? 'warning' : 'success');
+      loadExperiments(true).catch((error) => setArchiveStatus(
+        `${databaseMessage(savedArchive.database)}; list refresh failed: ${error.message}`,
+        'warning'));
+    } else {
+      setArchiveStatus('Settings imported; no evaluation was run.', 'success');
+    }
+  } finally {
+    $('archive-file').value = '';
+  }
+}
+
+function exportArchive() {
+  const settings = archiveSettings();
+  const includesEvidence = Boolean(CURRENT_ARCHIVE
+    && ArchiveIO.equal(CURRENT_ARCHIVE.settings, settings.settings));
+  const exported = includesEvidence ? CURRENT_ARCHIVE : settings;
+  const encoded = ArchiveIO.stringify(exported);
+  ArchiveIO.assertFileSize(new TextEncoder().encode(encoded).byteLength);
+  const url = URL.createObjectURL(new Blob([encoded], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'raglab-experiment.json';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  setArchiveStatus(includesEvidence
+    ? 'Private evidence included: corpus, ground truth, answers, chunks, and traces.'
+    : 'Settings-only experiment exported; no corpus, ground truth, answers, chunks, or traces included.',
+  includesEvidence ? 'warning' : 'success');
+}
+
+$('archive-file').onchange = async () => {
+  const file = $('archive-file').files[0];
+  if (!file) return;
+  try { await importArchiveFile(file); }
+  catch (error) { setArchiveStatus(error.message, 'error'); }
+};
+$('archive-import').onkeydown = (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  $('archive-file').click();
+};
+$('archive-export').onclick = () => {
+  try { exportArchive(); }
+  catch (error) { setArchiveStatus(error.message, 'error'); }
+};
+
+function renderResult(result, options = {}) {
+  const safe = (value) => escapeHtml(String(value ?? ''));
+  const metricCatalogue = options.metric_catalogue || measures();
+  // Held evidence follows the run on display: an older leaderboard or ledger
+  // row changes no control, so the settings-change invalidation never fires —
+  // but exporting another run's evidence under this card would let the file
+  // disagree with the screen.
+  if (CURRENT_ARCHIVE
+      && CURRENT_ARCHIVE.evaluation.result.run_id !== result.run_id) {
+    CURRENT_ARCHIVE = null;
+    setArchiveStatus(
+      'Readings belong to a different run; export will contain settings only.',
+      'warning');
+  }
   // Remembered here rather than at each caller: a run that finished, a
   // leaderboard click and a ledger click are three ways to be looking at the same
   // experiment, and all three should still be there after a refresh.
-  if (result.run_id) remember(SAVED_RUN, result.run_id);
+  if (options.remember !== false && result.run_id) remember(SAVED_RUN, result.run_id);
   $('resultEmpty').hidden = true;
   $('resultBody').hidden = false;
   const s = result.summary.overall;
   $('resultMeta').textContent =
     `${result.label} · ${result.summary.n_questions} questions · ${result.seconds}s · ` +
     `${result.index.chunks} chunks (${result.index.collection})` +
-    (result.index.reused ? ' reused' : '');
+    (result.index.reused ? ' reused' : '')
+    + (options.imported ? ' · imported · read-only' : '');
   $('notes').innerHTML = (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
-  $('scores').innerHTML = measures()
-    .filter((m) => s[m.key] !== null && s[m.key] !== undefined)
+  $('scores').innerHTML = metricCatalogue.filter((m) =>
+    s[m.key] !== null && s[m.key] !== undefined)
     .map((m) => {
       const v = s[m.key];
       const isRate = m.key !== 'latency_ms';
       const bar = isRate ? `<div class="bar"><i style="width:${Math.max(0, Math.min(1, v)) * 100}%"></i></div>` : '';
       return `<div class="score"${m.step ? ` data-step="${m.step}"` : ''}>
-        <span>${escapeHtml(m.label)}${measureWhy(m.key)}</span>
-        <b>${isRate ? fmt(v) : Math.round(v)}</b>
+        <span>${escapeHtml(m.label)}${measureWhy(m.key, metricCatalogue)}</span>
+        <b>${isRate ? safe(fmt(v)) : safe(Math.round(v))}</b>
         <span class="muted">${escapeHtml(m.short)}</span>${bar}</div>`;
     }).join('');
 
   const t = result.summary.by_type;
   renderTable('byType',
     ['type', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
-    Object.entries(t).map(([name, row]) => [name, row.n, fmt(row.recall),
-      fmt(row.quote_recall), fmt(row.ndcg), fmt(row.hit),
-      fmt(row.abstained_correctly), fmt(row.false_abstention)]));
+    Object.entries(t).map(([name, row]) => [safe(name), safe(row.n), safe(fmt(row.recall)),
+      safe(fmt(row.quote_recall)), safe(fmt(row.ndcg)), safe(fmt(row.hit)),
+      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]));
 
   const r = result.ragas || {};
   const metrics = r.metrics || {};
@@ -925,22 +1278,22 @@ function renderResult(result) {
     // parent, and a <p> placed directly after a <td> would be hoisted out of the
     // table by the parser.
     ? table(['metric', 'score'], Object.entries(metrics).map(([k, v]) =>
-      [`<span class="measure">${escapeHtml(measureOf(k).label)}`
-       + `${measureWhy(k)}</span>`, fmt(v)])) +
-      `<div class="muted" style="font-size:.7rem">mode ${escapeHtml(r.mode || '')} · ${r.n_samples} samples · ${r.skipped} skipped</div>` +
+      [`<span class="measure">${escapeHtml(measureOf(k, metricCatalogue).label)}`
+       + `${measureWhy(k, metricCatalogue)}</span>`, safe(fmt(v))])) +
+      `<div class="muted" style="font-size:.7rem">mode ${escapeHtml(r.mode || '')} · ${safe(r.n_samples)} samples · ${safe(r.skipped)} skipped</div>` +
       (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('')
     : `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
 
   $('extras').innerHTML =
     table(['difficulty', 'n', 'recall'], Object.entries(result.summary.by_difficulty)
-      .map(([k, v]) => [k, v.n, fmt(v.recall)]));
+      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]));
 
   renderTable('rows',
     ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
-    result.rows.map((row) => [row.id, row.type, row.difficulty,
-      fmt(row.recall, 2), fmt(row.quote_recall, 2), fmt(row.ndcg, 2),
-      row.n_contexts, row.abstained ? 'yes' : '',
-      Math.round(row.latency_ms)]));
+    result.rows.map((row) => [safe(row.id), safe(row.type), safe(row.difficulty),
+      safe(fmt(row.recall, 2)), safe(fmt(row.quote_recall, 2)), safe(fmt(row.ndcg, 2)),
+      safe(row.n_contexts), row.abstained ? 'yes' : '',
+      safe(Math.round(row.latency_ms))]));
 }
 
 function table(head, rows) {
@@ -1040,12 +1393,14 @@ async function loadBoard() {
 // Every experiment this lab has finished, from raglab.db. Deliberately not
 // ranked: a build or a retrieval measures nothing, so numbering these rows
 // would claim an ordering the work does not support.
-async function loadExperiments() {
+async function loadExperiments(throwOnError = false) {
+  const safe = (value) => escapeHtml(String(value ?? ''));
   let rows = [];
   try {
     rows = (await api('/api/experiments')).experiments;
   } catch (e) {
     $('experiments').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`;
+    if (throwOnError) throw e;
     return;
   }
   const kinds = {};
@@ -1060,33 +1415,44 @@ async function loadExperiments() {
       + 'something, and it lands here</div>';
     return;
   }
-  renderTable('experiments',
+  const host = renderTable('experiments',
     ['when', 'kind', 'id', 'label', 'backend', 'chunker', 'embedder',
       'retriever', 'reranker', 'grader', 'answerer', 'n', 'decision', 'state', 's'],
     rows.map((r) => [
-      r.started_at,
-      `<span class="pill">${escapeHtml(r.kind)}</span>`,
-      `<a href="#" onclick="showExperiment('${escapeHtml(r.experiment_id)}');return false">`
-        + `${escapeHtml(r.experiment_id)}</a>`,
-      escapeHtml(r.label || ''),
+      safe(r.started_at),
+      `<span class="pill">${safe(r.kind)}</span>`,
+      safe(r.experiment_id),
+      safe(r.label || ''),
       // Marked rather than merely printed: on `fake` every LLM number on the
       // row came from a stub that cannot fail.
       r.provider === 'fake'
         ? '<b title="a stub answered and judged every call: these numbers measure '
           + 'nothing">fake</b>'
-        : escapeHtml(r.provider || '—'),
-      escapeHtml(r.chunker || '—'), escapeHtml(r.embedder || '—'),
-      escapeHtml(r.retriever || '—'), escapeHtml(r.reranker || '—'),
-      escapeHtml(r.grader || '—'), escapeHtml(r.answerer || '—'),
-      r.n_questions || '—',
+        : safe(r.provider || '—'),
+      safe(r.chunker || '—'), safe(r.embedder || '—'),
+      safe(r.retriever || '—'), safe(r.reranker || '—'),
+      safe(r.grader || '—'), safe(r.answerer || '—'),
+      safe(r.n_questions || '—'),
       // Blank, never 0, when nothing was judged — the leaderboard's own rule.
-      r.decision == null ? '—' : `<b>${fmt(r.decision)}</b>`
+      r.decision == null ? '—' : `<b>${safe(fmt(r.decision))}</b>`
         + (r.decision_stderr != null
-          ? ` <span class="stderr">± ${fmt(r.decision_stderr)}</span>` : ''),
+          ? ` <span class="stderr">± ${safe(fmt(r.decision_stderr))}</span>` : ''),
       r.state === 'done' ? 'done'
-        : `<b title="${escapeHtml(r.error || '')}">${escapeHtml(r.state)}</b>`,
-      Math.round(r.seconds),
+        : `<b title="${safe(r.error || '')}">${safe(r.state)}</b>`,
+      safe(Math.round(r.seconds)),
     ]));
+  const tableRows = host.querySelectorAll('tbody tr');
+  rows.forEach((r, index) => {
+    const cell = tableRows[index].children[2];
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = String(r.experiment_id ?? '');
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      window.showExperiment(r.experiment_id);
+    });
+    cell.replaceChildren(link);
+  });
 }
 
 // The whole stored payload for one experiment — config, per-question rows,
@@ -1131,12 +1497,23 @@ function widgetSay(kind, text) {
   log.scrollTop = log.scrollHeight;
 }
 
+// One conversation per page: the id is minted when the script loads and sent
+// with every ask, so a follow-up lands in the same thread and a reloaded page
+// starts clean — nothing persisted, nothing shared between tabs.
+const widgetSession = crypto.randomUUID();
+
 async function widgetAsk(message) {
   widgetSay('you', message);
   $('widget-send').disabled = true;
   try {
-    const data = await api('/api/widget', { message, model: $('widget-model').value });
+    const data = await api('/api/widget',
+      { message, model: $('widget-model').value, session: widgetSession });
     widgetSay('bot', data.reply);
+    // The token account, when the backend reported one — an unreported
+    // account renders nothing rather than a made-up zero.
+    if (data.input_tokens != null) {
+      widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
+    }
   } catch (error) {
     widgetSay('err', error.message);
   } finally {

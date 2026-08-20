@@ -4,12 +4,13 @@ import re
 
 import pytest
 
-from raglab.evaluation import production_baseline_snapshot as baseline
 from raglab.configuration import lab_config as config
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
 
 from raglab.conftest import RAGLAB_DIR
+
+PANEL_JS = RAGLAB_DIR / 'dashboard' / 'frontend' / 'panel.js'
 
 
 def _scope(text: str, anchor: str) -> str:
@@ -46,16 +47,12 @@ def panel_texts(client):
     model_card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)
     assert embed_label and model_card, 'the panel dropped a section this table reads'
 
-    handler = js[js.index("$('use-production').onclick"):]
-    handler = handler[:handler.index('\n};')]
-
     return {
         'index.html': html,
         'panel.css': css,
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
         'index.html (modelCard section)': model_card.group(0),
-        'panel.js (use-production handler)': handler,
         # The widget's own CSS rules and script, sliced from a real selector
         # / function name rather than the bare word "widget" — both files
         # carry a header *comment* naming the widget first, and a check that
@@ -163,8 +160,14 @@ CONVENTIONS = [
      'the mode dropdown must read the served modes rather than a local copy'),
     ('index.html', 'id="retrieve-selected"', None,
      'retrieval for the selected questions must stay one click away'),
-    ('index.html', 'id="use-production"', None,
-     "the shipped assistant's settings must stay one click away"),
+    ('index.html', 'id="archive-import"', None,
+     'the archive import control must keep its script hook'),
+    ('index.html', 'id="archive-export"', None,
+     'the archive export control must keep its script hook'),
+    ('index.html', 'id="archive-file"', None,
+     'the hidden archive file input must keep its script hook'),
+    ('index.html', 'id="archive-status"', None,
+     'the archive status must keep its render hook'),
     ('index.html', 'id="board"', None,
      'the ranked leaderboard must stay on the page'),
     ('index.html', 'id="experiments"', None,
@@ -181,18 +184,6 @@ CONVENTIONS = [
     ('panel.js', '/api/evaluations?limit=', None,
      'the leaderboard must ask for a stated limit rather than the whole '
      'directory'),
-    ('panel.js', 'OPTIONS.production', None,
-     'the production preset must be read from the served options, not kept '
-     'a second time in the script'),
-    ('panel.js (use-production handler)', None, '/api/indexes',
-     'the production preset must not start a build'),
-    ('panel.js (use-production handler)', None, 'doRetrieve',
-     'the production preset must not start a retrieval'),
-    ('index.html', None, 'then run',
-     'the preset button must no longer claim to run anything'),
-    ('panel.js', None, 'then run',
-     'the preset button must no longer claim to run anything, in the script '
-     'either'),
     ('panel.js', 'localStorage', None,
      'the grades card and the settings on screen must be remembered across a '
      'reload'),
@@ -320,52 +311,103 @@ def test_the_standalone_panel_reads_only_fields_the_lab_still_produces(client):
         'field check above with it, or move it to :9003 where the rest went')
 
 
-def test_the_preset_carries_the_fields_the_panel_cannot_show(client):
+def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
     # this is a convention test
-    """Three fields of a `LabConfig` have no control on either panel —
-    `rrf_k`, `agentic_weights` and `max_context_chars` — and the production
-    preset sets all three. Dropped, the run would fall back to
-    `LabConfig`'s own defaults while the label claims the shipped
-    Assistant. The three happen to equal the lab's defaults today, which is
-    why this tripwire exists: a field whose preset value silently disagrees
-    with the lab default is what has to be noticed."""
-    body = client.get('/api/options').json()
-    preset, defaults = body['production'], body['defaults']
-    # A control may be marked up in the page or wired up in its script, so
-    # both are searched — the split moved `$('key')` calls into panel.js.
-    panel = client.get('/').text + client.get('/panel.js').text
-
-    unshown = {}
-    for group in ('index', 'retrieval', 'generation', 'agent'):
-        for key, value in preset[group].items():
-            # A control is `$('key')` in the panel, or a model dropdown carrying
-            # the dotted path — the two ways this page reads a field.
-            if f"$('{key}')" in panel or f'"{group}.{key}"' in panel:
-                continue
-            unshown[f'{group}.{key}'] = (value, defaults[group].get(key))
-
-    assert unshown, 'if nothing is unshown this guard has become dead weight'
-    assert 'UNSHOWN' in panel, 'the panel must carry what it cannot render'
-    for path, (wanted, fallback) in unshown.items():
-        assert wanted == fallback, (
-            f'{path}: the preset wants {wanted!r} but the lab defaults to '
-            f'{fallback!r}, and the panel has no control for it — so a run '
-            f'labelled "the shipped assistant" would use {fallback!r}. Give it '
-            f'a control, or confirm the carry-through still reaches the payload.')
+    source = PANEL_JS.read_text()
+    exchange = source[source.index('async function importArchiveFile'):
+                      source.index('function renderResult')]
+    assert 'ArchiveIO.transact' in exchange
+    assert "api('/api/imported-archives'" in exchange
+    assert 'raglab-experiment.json' in exchange
+    assert '32 * 1024 * 1024' in exchange
+    assert all(value not in exchange for value in
+               ('use-production', 'productionNote', 'OPTIONS.production',
+                'api_key', 'openrouterKey', 'password', 'client_secret',
+                'access_token', 'authorization', '/api/indexes',
+                '/api/retrievals', '/api/evaluations', '/api/credentials'))
+    html = client.get('/').text
+    assert html.index('src="/archive_io.js"') < html.index('src="/panel.js"')
 
 
-def test_the_panel_fills_the_projects_settings_from_the_served_preset(client):
+def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
     # this is a convention test
-    """The preset's own label is served alongside it, so its presence in the
-    frontend would mean the frontend had a second copy of the preset to go
-    stale. The button's own substance — that it reads `OPTIONS.production`
-    and starts neither a build nor a retrieval — is the convention table
-    above; this is the one part that needs a live value from the service to
-    check, so it stays its own test."""
-    served = client.get('/api/options').json()['production']
-    panel = client.get('/panel.js').text
-    assert served['label'] == baseline.LABEL
-    assert served['label'] not in panel, 'the panel keeps its own preset'
+    source = PANEL_JS.read_text()
+    exchange = source[source.index('async function importArchiveFile'):
+                      source.index('function renderResult')]
+    assert 'ArchiveIO.transact' in exchange
+    assert "api('/api/imported-archives'" in exchange
+    assert all(path not in exchange for path in
+               ('/api/indexes', '/api/retrievals', '/api/evaluations',
+                '/api/credentials'))
+    render = source[source.index('function renderResult'):
+                    source.index('function table')]
+    for value in ('row.id', 'row.type', 'row.difficulty', 'name'):
+        assert f'safe({value})' in render
+
+
+def test_rendering_a_different_run_makes_export_settings_only():
+    # this is a convention test
+    """Clicking an older leaderboard or ledger row re-renders the readings
+    card without touching any control, so the settings-change invalidation
+    never fires — but exporting then must not ship the previous run's private
+    evidence while the screen shows a different result. The design pins it:
+    export remains settings-only unless the browser holds the complete
+    evidence for the run on display."""
+    source = PANEL_JS.read_text()
+    render = source[source.index('function renderResult'):
+                    source.index('function table')]
+    assert '.run_id !== result.run_id' in render, (
+        'renderResult must compare the displayed run to the held evidence')
+    assert 'CURRENT_ARCHIVE = null' in render, (
+        'renderResult must drop held evidence that belongs to another run')
+
+
+def test_unavailable_completed_dataset_is_view_only_but_settings_only_fails():
+    # this is a convention test
+    source = PANEL_JS.read_text()
+    assert 'ArchiveIO.datasetDisposition' in source
+    assert "option.dataset.archiveViewOnly = 'true'" in source
+    assert 'ARCHIVE_VIEW_ONLY = true' in source
+    assert all(f"$('{control}').disabled = ARCHIVE_VIEW_ONLY" in source
+               for control in ('build', 'retrieve-selected', 'run'))
+
+
+def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
+    # this is a convention test
+    source = PANEL_JS.read_text()
+    boot = source[source.index('async function boot()'):
+                  source.index('async function refreshOptions()')]
+    retained = 'keepUnshown(startingConfig(o.defaults));'
+    assert retained in boot
+    assert boot.index(retained) > boot.index('applyDefaults(startingConfig(o.defaults));')
+    assert source.index(retained) < min(
+        source.index("$('run').onclick"), source.index('function archiveSettings'),
+        source.index('function snapshotDashboard'), source.index('function exportArchive'))
+
+
+def test_every_experiment_rows_escape_strings_and_bind_detail_clicks():
+    # this is a convention test
+    source = PANEL_JS.read_text()
+    rows = source[source.index('async function loadExperiments'):
+                  source.index('// The whole stored payload for one experiment')]
+    assert 'const safe = (value) => escapeHtml(String(value ?? \'\'));' in rows
+    assert 'safe(r.started_at)' in rows
+    assert 'safe(r.experiment_id)' in rows
+    assert 'onclick=' not in rows
+    assert "document.createElement('a')" in rows
+    assert "addEventListener('click'" in rows
+
+
+def test_imported_results_render_their_archived_metric_catalogue():
+    # this is a convention test
+    source = PANEL_JS.read_text()
+    exchange = source[source.index('async function importArchiveFile'):
+                      source.index('function renderResult')]
+    assert 'metric_catalogue: imported.evaluation.metric_catalogue' in exchange
+    render = source[source.index('function renderResult'):
+                    source.index('function table')]
+    assert 'const metricCatalogue = options.metric_catalogue || measures();' in render
+    assert 'metricCatalogue.filter(' in render
 
 
 # --- sortable columns and the shared token sheet ---------------------------
@@ -457,3 +499,28 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it(client
         # problem rather than the fix.
         if provider and provider != 'fake':
             assert provider in hint[0], provider
+
+
+def test_the_widget_sends_one_session_id_per_page(panel_texts):
+    # this is a convention test
+    """The widget's memory is a browser page's: the client mints one id when
+    the script loads and sends it with every ask, so a follow-up lands in the
+    same thread and a reloaded page starts clean — nothing persisted, nothing
+    shared between tabs."""
+    block = panel_texts['panel.js (widget block)']
+    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bsession\b", block), (
+        'the widget POST must carry the session id')
+    assert 'crypto.randomUUID' in block, (
+        'one id, minted client-side, once per page load')
+
+
+def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
+    # this is a convention test
+    """The account travels with the reply and the page shows it — a faint
+    meta line, only when the backend reported one: an unreported account
+    renders nothing rather than a made-up zero."""
+    block = panel_texts['panel.js (widget block)']
+    assert 'input_tokens' in block, (
+        'the widget must read the served token account')
+    assert 'output_tokens' in block, (
+        'both directions of the account, not just one')

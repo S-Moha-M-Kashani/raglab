@@ -10,6 +10,7 @@ import time
 import traceback
 import uuid
 import inspect
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,7 @@ from raglab.llm_backends import openrouter_key_memory as credentials
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.evaluation import run_evaluation as evaluate
+from raglab.evaluation import experiment_archive as archive
 from raglab.configuration import explainer_assembly as explain
 from raglab.evaluation import service_experiment_ledger as ledger
 from raglab.evaluation import deterministic_metrics as metrics
@@ -40,7 +42,6 @@ from raglab.configuration.lab_config import (
     GRADERS,
     GRAPH_SOURCES,
     HIERARCHIES,
-    PRODUCTION_CONFIG,
     RERANKERS,
     RETRIEVERS,
     ROOT,
@@ -61,6 +62,7 @@ from raglab.dashboard.service_presentation import (
     chunks_by_session,
     mark_gold,
     summary_rows)
+from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
     _accepted,
     cancel_checker,
@@ -134,9 +136,6 @@ def _config_defaults() -> dict:
         # knobs for the same stated reason.
         'dependencies': DEPENDENCIES,
         'defaults': LabConfig().to_dict(),
-        # The shipped Assistant's own settings, for the panel's preset —
-        # served rather than copied into the frontend, which would drift.
-        'production': PRODUCTION_CONFIG,
     }
 
 
@@ -320,6 +319,7 @@ class Jobs:
 
 
 def create_app() -> FastAPI:
+    widget.set_openrouter_key_resolver(credentials.active)
     boot_settings = load_lab_settings()
 
     def settings_now():
@@ -335,8 +335,22 @@ def create_app() -> FastAPI:
         return ground_truth_for(cfg, ground_truth)
 
     registry = IndexRegistry(settings, diary)
+    # A dataset id names mutable machine-local content. Keep its snapshot,
+    # in-memory index use and replacement atomic without making unrelated
+    # datasets wait for one another. Lock order is deliberately one-way: the
+    # guard is held only while looking up a per-id lock and is always released
+    # before that dataset lock is acquired.
+    dataset_locks_guard = threading.Lock()
+    dataset_locks: dict[str, threading.Lock] = {}
+
+    def dataset_lock(dataset_id: str = '') -> threading.Lock:
+        key = dataset_id or datasets.BUILTIN
+        with dataset_locks_guard:
+            return dataset_locks.setdefault(key, threading.Lock())
+
     # This service owns the ledger, so this is the one place a recorder is passed.
     jobs = Jobs(record=ledger.record)
+    archives = ImportedArchiveStore()
     app = FastAPI(title='Lodestar RAG Lab')
 
     @app.get('/')
@@ -371,6 +385,12 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'panel.js',
                             media_type='application/javascript')
 
+    @app.get('/archive_io.js')
+    def archive_io_js():
+        """The versioned archive codec, loaded before the Panel integration."""
+        return FileResponse(STATIC / 'archive_io.js',
+                            media_type='application/javascript')
+
     @app.get('/api/options')
     def options():
         """Everything the panel needs to render itself, including what is actually installed."""
@@ -395,24 +415,29 @@ def create_app() -> FastAPI:
         if problems:
             raise HTTPException(400, '; '.join(problems))
 
-        def work(report, _cancelled):
-            index = registry.get(cfg.index, progress=report, force=force)
-            return {'collection': index.stats.collection,
-                    'chunks': index.stats.chunks,
-                    'leaves': index.stats.leaves,
-                    'avg_chars': index.stats.avg_chars,
-                    'p95_chars': index.stats.p95_chars,
-                    'embed_dim': index.stats.embed_dim,
-                    'build_seconds': index.stats.build_seconds,
-                    # None on a flat build, distinguishing "no hierarchy" from
-                    # "a hierarchy that found nothing".
-                    'hierarchy': index.stats.hierarchy,
-                    'reused': index.stats.reused, 'notes': index.stats.notes,
-                    # So a follower (the Inspector) can render what was built
-                    # without holding its own index; both halves, since
-                    # `chunks_by_session` alone omits every summary a grouping wrote.
-                    'chunks_by_session': chunks_by_session(index),
-                    'summaries': summary_rows(index)}
+        def work(report, cancelled):
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                index = registry.get(cfg.index, progress=report, force=force)
+                return {'collection': index.stats.collection,
+                        'chunks': index.stats.chunks,
+                        'leaves': index.stats.leaves,
+                        'avg_chars': index.stats.avg_chars,
+                        'p95_chars': index.stats.p95_chars,
+                        'embed_dim': index.stats.embed_dim,
+                        'build_seconds': index.stats.build_seconds,
+                        # None on a flat build, distinguishing "no hierarchy"
+                        # from "a hierarchy that found nothing".
+                        'hierarchy': index.stats.hierarchy,
+                        'reused': index.stats.reused, 'notes': index.stats.notes,
+                        # So a follower (the Inspector) can render what was
+                        # built without holding its own index; both halves,
+                        # since `chunks_by_session` alone omits every summary a
+                        # grouping wrote.
+                        'chunks_by_session': chunks_by_session(index),
+                        'summaries': summary_rows(index)}
 
         return _accepted(jobs.start('index', work, config=cfg.to_dict()))
 
@@ -424,27 +449,52 @@ def create_app() -> FastAPI:
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
+        run_execution = {
+            'provider': run_settings.provider,
+            'models': models.resolve(cfg, run_settings).as_dict(),
+        }
+        metric_catalogue = explain.measures()
 
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
-            result = evaluate.run_eval(
-                registry, questions_for(cfg), cfg, run_settings,
-                types=payload.get('types') or None,
-                difficulty=payload.get('difficulty') or None,
-                limit=payload.get('limit') or None,
-                balance=payload.get('balance') or 'stride',
-                ragas_mode=payload.get('ragas_mode', 'offline'),
-                ragas_limit=payload.get('ragas_limit') or None,
-                workers=int(payload.get('workers', 1)), progress=report,
-                # Always traced, so the Inspector is never blank after a run —
-                # a recording of the same retrieval, so no score can move.
-                trace=True, cancelled=check_cancelled)
-            # Added here, not inside `as_dict`: the run file `save_run` writes
-            # stays the summary, with no trace or chunk text in it.
-            return result.as_dict() | {
-                'traces': result.traces,
-                'chunks_by_session': result.chunks_by_session,
-                'summaries': result.summaries}
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                # Snapshot and index use share this boundary. A replacement of
+                # the same id cannot put new corpus evidence beside old chunks.
+                check_cancelled()
+                run_corpus, run_truth = datasets.load(cfg.index.dataset)
+                result = evaluate.run_eval(
+                    registry, run_truth, cfg, run_settings,
+                    types=payload.get('types') or None,
+                    difficulty=payload.get('difficulty') or None,
+                    limit=payload.get('limit') or None,
+                    balance=payload.get('balance') or 'stride',
+                    ragas_mode=payload.get('ragas_mode', 'offline'),
+                    ragas_limit=payload.get('ragas_limit') or None,
+                    workers=int(payload.get('workers', 1)), progress=report,
+                    # Always traced, so the Inspector is never blank after a run —
+                    # a recording of the same retrieval, so no score can move.
+                    trace=True, cancelled=check_cancelled)
+                # Added here, not inside `as_dict`: the run file `save_run`
+                # writes stays the summary, with no trace or chunk text in it.
+                return result.as_dict() | {
+                    'traces': result.traces,
+                    'chunks_by_session': result.chunks_by_session,
+                    'summaries': result.summaries,
+                    'archive_evidence': {
+                        'execution': run_execution,
+                        'metric_catalogue': metric_catalogue,
+                        'inspector': {
+                            'dataset': {
+                                'id': cfg.index.dataset or datasets.BUILTIN,
+                                'corpus': run_corpus,
+                                'ground_truth': run_truth,
+                            },
+                            'chunks_by_session': result.chunks_by_session,
+                            'summaries': result.summaries,
+                            'traces': result.traces,
+                        },
+                    }}
 
         return _accepted(jobs.start('run', work, config=_with_backend(cfg, run_settings)))
 
@@ -462,13 +512,16 @@ def create_app() -> FastAPI:
 
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
-            return evaluate.run_retrieval(
-                registry, questions_for(cfg), cfg, run_settings,
-                types=payload.get('types') or None,
-                difficulty=payload.get('difficulty') or None,
-                limit=payload.get('limit') or None,
-                balance=payload.get('balance') or 'stride',
-                progress=report, cancelled=check_cancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                return evaluate.run_retrieval(
+                    registry, questions_for(cfg), cfg, run_settings,
+                    types=payload.get('types') or None,
+                    difficulty=payload.get('difficulty') or None,
+                    limit=payload.get('limit') or None,
+                    balance=payload.get('balance') or 'stride',
+                    progress=report, cancelled=check_cancelled)
 
         return _accepted(jobs.start('retrieve', work,
                                     config=_with_backend(cfg, run_settings)))
@@ -507,6 +560,31 @@ def create_app() -> FastAPI:
             raise HTTPException(404, 'unknown experiment')
         return found
 
+    @app.post('/api/imported-archives')
+    def import_archive(payload: dict):
+        try:
+            return archives.import_archive(payload)
+        except archive.ArchiveError as error:
+            raise HTTPException(400, str(error)) from error
+        except sqlite3.Error as error:
+            raise HTTPException(500, 'archive database persistence failed') from error
+
+    @app.get('/api/imported-archives/active')
+    def active_archive():
+        return archives.metadata()
+
+    @app.delete('/api/imported-archives/active')
+    def clear_active_archive():
+        archives.clear()
+        return {'archive_id': None}
+
+    @app.get('/api/imported-archives/{archive_id}')
+    def imported_archive(archive_id: str):
+        found = archives.get(archive_id)
+        if found is None:
+            raise HTTPException(404, 'unknown imported archive')
+        return found
+
     @app.get('/api/evaluations/{run_id}')
     def evaluation_detail(run_id: str):
         data = evaluate.load_run(run_id)
@@ -527,49 +605,59 @@ def create_app() -> FastAPI:
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
-        asked = questions_for(cfg)
-        query_date = payload.get('query_date') or asked['meta']['query_date']
+        requested_query_date = payload.get('query_date')
 
-        def work(report):
-            # The implicit build is the long silent part — hand it the front of
-            # the bar, or it all happens on 'starting 0%'.
-            index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
-            llm = lab_llm(run_settings)
-            roles = models.resolve(cfg, run_settings)
-            report('retrieving', 0.75, question[:80])
-            # Traced rather than plain `retrieve`, for the per-step ranks the
-            # Inspector's table needs. Same agent branch `run_eval` takes, so
-            # the fast and slow paths cannot disagree about what a config does.
-            if cfg.agent.scope:
-                trace = {}
-                outcome = agentic_rag.run(index, cfg, question, query_date,
-                                          llm=llm, models=roles, trace=trace)
-                report('answering', 0.9)
-            else:
-                outcome, trace = pipeline.retrieve_traced(
-                    index, cfg.retrieval, question, query_date,
-                    llm=llm, models=roles)
-                report('answering', 0.9)
-                outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
-                                          models=roles)
-            # Exact match only, never fuzzy: everything else stays plainly
-            # ungraded rather than guessed at.
-            gt_question = next((q for q in asked['questions']
-                                if q['question_fa'] == question), None)
-            if gt_question is not None:
-                quotes = [ev['quote'] for ev in gt_question.get('evidence', [])]
-                gold_flags = mark_gold(
-                    [c['text'] for c in trace['candidates']], quotes)
-                question_id = gt_question['id']
-            else:
-                gold_flags = [False] * len(trace['candidates'])
-                question_id = None
-            for candidate, gold in zip(trace['candidates'], gold_flags):
-                candidate['gold'] = gold
-                candidate['question_id'] = question_id
-            return (outcome.as_dict()
-                   | {'models': roles.as_dict(), 'trace': trace,
-                      'question_id': question_id})
+        def work(report, cancelled):
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                asked = questions_for(cfg)
+                query_date = (requested_query_date
+                              or asked['meta']['query_date'])
+                # The implicit build is the long silent part — hand it the
+                # front of the bar, or it all happens on 'starting 0%'.
+                index = registry.get(
+                    cfg.index, progress=scaled_progress(report, 0.7))
+                llm = lab_llm(run_settings)
+                roles = models.resolve(cfg, run_settings)
+                report('retrieving', 0.75, question[:80])
+                # Traced rather than plain `retrieve`, for the per-step ranks
+                # the Inspector's table needs. Same agent branch `run_eval`
+                # takes, so the fast and slow paths cannot disagree about what
+                # a config does.
+                if cfg.agent.scope:
+                    trace = {}
+                    outcome = agentic_rag.run(
+                        index, cfg, question, query_date,
+                        llm=llm, models=roles, trace=trace)
+                    report('answering', 0.9)
+                else:
+                    outcome, trace = pipeline.retrieve_traced(
+                        index, cfg.retrieval, question, query_date,
+                        llm=llm, models=roles)
+                    report('answering', 0.9)
+                    outcome = pipeline.answer(
+                        outcome, cfg.generation, llm=llm, models=roles)
+                # Exact match only, never fuzzy: everything else stays plainly
+                # ungraded rather than guessed at.
+                gt_question = next((q for q in asked['questions']
+                                    if q['question_fa'] == question), None)
+                if gt_question is not None:
+                    quotes = [ev['quote']
+                              for ev in gt_question.get('evidence', [])]
+                    gold_flags = mark_gold(
+                        [c['text'] for c in trace['candidates']], quotes)
+                    question_id = gt_question['id']
+                else:
+                    gold_flags = [False] * len(trace['candidates'])
+                    question_id = None
+                for candidate, gold in zip(trace['candidates'], gold_flags):
+                    candidate['gold'] = gold
+                    candidate['question_id'] = question_id
+                return (outcome.as_dict()
+                        | {'models': roles.as_dict(), 'trace': trace,
+                           'question_id': question_id})
 
         return _accepted(jobs.start('query', work,
                                     config=_with_backend(cfg, run_settings)))
@@ -592,10 +680,18 @@ def create_app() -> FastAPI:
     @app.post('/api/datasets')
     def import_dataset(payload: dict):
         """Take one dataset file, check it against the contract, keep it — 400 with every problem at once."""
-        try:
-            found = datasets.import_dataset(payload)
-        except ValueError as error:
-            raise HTTPException(400, str(error))
+        meta = payload.get('dataset') if isinstance(payload, dict) else None
+        raw_id = meta.get('id') if isinstance(meta, dict) else ''
+        lock_id = raw_id if isinstance(raw_id, str) else ''
+        with dataset_lock(lock_id):
+            try:
+                found = datasets.import_dataset(payload)
+            except ValueError as error:
+                raise HTTPException(400, str(error))
+            # Import writes the file and clears the loader cache first; eviction
+            # is the final step under the same lock, so no later index lookup
+            # can observe the new file through an old cached index.
+            registry.invalidate_dataset(found.id)
         return found.as_dict()
 
     @app.post('/api/credentials')
@@ -605,12 +701,14 @@ def create_app() -> FastAPI:
             credentials.set_key(payload.get('api_key') or '')
         except ValueError as error:
             raise HTTPException(400, str(error))
+        widget.reset()
         return credentials.state(settings_now())
 
     @app.delete('/api/credentials')
     def clear_credentials():
         """Forget the key this panel supplied; never unsets the environment's own."""
         credentials.clear()
+        widget.reset()
         return credentials.state(settings_now())
 
     @app.get('/api/widget')
@@ -630,7 +728,12 @@ def create_app() -> FastAPI:
         if not message:
             raise HTTPException(400, 'message is empty')
         try:
-            return {'reply': widget.ask(message, (payload.get('model') or '').strip())}
+            # The session is the page's claim about itself; the route only
+            # carries it — absent lands as '', the stateless ask. The reply
+            # arrives with its token account and is served unchanged.
+            return widget.ask(message,
+                              (payload.get('model') or '').strip(),
+                              session=(payload.get('session') or '').strip())
         except widget.WidgetUnavailable as error:
             # The lab is up; its widget is not — the /api/queries split.
             raise HTTPException(502, str(error))

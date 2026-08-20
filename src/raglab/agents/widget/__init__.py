@@ -42,7 +42,8 @@ from raglab.agents.widget.backends import (
     _cli_system,
     _openrouter_url,
     ask,
-    reset)
+    reset,
+    set_openrouter_key_resolver)
 from raglab.agents.widget.hooks import (
     HOOK_LOG,
     MAX_HISTORY,

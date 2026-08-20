@@ -121,19 +121,27 @@
 
 .data-table { border-collapse: separate; border-spacing: 0; width: 100%;
               font: var(--t-sm)/1.5 var(--mono); }
+/* The table's own accessible name, and nothing on screen. It was a visible
+   sticky bar until it collided with the header row twice over: both were
+   sticky at `top: 0`, so the caption (higher z-index) sat on top of the
+   column names and hid them the moment a table scrolled — and `top` does
+   nothing about the horizontal axis, so the caption slid away sideways with
+   the data it named anyway. Every table using this component already carries
+   the same words in a heading directly above the region, so the visible copy
+   was a duplicate; what a screen reader needs is not, and stays. */
 .data-table caption {
-  text-align: left; padding: var(--s-2) var(--s-3);
-  font: 700 var(--t-2xs)/1.5 var(--sans);
-  text-transform: uppercase; letter-spacing: .1em; color: var(--ink-soft);
-  background: var(--card); border-bottom: 1px solid var(--rule);
-  position: sticky; top: 0; z-index: 3;
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
 }
 /* Sticky works here because the region has a bounded height. In the old
    markup `overflow-x: auto` with visible overflow-y made the container as tall
    as its content, so `top: 0` resolved against a box that never scrolled and
    the headers simply left the screen. */
 .data-table thead th {
-  position: sticky; z-index: 2;
+  /* `top` is not optional: `position: sticky` with no inset resolves against
+     nothing and the element simply stays in flow, which reads as a header that
+     is not sticky at all. */
+  position: sticky; top: 0; z-index: 2;
   background: var(--plate); color: var(--ink);
   font: 700 var(--t-2xs)/1.5 var(--sans);
   text-transform: uppercase; letter-spacing: .07em;
@@ -181,3 +189,24 @@
 
 .table-hint { font: var(--t-2xs)/1.5 var(--mono); color: var(--ink-soft);
               margin: var(--s-1) 0 var(--s-3); }
+
+/* A cell that links somewhere reads as a link. Both surfaces build tables that
+   can carry one, so the rule belongs with the component. */
+.data-table td a { color: var(--step-generation); text-decoration: none; }
+.data-table td a:hover { text-decoration: underline; }
+
+/* ── a sortable column ─────────────────────────────────────────────────────
+   Both pages had their own copy of these four rules, and the copies had
+   already drifted: only the Inspector's gave a focused header a ring, so on
+   the lab a keyboard user sorting a column could not see which column they
+   were on. One copy, in the file both pages load.
+
+   The arrow is a pseudo-element so it never lands in the cell's text — the
+   e2e suite reads these headers as strings — and it is drawn in the index ink
+   rather than the column's own step ink, because the arrow reports your click
+   and a step ink reports the pipeline; the two must not contend for one mark. */
+th.sort-col { cursor: pointer; user-select: none; }
+th.sort-col:hover { color: var(--ink); }
+th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
+th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
+th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }

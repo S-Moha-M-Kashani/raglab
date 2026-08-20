@@ -388,37 +388,41 @@ p.explain {
 .score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
 .score .muted { text-transform: none; letter-spacing: 0; font-size: var(--t-2xs); }
 
-table { border-collapse: collapse; width: 100%; font: var(--t-sm)/1.45 var(--mono);
-        font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: var(--s-1) var(--s-2);
-         border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
-th {
-  color: var(--ink-soft); font: 600 var(--t-2xs)/1.5 var(--sans); text-transform: uppercase;
-  letter-spacing: .07em; border-bottom: 1px solid var(--rule); position: sticky;
-  top: 0; background: var(--card);
+/* ── the breakdowns under a run ─────────────────────────────────
+   Three tables, and deliberately not the control bench's grid: that one pins a
+   300px models column at the right end, and with no models card to put there
+   the column stayed empty — 300px of blank card, while the three tables crowded
+   into what was left and the RAGAS table, squeezed hardest, pushed its own
+   scores out of sight. By-question-type is the widest of the three and gets
+   twice the share; nothing is reserved for a card that is not here. */
+.breakdown {
+  display: grid; gap: var(--s-4); margin-top: var(--s-4); align-items: start;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
 }
-th[data-step] { color: var(--step); }
-tbody tr:hover { background: var(--plate); }
-td a { color: var(--step-generation); text-decoration: none; }
-td a:hover { text-decoration: underline; }
-/* A sortable header looks pressable and says which way it is pointing. The
-   glyph is a pseudo-element so it never lands in the cell's text — the e2e
-   suite reads these headers as strings. */
-th.sort-col { cursor: pointer; user-select: none; }
-th.sort-col:hover { color: var(--ink); }
-th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
-th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
-/* The two widest tables scroll inside themselves rather than dragging the whole
-   page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
-   neither can honestly be narrowed: every column is a knob you compare rows on. */
+@media (max-width: 1100px) { .breakdown { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (max-width: 780px) { .breakdown { grid-template-columns: minmax(0, 1fr); } }
+.rowdump { margin-top: var(--s-3); }
+
+/* Every table on this page is built by one function (`table` in panel.js) and
+   wears the shared `.data-table` / `.table-scroll` component from chrome.css:
+   the collapse mode, the alignment rule, the striping, the sticky header, the
+   focusable scroll region and the sortable-header marks all live there, in the
+   file the Inspector loads too. What used to be here was a second, quietly
+   different answer to the same questions — right-aligned everything but the
+   first cell, so five prose columns on the ledger sat ragged-left, and a
+   sticky header whose container had no bounded height, so it was not sticky at
+   all. Only the per-metric explainer, which no other surface renders, stays. */
+/* An explainer opened from a `!` inside a cell is a paragraph, and the cells
+   around it are `nowrap`. It sets its own wrapping (p.explain, below) but it
+   must also be allowed to be narrower than the column, or the column grows to
+   the sentence's full length and the table gains a metre of width. */
+.data-table td .explain { white-space: pre-wrap; max-width: 22rem; text-align: left; }
+
 /* The leaderboard surface's verdict line, above its table rather than inside
    the scroll region — the old board put its group heading inside the scroller,
    so the label scrolled away sideways with the data it named. */
 .verdict { margin: 0 0 var(--s-2); font: var(--t-xs)/1.6 var(--sans); color: var(--ink-soft); }
 .verdict b { color: var(--ink); }
-#experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
-#rows { max-height: 26rem; overflow-y: auto; }
 
 .muted { color: var(--ink-soft); }
 /* Attached to the score it qualifies, quieter but never dropped. */

@@ -56,6 +56,11 @@ def panel_texts(client):
         # it before their own sheet — a disk read would be a claim about a copy
         # nobody is served.
         'tokens.css': tokens,
+        # The shared chrome sheet, over its own route for the same reason as
+        # tokens.css. It now holds the table component every table on either
+        # surface is built against, so its contract is checked here beside the
+        # markup that depends on it.
+        'chrome.css': client.get('/chrome.css').text,
         # The leaderboard surface, served by this same lab: the ranking moved
         # off the lab page, so the rows that guard what a ranking must say
         # follow it here rather than being deleted with the old board.
@@ -347,6 +352,29 @@ CONVENTIONS = [
     ('tokens.css', '--rail-h:', None,
      'the footer rail height is a shared token for the same reason as '
      '--bar-h'),
+
+    # --- tables: one component, both surfaces ------------------------------
+    ('chrome.css', 'position: sticky; top: 0; z-index: 2;', None,
+     'a table header declared `position: sticky` with no inset resolves '
+     'against nothing and stays in flow, which reads on screen as a header '
+     'that is simply not sticky — the inset is the whole rule'),
+    ('chrome.css', None, 'position: sticky; top: 0; z-index: 3;',
+     "the caption must not be sticky: it and the header row both sat at "
+     '`top: 0` and the caption won on z-index, so the column names vanished '
+     'under it the moment a table scrolled'),
+    ('chrome.css', 'th.sort-col:focus-visible', None,
+     'a focused sortable header must show a ring in the shared sheet — while '
+     'each page kept its own copy of these rules only the Inspector had one, '
+     'so on the lab a keyboard user could not see which column they were on'),
+    ('panel.css', None, '#experiments, #byType, #ragas, #extras, #rows',
+     'per-host `overflow-x` is what the shared scroll region replaced: it '
+     'makes the host a scroll container on both axes with no bounded height, '
+     'so the sticky header had nothing to stick against'),
+    ('panel.css', None, 'grid-column: span 2',
+     "the readings breakdown must not borrow the control bench's grid — that "
+     'one reserves a 300px column for a models card the readings card does '
+     'not have, so the column sat empty while the tables were squeezed'),
+
     ('panel.css', None, '1560px',
      'the page measure is a token, not a number typed in five places — the '
      'five copies are exactly how the panel and the Inspector came to '
@@ -368,6 +396,29 @@ def test_the_served_panel_keeps_its_conventions(
         assert must_contain in text, reason
     if must_not_contain is not None:
         assert must_not_contain not in text, reason
+
+
+def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
+    # this is a convention test
+    """Five tables on this page — the four readings breakdowns and the
+    experiment ledger — and until now three of them were built by hand. Two of
+    those three took the sortable styling from the stylesheet and none of the
+    listeners, so they looked sortable and were inert. One builder, wearing the
+    shared region from chrome.css, is what makes a table added later sortable
+    and scrollable by having been rendered rather than by someone remembering."""
+    js = panel_texts['panel.js']
+    assert js.count('<table') == 1, (
+        'there must be exactly one place a table is built; found '
+        f"{js.count('<table')}")
+    assert 'class="table-scroll" tabindex="0" role="region"' in js, (
+        'the region must be focusable and labelled, or there is no keyboard '
+        'way to reach the right-hand side of a fifteen-column table')
+    assert '<table class="data-table">' in js
+    for host in ('byType', 'ragas', 'extras', 'rows', 'experiments'):
+        assert f"renderTable('{host}'" in js, (
+            f'#{host} must be written through renderTable, which wires the '
+            'column sorter after insertion — building it with innerHTML is '
+            'how #ragas and #extras came to look sortable and do nothing')
 
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):

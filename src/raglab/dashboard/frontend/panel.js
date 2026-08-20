@@ -1287,46 +1287,81 @@ function renderResult(result, options = {}) {
     ['type', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
     Object.entries(t).map(([name, row]) => [safe(name), safe(row.n), safe(fmt(row.recall)),
       safe(fmt(row.quote_recall)), safe(fmt(row.ndcg)), safe(fmt(row.hit)),
-      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]));
+      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]),
+    { label: 'Scores by question type', text: [0] });
 
   const r = result.ragas || {};
   const metrics = r.metrics || {};
-  $('ragas').innerHTML = Object.keys(metrics).length
-    // Wrapped in a span on purpose: the explainer is inserted after the button's
-    // parent, and a <p> placed directly after a <td> would be hoisted out of the
-    // table by the parser.
-    ? table(['metric', 'score'], Object.entries(metrics).map(([k, v]) =>
-      [`<span class="measure">${escapeHtml(measureOf(k, metricCatalogue).label)}`
-       + `${measureWhy(k, metricCatalogue)}</span>`, safe(fmt(v))])) +
-      `<div class="muted" style="font-size:.7rem">mode ${escapeHtml(r.mode || '')} · ${safe(r.n_samples)} samples · ${safe(r.skipped)} skipped</div>` +
-      (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('')
-    : `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
+  if (Object.keys(metrics).length) {
+    // renderTable, not innerHTML: this table and the difficulty one below were
+    // the two built by hand, so they took the sortable styling from the
+    // stylesheet and none of the listeners — headers with a pointer cursor and
+    // an arrow that did nothing when clicked.
+    renderTable('ragas', ['metric', 'score'],
+      // Wrapped in a span on purpose: the explainer is inserted after the
+      // button's parent, and a <p> placed directly after a <td> would be
+      // hoisted out of the table by the parser.
+      Object.entries(metrics).map(([k, v]) =>
+        [`<span class="measure">${escapeHtml(measureOf(k, metricCatalogue).label)}`
+         + `${measureWhy(k, metricCatalogue)}</span>`, safe(fmt(v))]),
+      { label: 'RAGAS judged metrics',
+        text: [0],
+        after: `<div class="table-hint">mode ${escapeHtml(r.mode || '')} · ${safe(r.n_samples)} samples · ${safe(r.skipped)} skipped</div>`
+          + (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('') });
+  } else {
+    $('ragas').innerHTML =
+      `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
+  }
 
-  $('extras').innerHTML =
-    table(['difficulty', 'n', 'recall'], Object.entries(result.summary.by_difficulty)
-      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]));
+  renderTable('extras', ['difficulty', 'n', 'recall'],
+    Object.entries(result.summary.by_difficulty)
+      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]),
+    { label: 'Scores by difficulty', text: [0] });
 
   renderTable('rows',
     ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
     result.rows.map((row) => [safe(row.id), safe(row.type), safe(row.difficulty),
       safe(fmt(row.recall, 2)), safe(fmt(row.quote_recall, 2)), safe(fmt(row.ndcg, 2)),
       safe(row.n_contexts), row.abstained ? 'yes' : '',
-      safe(Math.round(row.latency_ms))]));
+      safe(Math.round(row.latency_ms))]),
+    { label: 'Every question, one row each', text: [0, 1, 2] });
 }
 
-function table(head, rows) {
-  return `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>` +
-    rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '—' : c}</td>`).join('')}</tr>`).join('') +
-    '</tbody></table>';
+// One table inside the shared scroll region (chrome.css), which both surfaces
+// use so a wide table behaves the same on either port: the region takes focus
+// and scrolls by keyboard, and its bounded height is what gives the sticky
+// header something to stick against. The old markup gave each host
+// `overflow-x: auto` and nothing else — which makes the host a scroll container
+// on *both* axes with no height limit, so `top: 0` resolved against a box that
+// never scrolled and the column names left the screen on a fifty-row ledger.
+//
+// `options.text` names the columns that hold words rather than figures.
+// `.data-table` reads numbers right and identifiers left, so a prose column
+// left unnamed would sit ragged-right against its own heading. `options.label`
+// names the region and the table for a screen reader; it is not shown, because
+// every one of these tables already carries the same words in a heading
+// directly above it.
+function table(head, rows, options = {}) {
+  const prose = new Set(options.text || []);
+  const kind = (at) => (prose.has(at) ? ' class="text"' : '');
+  const label = escapeHtml(options.label || '');
+  return `<div class="table-scroll" tabindex="0" role="region" aria-label="${label}">`
+    + `<table class="data-table"><caption>${label}</caption><thead><tr>`
+    + head.map((h, at) => `<th scope="col"${kind(at)}>${h}</th>`).join('')
+    + '</tr></thead><tbody>'
+    + rows.map((r) => `<tr>${r.map((c, at) => `<td${kind(at)}>${c === null || c === undefined ? '—' : c}</td>`).join('')}</tr>`).join('')
+    + '</tbody></table></div>';
 }
 
 // Write a table into an element and make its columns sortable. Every table on
 // this page goes through here, so a table added later is sortable by having been
 // rendered rather than by someone remembering to wire it — and the wiring
-// happens after insertion, because it needs the real rows.
-function renderTable(id, head, rows) {
+// happens after insertion, because it needs the real rows. `options.after` is
+// markup that belongs under the table but outside its scroll region: a footnote
+// dragged sideways with the data is a footnote nobody finds.
+function renderTable(id, head, rows, options = {}) {
   const host = typeof id === 'string' ? $(id) : id;
-  host.innerHTML = table(head, rows);
+  host.innerHTML = table(head, rows, options) + (options.after || '');
   SortTable.make(host.querySelector('table'));
   return host;
 }
@@ -1388,7 +1423,12 @@ async function loadExperiments(throwOnError = false) {
       r.state === 'done' ? 'done'
         : `<b title="${safe(r.error || '')}">${safe(r.state)}</b>`,
       safe(Math.round(r.seconds)),
-    ]));
+    ]),
+    // Every column but the three counts holds words, and this is the widest
+    // table on the page: fifteen columns, none of which can honestly be
+    // dropped, since each one is a knob you compare rows on.
+    { label: 'Every experiment recorded on this machine',
+      text: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13] });
   const tableRows = host.querySelectorAll('tbody tr');
   rows.forEach((r, index) => {
     const cell = tableRows[index].children[2];

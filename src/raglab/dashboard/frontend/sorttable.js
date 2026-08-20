@@ -71,7 +71,15 @@ const SortTable = (() => {
 
   // Wire one table. Safe to call again on the same element — a re-rendered table
   // is a new element, and a second call on the same one would stack listeners.
-  function make(table) {
+  //
+  // `options.onApply(rows)` is called after every reorder, with the rows in the
+  // order now displayed. It exists for a rank column: a static `#` travels with
+  // its row, so sorting by another column renders `1, 3, 2` — a column that
+  // lies. The callback lets the page renumber instead. It fires on wiring too,
+  // so a rank starts correct rather than correct-after-the-first-click, and on
+  // the third click that restores served order, where a stale numbering would
+  // be exactly as wrong.
+  function make(table, options) {
     if (!table || wired.has(table)) return;
     const head = table.tHead && table.tHead.rows[table.tHead.rows.length - 1];
     const body = table.tBodies[0];
@@ -115,6 +123,7 @@ const SortTable = (() => {
           dir === 1 ? 'ascending' : 'descending');
       }
       for (const row of rows) body.appendChild(row);
+      if (options && typeof options.onApply === 'function') options.onApply(rows);
     }
 
     heads.forEach((th, at) => {
@@ -144,6 +153,10 @@ const SortTable = (() => {
         }
       });
     });
+
+    // Fires onApply for the served order. Cheap — `column` is -1, so this
+    // reorders nothing; it only reports.
+    apply();
   }
 
   // Every table under a root, for a page that renders several at once.

@@ -105,6 +105,106 @@ test('the sorter is stable, so a tie keeps the order it was served in', () => {
   assert.deepEqual(sorted.map((r) => r[0]), ['c', 'a', 'b', 'd']);
 });
 
+// `SortTable.make` is a DOM function, and this file's harness runs sorttable.js
+// in an empty `vm` context with no DOM at all. Rather than pull in a real
+// document, this is the minimal fake covering exactly what `make` touches: a
+// `th` that records attributes and stores its listeners, a body whose
+// `appendChild` reorders (removes the row from wherever it sits, then pushes
+// it to the end — that's what makes `body.rows` reflect a sort), and a table
+// wiring the two together.
+function fakeHeader(text) {
+  const attrs = {};
+  const listeners = {};
+  return {
+    textContent: text,
+    hasAttribute: (name) => Object.prototype.hasOwnProperty.call(attrs, name),
+    getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name)
+      ? attrs[name] : null),
+    setAttribute: (name, value) => { attrs[name] = String(value); },
+    classList: { add: () => {} },
+    tabIndex: undefined,
+    title: undefined,
+    addEventListener: (type, fn) => {
+      (listeners[type] = listeners[type] || []).push(fn);
+    },
+    // Not a real DOM method signature, but named the same: fires whatever
+    // `make` wired to 'click', which is all a test needs to trigger a cycle.
+    click: () => { for (const fn of (listeners.click || [])) fn(); },
+  };
+}
+
+function fakeCell(text) {
+  const attrs = {};
+  return {
+    textContent: text,
+    getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name)
+      ? attrs[name] : null),
+  };
+}
+
+function buildTable(columnNames, dataRows) {
+  const head = { cells: columnNames.map(fakeHeader) };
+  const rows = dataRows.map((cells) => ({ cells: cells.map(fakeCell) }));
+  const body = {
+    rows,
+    appendChild(row) {
+      const at = this.rows.indexOf(row);
+      if (at !== -1) this.rows.splice(at, 1);
+      this.rows.push(row);
+    },
+  };
+  return {
+    tHead: { rows: [head] },
+    tBodies: [body],
+    classList: { add: () => {} },
+  };
+}
+
+// This is a unit test.
+test('onApply reports the displayed order on wiring, on sort, and on the '
+  + 'third-click restore', () => {
+  const table = buildTable(
+    ['pipeline', 'decision'],
+    [['a', '0.40'], ['b', '0.90'], ['c', '0.10']]);
+  const seen = [];
+  SortTable.make(table, {
+    // `Array.from`, not `rows.map`: `rows` is an array from the vm sandbox
+    // sorttable.js runs in, so `rows.map` would build its result via that
+    // sandbox's own `Array`, and comparing it against a plain array literal
+    // here fails deepStrictEqual on realm identity alone, despite identical
+    // contents. `Array.from` called on this side's `Array` sidesteps that.
+    onApply: (rows) => seen.push(Array.from(rows, (r) => r.cells[0].textContent)),
+  });
+  // Fires once on wiring, so a rank column starts correct rather than
+  // correct-after-the-first-click.
+  assert.equal(seen.length, 1);
+  assert.deepStrictEqual(seen.at(-1), ['a', 'b', 'c']);
+
+  const [pipelineHead, decisionHead] = table.tHead.rows[0].cells;
+  decisionHead.click();
+  assert.deepStrictEqual(seen.at(-1), ['b', 'a', 'c']);
+  assert.equal(decisionHead.getAttribute('aria-sort'), 'descending');
+  assert.equal(pipelineHead.getAttribute('aria-sort'), 'none');
+
+  decisionHead.click();
+  assert.deepStrictEqual(seen.at(-1), ['c', 'a', 'b']);
+  assert.equal(decisionHead.getAttribute('aria-sort'), 'ascending');
+
+  // The third click restores the served order, and onApply must say so — a
+  // rank column left showing the reversed numbering there would be a column
+  // lying.
+  decisionHead.click();
+  assert.deepStrictEqual(seen.at(-1), ['a', 'b', 'c']);
+  assert.equal(decisionHead.getAttribute('aria-sort'), 'none');
+});
+
+// This is a unit test.
+test('make still works with no options at all, which is how both panels call it',
+  () => {
+    const table = buildTable(['x'], [['1'], ['2']]);
+    assert.doesNotThrow(() => SortTable.make(table));
+  });
+
 // This is a unit test.
 test('a column can say which way it opens, because "best" is not always highest', () => {
   // The generic rule leads with the highest number, which is right for a score and

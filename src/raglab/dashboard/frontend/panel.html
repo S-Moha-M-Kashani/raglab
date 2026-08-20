@@ -346,18 +346,11 @@
     </div>
   </section>
 
-  <section class="card">
-    <div class="card-head"><h2>Leaderboard</h2><span class="section-meta right" id="boardMeta"></span></div>
-    <p class="prose">
-      Ordered by <b>ragas_decision</b> — the unweighted mean of faithfulness,
-      answer relevancy, context precision and context recall. Every other column
-      is reported and none of them votes; runs that could not measure all four
-      are unranked and sort last. Click any header to sort by it instead, again
-      to reverse, a third time to come back to this order.
-      <b>One table per dataset</b>: a decision score is a mean over the
-      questions of one corpus, so rows are never ranked across corpora.</p>
-    <div id="board"></div>
-  </section>
+  <!-- The leaderboard used to be a second, simpler implementation right here:
+       it grouped by dataset only, so a table could rank rows scored on
+       different questions by different judges against each other. It is gone.
+       The real grouping lives on the Leaderboard surface, served from the same
+       module `raglab-leaderboard` prints from. -->
 
   <!-- Beside the ranking, not inside it: an index build has no decision score,
        so a numbered table it appeared in would claim a rank for work that

@@ -252,7 +252,12 @@ main { max-width: var(--measure); margin: 0 auto;
 @media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
 @media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
-.stack { display: grid; gap: var(--s-4); margin-top: var(--s-4); }
+/* `minmax(0, 1fr)`, not the implicit `auto` track: an auto track sizes to its
+   content's max-content width, so a wide table stretched the column past the
+   viewport and the PAGE scrolled sideways — no `min-width: 0` on the card can
+   prevent that, because the track itself is what grew. */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr);
+         gap: var(--s-4); margin-top: var(--s-4); }
 
 .card {
   background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-md);
@@ -407,8 +412,11 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 /* The two widest tables scroll inside themselves rather than dragging the whole
    page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
    neither can honestly be narrowed: every column is a knob you compare rows on. */
-#board .board-group { overflow-x: auto; margin-bottom: var(--s-4); }
-#board .board-group h3 { margin-top: var(--s-1); }
+/* The leaderboard surface's verdict line, above its table rather than inside
+   the scroll region — the old board put its group heading inside the scroller,
+   so the label scrolled away sideways with the data it named. */
+.verdict { margin: 0 0 var(--s-2); font: var(--t-xs)/1.6 var(--sans); color: var(--ink-soft); }
+.verdict b { color: var(--ink); }
 #experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
 #rows { max-height: 26rem; overflow-y: auto; }
 

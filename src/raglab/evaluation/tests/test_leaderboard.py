@@ -5,7 +5,7 @@ import json
 import pytest
 
 from raglab.evaluation import run_evaluation as evaluate
-from raglab.agents.extra_tools import leaderboard
+from raglab.evaluation import leaderboard
 from raglab.agents.extra_tools import sweep
 
 

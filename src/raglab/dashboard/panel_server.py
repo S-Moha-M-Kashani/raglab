@@ -24,6 +24,7 @@ from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import experiment_archive as archive
 from raglab.configuration import explainer_assembly as explain
 from raglab.evaluation import service_experiment_ledger as ledger
+from raglab.evaluation import leaderboard
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.llm_backends import model_role_catalogue as models
 from raglab.rag_components import question_to_answer_pipeline as pipeline
@@ -396,6 +397,12 @@ def create_app() -> FastAPI:
         """The cross-run surface: what earlier runs said, kept off the lab page where the knobs live."""
         return FileResponse(STATIC / 'leaderboard.html')
 
+    @app.get('/leaderboard.js')
+    def leaderboard_js():
+        """The leaderboard surface's script — it renders what /api/leaderboard serves and re-derives no rank of its own."""
+        return FileResponse(STATIC / 'leaderboard.js',
+                            media_type='application/javascript')
+
     @app.get('/panel.css')
     def panel_css():
         """The panel's style, extracted from panel.html's <style> block."""
@@ -566,6 +573,19 @@ def create_app() -> FastAPI:
         # `total` beside the rows, since this listing is bounded.
         return {'runs': evaluate.list_runs(limit),
                 'total': evaluate.count_runs()}
+
+    @app.get('/api/leaderboard')
+    def leaderboard_groups(limit: int = 500):
+        """The grouped ranking: one table per (dataset, question set, judge).
+
+        The grouping, the tie rule and the refusal to number a row whose sample
+        was never recorded all come from `evaluation.leaderboard`, the same
+        module `raglab-leaderboard` prints from — so the page and the command
+        line cannot name different winners from the same `.runs/`. This route is
+        why that module lives in `evaluation/` rather than among the terminal
+        tools no route reaches."""
+        return {'groups': [leaderboard.as_dict(g)
+                           for g in leaderboard.build(limit)]}
 
     @app.get('/api/experiments')
     def experiments(limit: int = 200):

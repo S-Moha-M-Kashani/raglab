@@ -29,18 +29,20 @@
 <main id="main">
 <div class="stack">
 
-  <!-- The ranking itself arrives with the grouped leaderboard route; until then
-       this surface exists so the switcher has somewhere real to go and so the
-       cross-run readings below are off the page where the knobs live. -->
   <section class="card">
     <div class="card-head"><h2>Leaderboard</h2></div>
     <p class="prose">
-      One table per dataset, question set and judge — a decision score is a mean
-      over the questions of one corpus judged by one model, so rows are never
-      ranked across any of the three. The grouped ranking is served from the
-      lab's own run records and lands on this page next; for now the board on
-      the <a href="/">Laboratory</a> page still carries it.</p>
+      <b>One table per dataset, question set and judge.</b> A decision score is
+      a mean over the questions of one corpus judged by one model, so rows are
+      never ranked across any of the three — and a group whose runs recorded
+      how many questions they scored but not which ones is listed, never
+      ranked. The grouping, the tie rule and the winner all come from the same
+      module <code>raglab-leaderboard</code> prints from, so this page and the
+      command line cannot name different winners from the same records.</p>
   </section>
+
+  <!-- Filled by leaderboard.js from /api/leaderboard. -->
+  <div id="board"></div>
 
   <!-- Moved off the lab page's header, where it was a 1200-character essay in
        the top chrome. It is cross-run reading, which is what this surface is
@@ -76,5 +78,6 @@
 </div>
 </main>
 
+<script src="/leaderboard.js"></script>
 </body>
 </html>

@@ -13,7 +13,7 @@ from raglab.configuration import explainer_assembly as explain
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.llm_backends import model_role_catalogue as models
-from raglab.agents.extra_tools import leaderboard
+from raglab.evaluation import leaderboard
 
 from raglab.conftest import SMOKE_INDEX, _finished
 

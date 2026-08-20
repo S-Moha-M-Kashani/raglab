@@ -1,5 +1,7 @@
 """Tests for the served panel's own markup and script."""
 import json
+import shutil
+import subprocess
 import re
 
 import pytest
@@ -54,6 +56,11 @@ def panel_texts(client):
         # it before their own sheet — a disk read would be a claim about a copy
         # nobody is served.
         'tokens.css': tokens,
+        # The leaderboard surface, served by this same lab: the ranking moved
+        # off the lab page, so the rows that guard what a ranking must say
+        # follow it here rather than being deleted with the old board.
+        'leaderboard.html': client.get('/leaderboard').text,
+        'leaderboard.js': client.get('/leaderboard.js').text,
         'panel.css': css,
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
@@ -124,9 +131,9 @@ CONVENTIONS = [
      'the embedder control must live in the one model column'),
     ('index.html (modelCard section)', 'id="embed_model"', None,
      'the embed-model control must live in the one model column'),
-    ('index.html', 'ragas_decision', None,
+    ('leaderboard.html', 'decision score', None,
      'the leaderboard must say which column chose the architecture'),
-    ('panel.js', 'ragas_decision_stderr', None,
+    ('leaderboard.js', 'ragas_decision_stderr', None,
      'the leaderboard must show the deciding score with its error, never the '
      'mean alone'),
     ('panel.js', 'job.detail', None,
@@ -173,10 +180,11 @@ CONVENTIONS = [
      'the hidden archive file input must keep its script hook'),
     ('index.html', 'id="archive-status"', None,
      'the archive status must keep its render hook'),
-    ('index.html', 'id="board"', None,
-     'the ranked leaderboard must stay on the page'),
+    ('leaderboard.html', 'id="board"', None,
+     'the ranked leaderboard must stay on its own surface'),
     ('index.html', 'id="experiments"', None,
-     'the ledger of every experiment must sit beside the ranked leaderboard'),
+     'the ledger of every experiment must stay on the lab page — an index '
+     'build has no decision score, so it never belonged in the ranking'),
     ('panel.js', '/api/experiments', None,
      'the experiments list must be read from the ledger route'),
     ('index.html', 'sorttable.js', None,
@@ -186,9 +194,20 @@ CONVENTIONS = [
      'move once the column is sorted a different way'),
     ('panel.js', None, 'ragas_decision ▼',
      'the hard-coded sort arrow must not come back to the script either'),
-    ('panel.js', '/api/evaluations?limit=', None,
-     'the leaderboard must ask for a stated limit rather than the whole '
-     'directory'),
+    ('leaderboard.js', '/api/leaderboard', None,
+     'the leaderboard must read the grouped route, not re-derive its own '
+     'grouping from the raw run list — two groupings is how two surfaces come '
+     'to name different winners'),
+    ('leaderboard.js', 'group.ranked', None,
+     'a numbered row is a rank claim, so the page must honour the grouping '
+     "module's own answer about whether the sample was recorded rather than "
+     'counting rows from one'),
+    ('leaderboard.js', 'tabindex="0"', None,
+     'the table must sit in a focusable scroll region, or there is no keyboard '
+     'way to reach the right-hand side of it at all'),
+    ('leaderboard.html', 'chrome.css', None,
+     'the leaderboard surface must wear the shared bar, or the switcher cannot '
+     'lead back out of it'),
     ('panel.js', 'localStorage', None,
      'the grades card and the settings on screen must be remembered across a '
      'reload'),
@@ -704,3 +723,30 @@ def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
         'the widget must read the served token account')
     assert 'output_tokens' in block, (
         'both directions of the account, not just one')
+
+
+def test_every_served_script_actually_parses():
+    # this is a convention test
+    """A syntax error in a served script takes the whole page down at load —
+    the panel renders as unstyled markup with no controls wired — and the rest
+    of this suite cannot see it: every other check reads the script as *text*,
+    and text with an unbalanced brace in it still contains every substring the
+    table looks for. That gap is not hypothetical; it shipped a stray `}` that
+    only a browser caught.
+
+    Skipped rather than failed where `node` is absent: the suite must stay
+    runnable offline on a machine with no JavaScript runtime, and a guard that
+    cannot run is worth more as a skip that says so than as a silent pass."""
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('no node on PATH to parse the served scripts with')
+    scripts = sorted((RAGLAB_DIR / 'dashboard' / 'frontend').glob('*.js'))
+    assert len(scripts) >= 5, (
+        'the frontend should have several scripts; a glob finding almost '
+        'nothing would let this pass without checking anything')
+    for script in scripts:
+        done = subprocess.run([node, '--check', str(script)],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, (
+            f'{script.name} does not parse, so the page it belongs to is dead '
+            f'on arrival:\n{done.stderr.strip()}')

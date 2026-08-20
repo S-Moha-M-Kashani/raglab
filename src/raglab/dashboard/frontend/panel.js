@@ -608,7 +608,6 @@ async function boot() {
   renderCapabilities();
 
   renderIndexes(o.indexes);
-  loadBoard();
   loadExperiments();
   restoreLastRun();
 }
@@ -868,7 +867,9 @@ $('run').onclick = async () => {
           'Readings belong to the previous settings; export will contain settings only.',
           'warning');
       }
-      loadBoard();
+      // The ranking that used to refresh here lives on /leaderboard now, and
+      // reads the run records fresh on every visit.
+      loadExperiments();
     });
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
@@ -1330,82 +1331,12 @@ function renderTable(id, head, rows) {
   return host;
 }
 
-// How many runs the leaderboard asks for. Stated rather than left to the
-// service's default, and reported beside the table, so a truncated board says so.
-const BOARD_LIMIT = 200;
-
-async function loadBoard() {
-  const { runs, total } = await api('/api/evaluations?limit=' + BOARD_LIMIT);
-  // Two different reasons the table can be shorter than the directory: a limit
-  // hides runs that exist, while a file that will not parse as a run is not a
-  // run — and must not be reported as one truncated away.
-  $('boardMeta').textContent = total > runs.length
-    ? (runs.length >= BOARD_LIMIT
-      ? `newest ${runs.length} of ${total} run files`
-      : `${runs.length} of ${total} files in .runs/ are readable runs`)
-    : `${runs.length} run${runs.length === 1 ? '' : 's'}`;
-  if (!runs.length) { $('board').innerHTML = '<div class="muted">no runs yet</div>'; return; }
-  // Ranked by the RAGAS decision score, because that is the number the
-  // architecture is chosen by. Rows it could not be measured on — offline runs,
-  // runs recorded before the score existed — sort to the bottom rather than
-  // being dropped: an unranked run is still a measurement.
-  const ranked = runs.slice().sort((a, b) => {
-    const x = a.ragas_decision, y = b.ragas_decision;
-    if (x === y || (x == null && y == null)) return 0;
-    if (x == null) return 1;
-    if (y == null) return -1;
-    return y - x;
-  });
-  // One table per dataset, never one ranking across them — a decision score is
-  // a mean over one corpus's questions, and comparing across corpora would call
-  // a different question a result. `leaderboard.py` groups the same way.
-  const byDataset = new Map();
-  for (const r of ranked) {
-    const key = r.dataset || 'diary-fa';
-    if (!byDataset.has(key)) byDataset.set(key, []);
-    byDataset.get(key).push(r);
-  }
-  const head = ['run', 'label', 'chunker', 'embedder', 'retriever', 'reranker',
-      // No arrow on the header: an indicator that cannot move becomes a lie the
-      // moment you sort by another column. Which column the ranking is on is
-      // stated in prose under the heading, where it stays true.
-      'n', 'ragas_decision', 'faith', 'ans rel', 'ctx prec', 'ctx recall',
-      'headline', 'recall', 'quote', 'nDCG', 'abstain', 's'];
-  const cells = (rows) => rows.map((r) => {
-      const i = r.config.index, q = r.config.retrieval, s = r.summary.overall || {};
-      const g = r.ragas || {};
-      return [`<a href="#" onclick="showRun('${r.run_id}');return false">${r.run_id}</a>`,
-        escapeHtml(r.label), i.chunker + (i.contextual ? '+ctx' : ''),
-        // The model, not just the kind: two "fastembed" rows can be two entirely
-        // different representations, and the row has to say which one it was.
-        i.embedder + (i.embed_model ? '·' + i.embed_model.split('/').pop() : ''),
-        q.retriever, q.reranker, r.n_questions,
-        // The deciding score first, then its four constituents, so a row can be
-        // checked rather than trusted.
-        // With its standard error, where there is one. Candidates in a sweep can
-        // sit inside each other's error bars, and a bare mean cannot say so.
-        `<b>${fmt(r.ragas_decision)}</b>` + (r.ragas_decision_stderr != null
-          ? ` <span class="stderr">± ${fmt(r.ragas_decision_stderr)}</span>` : ''),
-        fmt(g.faithfulness), fmt(g.answer_relevancy),
-        fmt(g.llm_context_precision_with_reference), fmt(g.context_recall),
-        fmt(s.headline), fmt(s.recall), fmt(s.quote_recall), fmt(s.ndcg),
-        fmt(s.abstained_correctly),
-        Math.round(r.seconds)];
-    });
-  $('board').innerHTML = '';
-  for (const [dataset, rows] of byDataset) {
-    const known = (OPTIONS.datasets || []).find((d) => d.id === dataset);
-    const section = document.createElement('div');
-    section.className = 'board-group';
-    section.innerHTML =
-      `<h3>${escapeHtml(known ? known.name : dataset)} `
-      + `<span class="muted">· ${rows.length} run${rows.length === 1 ? '' : 's'}`
-      + `${known ? ' · ' + escapeHtml(known.language || '') : ''}</span></h3>`
-      + table(head, cells(rows));
-    $('board').appendChild(section);
-    SortTable.make(section.querySelector('table'));
-  }
-}
+// The leaderboard moved to its own surface (/leaderboard), served from
+// `evaluation.leaderboard` — the same module `raglab-leaderboard` prints from.
+// The board that used to live here grouped by dataset only, so one table could
+// rank rows scored on different questions by different judges against each
+// other. Keeping a second, looser implementation beside the real one is how two
+// surfaces come to name different winners.
 
 // Every experiment this lab has finished, from raglab.db. Deliberately not
 // ranked: a build or a retrieval measures nothing, so numbering these rows

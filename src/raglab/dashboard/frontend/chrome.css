@@ -99,3 +99,85 @@
   .topbar-actions { margin-left: 0; width: 100%; }
   .topnav { flex-wrap: wrap; }
 }
+
+/* ── data tables ───────────────────────────────────────────────────────────
+   A wide table is only usable if you can reach the right-hand side of it, and
+   an `overflow` div that cannot take focus cannot be scrolled by a keyboard at
+   all — arrows, PageUp/PageDown, Home and End all do nothing, so the mouse is
+   the only way across. `.table-scroll` is therefore a real scroll region:
+   focusable, labelled, and height-bounded so its sticky header has something to
+   stick against. Shared, so both surfaces scroll the same way. */
+.table-scroll {
+  position: relative;
+  max-height: 70vh; overflow: auto;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--card);
+  /* The region must be allowed to be narrower than the table inside it, or the
+     page scrolls sideways instead of the region — the exact failure this
+     component exists to fix. */
+  min-width: 0;
+}
+.table-scroll:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
+
+.data-table { border-collapse: separate; border-spacing: 0; width: 100%;
+              font: var(--t-sm)/1.5 var(--mono); }
+.data-table caption {
+  text-align: left; padding: var(--s-2) var(--s-3);
+  font: 700 var(--t-2xs)/1.5 var(--sans);
+  text-transform: uppercase; letter-spacing: .1em; color: var(--ink-soft);
+  background: var(--card); border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; z-index: 3;
+}
+/* Sticky works here because the region has a bounded height. In the old
+   markup `overflow-x: auto` with visible overflow-y made the container as tall
+   as its content, so `top: 0` resolved against a box that never scrolled and
+   the headers simply left the screen. */
+.data-table thead th {
+  position: sticky; z-index: 2;
+  background: var(--plate); color: var(--ink);
+  font: 700 var(--t-2xs)/1.5 var(--sans);
+  text-transform: uppercase; letter-spacing: .07em;
+  text-align: right; white-space: nowrap;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--rule);
+}
+.data-table td {
+  padding: var(--s-1) var(--s-3); text-align: right; white-space: nowrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+/* Identifier columns read left, numbers read right. The old sheet
+   right-aligned everything but the first cell, which left five prose columns
+   ragged-left — the worst alignment there is for scanning down a column. */
+.data-table th.text, .data-table td.text { text-align: left; }
+.data-table tbody tr:nth-child(even) td { background: var(--rule-soft); }
+.data-table tbody tr:hover td { background: var(--plate); }
+
+/* The row's identity survives scrolling right. Without this the run's date
+   leaves the viewport and every remaining number belongs to nothing.
+   Both frozen columns carry a fixed width, because `left` on the second one
+   has to equal the first one's actual width — leave the widths to the content
+   and the second column slides over its neighbour instead of beside it. */
+.data-table .freeze-1, .data-table .freeze-2 {
+  position: sticky; z-index: 1; background: var(--card);
+}
+.data-table tbody tr:nth-child(even) .freeze-1,
+.data-table tbody tr:nth-child(even) .freeze-2 { background: var(--rule-soft); }
+.data-table thead .freeze-1, .data-table thead .freeze-2 { z-index: 4; background: var(--plate); }
+.data-table .freeze-1 { left: 0; width: 3rem; min-width: 3rem; }
+.data-table .freeze-2 {
+  left: 3rem; width: 10rem; min-width: 10rem;
+  box-shadow: 1px 0 0 var(--rule);
+}
+
+/* macOS hides a scrollbar until it moves, so keep one visible: a cue that the
+   table continues sideways, without a floated pseudo-element competing with
+   the sticky columns for the same corner. */
+.table-scroll { scrollbar-width: thin; }
+.table-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--rule); border-radius: var(--radius-pill);
+}
+.table-scroll::-webkit-scrollbar-track { background: var(--plate); }
+
+.table-hint { font: var(--t-2xs)/1.5 var(--mono); color: var(--ink-soft);
+              margin: var(--s-1) 0 var(--s-3); }

@@ -228,9 +228,14 @@ def _runs_dir_is_never_the_real_one(tmp_path_factory):
     `config.RUNS_DIR` is left pointing at the real path on purpose: it is what
     the invariant test compares against."""
     from raglab.evaluation import run_evaluation as evaluate
+    from raglab.evaluation import leaderboard
     from raglab.agents.extra_tools import sweep
     runs = tmp_path_factory.mktemp('raglab-runs')
-    saved = {module: module.RUNS_DIR for module in (evaluate, sweep)}
+    # `leaderboard` joined this tuple when a dashboard route started calling
+    # `build()`: reading the developer's real `.runs/` in a test is the same
+    # breach as writing to it, and the route makes that reachable from a
+    # request rather than only from the command line.
+    saved = {module: module.RUNS_DIR for module in (evaluate, sweep, leaderboard)}
     for module in saved:
         module.RUNS_DIR = runs
     yield

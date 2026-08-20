@@ -39,7 +39,10 @@ body {
 /* ── the chassis ─────────────────────────────────────────────────────────── */
 .chassis {
   background: var(--chassis); color: var(--chassis-ink);
-  padding: var(--s-4) var(--s-5) var(--s-2);
+  /* Horizontal value is the shared page gutter (--gutter), not a ramp step —
+     it must match main's so every page-level band shares one left/right
+     edge. Do not move this back onto --s-5; that re-breaks the alignment. */
+  padding: var(--s-4) var(--gutter) var(--s-2);
 }
 .chassis a { color: #fff; }
 .masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-4);
@@ -105,7 +108,7 @@ h1 .lab-mark {
      not in Table B's replace-list; left literal rather than invented.
      Phase 2's --bar-h (3.5rem) is the token this should read once the top
      bar exists, but Table C marks that token unused this phase. */
-  inset: 3.4rem var(--s-5) auto auto;
+  inset: 3.4rem var(--gutter) auto auto;
   width: min(25rem, calc(100vw - 2rem));
   margin: 0; padding: var(--s-3);
   color: var(--ink); background: var(--plate);
@@ -155,7 +158,7 @@ h1 .lab-mark {
    One element doing three jobs: legend for the three inks, progress bar for
    whatever job is running, and the way to a stage's controls. On the chassis
    because it belongs to the machine, not to any one plate. */
-.spine { background: var(--chassis); padding: 0 var(--s-5) var(--s-3); }
+.spine { background: var(--chassis); padding: 0 var(--gutter) var(--s-3); }
 .spine-inner { max-width: var(--measure); margin: 0 auto; }
 .spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
 .spine-seg {

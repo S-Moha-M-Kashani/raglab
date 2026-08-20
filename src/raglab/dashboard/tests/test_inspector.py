@@ -230,6 +230,39 @@ def test_inspector_proxies_one_archive_and_return_to_live(monkeypatch):
     assert deleted == ['/api/imported-archives/active']
 
 
+def test_the_inspector_proxies_one_recorded_experiment(monkeypatch):
+    # this is an integration test
+    """The board's `↗` sends a reader here, so the Inspector needs to fetch a
+    record. It proxies rather than reading raglab.db: this service owns no
+    ledger, and giving it one would be a second writer to a record whose whole
+    value is being written once."""
+    record = {'experiment_id': 'exp-1', 'kind': 'run', 'dataset': 'smoke-mini',
+              'detail': {'config': {}, 'rows': [], 'traces': []}}
+    asked = []
+
+    def lab_get(path):
+        asked.append(path)
+        return record if path == '/api/experiments/exp-1' else None
+
+    monkeypatch.setattr(inspector, '_lab_get', lab_get)
+    client = _client(monkeypatch)
+    found = client.get('/api/experiments/exp-1')
+    assert found.status_code == 200
+    assert found.json()['experiment_id'] == 'exp-1'
+    # Asked of the lab, over HTTP, and not of a database this process opened.
+    assert asked == ['/api/experiments/exp-1']
+
+
+def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
+        monkeypatch):
+    # this is an integration test
+    """Better a stated 404 than a read-only view pinned to nothing, which reads
+    as an experiment that recorded no evidence."""
+    monkeypatch.setattr(inspector, '_lab_get', lambda path: None)
+    client = _client(monkeypatch)
+    assert client.get('/api/experiments/no-such-id').status_code == 404
+
+
 # FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     # this is an integration test

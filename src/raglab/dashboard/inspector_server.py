@@ -386,6 +386,21 @@ def create_inspector_app() -> FastAPI:
                 404, 'imported archive is unavailable from the lab')
         return found
 
+    @app.get('/api/experiments/{experiment_id}')
+    def recorded_experiment(experiment_id: str):
+        """One recorded experiment, proxied from the lab.
+
+        Proxied rather than read from `raglab.db` directly: this service owns no
+        ledger, and a second reader that opened the file would be a second
+        thing to keep in step with a record whose whole value is being written
+        once. The same reason `/api/imported-archives/{id}` proxies."""
+        encoded_id = urllib.parse.quote(experiment_id, safe='')
+        found = _lab_get(f'/api/experiments/{encoded_id}')
+        if found is None:
+            raise HTTPException(
+                404, 'that experiment is unavailable from the lab')
+        return found
+
     @app.delete('/api/imported-archives/active')
     def clear_imported_archive():
         cleared = _lab_delete('/api/imported-archives/active')

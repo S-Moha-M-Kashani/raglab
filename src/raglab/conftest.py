@@ -21,9 +21,12 @@ RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 # test_inspector.py, both of which check their sheet's type scale against
 # the same claim, so the pattern is named once here rather than twice.
 _SIZE_LITERAL = re.compile(r'font-size:\s*[0-9]*\.?[0-9]+(?:rem|px|em)')
-# The shorthand carries size before the slash: `font: 600 1.32rem/1 var(--slab)`
+# The shorthand carries the size after any weight/style keywords and before
+# an optional `/line-height`: `font: 600 1.32rem/1 var(--slab)` as much as
+# `font: .72rem var(--mono)`, which has no line-height and so no slash — a
+# form the guard must not go blind to just because it comes without one.
 _FONT_SHORTHAND_LITERAL = re.compile(
-    r'font:\s*(?:[a-z0-9]+\s+)*?[0-9]*\.?[0-9]+(?:rem|px|em)\s*/')
+    r'font:\s*(?:[a-z0-9]+\s+)*?[0-9]*\.?[0-9]+(?:rem|px|em)\b')
 
 
 def _font_size_literals(css: str) -> list[str]:
@@ -33,6 +36,7 @@ def _font_size_literals(css: str) -> list[str]:
     and two are the drift starting again."""
     return (_SIZE_LITERAL.findall(css)
             + _FONT_SHORTHAND_LITERAL.findall(css))
+
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 

@@ -307,6 +307,31 @@ def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
     assert _font_size_literals(panel_texts['panel.css']) == []
 
 
+def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
+    # this is a unit test
+    """The shorthand's line-height is optional in real CSS, so the guard must
+    not depend on a trailing `/` to notice a hand-set size — that gap is
+    exactly how `.findings code` and `.prose code` slipped past review once
+    already. Proven against the seven forms the panel conversion actually
+    produced: three token forms the guard must leave alone, and the three
+    literal shorthand forms plus the no-line-height form it must catch."""
+    not_flagged = [
+        'font: var(--t-sm)/1.45 var(--mono)',
+        'font: 700 var(--t-sm)/1 var(--mono)',
+        'font: 600 var(--t-xl)/1 var(--slab)',
+        'font: inherit',
+    ]
+    flagged = [
+        'font: .72rem var(--mono)',
+        'font: 12.5px/1.45 var(--mono)',
+        'font: 600 1.32rem/1 var(--slab)',
+    ]
+    for css in not_flagged:
+        assert _font_size_literals(css) == [], css
+    for css in flagged:
+        assert _font_size_literals(css) != [], css
+
+
 # --- the routes behind the split files --------------------------------------
 
 def test_the_panels_style_and_script_are_served_as_their_own_files(client):

@@ -786,6 +786,9 @@ document.getElementById('archive-return-live').addEventListener('click', async (
 });
 
 async function renderFollow(body) {
+  // Before the early-returning archive branch: a page opened while an archive
+  // is already active must still say whether the lab is reachable.
+  setFollowState(body);
   if (body.archive_id) {
     await followImportedArchive(body.archive_id);
     return;
@@ -797,7 +800,6 @@ async function renderFollow(body) {
   const retrievalCfg = document.getElementById('retrieval-active-config');
   const setCfg = document.getElementById('retrieval-set-config');
   const genCfg = document.getElementById('generation-active-config');
-  setFollowState(body);
 
   // Guarded on a change, not reloaded every tick: this polls every ~2s, and
   // re-rendering would collapse the reader's scroll and drop added questions.

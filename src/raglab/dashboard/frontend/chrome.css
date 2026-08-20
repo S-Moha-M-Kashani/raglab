@@ -215,11 +215,46 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 .data-table tbody tr:nth-child(even) .freeze-1,
 .data-table tbody tr:nth-child(even) .freeze-2 { background: var(--rule-soft); }
 .data-table thead .freeze-1, .data-table thead .freeze-2 { z-index: 4; background: var(--plate); }
-.data-table .freeze-1 { left: 0; width: 3rem; min-width: 3rem; }
+/* Wide enough for a whole pipeline sentence, which is what the leftmost column
+   holds now — at the 3rem this was tuned to when it held a rank, the sentence
+   that identifies the row was three characters of it.
+   The width is a custom property because two rules need the same number and a
+   second literal is a second number: `left` on the frozen column beside it has
+   to equal this one's actual width, and so does the block that clips inside it. */
+.data-table .freeze-1 {
+  --freeze-1: 30rem;
+  left: 0; width: var(--freeze-1); min-width: var(--freeze-1);
+}
 .data-table .freeze-2 {
-  left: 3rem; width: 10rem; min-width: 10rem;
+  left: 30rem; width: 10rem; min-width: 10rem;
   box-shadow: 1px 0 0 var(--rule);
 }
+/* A cell cannot hold its own width: `table-layout: auto` sizes a column from
+   its widest `nowrap` content, so `width` on the cell is a suggestion the
+   longest sentence overrules — and the frozen column grew to two thirds of the
+   region, which is the failure freezing it was supposed to fix. A block *inside*
+   the cell can hold a width, so the clip happens there. Nothing is lost to it:
+   the cell opens the whole recorded config beside it. */
+.data-table .freeze-1 .clip {
+  display: block; width: var(--freeze-1);
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* And one at the other edge. The board's identity — the pipeline sentence — is
+   frozen left, and its way into the Inspector is frozen right, because a
+   sixteen-column table is exactly where both would otherwise be off screen at
+   the same time. The divider shadow points inward, so on this side it is
+   negative.
+   `.freeze-2` is not reused for the board's rank: three frozen columns beside a
+   wide sentence would leave too little of the region actually scrolling, which
+   is the failure the region exists to fix. */
+.data-table .freeze-last {
+  position: sticky; right: 0; z-index: 1; background: var(--card);
+  width: 3rem; min-width: 3rem;
+  box-shadow: -1px 0 0 var(--rule);
+}
+.data-table tbody tr:nth-child(even) .freeze-last { background: var(--rule-soft); }
+.data-table thead .freeze-last { z-index: 4; background: var(--plate); }
 
 /* macOS hides a scrollbar until it moves, so keep one visible: a cue that the
    table continues sideways, without a floated pseudo-element competing with

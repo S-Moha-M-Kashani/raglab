@@ -483,6 +483,22 @@ def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
             'how #ragas and #extras came to look sortable and do nothing')
 
 
+def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
+    # this is a convention test
+    """The board's identity is at the left edge and its way into the Inspector
+    is at the right, and neither may scroll away — a frozen column that only
+    works on one side would put one of the two out of reach at exactly the width
+    where reaching it matters. Both need an explicit width for the reason the
+    left pair already carries: leave the width to the content and a sticky
+    column slides over its neighbour instead of beside it."""
+    css = panel_texts['chrome.css']
+    assert '.data-table .freeze-last' in css
+    assert 'right: 0' in css
+    assert 'box-shadow: -1px 0 0 var(--rule)' in css, (
+        'the divider goes on the inner edge, which for a right-frozen column '
+        'is the left one')
+
+
 def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
     # this is a convention test
     """A knob this pipeline would ignore is dimmed, and the one sentence saying

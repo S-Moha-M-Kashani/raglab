@@ -551,6 +551,11 @@ def validate_archive(payload, *, encoded_size=None, limits=None) -> dict:
     if not isinstance(payload, dict):
         raise ArchiveError('archive: object required')
     _walk(payload, 'archive', 0, bounds)
+    if encoded_size is None:
+        encoded_size = len(json.dumps(
+            payload, ensure_ascii=False, allow_nan=False).encode('utf-8'))
+        if encoded_size > MAX_BYTES:
+            raise ArchiveError('archive: encoded file must not exceed 32 MiB')
     _keys(payload, ('format', 'version', 'settings')
           if 'evaluation' not in payload
           else ('format', 'version', 'settings', 'evaluation'), 'archive')

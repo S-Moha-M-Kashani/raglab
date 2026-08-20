@@ -9,6 +9,7 @@ from raglab.evaluation.tests.archive_examples import completed_archive
 
 
 def test_settings_only_and_completed_archives_validate_without_fabricated_results():
+    # this is a unit test
     full = completed_archive()
     settings_only = {key: copy.deepcopy(full[key])
                      for key in ('format', 'version', 'settings')}
@@ -18,6 +19,7 @@ def test_settings_only_and_completed_archives_validate_without_fabricated_result
 
 
 def test_stage_results_are_derived_from_the_metric_catalogue():
+    # this is a unit test
     full = completed_archive()
     expected = full['evaluation']['stage_results']
     assert archive.stage_results(full['evaluation']['result'],
@@ -27,6 +29,7 @@ def test_stage_results_are_derived_from_the_metric_catalogue():
 @pytest.mark.parametrize('key', ['api_key', 'openrouterKey', 'password',
                                  'client_secret', 'access_token', 'authorization'])
 def test_credentials_are_rejected_at_any_depth(key):
+    # this is a unit test
     full = completed_archive()
     full['evaluation']['inspector']['dataset']['corpus'][key] = 'never persist'
     with pytest.raises(archive.ArchiveError, match=key):
@@ -34,6 +37,7 @@ def test_credentials_are_rejected_at_any_depth(key):
 
 
 def test_archive_size_config_and_stage_mismatches_are_refused():
+    # this is a unit test
     full = completed_archive()
     assert archive.validate_archive(full, encoded_size=archive.MAX_BYTES) == full
     with pytest.raises(archive.ArchiveError, match='32 MiB'):
@@ -49,6 +53,7 @@ def test_archive_size_config_and_stage_mismatches_are_refused():
 
 
 def test_direct_posts_enforce_the_encoded_archive_size_limit(monkeypatch):
+    # this is a unit test
     payload = completed_archive()
     encoded_size = len(json.dumps(payload, ensure_ascii=False,
                                   allow_nan=False).encode('utf-8'))
@@ -58,6 +63,7 @@ def test_direct_posts_enforce_the_encoded_archive_size_limit(monkeypatch):
 
 
 def test_direct_post_serialization_errors_are_archive_errors():
+    # this is a unit test
     payload = completed_archive()
     value = 10 ** 5_000
     payload['evaluation']['result']['summary']['overall']['large_integer'] = value
@@ -67,6 +73,7 @@ def test_direct_post_serialization_errors_are_archive_errors():
 
 
 def test_result_config_requires_json_type_equality():
+    # this is a unit test
     full = completed_archive()
     assert full['settings']['config']['retrieval']['grade_threshold'] == 0.0
     full['evaluation']['result']['config']['retrieval']['grade_threshold'] = False
@@ -75,6 +82,7 @@ def test_result_config_requires_json_type_equality():
 
 
 def test_archive_version_requires_an_integer_type():
+    # this is a unit test
     full = completed_archive()
     full['version'] = 1.0
     with pytest.raises(archive.ArchiveError, match='archive.version.*integer'):
@@ -82,6 +90,7 @@ def test_archive_version_requires_an_integer_type():
 
 
 def test_broken_question_chunk_and_span_references_are_refused():
+    # this is a unit test
     mutations = [
         (lambda full: full['evaluation']['result']['rows'][0].update(id='missing'),
          'rows.*missing'),
@@ -107,6 +116,7 @@ def test_broken_question_chunk_and_span_references_are_refused():
 
 
 def test_dataset_ids_duplicate_ids_and_non_finite_metrics_are_refused():
+    # this is a unit test
     full = completed_archive()
     full['settings']['config']['index']['dataset'] = ''
     full['evaluation']['result']['config']['index']['dataset'] = ''
@@ -145,6 +155,7 @@ def test_dataset_ids_duplicate_ids_and_non_finite_metrics_are_refused():
 ])
 def test_structural_limits_are_enforced_without_large_allocations(
         limits, mutate, message):
+    # this is a unit test
     full = completed_archive()
     mutate(full)
     with pytest.raises(archive.ArchiveError, match=message):

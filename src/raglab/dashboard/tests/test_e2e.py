@@ -20,6 +20,7 @@ from raglab.conftest import SMOKE_INDEX, _finished
 
 def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
         client, monkeypatch, tmp_path):
+    # this is an end-to-end test
     monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')
     datasets.forget()
@@ -64,6 +65,7 @@ def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
 
 def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
         client, monkeypatch, tmp_path):
+    # this is an end-to-end test
     monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')
@@ -158,6 +160,7 @@ def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
 
 def test_dataset_replacement_waits_for_a_standalone_index_build(
         client, monkeypatch, tmp_path):
+    # this is an end-to-end test
     monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')

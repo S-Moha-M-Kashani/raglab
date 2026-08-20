@@ -8,6 +8,7 @@ from raglab.evaluation.tests.archive_examples import completed_archive
 
 def test_completed_import_is_persisted_once_without_a_run_file(
         client, monkeypatch, tmp_path):
+    # this is an integration test
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'completed-import.db'))
     before_runs = list(evaluate.RUNS_DIR.glob('*.json'))
     before_board = client.get('/api/evaluations').json()
@@ -40,6 +41,7 @@ def test_completed_import_is_persisted_once_without_a_run_file(
 
 
 def test_settings_only_is_not_a_persistence_route_payload(client, monkeypatch, tmp_path):
+    # this is an integration test
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'settings-only-import.db'))
     full = completed_archive()
     settings_only = {key: full[key] for key in ('format', 'version', 'settings')}
@@ -51,6 +53,7 @@ def test_settings_only_is_not_a_persistence_route_payload(client, monkeypatch, t
 
 def test_a_failed_archive_insert_leaves_no_row_or_active_archive(
         client, monkeypatch, tmp_path):
+    # this is an integration test
     monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'failed-import.db'))
     client.delete('/api/imported-archives/active')
 
@@ -68,6 +71,7 @@ def test_a_failed_archive_insert_leaves_no_row_or_active_archive(
 
 
 def test_clear_only_returns_inspector_to_live(client):
+    # this is an integration test
     client.post('/api/imported-archives', json=completed_archive())
     assert client.delete('/api/imported-archives/active').json() == {
         'archive_id': None}

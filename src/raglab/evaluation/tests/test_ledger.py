@@ -213,6 +213,7 @@ def test_the_ledger_is_not_kept_beside_the_code_that_writes_it():
 
 
 def test_an_imported_archive_is_inserted_once_without_overwriting(tmp_path):
+    # this is an integration test
     path = tmp_path / 'raglab.db'
     original = completed_archive('same-id')
     assert ledger.insert_archive(original, path=path) == 'created'

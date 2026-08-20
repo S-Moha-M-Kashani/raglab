@@ -202,6 +202,7 @@ def _client(monkeypatch):
 
 
 def test_follow_advertises_only_the_active_archive_id(monkeypatch):
+    # this is an integration test
     calls = []
 
     def lab_get(path):
@@ -217,6 +218,7 @@ def test_follow_advertises_only_the_active_archive_id(monkeypatch):
 
 
 def test_inspector_proxies_one_archive_and_return_to_live(monkeypatch):
+    # this is an integration test
     full = completed_archive()
     monkeypatch.setattr(inspector, '_lab_get',
                         lambda path: full if path.endswith('imported-run-001') else None)
@@ -497,6 +499,7 @@ def test_the_served_inspector_page_keeps_its_conventions(
 
 
 def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
+    # this is a convention test
     source = INSPECTOR_JS.read_text()
     function = source[source.index('async function followImportedArchive'):
                       source.index('function renderFollow')]
@@ -514,6 +517,7 @@ def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
 
 
 def test_archive_mode_still_reports_lab_reachability():
+    # this is a convention test
     """A page opened while an archive is already active must not sit on the
     boot placeholder ("looking for the lab…") forever: the archive branch of
     `renderFollow` returns early, so the follow state has to be written before

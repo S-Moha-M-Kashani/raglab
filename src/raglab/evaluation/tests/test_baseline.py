@@ -75,6 +75,7 @@ def test_the_snapshot_does_not_mutate_the_defaults_it_was_given():
 
 
 def test_the_shipped_settings_archive_is_a_credential_free_snapshot():
+    # this is a unit test
     archived = json.loads((config.ROOT / 'fixtures' /
                           'loadstar-rag-setting.json').read_text(encoding='utf-8'))
     assert archived['format'] == 'raglab-experiment'

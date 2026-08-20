@@ -23,7 +23,11 @@
 
 * { box-sizing: border-box; }
 body {
-  margin: 0; padding: 0 0 5rem; background: var(--plate); color: var(--ink);
+  margin: 0;
+  /* 5rem: clearance for the fixed widget-launch button. Not in Table B's
+     replace-list for any ramp step (the ramp tops out at --s-7, 3rem), so
+     left literal rather than inventing a mapping. */
+  padding: 0 0 5rem; background: var(--plate); color: var(--ink);
   font: var(--t-base)/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
@@ -35,10 +39,10 @@ body {
 /* ── the chassis ─────────────────────────────────────────────────────────── */
 .chassis {
   background: var(--chassis); color: var(--chassis-ink);
-  padding: 1rem 1.4rem .6rem;
+  padding: var(--s-4) var(--s-5) var(--s-2);
 }
 .chassis a { color: #fff; }
-.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
+.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-4);
             max-width: var(--measure); margin: 0 auto; }
 h1 {
   font: 600 var(--t-xl)/1 var(--slab); letter-spacing: -.01em; margin: 0;
@@ -46,7 +50,7 @@ h1 {
 }
 h1 .lab-mark {
   /* The lab's own initial, set as a plate on the chassis. One ornament. */
-  display: inline-block; margin-right: .5rem; padding: .18rem .42rem;
+  display: inline-block; margin-right: var(--s-2); padding: var(--s-1) var(--s-2);
   background: var(--step-index); color: var(--chassis);
   font: 700 var(--t-sm)/1 var(--mono); vertical-align: .18em; border-radius: var(--radius-sm);
 }
@@ -54,7 +58,7 @@ h1 .lab-mark {
   font: var(--t-xs)/1.4 var(--mono); color: var(--chassis-ink-soft);
   letter-spacing: -.01em;
 }
-.chassis-right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+.chassis-right { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); }
 /* A door to another service, so it looks like a link and not like one of this
    panel's own run buttons. */
 .lab-link {
@@ -70,12 +74,12 @@ h1 .lab-mark {
   background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
 }
 .archive-exchange {
-  display: flex; align-items: center; gap: .55rem; min-width: 0;
-  padding-left: .65rem; border-left: 1px solid #35424f;
+  display: flex; align-items: center; gap: var(--s-2); min-width: 0;
+  padding-left: var(--s-2); border-left: 1px solid #35424f;
 }
-.archive-actions { display: flex; flex-wrap: nowrap; gap: .4rem; }
+.archive-actions { display: flex; flex-wrap: nowrap; gap: var(--s-2); }
 .archive-button {
-  display: inline-block; margin: 0; padding: .42rem .85rem;
+  display: inline-block; margin: 0; padding: var(--s-2) var(--s-3);
   color: var(--chassis-ink); border: 1px solid #35424f; border-radius: var(--radius-sm);
   font: 600 var(--t-sm)/1.4 var(--sans); text-transform: none;
   letter-spacing: 0; cursor: pointer; white-space: nowrap;
@@ -92,14 +96,18 @@ h1 .lab-mark {
 .archive-status.error { color: #e6b4ad; }
 @media (max-width: 720px) {
   .chassis-right, .archive-exchange { width: 100%; margin-left: 0; }
-  .archive-exchange { align-items: flex-start; flex-wrap: wrap; padding: .55rem 0 0;
+  .archive-exchange { align-items: flex-start; flex-wrap: wrap; padding: var(--s-2) 0 0;
                       border-left: 0; border-top: 1px solid #35424f; }
   .archive-status { flex-basis: 100%; max-width: none; }
 }
 .settings-popover {
-  inset: 3.4rem 1.4rem auto auto;
+  /* 3.4rem: clears the chassis header's current height, not a ramp step —
+     not in Table B's replace-list; left literal rather than invented.
+     Phase 2's --bar-h (3.5rem) is the token this should read once the top
+     bar exists, but Table C marks that token unused this phase. */
+  inset: 3.4rem var(--s-5) auto auto;
   width: min(25rem, calc(100vw - 2rem));
-  margin: 0; padding: .8rem;
+  margin: 0; padding: var(--s-3);
   color: var(--ink); background: var(--plate);
   border: 1px solid var(--rule); border-radius: var(--radius-md);
   box-shadow: var(--shadow);
@@ -107,25 +115,28 @@ h1 .lab-mark {
 .settings-popover::backdrop { background: rgba(16, 22, 32, .18); }
 .settings-head {
   display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: .65rem; padding-bottom: .45rem;
+  margin-bottom: var(--s-2); padding-bottom: var(--s-2);
   border-bottom: 1px solid var(--rule);
 }
 .settings-head span { color: var(--ink-soft); font: var(--t-xs)/1.4 var(--mono); }
-.settings-popover .actions { margin-top: .55rem; }
+.settings-popover .actions { margin-top: var(--s-2); }
 
 /* Capability chips: what this installation can actually do, before you spend an
    hour finding out. Green edge = ready, brick = not. */
-.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem auto 0;
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: var(--s-2) auto 0;
          max-width: var(--measure); }
 .chip {
-  font: var(--t-2xs)/1.5 var(--mono); padding: .05rem .45rem; border-radius: var(--radius-sm);
+  font: var(--t-2xs)/1.5 var(--mono);
+  /* .05rem: a fine vertical nudge for the pill shape, not a ramp step — not
+     in Table B's replace-list; left literal. */
+  padding: .05rem var(--s-2); border-radius: var(--radius-sm);
   background: var(--chassis-soft); color: var(--chassis-ink-soft);
   border-left: 2px solid transparent;
 }
 .chip.on { border-left-color: var(--good); color: var(--chassis-ink); }
 .chip.off { border-left-color: var(--alert); color: #e6b4ad; }
 
-.findings { max-width: var(--measure); margin: .55rem auto 0; }
+.findings { max-width: var(--measure); margin: var(--s-2) auto 0; }
 .findings > summary {
   cursor: pointer; color: var(--chassis-ink-soft); font-size: var(--t-xs);
   list-style: none;
@@ -133,9 +144,9 @@ h1 .lab-mark {
 .findings > summary::before { content: "▸ "; }
 .findings[open] > summary::before { content: "▾ "; }
 .findings > summary:hover { color: #fff; }
-.findings ul { margin: .5rem 0 .3rem; padding-left: 1.1rem; columns: 2; column-gap: 2rem; }
+.findings ul { margin: var(--s-2) 0 var(--s-1); padding-left: var(--s-4); columns: 2; column-gap: var(--s-6); }
 .findings li { font-size: var(--t-xs); line-height: 1.5; color: var(--chassis-ink-soft);
-               margin-bottom: .35rem; break-inside: avoid; }
+               margin-bottom: var(--s-1); break-inside: avoid; }
 .findings b { color: var(--chassis-ink); }
 .findings code { font: var(--t-xs) var(--mono); color: #fff; }
 @media (max-width: 900px) { .findings ul { columns: 1; } }
@@ -144,15 +155,15 @@ h1 .lab-mark {
    One element doing three jobs: legend for the three inks, progress bar for
    whatever job is running, and the way to a stage's controls. On the chassis
    because it belongs to the machine, not to any one plate. */
-.spine { background: var(--chassis); padding: 0 1.4rem .7rem; }
+.spine { background: var(--chassis); padding: 0 var(--s-5) var(--s-3); }
 .spine-inner { max-width: var(--measure); margin: 0 auto; }
 .spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
 .spine-seg {
   appearance: none; border: 0; text-align: left; cursor: pointer;
   background: var(--chassis-soft); color: var(--chassis-ink-soft);
-  padding: .3rem .55rem .26rem; border-top: 3px solid var(--step);
+  padding: var(--s-1) var(--s-2) var(--s-1); border-top: 3px solid var(--step);
   font: inherit; opacity: .7; transition: opacity .15s, background .15s;
-  display: flex; align-items: baseline; gap: .5rem;
+  display: flex; align-items: baseline; gap: var(--s-2);
 }
 .spine-seg:hover, .spine-seg[aria-current="step"] { opacity: 1; background: #222e3c; }
 .spine-seg b {
@@ -167,7 +178,7 @@ h1 .lab-mark {
 .spine-track i { display: block; height: 4px; background: var(--step, var(--chassis-ink-soft));
                  width: 0; transition: width .25s linear; }
 .spine-caption {
-  display: flex; gap: .6rem; align-items: baseline; margin-top: .4rem;
+  display: flex; gap: var(--s-2); align-items: baseline; margin-top: var(--s-2);
   font: var(--t-xs)/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
 }
 .spine-caption b { color: var(--step, #fff); font-weight: 600; }
@@ -180,7 +191,7 @@ h1 .lab-mark {
 main { max-width: var(--measure); margin: 0 auto;
        padding: var(--s-5) var(--gutter); }
 .bench {
-  display: grid; gap: 1rem;
+  display: grid; gap: var(--s-4);
   /* Four step cards, then the models column — pinned explicitly below rather
      than left to auto-placement, which would wrap the models card onto a
      second row instead of keeping it in the one right-hand column. */
@@ -194,11 +205,11 @@ main { max-width: var(--measure); margin: 0 auto;
 @media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
 @media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
-.stack { display: grid; gap: 1rem; margin-top: 1rem; }
+.stack { display: grid; gap: var(--s-4); margin-top: var(--s-4); }
 
 .card {
   background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-md);
-  box-shadow: var(--shadow); padding: .1rem .9rem 1rem;
+  box-shadow: var(--shadow); padding: var(--s-px) var(--s-3) var(--s-4);
   /* min-width:0, else a grid item defaults to min-width:auto and grows to its
      widest child (the leaderboard), so the page scrolls sideways instead of
      just that one table. */
@@ -206,7 +217,7 @@ main { max-width: var(--measure); margin: 0 auto;
 }
 .card[data-step] { border-top: 3px solid var(--step); }
 .card-head {
-  display: flex; align-items: baseline; gap: .5rem; margin: .85rem 0 .2rem;
+  display: flex; align-items: baseline; gap: var(--s-2); margin: var(--s-3) 0 var(--s-1);
 }
 .card-head h2 {
   margin: 0; font: 700 var(--t-xs)/1.4 var(--sans); text-transform: uppercase;
@@ -215,37 +226,41 @@ main { max-width: var(--measure); margin: 0 auto;
 .card[data-step] .card-head h2 { color: var(--step); }
 .card-head .num {
   font: 700 var(--t-xs)/1 var(--mono); color: var(--step, var(--ink-soft));
-  border: 1px solid currentColor; border-radius: var(--radius-sm); padding: .12rem .28rem;
+  border: 1px solid currentColor; border-radius: var(--radius-sm); padding: var(--s-px) var(--s-1);
 }
-.card-note { margin: .1rem 0 .7rem; font-size: var(--t-xs); color: var(--ink-soft); }
+.card-note { margin: var(--s-px) 0 var(--s-3); font-size: var(--t-xs); color: var(--ink-soft); }
 h3 { font: 700 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase;
-     letter-spacing: .12em; color: var(--ink-soft); margin: 1rem 0 .4rem; }
+     letter-spacing: .12em; color: var(--ink-soft); margin: var(--s-4) 0 var(--s-2); }
 
 /* ── controls ────────────────────────────────────────────────────────────── */
-.field { margin-top: .6rem; }
-.field-row { display: flex; gap: .6rem; }
-.field-row > * { flex: 1; min-width: 0; margin-top: .6rem; }
+.field { margin-top: var(--s-2); }
+.field-row { display: flex; gap: var(--s-2); }
+.field-row > * { flex: 1; min-width: 0; margin-top: var(--s-2); }
 label {
-  display: block; margin-bottom: .18rem; color: var(--ink-soft);
+  display: block; margin-bottom: var(--s-1); color: var(--ink-soft);
   font: 600 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
 }
 label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 select, input[type=number], input[type=text], input[type=password], textarea {
-  width: 100%; font: var(--t-base)/1.4 var(--sans); padding: .34rem .4rem; color: var(--ink);
+  width: 100%; font: var(--t-base)/1.4 var(--sans); padding: var(--s-1) var(--s-2); color: var(--ink);
   background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-sm);
 }
 input[type=number], input[type=password] { font-family: var(--mono); font-size: var(--t-sm); }
 select:hover, input:hover { border-color: var(--ink-soft); }
 textarea { min-height: 3.2rem; resize: vertical; }
-.switches { display: flex; flex-wrap: wrap; gap: .1rem .9rem; margin-top: .55rem; }
+/* Row-gap raised deliberately, not mapped: Table B's literal match for .1rem
+   is --s-px (2px), but that gap is why the checkbox grid clumps into an
+   unreadable block once it wraps — raised one step to --s-2. Column-gap
+   maps normally: .9rem is --s-3. */
+.switches { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); margin-top: var(--s-2); }
 .switches label {
-  display: flex; align-items: center; gap: .35rem; margin: 0; font-weight: 400;
+  display: flex; align-items: center; gap: var(--s-1); margin: 0; font-weight: 400;
   text-transform: none; letter-spacing: 0; font-size: var(--t-sm); color: var(--ink);
 }
 input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
-.actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
 button {
-  font: 600 var(--t-sm)/1.4 var(--sans); padding: .42rem .85rem; cursor: pointer;
+  font: 600 var(--t-sm)/1.4 var(--sans); padding: var(--s-2) var(--s-3); cursor: pointer;
   color: #fff; background: var(--chassis); border: 1px solid var(--chassis);
   border-radius: var(--radius-sm);
 }
@@ -263,12 +278,12 @@ button:disabled { opacity: .4; cursor: default; }
 .rag-field-off { opacity: 0.5; }
 .rag-field-off .rag-when-dep {
   opacity: 1; display: block; font-style: italic; font-size: var(--t-xs);
-  color: var(--ink-soft); margin-top: .2rem;
+  color: var(--ink-soft); margin-top: var(--s-1);
 }
 .rag-field-off input, .rag-field-off select { cursor: not-allowed; }
 
 button.why {
-  font: 700 var(--t-2xs)/1 var(--mono); padding: .12rem .3rem; margin-left: .3rem;
+  font: 700 var(--t-2xs)/1 var(--mono); padding: var(--s-px) var(--s-1); margin-left: var(--s-1);
   background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
   border-radius: var(--radius-pill); vertical-align: middle;
 }
@@ -279,16 +294,16 @@ button.why:hover { color: var(--card); background: var(--step, var(--chassis));
    nesting. Every other text in the registry is a single line with no leading
    space, so they render exactly as they did. */
 p.explain {
-  margin: .3rem 0 .1rem; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-soft);
-  border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
-  background: var(--plate); padding: .35rem .55rem; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--s-1) 0 var(--s-px); font-size: var(--t-xs); line-height: 1.5; color: var(--ink-soft);
+  border-left: 2px solid var(--step, var(--rule)); padding-left: var(--s-2);
+  background: var(--plate); padding: var(--s-1) var(--s-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 /* ── the model rail ──────────────────────────────────────────────────────── */
 .rag-models .step {
-  border-left: 3px solid var(--step); padding: .1rem 0 .4rem .55rem;
-  margin-bottom: .7rem;
+  border-left: 3px solid var(--step); padding: var(--s-px) 0 var(--s-2) var(--s-2);
+  margin-bottom: var(--s-3);
 }
 .step-tag {
   font: 700 var(--t-2xs)/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
@@ -298,16 +313,16 @@ p.explain {
    rule above it to say where one group of controls ends and the next begins —
    a card with two subjects and no divider reads as one long list. */
 .group-tag {
-  margin: 1.1rem 0 .5rem; padding-top: .7rem;
+  margin: var(--s-4) 0 var(--s-2); padding-top: var(--s-3);
   border-top: 1px solid var(--rule-soft);
 }
 
 /* ── readings ────────────────────────────────────────────────────────────── */
-.scores { display: grid; gap: .55rem;
+.scores { display: grid; gap: var(--s-2);
           grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
 .score {
   border: 1px solid var(--rule-soft); border-left: 3px solid var(--rule);
-  border-radius: var(--radius-sm); padding: .45rem .6rem; background: var(--card);
+  border-radius: var(--radius-sm); padding: var(--s-2); background: var(--card);
 }
 .score[data-step] { border-left-color: var(--step); }
 .score b {
@@ -317,13 +332,13 @@ p.explain {
 .score > span { display: block; color: var(--ink-soft); font-size: var(--t-2xs);
                 text-transform: uppercase; letter-spacing: .07em; }
 .score[data-step] > span:first-child { color: var(--step); }
-.score .bar { height: 3px; background: var(--rule-soft); margin-top: .35rem; }
+.score .bar { height: 3px; background: var(--rule-soft); margin-top: var(--s-1); }
 .score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
 .score .muted { text-transform: none; letter-spacing: 0; font-size: var(--t-2xs); }
 
 table { border-collapse: collapse; width: 100%; font: var(--t-sm)/1.45 var(--mono);
         font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: .26rem .45rem;
+th, td { text-align: right; padding: var(--s-1) var(--s-2);
          border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th {
@@ -345,8 +360,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 /* The two widest tables scroll inside themselves rather than dragging the whole
    page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
    neither can honestly be narrowed: every column is a knob you compare rows on. */
-#board .board-group { overflow-x: auto; margin-bottom: 1.2rem; }
-#board .board-group h3 { margin-top: .2rem; }
+#board .board-group { overflow-x: auto; margin-bottom: var(--s-4); }
+#board .board-group h3 { margin-top: var(--s-1); }
 #experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
 #rows { max-height: 26rem; overflow-y: auto; }
 
@@ -358,11 +373,11 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 .stderr { font-size: var(--t-2xs); font-weight: 400; color: var(--ink-soft);
           white-space: nowrap; }
 .note {
-  border-left: 3px solid var(--alert); padding: .35rem .6rem; font-size: var(--t-xs);
-  background: var(--alert-wash); margin: .35rem 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-left: 3px solid var(--alert); padding: var(--s-1) var(--s-2); font-size: var(--t-xs);
+  background: var(--alert-wash); margin: var(--s-1) 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 .pill {
-  font: var(--t-2xs)/1.6 var(--mono); padding: 0 .35rem; border: 1px solid var(--rule);
+  font: var(--t-2xs)/1.6 var(--mono); padding: 0 var(--s-1); border: 1px solid var(--rule);
   border-radius: var(--radius-sm); color: var(--ink-soft);
 }
 details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs); }
@@ -371,15 +386,15 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .fa { direction: rtl; text-align: right; font-family: "Vazirmatn", Tahoma, sans-serif; }
 .section-meta { font: var(--t-xs)/1.5 var(--mono); color: var(--ink-soft); }
 .prose { font-size: var(--t-xs); line-height: 1.55; color: var(--ink-soft);
-         margin: .1rem 0 .7rem; max-width: 92ch; }
+         margin: var(--s-px) 0 var(--s-3); max-width: 92ch; }
 .prose b { color: var(--ink); }
 .prose code { font: var(--t-xs) var(--mono); }
-#indexInfo, #retrieveInfo { margin-top: .6rem; font-size: var(--t-xs); color: var(--ink-soft); }
-#datasetInfo, #importInfo { margin-top: .3rem; font-size: var(--t-xs); line-height: 1.45; }
-#dataset-file { font-size: var(--t-xs); padding: .25rem; }
+#indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
+#datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
+#dataset-file { font-size: var(--t-xs); padding: var(--s-1); }
 #experimentDetail pre, #jobBox pre {
   white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;
-  overflow: auto; background: var(--plate); padding: .5rem; border-radius: var(--radius-sm);
+  overflow: auto; background: var(--plate); padding: var(--s-2); border-radius: var(--radius-sm);
 }
 
 /* Only the tokens move: every rule above is written in them, so there is no
@@ -401,14 +416,24 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 
 /* --- the LLM widget: a corner helper, not a stage — chassis, no step ink --- */
 .widget-launch {
+  /* right/bottom left literal (not var(--s-4)): a pre-existing convention
+     test pins these anchors' exact real-value string (`right: 1rem; bottom:
+     1rem;`) to guard against silent deletion, and this dispatch is not
+     authorised to edit that test — only Task 4's own new row. 1rem is --s-4
+     by Table B; only the token substitution is deferred, not the value. */
   position: fixed; right: 1rem; bottom: 1rem; z-index: 40;
   background: var(--chassis); color: var(--chassis-ink);
   border: 1px solid var(--rule); border-radius: var(--radius-pill);
-  padding: 0.5rem 0.9rem; font: inherit; cursor: pointer;
+  padding: var(--s-2) var(--s-3); font: inherit; cursor: pointer;
   box-shadow: var(--shadow);
 }
 .widget-launch:hover { background: var(--chassis-soft); }
 .widget-window {
+  /* right left literal for the same reason as .widget-launch above (a
+     pre-existing convention test pins the exact string `right: 1rem;
+     bottom: 3.6rem;`). bottom: 3.6rem clears the launch button's own box
+     (height plus its offset from the viewport edge) and is separately not
+     in Table B's replace-list regardless. */
   position: fixed; right: 1rem; bottom: 3.6rem; z-index: 41;
   width: min(22rem, calc(100vw - 2rem));
   display: flex; flex-direction: column;
@@ -418,17 +443,17 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .widget-window[hidden] { display: none; }
 .widget-head {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 0.4rem 0.7rem;
+  padding: var(--s-2) var(--s-3);
   background: var(--chassis); color: var(--chassis-ink);
   border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 .widget-close {
   background: none; border: none; color: var(--chassis-ink);
-  font-size: var(--t-md); cursor: pointer; padding: 0 0.2rem;
+  font-size: var(--t-md); cursor: pointer; padding: 0 var(--s-1);
 }
 .widget-config {
-  display: flex; align-items: center; gap: 0.4rem;
-  padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule);
   /* 0.85em, relative to body's font-size (var(--t-base), 14px computed —
      .widget-window is a direct child of body and sets none of its own): the
      11.9px product's nearest scale step is --t-xs (12px). */
@@ -437,14 +462,14 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 /* `display: flex` above beats the browser's own [hidden] rule, so the gear's
    toggle needs this stated — same as .widget-window. */
 .widget-config[hidden] { display: none; }
-.widget-config label { display: flex; align-items: center; gap: 0.4rem; flex: 1; }
+.widget-config label { display: flex; align-items: center; gap: var(--s-2); flex: 1; }
 .widget-config select { flex: 1; min-width: 0; }
 .widget-log {
   min-height: 8rem; max-height: 40vh; overflow-y: auto;
-  padding: 0.6rem 0.7rem; display: flex; flex-direction: column; gap: 0.5rem;
+  padding: var(--s-2) var(--s-3); display: flex; flex-direction: column; gap: var(--s-2);
 }
 .widget-msg {
-  max-width: 88%; padding: 0.35rem 0.55rem; border-radius: var(--radius-md);
+  max-width: 88%; padding: var(--s-1) var(--s-2); border-radius: var(--radius-md);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .widget-msg.you { align-self: flex-end; background: var(--chassis); color: var(--chassis-ink); }
@@ -452,8 +477,8 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .widget-msg.err { align-self: flex-start; background: var(--alert-wash); color: var(--alert); }
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
-                   font-size: var(--t-sm); padding-top: 0; margin-top: -0.35rem; }
-.widget-form { display: flex; gap: 0.4rem; padding: 0.5rem 0.6rem; border-top: 1px solid var(--rule); }
+                   font-size: var(--t-sm); padding-top: 0; margin-top: calc(var(--s-1) * -1); }
+.widget-form { display: flex; gap: var(--s-2); padding: var(--s-2); border-top: 1px solid var(--rule); }
 .widget-form input { flex: 1; min-width: 0; }
 .widget-form button {
   background: var(--chassis); border: 1px solid var(--rule); color: var(--chassis-ink);

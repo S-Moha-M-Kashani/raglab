@@ -1,4 +1,7 @@
 """The shipped-assistant preset, after it stopped being derived."""
+import json
+
+from raglab.configuration import lab_config as config
 from raglab.evaluation import production_baseline_snapshot as baseline
 
 
@@ -69,3 +72,36 @@ def test_the_snapshot_does_not_mutate_the_defaults_it_was_given():
     assert defaults['index']['chunker'] == 'semantic-drift'
     assert defaults['retrieval']['k'] == 4
     assert defaults['generation']['answerer'] == 'extractive'
+
+
+def test_the_shipped_settings_archive_is_a_credential_free_snapshot():
+    # this is a unit test
+    archived = json.loads((config.ROOT / 'fixtures' /
+                          'loadstar-rag-setting.json').read_text(encoding='utf-8'))
+    assert archived['format'] == 'raglab-experiment'
+    assert archived['version'] == 1
+    assert 'evaluation' not in archived
+    assert archived['settings']['config'] == config.PRODUCTION_CONFIG
+    assert archived['settings']['ui'] == {
+        'mode': '', 'ragas_mode': 'offline', 'limit': 0,
+        'ragas_limit': 0, 'types': [],
+    }
+
+    def credential_shaped(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                normalized = key.lower().replace('_', '')
+                if normalized in {'apikey', 'openrouterkey', 'password',
+                                  'clientsecret', 'accesstoken', 'authorization'}:
+                    return key
+                found = credential_shaped(nested)
+                if found:
+                    return found
+        if isinstance(value, list):
+            for nested in value:
+                found = credential_shaped(nested)
+                if found:
+                    return found
+        return None
+
+    assert credential_shaped(archived) is None

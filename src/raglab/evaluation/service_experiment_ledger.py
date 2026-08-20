@@ -55,9 +55,12 @@ CREATE TABLE IF NOT EXISTS experiments (
 );
 """
 
-# What never goes into `detail`: a new result shape carrying chunk text should
-# be stripped by being added here, not by every caller remembering to.
-HEAVY = ('chunks_by_session',)
+# What never goes into a *job* row's `detail`: a new result shape carrying
+# chunk text should be stripped by being added here, not by every caller
+# remembering to. The one deliberate exception is `insert_archive` below —
+# an imported archive is preserved verbatim, evidence included, because the
+# ledger is its only home (it has no job, no run file, no leaderboard row).
+HEAVY = ('chunks_by_session', 'archive_evidence')
 
 
 def db_path(env: dict | None = None) -> Path:
@@ -148,6 +151,65 @@ def detail_for(job: dict) -> dict:
     # failed experiment is only worth recording if it says what was attempted.
     detail.setdefault('config', job.get('config') or {})
     return detail
+
+
+def _row_for_archive(payload: dict) -> dict:
+    """One completed imported archive as an ordinary, unranked experiment.
+
+    Archives contain a canonical completed result rather than a ``Jobs``
+    record, so they deliberately have their own narrow projection.  In
+    particular this does not call the run-file helpers: imported evidence is
+    inspectable from the ledger only and is never leaderboard input.
+    """
+    evaluation = payload['evaluation']
+    result = evaluation['result']
+    config = result['config']
+    index = config['index']
+    retrieval = config['retrieval']
+    generation = config['generation']
+    ragas = result['ragas']
+    return {
+        'experiment_id': result['run_id'],
+        'kind': 'run',
+        'state': 'done',
+        'label': result['label'],
+        'started_at': result['started_at'],
+        'seconds': round(float(result['seconds']), 2),
+        'dataset': result['dataset'],
+        'provider': evaluation['execution']['provider'],
+        'chunker': index['chunker'],
+        'embedder': index['embedder'],
+        'retriever': retrieval['retriever'],
+        'reranker': retrieval['reranker'],
+        'grader': retrieval['grader'],
+        'answerer': generation['answerer'],
+        'n_questions': int(result['summary']['n_questions']),
+        'decision': ragas.get('decision'),
+        'decision_stderr': (ragas.get('decision_spread') or {}).get('stderr'),
+        'error': '',
+    }
+
+
+def insert_archive(payload: dict, path: Path | None = None) -> str:
+    """Insert a completed archive once, preserving the first import verbatim."""
+    row = _row_for_archive(payload)
+    values = dict(row, detail=json.dumps(payload, ensure_ascii=False,
+                                         allow_nan=False))
+    fields = tuple(values)
+    with connect(path) as db:
+        cursor = db.execute(
+            f'INSERT INTO experiments ({", ".join(fields)}) '
+            f'VALUES ({", ".join(":" + name for name in fields)}) '
+            'ON CONFLICT(experiment_id) DO NOTHING', values)
+    return 'created' if cursor.rowcount == 1 else 'existing'
+
+
+def load_archive(run_id: str, path: Path | None = None) -> dict | None:
+    """Return a stored archive payload, never an ordinary experiment detail."""
+    found = experiment(run_id, path=path)
+    detail = (found or {}).get('detail')
+    return detail if (isinstance(detail, dict)
+                      and detail.get('format') == 'raglab-experiment') else None
 
 
 def record(job: dict, state: str, path: Path | None = None) -> str:

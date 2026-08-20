@@ -84,6 +84,35 @@ select { font: inherit; color: inherit; }
   display: block;
   margin-bottom: .7rem;
 }
+.inspector-status-line {
+  display: flex; align-items: center; gap: .45rem .65rem; flex-wrap: wrap;
+  margin-bottom: .7rem;
+  min-width: 0;
+}
+.inspector-status-line .follow-state { margin-bottom: 0; }
+.archive-state {
+  max-width: 100%;
+  font: 700 .64rem/1.5 var(--sans);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--chassis-ink-soft);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: .08rem .45rem;
+  overflow-wrap: anywhere;
+}
+.archive-return-live {
+  font: 600 .7rem/1.4 var(--sans);
+  color: var(--chassis-ink);
+  background: transparent;
+  border: 1px solid var(--chassis-ink-soft);
+  border-radius: 3px;
+  padding: .15rem .5rem;
+}
+.archive-return-live:hover {
+  color: #fff;
+  border-color: #fff;
+}
 .follow-state::before {
   content: "";
   display: inline-block;
@@ -149,6 +178,10 @@ select { font: inherit; color: inherit; }
 }
 .inspector-controls button:hover { background: var(--chassis); color: #fff;
                                      border-color: var(--chassis); }
+.inspector-controls button:disabled {
+  cursor: not-allowed; opacity: .55;
+  background: var(--card); color: var(--ink-soft); border-color: var(--rule);
+}
 .inspector-controls select { border: 1px solid var(--rule); background: var(--card);
                              padding: .25rem .35rem; max-width: 22rem; }
 

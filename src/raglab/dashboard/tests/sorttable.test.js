@@ -167,34 +167,45 @@ test('onApply reports the displayed order on wiring, on sort, and on the '
     ['pipeline', 'decision'],
     [['a', '0.40'], ['b', '0.90'], ['c', '0.10']]);
   const seen = [];
+  // `Array.from`, not `.map`: both `rows` (the callback argument) and
+  // `table.tBodies[0].rows` are arrays from the vm sandbox sorttable.js runs
+  // in, so their own `.map` would build its result via that sandbox's own
+  // `Array`, and comparing it against a plain array literal here fails
+  // deepStrictEqual on realm identity alone, despite identical contents.
+  // `Array.from` called on this side's `Array` sidesteps that.
+  const bodyOrder = () => Array.from(
+    table.tBodies[0].rows, (r) => r.cells[0].textContent);
   SortTable.make(table, {
-    // `Array.from`, not `rows.map`: `rows` is an array from the vm sandbox
-    // sorttable.js runs in, so `rows.map` would build its result via that
-    // sandbox's own `Array`, and comparing it against a plain array literal
-    // here fails deepStrictEqual on realm identity alone, despite identical
-    // contents. `Array.from` called on this side's `Array` sidesteps that.
     onApply: (rows) => seen.push(Array.from(rows, (r) => r.cells[0].textContent)),
   });
   // Fires once on wiring, so a rank column starts correct rather than
-  // correct-after-the-first-click.
+  // correct-after-the-first-click. The body itself was never touched to get
+  // there — nothing needed moving to already match the served order.
   assert.equal(seen.length, 1);
   assert.deepStrictEqual(seen.at(-1), ['a', 'b', 'c']);
+  assert.deepStrictEqual(bodyOrder(), ['a', 'b', 'c']);
 
   const [pipelineHead, decisionHead] = table.tHead.rows[0].cells;
   decisionHead.click();
   assert.deepStrictEqual(seen.at(-1), ['b', 'a', 'c']);
+  // The callback's argument is only meaningful if the actual DOM agrees —
+  // this is what would have caught a shim (or a browser) that computed the
+  // right answer for onApply but never actually moved the rows.
+  assert.deepStrictEqual(bodyOrder(), ['b', 'a', 'c']);
   assert.equal(decisionHead.getAttribute('aria-sort'), 'descending');
   assert.equal(pipelineHead.getAttribute('aria-sort'), 'none');
 
   decisionHead.click();
   assert.deepStrictEqual(seen.at(-1), ['c', 'a', 'b']);
+  assert.deepStrictEqual(bodyOrder(), ['c', 'a', 'b']);
   assert.equal(decisionHead.getAttribute('aria-sort'), 'ascending');
 
   // The third click restores the served order, and onApply must say so — a
   // rank column left showing the reversed numbering there would be a column
-  // lying.
+  // lying. Same for the body itself.
   decisionHead.click();
   assert.deepStrictEqual(seen.at(-1), ['a', 'b', 'c']);
+  assert.deepStrictEqual(bodyOrder(), ['a', 'b', 'c']);
   assert.equal(decisionHead.getAttribute('aria-sort'), 'none');
 });
 

@@ -154,9 +154,14 @@ const SortTable = (() => {
       });
     });
 
-    // Fires onApply for the served order. Cheap — `column` is -1, so this
-    // reorders nothing; it only reports.
-    apply();
+    // Reports the served order to onApply without touching the DOM: every
+    // sortable `th` above already got `aria-sort="none"`, so there is
+    // nothing left for `apply()` to do here except re-append rows that are
+    // already in this order — real work for no visible change, on however
+    // many sortable tables a page renders at once. A rank must still start
+    // correct rather than correct-after-the-first-click, so it is reported
+    // directly instead.
+    if (options && typeof options.onApply === 'function') options.onApply(served);
   }
 
   // Every table under a root, for a page that renders several at once.

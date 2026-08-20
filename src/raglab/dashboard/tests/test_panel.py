@@ -312,6 +312,7 @@ def test_the_standalone_panel_reads_only_fields_the_lab_still_produces(client):
 
 
 def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
+    # this is a convention test
     source = PANEL_JS.read_text()
     exchange = source[source.index('async function importArchiveFile'):
                       source.index('function renderResult')]
@@ -329,6 +330,7 @@ def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
 
 
 def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
+    # this is a convention test
     source = PANEL_JS.read_text()
     exchange = source[source.index('async function importArchiveFile'):
                       source.index('function renderResult')]
@@ -343,7 +345,25 @@ def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
         assert f'safe({value})' in render
 
 
+def test_rendering_a_different_run_makes_export_settings_only():
+    # this is a convention test
+    """Clicking an older leaderboard or ledger row re-renders the readings
+    card without touching any control, so the settings-change invalidation
+    never fires — but exporting then must not ship the previous run's private
+    evidence while the screen shows a different result. The design pins it:
+    export remains settings-only unless the browser holds the complete
+    evidence for the run on display."""
+    source = PANEL_JS.read_text()
+    render = source[source.index('function renderResult'):
+                    source.index('function table')]
+    assert '.run_id !== result.run_id' in render, (
+        'renderResult must compare the displayed run to the held evidence')
+    assert 'CURRENT_ARCHIVE = null' in render, (
+        'renderResult must drop held evidence that belongs to another run')
+
+
 def test_unavailable_completed_dataset_is_view_only_but_settings_only_fails():
+    # this is a convention test
     source = PANEL_JS.read_text()
     assert 'ArchiveIO.datasetDisposition' in source
     assert "option.dataset.archiveViewOnly = 'true'" in source
@@ -353,6 +373,7 @@ def test_unavailable_completed_dataset_is_view_only_but_settings_only_fails():
 
 
 def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
+    # this is a convention test
     source = PANEL_JS.read_text()
     boot = source[source.index('async function boot()'):
                   source.index('async function refreshOptions()')]
@@ -365,6 +386,7 @@ def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
 
 
 def test_every_experiment_rows_escape_strings_and_bind_detail_clicks():
+    # this is a convention test
     source = PANEL_JS.read_text()
     rows = source[source.index('async function loadExperiments'):
                   source.index('// The whole stored payload for one experiment')]
@@ -377,6 +399,7 @@ def test_every_experiment_rows_escape_strings_and_bind_detail_clicks():
 
 
 def test_imported_results_render_their_archived_metric_catalogue():
+    # this is a convention test
     source = PANEL_JS.read_text()
     exchange = source[source.index('async function importArchiveFile'):
                       source.index('function renderResult')]

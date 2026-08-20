@@ -1228,6 +1228,17 @@ $('archive-export').onclick = () => {
 function renderResult(result, options = {}) {
   const safe = (value) => escapeHtml(String(value ?? ''));
   const metricCatalogue = options.metric_catalogue || measures();
+  // Held evidence follows the run on display: an older leaderboard or ledger
+  // row changes no control, so the settings-change invalidation never fires —
+  // but exporting another run's evidence under this card would let the file
+  // disagree with the screen.
+  if (CURRENT_ARCHIVE
+      && CURRENT_ARCHIVE.evaluation.result.run_id !== result.run_id) {
+    CURRENT_ARCHIVE = null;
+    setArchiveStatus(
+      'Readings belong to a different run; export will contain settings only.',
+      'warning');
+  }
   // Remembered here rather than at each caller: a run that finished, a
   // leaderboard click and a ledger click are three ways to be looking at the same
   // experiment, and all three should still be there after a refresh.

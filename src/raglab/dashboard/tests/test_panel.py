@@ -8,7 +8,7 @@ from raglab.configuration import lab_config as config
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
 
-from raglab.conftest import RAGLAB_DIR
+from raglab.conftest import RAGLAB_DIR, _font_size_literals
 
 PANEL_JS = RAGLAB_DIR / 'dashboard' / 'frontend' / 'panel.js'
 
@@ -296,6 +296,15 @@ def test_the_served_panel_keeps_its_conventions(
         assert must_contain in text, reason
     if must_not_contain is not None:
         assert must_not_contain not in text, reason
+
+
+def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
+    # this is a convention test
+    """22 hand-set sizes in three units is why the panel read as cramped. Each
+    must name a --t-* step instead, so a size is a decision recorded once
+    rather than a number typed at the point of use. The Inspector's half of
+    this claim lives in test_inspector.py."""
+    assert _font_size_literals(panel_texts['panel.css']) == []
 
 
 # --- the routes behind the split files --------------------------------------

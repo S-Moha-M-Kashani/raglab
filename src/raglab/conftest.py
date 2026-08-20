@@ -1,6 +1,7 @@
 """Suite-wide guards, autouse so no test has to remember them, plus the
 fixtures and settings shared across more than one test file."""
 import os
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +15,24 @@ from raglab.configuration.lab_config import IndexConfig, LabSettings
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
 RAGLAB_DIR = Path(raglab.__file__).resolve().parent
+
+# A length in a font-size declaration, e.g. ".72rem" or "12.5px" — but not a
+# var() reference and not a bare 0. Shared by test_panel.py and
+# test_inspector.py, both of which check their sheet's type scale against
+# the same claim, so the pattern is named once here rather than twice.
+_SIZE_LITERAL = re.compile(r'font-size:\s*[0-9]*\.?[0-9]+(?:rem|px|em)')
+# The shorthand carries size before the slash: `font: 600 1.32rem/1 var(--slab)`
+_FONT_SHORTHAND_LITERAL = re.compile(
+    r'font:\s*(?:[a-z0-9]+\s+)*?[0-9]*\.?[0-9]+(?:rem|px|em)\s*/')
+
+
+def _font_size_literals(css: str) -> list[str]:
+    """Every place a stylesheet still spells a type size out by hand, in both
+    the longhand and the shorthand form. The type scale is only a scale while
+    this comes back empty: one literal is a value nobody chose from the ramp,
+    and two are the drift starting again."""
+    return (_SIZE_LITERAL.findall(css)
+            + _FONT_SHORTHAND_LITERAL.findall(css))
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 

@@ -24,7 +24,7 @@
 * { box-sizing: border-box; }
 body {
   margin: 0; padding: 0 0 5rem; background: var(--plate); color: var(--ink);
-  font: 13px/1.55 var(--sans);
+  font: var(--t-base)/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
 :focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
@@ -41,17 +41,17 @@ body {
 .masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
             max-width: 1560px; margin: 0 auto; }
 h1 {
-  font: 600 1.32rem/1 var(--slab); letter-spacing: -.01em; margin: 0;
+  font: 600 var(--t-xl)/1 var(--slab); letter-spacing: -.01em; margin: 0;
   color: #fff;
 }
 h1 .lab-mark {
   /* The lab's own initial, set as a plate on the chassis. One ornament. */
   display: inline-block; margin-right: .5rem; padding: .18rem .42rem;
   background: var(--step-index); color: var(--chassis);
-  font: 700 .82rem/1 var(--mono); vertical-align: .18em; border-radius: 2px;
+  font: 700 var(--t-sm)/1 var(--mono); vertical-align: .18em; border-radius: 2px;
 }
 #corpus {
-  font: .74rem/1.4 var(--mono); color: var(--chassis-ink-soft);
+  font: var(--t-xs)/1.4 var(--mono); color: var(--chassis-ink-soft);
   letter-spacing: -.01em;
 }
 .chassis-right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
@@ -59,7 +59,7 @@ h1 .lab-mark {
    panel's own run buttons. */
 .lab-link {
   align-self: center; color: var(--step-generation); text-decoration: none;
-  font: 600 .76rem/1 var(--sans);
+  font: 600 var(--t-xs)/1 var(--sans);
   border-bottom: 1px solid var(--step-generation); padding-bottom: 2px;
 }
 .lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
@@ -77,13 +77,13 @@ h1 .lab-mark {
 .archive-button {
   display: inline-block; margin: 0; padding: .42rem .85rem;
   color: var(--chassis-ink); border: 1px solid #35424f; border-radius: 3px;
-  font: 600 .78rem/1.4 var(--sans); text-transform: none;
+  font: 600 var(--t-sm)/1.4 var(--sans); text-transform: none;
   letter-spacing: 0; cursor: pointer; white-space: nowrap;
 }
 .archive-button:hover { background: var(--chassis-soft); color: #fff; }
 .archive-status {
   max-width: 52ch; color: var(--chassis-ink-soft);
-  font: .7rem/1.45 var(--mono); overflow-wrap: anywhere;
+  font: var(--t-xs)/1.45 var(--mono); overflow-wrap: anywhere;
 }
 .archive-status.success { color: var(--chassis-ink); }
 /* Chassis-local caution ink — never a step token: the masthead is a helper,
@@ -110,7 +110,7 @@ h1 .lab-mark {
   margin-bottom: .65rem; padding-bottom: .45rem;
   border-bottom: 1px solid var(--rule);
 }
-.settings-head span { color: var(--ink-soft); font: .72rem/1.4 var(--mono); }
+.settings-head span { color: var(--ink-soft); font: var(--t-xs)/1.4 var(--mono); }
 .settings-popover .actions { margin-top: .55rem; }
 
 /* Capability chips: what this installation can actually do, before you spend an
@@ -118,7 +118,7 @@ h1 .lab-mark {
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem auto 0;
          max-width: 1560px; }
 .chip {
-  font: .68rem/1.5 var(--mono); padding: .05rem .45rem; border-radius: 2px;
+  font: var(--t-2xs)/1.5 var(--mono); padding: .05rem .45rem; border-radius: 2px;
   background: var(--chassis-soft); color: var(--chassis-ink-soft);
   border-left: 2px solid transparent;
 }
@@ -127,17 +127,17 @@ h1 .lab-mark {
 
 .findings { max-width: 1560px; margin: .55rem auto 0; }
 .findings > summary {
-  cursor: pointer; color: var(--chassis-ink-soft); font-size: .74rem;
+  cursor: pointer; color: var(--chassis-ink-soft); font-size: var(--t-xs);
   list-style: none;
 }
 .findings > summary::before { content: "▸ "; }
 .findings[open] > summary::before { content: "▾ "; }
 .findings > summary:hover { color: #fff; }
 .findings ul { margin: .5rem 0 .3rem; padding-left: 1.1rem; columns: 2; column-gap: 2rem; }
-.findings li { font-size: .74rem; line-height: 1.5; color: var(--chassis-ink-soft);
+.findings li { font-size: var(--t-xs); line-height: 1.5; color: var(--chassis-ink-soft);
                margin-bottom: .35rem; break-inside: avoid; }
 .findings b { color: var(--chassis-ink); }
-.findings code { font: .72rem var(--mono); color: #fff; }
+.findings code { font: var(--t-xs) var(--mono); color: #fff; }
 @media (max-width: 900px) { .findings ul { columns: 1; } }
 
 /* ── the spine ───────────────────────────────────────────────────────────────
@@ -156,19 +156,19 @@ h1 .lab-mark {
 }
 .spine-seg:hover, .spine-seg[aria-current="step"] { opacity: 1; background: #222e3c; }
 .spine-seg b {
-  color: var(--step); font: 700 .66rem/1.6 var(--sans);
+  color: var(--step); font: 700 var(--t-2xs)/1.6 var(--sans);
   text-transform: uppercase; letter-spacing: .14em;
 }
 /* The note lives on the card, where the controls it describes are. Here it is a
    hint, so the spine stays one line high whether or not anything is running. */
-.spine-seg span { font-size: .68rem; line-height: 1.6; overflow: hidden;
+.spine-seg span { font-size: var(--t-2xs); line-height: 1.6; overflow: hidden;
                   text-overflow: ellipsis; white-space: nowrap; }
 .spine-track { height: 4px; background: var(--chassis-soft); margin-top: 2px; }
 .spine-track i { display: block; height: 4px; background: var(--step, var(--chassis-ink-soft));
                  width: 0; transition: width .25s linear; }
 .spine-caption {
   display: flex; gap: .6rem; align-items: baseline; margin-top: .4rem;
-  font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
+  font: var(--t-xs)/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
 }
 .spine-caption b { color: var(--step, #fff); font-weight: 600; }
 .spine-caption .right { margin-left: auto; }
@@ -205,16 +205,16 @@ main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
   display: flex; align-items: baseline; gap: .5rem; margin: .85rem 0 .2rem;
 }
 .card-head h2 {
-  margin: 0; font: 700 .72rem/1.4 var(--sans); text-transform: uppercase;
+  margin: 0; font: 700 var(--t-xs)/1.4 var(--sans); text-transform: uppercase;
   letter-spacing: .13em; color: var(--ink);
 }
 .card[data-step] .card-head h2 { color: var(--step); }
 .card-head .num {
-  font: 700 .7rem/1 var(--mono); color: var(--step, var(--ink-soft));
+  font: 700 var(--t-xs)/1 var(--mono); color: var(--step, var(--ink-soft));
   border: 1px solid currentColor; border-radius: 2px; padding: .12rem .28rem;
 }
-.card-note { margin: .1rem 0 .7rem; font-size: .74rem; color: var(--ink-soft); }
-h3 { font: 700 .68rem/1.4 var(--sans); text-transform: uppercase;
+.card-note { margin: .1rem 0 .7rem; font-size: var(--t-xs); color: var(--ink-soft); }
+h3 { font: 700 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase;
      letter-spacing: .12em; color: var(--ink-soft); margin: 1rem 0 .4rem; }
 
 /* ── controls ────────────────────────────────────────────────────────────── */
@@ -223,25 +223,25 @@ h3 { font: 700 .68rem/1.4 var(--sans); text-transform: uppercase;
 .field-row > * { flex: 1; min-width: 0; margin-top: .6rem; }
 label {
   display: block; margin-bottom: .18rem; color: var(--ink-soft);
-  font: 600 .67rem/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
+  font: 600 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
 }
 label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 select, input[type=number], input[type=text], input[type=password], textarea {
-  width: 100%; font: 13px/1.4 var(--sans); padding: .34rem .4rem; color: var(--ink);
+  width: 100%; font: var(--t-base)/1.4 var(--sans); padding: .34rem .4rem; color: var(--ink);
   background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
 }
-input[type=number], input[type=password] { font-family: var(--mono); font-size: 12.5px; }
+input[type=number], input[type=password] { font-family: var(--mono); font-size: var(--t-sm); }
 select:hover, input:hover { border-color: var(--ink-soft); }
 textarea { min-height: 3.2rem; resize: vertical; }
 .switches { display: flex; flex-wrap: wrap; gap: .1rem .9rem; margin-top: .55rem; }
 .switches label {
   display: flex; align-items: center; gap: .35rem; margin: 0; font-weight: 400;
-  text-transform: none; letter-spacing: 0; font-size: .78rem; color: var(--ink);
+  text-transform: none; letter-spacing: 0; font-size: var(--t-sm); color: var(--ink);
 }
 input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
 .actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; }
 button {
-  font: 600 .78rem/1.4 var(--sans); padding: .42rem .85rem; cursor: pointer;
+  font: 600 var(--t-sm)/1.4 var(--sans); padding: .42rem .85rem; cursor: pointer;
   color: #fff; background: var(--chassis); border: 1px solid var(--chassis);
   border-radius: 3px;
 }
@@ -258,13 +258,13 @@ button:disabled { opacity: .4; cursor: default; }
    changes. */
 .rag-field-off { opacity: 0.5; }
 .rag-field-off .rag-when-dep {
-  opacity: 1; display: block; font-style: italic; font-size: .7rem;
+  opacity: 1; display: block; font-style: italic; font-size: var(--t-xs);
   color: var(--ink-soft); margin-top: .2rem;
 }
 .rag-field-off input, .rag-field-off select { cursor: not-allowed; }
 
 button.why {
-  font: 700 .6rem/1 var(--mono); padding: .12rem .3rem; margin-left: .3rem;
+  font: 700 var(--t-2xs)/1 var(--mono); padding: .12rem .3rem; margin-left: .3rem;
   background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
   border-radius: 999px; vertical-align: middle;
 }
@@ -275,7 +275,7 @@ button.why:hover { color: var(--card); background: var(--step, var(--chassis));
    nesting. Every other text in the registry is a single line with no leading
    space, so they render exactly as they did. */
 p.explain {
-  margin: .3rem 0 .1rem; font-size: .73rem; line-height: 1.5; color: var(--ink-soft);
+  margin: .3rem 0 .1rem; font-size: var(--t-xs); line-height: 1.5; color: var(--ink-soft);
   border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
   background: var(--plate); padding: .35rem .55rem; border-radius: 0 3px 3px 0;
   white-space: pre-wrap; overflow-wrap: anywhere;
@@ -287,7 +287,7 @@ p.explain {
   margin-bottom: .7rem;
 }
 .step-tag {
-  font: 700 .62rem/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
+  font: 700 var(--t-2xs)/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
   color: var(--step);
 }
 /* The same tag used to head a group of knobs *inside* a card, where it needs a
@@ -307,23 +307,23 @@ p.explain {
 }
 .score[data-step] { border-left-color: var(--step); }
 .score b {
-  display: block; font: 400 1.5rem/1.15 var(--mono); letter-spacing: -.03em;
+  display: block; font: 400 var(--t-xl)/1.15 var(--mono); letter-spacing: -.03em;
   font-variant-numeric: tabular-nums;
 }
-.score > span { display: block; color: var(--ink-soft); font-size: .67rem;
+.score > span { display: block; color: var(--ink-soft); font-size: var(--t-2xs);
                 text-transform: uppercase; letter-spacing: .07em; }
 .score[data-step] > span:first-child { color: var(--step); }
 .score .bar { height: 3px; background: var(--rule-soft); margin-top: .35rem; }
 .score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
-.score .muted { text-transform: none; letter-spacing: 0; font-size: .68rem; }
+.score .muted { text-transform: none; letter-spacing: 0; font-size: var(--t-2xs); }
 
-table { border-collapse: collapse; width: 100%; font: 12.5px/1.45 var(--mono);
+table { border-collapse: collapse; width: 100%; font: var(--t-sm)/1.45 var(--mono);
         font-variant-numeric: tabular-nums; }
 th, td { text-align: right; padding: .26rem .45rem;
          border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th {
-  color: var(--ink-soft); font: 600 .66rem/1.5 var(--sans); text-transform: uppercase;
+  color: var(--ink-soft); font: 600 var(--t-2xs)/1.5 var(--sans); text-transform: uppercase;
   letter-spacing: .07em; border-bottom: 1px solid var(--rule); position: sticky;
   top: 0; background: var(--card);
 }
@@ -348,30 +348,33 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 
 .muted { color: var(--ink-soft); }
 /* Attached to the score it qualifies, quieter but never dropped. */
-.stderr { font-size: .8em; font-weight: 400; color: var(--ink-soft);
+/* .8em, relative to the table's own font-size (var(--t-sm), 13px computed —
+   this renders inside a <td>): the 10.4px product's nearest scale step is
+   --t-2xs (11px). */
+.stderr { font-size: var(--t-2xs); font-weight: 400; color: var(--ink-soft);
           white-space: nowrap; }
 .note {
-  border-left: 3px solid var(--alert); padding: .35rem .6rem; font-size: .75rem;
+  border-left: 3px solid var(--alert); padding: .35rem .6rem; font-size: var(--t-xs);
   background: var(--alert-wash); margin: .35rem 0; border-radius: 0 3px 3px 0;
 }
 .pill {
-  font: .66rem/1.6 var(--mono); padding: 0 .35rem; border: 1px solid var(--rule);
+  font: var(--t-2xs)/1.6 var(--mono); padding: 0 .35rem; border: 1px solid var(--rule);
   border-radius: 2px; color: var(--ink-soft);
 }
-details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
+details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs); }
 .right { margin-left: auto; }
 .hidden { display: none; }
 .fa { direction: rtl; text-align: right; font-family: "Vazirmatn", Tahoma, sans-serif; }
-.section-meta { font: .72rem/1.5 var(--mono); color: var(--ink-soft); }
-.prose { font-size: .75rem; line-height: 1.55; color: var(--ink-soft);
+.section-meta { font: var(--t-xs)/1.5 var(--mono); color: var(--ink-soft); }
+.prose { font-size: var(--t-xs); line-height: 1.55; color: var(--ink-soft);
          margin: .1rem 0 .7rem; max-width: 92ch; }
 .prose b { color: var(--ink); }
-.prose code { font: .72rem var(--mono); }
-#indexInfo, #retrieveInfo { margin-top: .6rem; font-size: .74rem; color: var(--ink-soft); }
-#datasetInfo, #importInfo { margin-top: .3rem; font-size: .72rem; line-height: 1.45; }
-#dataset-file { font-size: .74rem; padding: .25rem; }
+.prose code { font: var(--t-xs) var(--mono); }
+#indexInfo, #retrieveInfo { margin-top: .6rem; font-size: var(--t-xs); color: var(--ink-soft); }
+#datasetInfo, #importInfo { margin-top: .3rem; font-size: var(--t-xs); line-height: 1.45; }
+#dataset-file { font-size: var(--t-xs); padding: .25rem; }
 #experimentDetail pre, #jobBox pre {
-  white-space: pre-wrap; font: 11.5px/1.5 var(--mono); max-height: 30rem;
+  white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;
   overflow: auto; background: var(--plate); padding: .5rem; border-radius: 3px;
 }
 
@@ -417,12 +420,15 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
 }
 .widget-close {
   background: none; border: none; color: var(--chassis-ink);
-  font-size: 1rem; cursor: pointer; padding: 0 0.2rem;
+  font-size: var(--t-md); cursor: pointer; padding: 0 0.2rem;
 }
 .widget-config {
   display: flex; align-items: center; gap: 0.4rem;
   padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--rule);
-  font-size: 0.85em;
+  /* 0.85em, relative to body's font-size (var(--t-base), 14px computed —
+     .widget-window is a direct child of body and sets none of its own): the
+     11.9px product's nearest scale step is --t-xs (12px). */
+  font-size: var(--t-xs);
 }
 /* `display: flex` above beats the browser's own [hidden] rule, so the gear's
    toggle needs this stated — same as .widget-window. */
@@ -442,7 +448,7 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
 .widget-msg.err { align-self: flex-start; background: var(--alert-wash); color: var(--alert); }
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
-                   font-size: 0.78rem; padding-top: 0; margin-top: -0.35rem; }
+                   font-size: var(--t-sm); padding-top: 0; margin-top: -0.35rem; }
 .widget-form { display: flex; gap: 0.4rem; padding: 0.5rem 0.6rem; border-top: 1px solid var(--rule); }
 .widget-form input { flex: 1; min-width: 0; }
 .widget-form button {

@@ -188,6 +188,16 @@ def create_inspector_app() -> FastAPI:
     jobs = Jobs()
     app = FastAPI(title='Lodestar RAG Lab Inspector')
 
+    @app.middleware('http')
+    async def never_serve_yesterdays_page(request, call_next):
+        """Same reason as the panel's: the frontend is read from disk per
+        request, so a browser reusing a page without asking turns an edit into
+        "nothing changed" — and a read-only window onto evidence must never show
+        yesterday's evidence."""
+        response = await call_next(request)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.get('/')
     def page():
         return FileResponse(STATIC / 'inspector.html')
@@ -211,6 +221,11 @@ def create_inspector_app() -> FastAPI:
     def tokens_css():
         """The design tokens shared with the panel, so a colour cannot drift apart on either page."""
         return FileResponse(STATIC / 'tokens.css', media_type='text/css')
+
+    @app.get('/chrome.css')
+    def chrome_css():
+        """The bar and surface switcher shared with the panel, so neither surface is a dead end."""
+        return FileResponse(STATIC / 'chrome.css', media_type='text/css')
 
     @app.get('/lab.js')
     def lab_js():

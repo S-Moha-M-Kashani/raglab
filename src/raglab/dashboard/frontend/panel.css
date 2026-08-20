@@ -16,10 +16,12 @@
 [data-step="retrieval"] { --step: var(--step-retrieval); }
 [data-step="generation"] { --step: var(--step-generation); }
 [data-step="agent"] { --step: var(--step-agent); }
-.chassis [data-step="index"], .spine [data-step="index"] { --step: var(--step-index-lit); }
-.chassis [data-step="retrieval"], .spine [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
-.chassis [data-step="generation"], .spine [data-step="generation"] { --step: var(--step-generation-lit); }
-.chassis [data-step="agent"], .spine [data-step="agent"] { --step: var(--step-agent-lit); }
+/* An ink tuned for porcelain reads too dark on the chassis, so every step on a
+   dark band takes its lifted variant. The bar and the rail are dark bands. */
+.topbar [data-step="index"], .statusrail [data-step="index"] { --step: var(--step-index-lit); }
+.topbar [data-step="retrieval"], .statusrail [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
+.topbar [data-step="generation"], .statusrail [data-step="generation"] { --step: var(--step-generation-lit); }
+.topbar [data-step="agent"], .statusrail [data-step="agent"] { --step: var(--step-agent-lit); }
 
 * { box-sizing: border-box; }
 body {
@@ -36,32 +38,11 @@ body {
   * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
 
-/* ── the chassis ─────────────────────────────────────────────────────────── */
-.chassis {
-  background: var(--chassis); color: var(--chassis-ink);
-  /* Horizontal value is the shared page gutter (--gutter), not a ramp step —
-     it must match main's so every page-level band shares one left/right
-     edge. Do not move this back onto --s-5; that re-breaks the alignment. */
-  padding: var(--s-4) var(--gutter) var(--s-2);
-}
-.chassis a { color: #fff; }
-.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-2) var(--s-4);
-            max-width: var(--measure); margin: 0 auto; }
-h1 {
-  font: 600 var(--t-xl)/1 var(--slab); letter-spacing: -.01em; margin: 0;
-  color: #fff;
-}
-h1 .lab-mark {
-  /* The lab's own initial, set as a plate on the chassis. One ornament. */
-  display: inline-block; margin-right: var(--s-2); padding: var(--s-1) var(--s-2);
-  background: var(--step-index); color: var(--chassis);
-  font: 700 var(--t-sm)/1 var(--mono); vertical-align: .18em; border-radius: var(--radius-sm);
-}
-#corpus {
-  font: var(--t-xs)/1.4 var(--mono); color: var(--chassis-ink-soft);
-  letter-spacing: -.01em;
-}
-.chassis-right { margin-left: auto; display: flex; align-items: center; gap: var(--s-3); }
+/* ── the bar's panel-local details ───────────────────────────────────────────
+   The bar itself, the switcher and the progress line are in chrome.css, shared
+   with the Inspector. What stays here is only what this page adds to it: the
+   ghost buttons that must re-light on a dark band, and the archive exchange. */
+#corpus { color: var(--ink); letter-spacing: -.01em; }
 /* A door to another service, so it looks like a link and not like one of this
    panel's own run buttons. */
 .lab-link {
@@ -70,8 +51,8 @@ h1 .lab-mark {
   border-bottom: 1px solid var(--step-generation); padding-bottom: 2px;
 }
 .lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
-.chassis button.ghost { color: var(--chassis-ink); border-color: #35424f; }
-.chassis button.ghost:hover { background: var(--chassis-soft); color: #fff; }
+.topbar button.ghost { color: var(--chassis-ink); border-color: #35424f; }
+.topbar button.ghost:hover { background: var(--chassis-soft); color: #fff; }
 .settings-popover button.ghost { color: var(--ink); border-color: var(--rule); }
 .settings-popover button.ghost:hover {
   background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
@@ -88,20 +69,15 @@ h1 .lab-mark {
   letter-spacing: 0; cursor: pointer; white-space: nowrap;
 }
 .archive-button:hover { background: var(--chassis-soft); color: #fff; }
-.archive-status {
-  max-width: 52ch; color: var(--chassis-ink-soft);
-  font: var(--t-xs)/1.45 var(--mono); overflow-wrap: anywhere;
-}
-.archive-status.success { color: var(--chassis-ink); }
-/* Chassis-local caution ink — never a step token: the masthead is a helper,
-   not a pipeline stage, and step colour is reserved for the four cards. */
-.archive-status.warning { color: #d8c69b; }
-.archive-status.error { color: #e6b4ad; }
+/* The archive message now reports from the banner under the bar, which carries
+   its own tone inks — the caution colour is never a step token, because the
+   exchange is a helper and step colour is reserved for the four cards. */
+.archive-status { overflow-wrap: anywhere; }
 @media (max-width: 720px) {
-  .chassis-right, .archive-exchange { width: 100%; margin-left: 0; }
-  .archive-exchange { align-items: flex-start; flex-wrap: wrap; padding: var(--s-2) 0 0;
+  .archive-exchange { width: 100%; margin-left: 0;
+                      align-items: flex-start; flex-wrap: wrap;
+                      padding: var(--s-2) 0 0;
                       border-left: 0; border-top: 1px solid #35424f; }
-  .archive-status { flex-basis: 100%; max-width: none; }
 }
 .settings-popover {
   /* 3.4rem: clears the chassis header's current height, not a ramp step.
@@ -125,9 +101,102 @@ h1 .lab-mark {
 .settings-head span { color: var(--ink-soft); font: var(--t-xs)/1.4 var(--mono); }
 .settings-popover .actions { margin-top: var(--s-2); }
 
+/* ── the context bar ─────────────────────────────────────────────────────────
+   Which corpus the controls below measure against. The name is always on
+   screen because it changes what every number on the page means; the census
+   (sessions, messages, period, question count) is one click away, because a
+   stats strip is not something anyone reads twice an hour. */
+.context-bar {
+  max-width: var(--measure); margin: 0 auto;
+  padding: var(--s-2) var(--gutter) 0;
+}
+.context-scope {
+  appearance: none; display: inline-flex; align-items: baseline; gap: var(--s-2);
+  background: transparent; border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  padding: var(--s-1) var(--s-3); cursor: pointer;
+  color: var(--ink); font: var(--t-xs)/1.5 var(--mono);
+}
+.context-scope:hover { border-color: var(--ink-soft); background: var(--card); }
+.context-label {
+  color: var(--ink-soft); font: 700 var(--t-2xs)/1.5 var(--sans);
+  text-transform: uppercase; letter-spacing: .1em;
+}
+.context-caret { color: var(--ink-soft); font-size: var(--t-2xs); }
+.status-pill .context-caret { color: inherit; }
+.context-detail {
+  margin: 0; padding: var(--s-3);
+  max-width: min(46rem, calc(100vw - 2rem));
+  color: var(--ink); background: var(--plate);
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  font: var(--t-xs)/1.6 var(--mono);
+}
+
+/* ── the conditional banner ──────────────────────────────────────────────────
+   The archive warning, which is true only sometimes and so is not chrome. It
+   sits under the bar rather than inside it, and `hidden` when it has nothing
+   to say — a permanent caution reads as decoration within a day. */
+.banner {
+  max-width: var(--measure); margin: var(--s-2) auto 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--ink-soft); background: var(--card);
+  font: var(--t-xs)/1.5 var(--mono); color: var(--ink-soft);
+}
+.banner[hidden] { display: none; }
+.banner.success { border-left-color: var(--good); color: var(--ink); }
+.banner.warning { border-left-color: #b08b3a; color: var(--ink); }
+.banner.error { border-left-color: var(--alert); color: var(--ink); }
+
+/* ── the status rail ─────────────────────────────────────────────────────────
+   The editor idiom: workspace status left, contextual facts right, few items,
+   background colour reserved for real trouble. Fixed, --rail-h tall. It stays
+   in panel.css rather than the shared chrome sheet because it reports lab
+   state the Inspector does not hold, and it reads --good, a panel-local ink. */
+.statusrail {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+  background: var(--chassis); color: var(--chassis-ink-soft);
+  border-top: 1px solid #35424f;
+}
+.statusrail-inner {
+  max-width: var(--measure); margin: 0 auto;
+  padding: 0 var(--gutter); min-height: var(--rail-h);
+  display: flex; align-items: center; gap: var(--s-3);
+}
+.statusrail .spine-caption { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+.status-pill {
+  appearance: none; border: 0; cursor: pointer; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  background: transparent; color: var(--chassis-ink-soft);
+  font: var(--t-2xs)/1 var(--mono);
+  padding: var(--s-1) var(--s-2); border-radius: var(--radius-pill);
+}
+.status-pill:hover { background: var(--chassis-soft); color: #fff; }
+/* One indicator, taking the worst of the six checks — six always-green badges
+   is how the header got crowded, and constant green stops being read. The
+   count is in the label, so the meaning never rests on colour alone. */
+.status-dot {
+  width: 7px; height: 7px; border-radius: var(--radius-circle);
+  background: var(--good); flex: 0 0 auto;
+}
+.status-pill.warn .status-dot { background: var(--alert); }
+.status-pill.warn { color: #e6b4ad; }
+.status-popover {
+  inset: auto var(--gutter) calc(var(--rail-h) + var(--s-1)) auto;
+  margin: 0; padding: var(--s-3);
+  width: min(38rem, calc(100vw - 2rem));
+  color: var(--ink); background: var(--plate);
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+.status-popover::backdrop { background: rgba(16, 22, 32, .18); }
+/* Inside the popover the chips sit on porcelain, not on the chassis. */
+.status-popover .chip { background: var(--card); color: var(--ink-soft); }
+.status-popover .chip.on { color: var(--ink); }
+
 /* Capability chips: what this installation can actually do, before you spend an
    hour finding out. Green edge = ready, brick = not. */
-.chips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: var(--s-2) auto 0;
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: 0;
          max-width: var(--measure); }
 .chip {
   font: var(--t-2xs)/1.5 var(--mono);
@@ -140,50 +209,23 @@ h1 .lab-mark {
 .chip.on { border-left-color: var(--good); color: var(--chassis-ink); }
 .chip.off { border-left-color: var(--alert); color: #e6b4ad; }
 
-.findings { max-width: var(--measure); margin: var(--s-2) auto 0; }
-.findings > summary {
-  cursor: pointer; color: var(--chassis-ink-soft); font-size: var(--t-xs);
-  list-style: none;
-}
-.findings > summary::before { content: "▸ "; }
-.findings[open] > summary::before { content: "▾ "; }
-.findings > summary:hover { color: #fff; }
-.findings ul { margin: var(--s-2) 0 var(--s-1); padding-left: var(--s-4); columns: 2; column-gap: var(--s-6); }
-.findings li { font-size: var(--t-xs); line-height: 1.5; color: var(--chassis-ink-soft);
-               margin-bottom: var(--s-1); break-inside: avoid; }
-.findings b { color: var(--chassis-ink); }
-.findings code { font: var(--t-xs) var(--mono); color: #fff; }
-@media (max-width: 900px) { .findings ul { columns: 1; } }
+/* The earlier-run notes, on the leaderboard surface where cross-run reading
+   belongs rather than in the lab page's top chrome. Two columns on a wide
+   window, one when there is no room for two. */
+.findings-list { margin: 0; padding-left: var(--s-4); columns: 2; column-gap: var(--s-6); }
+.findings-list li { font-size: var(--t-xs); line-height: 1.6; color: var(--ink-soft);
+                    margin-bottom: var(--s-2); break-inside: avoid; }
+.findings-list b { color: var(--ink); }
+.findings-list code { font: var(--t-xs) var(--mono); color: var(--ink); }
+@media (max-width: 900px) { .findings-list { columns: 1; } }
 
-/* ── the spine ───────────────────────────────────────────────────────────────
-   One element doing three jobs: legend for the three inks, progress bar for
-   whatever job is running, and the way to a stage's controls. On the chassis
-   because it belongs to the machine, not to any one plate. */
-.spine { background: var(--chassis); padding: 0 var(--gutter) var(--s-3); }
-.spine-inner { max-width: var(--measure); margin: 0 auto; }
-.spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
-.spine-seg {
-  appearance: none; border: 0; text-align: left; cursor: pointer;
-  background: var(--chassis-soft); color: var(--chassis-ink-soft);
-  padding: var(--s-1) var(--s-2) var(--s-1); border-top: 3px solid var(--step);
-  font: inherit; opacity: .7; transition: opacity .15s, background .15s;
-  display: flex; align-items: baseline; gap: var(--s-2);
-}
-.spine-seg:hover, .spine-seg[aria-current="step"] { opacity: 1; background: #222e3c; }
-.spine-seg b {
-  color: var(--step); font: 700 var(--t-2xs)/1.6 var(--sans);
-  text-transform: uppercase; letter-spacing: .14em;
-}
-/* The note lives on the card, where the controls it describes are. Here it is a
-   hint, so the spine stays one line high whether or not anything is running. */
-.spine-seg span { font-size: var(--t-2xs); line-height: 1.6; overflow: hidden;
-                  text-overflow: ellipsis; white-space: nowrap; }
-.spine-track { height: 4px; background: var(--chassis-soft); margin-top: 2px; }
-.spine-track i { display: block; height: 4px; background: var(--step, var(--chassis-ink-soft));
-                 width: 0; transition: width .25s linear; }
+/* What is running, reported from the status rail. The four labelled segments
+   and the separate track are gone: the bar's bottom edge carries the progress
+   and the step ink, and this line carries the words. */
 .spine-caption {
-  display: flex; gap: var(--s-2); align-items: baseline; margin-top: var(--s-2);
-  font: var(--t-xs)/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
+  display: flex; gap: var(--s-3); align-items: center;
+  font: var(--t-2xs)/1 var(--mono); color: var(--chassis-ink-soft);
+  min-width: 0; overflow: hidden; white-space: nowrap;
 }
 .spine-caption b { color: var(--step, #fff); font-weight: 600; }
 .spine-caption .right { margin-left: auto; }
@@ -421,13 +463,11 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 
 /* --- the LLM widget: a corner helper, not a stage — chassis, no step ink --- */
 .widget-launch {
-  /* right/bottom left literal (not var(--s-4)): test_panel.py pins these
-     anchors' exact string (`right: 1rem; bottom: 1rem;`) to guard against
-     silent deletion. 1rem is the same value as --s-4, so the token swap
-     would cost nothing on its own — it is left literal because a later
-     phase moves both anchors above the new footer rail, and the token
-     substitution can happen alongside that move instead of before it. */
-  position: fixed; right: 1rem; bottom: 1rem; z-index: 40;
+  /* Measured off the status rail rather than the viewport floor: the rail is
+     fixed at the bottom, so a literal offset would put the launcher underneath
+     it. test_panel.py pins this anchor's exact string to guard against silent
+     deletion, so it changes deliberately with the rail and not by accident. */
+  position: fixed; right: var(--gutter); bottom: calc(var(--rail-h) + var(--s-2)); z-index: 40;
   background: var(--chassis); color: var(--chassis-ink);
   border: 1px solid var(--rule); border-radius: var(--radius-pill);
   padding: var(--s-2) var(--s-3); font: inherit; cursor: pointer;
@@ -435,13 +475,12 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 }
 .widget-launch:hover { background: var(--chassis-soft); }
 .widget-window {
-  /* right left literal for the same reason as .widget-launch above:
-     test_panel.py pins the exact string `right: 1rem; bottom: 3.6rem;`, and
-     a later phase moves this anchor too when the footer rail lands.
-     bottom: 3.6rem clears the launch button's own box (its height plus its
-     offset from the viewport edge) and has no matching ramp step regardless
-     of the pin. */
-  position: fixed; right: 1rem; bottom: 3.6rem; z-index: 41;
+  /* Stacked directly on the launcher, which is itself measured off the status
+     rail: the 2.6rem is the launcher's own box (its height plus its offset),
+     which has no matching ramp step. test_panel.py pins this anchor's exact
+     string, so it too changes deliberately with the rail. */
+  position: fixed; right: var(--gutter);
+  bottom: calc(var(--rail-h) + var(--s-2) + 2.6rem); z-index: 41;
   width: min(22rem, calc(100vw - 2rem));
   display: flex; flex-direction: column;
   background: var(--plate); border: 1px solid var(--rule);

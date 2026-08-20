@@ -227,16 +227,65 @@ CONVENTIONS = [
      'widget that scrolls with the page is a fourth card, not a widget — '
      'scoped to the widget rules so an unrelated `position: fixed` '
      'elsewhere in the sheet cannot satisfy this'),
-    ('panel.css (widget block)', 'right: 1rem; bottom: 1rem;', None,
+    ('panel.css (widget block)',
+     'right: var(--gutter); bottom: calc(var(--rail-h) + var(--s-2));', None,
      "the launcher's real anchor values, right down to the unit — not just "
      'the property names, which `.widget-config`\'s `border-bottom: 1px '
      'solid var(--rule)` in the same scoped block would otherwise satisfy '
-     'even with both real anchors deleted'),
-    ('panel.css (widget block)', 'right: 1rem; bottom: 3.6rem;', None,
+     'even with both real anchors deleted. Measured off --rail-h because the '
+     'status rail is fixed to the viewport floor: a literal offset would put '
+     'the launcher underneath it'),
+    ('panel.css (widget block)',
+     'bottom: calc(var(--rail-h) + var(--s-2) + 2.6rem);', None,
      "the window's real anchor values, distinct from the launcher's own — "
-     'same collision this guards against as the launcher row above'),
+     'same collision this guards against as the launcher row above. The '
+     "2.6rem is the launcher's own box, which has no ramp step"),
     ('panel.css (widget block)', None, '--step-',
      'the widget is a helper, not a pipeline stage, and must wear no step ink'),
+
+    # --- the chrome: one bar, one rail ------------------------------------
+    # The header was ~250px of chrome carrying four step strips, six
+    # always-green capability chips and a 1200-character findings essay. These
+    # rows pin what replaced it, and — just as importantly — pin that the
+    # replaced things are gone, since a half-finished revert would leave both.
+    ('index.html', '/chrome.css', None,
+     'the bar and the surface switcher are shared with the Inspector, so the '
+     'page must actually link the shared sheet rather than restyle a copy'),
+    ('index.html', 'class="topnav"', None,
+     'the three surfaces need a switcher on the page, or the Leaderboard and '
+     'the Inspector are only reachable by typing a URL'),
+    ('index.html', 'href="/leaderboard"', None,
+     'the switcher must point at the leaderboard surface — a nav item that '
+     'goes nowhere is worse than no nav item'),
+    ('index.html', 'aria-current="page"', None,
+     'the current surface must say so in markup, not by colour alone'),
+    ('index.html', 'class="statusrail"', None,
+     'what is running and what this installation can do report from the rail '
+     'at the foot of the page, not from the top chrome'),
+    ('index.html', 'id="statusPill"', None,
+     'the six capability checks roll up into one worst-state pill; six '
+     'always-green badges is how the header got crowded'),
+    ('index.html', 'id="caps"', None,
+     'the capability chips still render, inside the pill\'s popover — rolling '
+     'them up must not mean deleting the detail'),
+    ('index.html', None, 'class="spine-seg"',
+     'the four step strips are retired: they duplicated the four cards below, '
+     'which already carry the same step ink and the same served titles'),
+    ('index.html', None, 'class="chips" id="caps"></div>\n  <details',
+     'the chip row and the findings essay must not both sit in the header '
+     'again — the findings moved to the leaderboard surface, which is where '
+     'cross-run reading belongs'),
+    ('index.html', 'id="chromeProgress"', None,
+     "the running step's ink and progress moved to the bar's bottom edge, "
+     'which is the one job of the retired step strips worth keeping'),
+    ('panel.js', 'renderStatusPill', None,
+     'the pill must be rendered from the same served capabilities the chips '
+     'are, so the roll-up cannot disagree with the detail it summarises'),
+    ('panel.js', "$('chromeProgress')", None,
+     'the job progress must drive the bar\'s progress line now that the '
+     'separate spine track is gone'),
+    ('panel.js', None, '.spine-seg',
+     'nothing may still be reaching for the retired step strips'),
     ('panel.css', '.widget-window[hidden] { display: none; }', None,
      "a rule setting `display` beats the browser's own `[hidden] { display: "
      'none }` — found live: the window stayed visible because nothing said '

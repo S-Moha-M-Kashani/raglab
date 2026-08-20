@@ -353,6 +353,18 @@ def create_app() -> FastAPI:
     archives = ImportedArchiveStore()
     app = FastAPI(title='Lodestar RAG Lab')
 
+    @app.middleware('http')
+    async def never_serve_yesterdays_page(request, call_next):
+        """The frontend is read from disk on every request, so an edit is live
+        the moment it is saved — but `FileResponse` sends no `Cache-Control`,
+        which leaves a browser free to reuse a page it already has without ever
+        asking. That turns an edited panel into "nothing changed", and the
+        reader has no way to tell that from a broken change. A workbench serves
+        what is on disk or it is lying about what it is running."""
+        response = await call_next(request)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.get('/')
     def panel():
         return FileResponse(STATIC / 'panel.html')
@@ -368,11 +380,21 @@ def create_app() -> FastAPI:
         """The design tokens shared with the Inspector, so a colour cannot drift apart on either page."""
         return FileResponse(STATIC / 'tokens.css', media_type='text/css')
 
+    @app.get('/chrome.css')
+    def chrome_css():
+        """The bar and surface switcher shared with the Inspector, so the top of a page means one thing on both ports."""
+        return FileResponse(STATIC / 'chrome.css', media_type='text/css')
+
     @app.get('/lab.js')
     def lab_js():
         """The utilities shared with the Inspector, so a name like escapeHtml has one behaviour, not two."""
         return FileResponse(STATIC / 'lab.js',
                             media_type='application/javascript')
+
+    @app.get('/leaderboard')
+    def leaderboard_page():
+        """The cross-run surface: what earlier runs said, kept off the lab page where the knobs live."""
+        return FileResponse(STATIC / 'leaderboard.html')
 
     @app.get('/panel.css')
     def panel_css():

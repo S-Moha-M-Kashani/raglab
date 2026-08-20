@@ -7,14 +7,31 @@
   <!-- Design tokens shared with the panel on :9002; before inspector.css so
        its overrides still win. -->
   <link rel="stylesheet" href="/tokens.css">
+  <!-- The bar and the surface switcher, shared with the panel on :9002; before
+       inspector.css so its overrides still win. -->
+  <link rel="stylesheet" href="/chrome.css">
   <link rel="stylesheet" href="/inspector.css">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to the evidence</a>
+
+  <!-- The same bar the panel wears, so neither surface is a dead end: the
+       Inspector could always be reached from the lab but never led back. -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="http://localhost:9002/"><span class="lab-mark">RL</span>RAG Lab</a>
+      <nav class="topnav" aria-label="Surfaces">
+        <a href="http://localhost:9002/">Laboratory <span class="port">:9002</span></a>
+        <a href="http://localhost:9002/leaderboard">Leaderboard <span class="port">:9002</span></a>
+        <a href="/" aria-current="page">Inspector</a>
+      </nav>
+    </div>
+  </header>
+
   <header class="inspector-header">
-    <!-- The same mark the panel wears, in the retrieval ink rather than the
-         index one: two windows on one instrument, and this is the window you
-         open to see what came back. -->
-    <h1><span class="lab-mark">RL</span>RAG Lab &middot; Inspector</h1>
+    <!-- The mark moved to the shared bar above; what stays here is the view's
+         own title and the lab-reachability line beneath it. -->
+    <h1>Inspector</h1>
     <!-- The lab is another process and may not be running; say which, and stop
          the reader wondering whether an empty view means "nothing ran" or
          "nothing is listening". -->
@@ -33,7 +50,7 @@
     </nav>
   </header>
 
-  <main>
+  <main id="main">
     <section id="view-groundtruth" class="inspector-view"></section>
 
     <section id="view-chunks" class="inspector-view" hidden>

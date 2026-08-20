@@ -190,6 +190,9 @@ function describeDataset() {
   if (!found) return;
   const period = found.period && found.period.from
     ? `${found.period.from} → ${found.period.to} · ` : '';
+  // The name stays on screen because it changes what every number below means;
+  // the census sits in the popover, because nobody reads a stats strip twice.
+  $('corpusName').textContent = found.id || $('dataset').value;
   $('corpus').textContent =
     `${found.sessions} sessions · ${found.messages} messages · ${period}`
     + `${found.questions} questions`
@@ -262,8 +265,6 @@ function titleSteps() {
     const head = $('head-' + step.key), note = $('note-' + step.key);
     if (head) head.textContent = step.label;
     if (note) note.textContent = step.note;
-    const seg = document.querySelector(`.spine-seg[data-step="${step.key}"] b`);
-    if (seg) seg.textContent = step.short;
   }
 }
 
@@ -653,9 +654,25 @@ function renderCapabilities() {
     `<span class="chip">index in memory · runs → ${escapeHtml(caps.storage.runs || '')}`
       + ` · experiments → ${escapeHtml(caps.storage.experiments || '')}</span>`,
   ].join('');
+  renderStatusPill(caps);
   if (caps.ragas.notes.length) {
     $('notes').innerHTML = caps.ragas.notes.map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
   }
+}
+
+// One indicator taking the worst of the checks, because six permanently-green
+// badges is how the header got crowded and constant green stops being read. The
+// count is in the label, so the meaning never rests on the dot's colour alone —
+// and the popover still lists every check, so nothing became unreachable.
+function renderStatusPill(caps) {
+  const checks = [caps.fastembed, caps.cross_encoder, caps.llm,
+                  caps.ragas.installed, caps.ragas.llm_ready];
+  const missing = checks.filter((ok) => !ok).length;
+  const pill = $('statusPill');
+  pill.classList.toggle('warn', missing > 0);
+  $('statusPillText').textContent = missing
+    ? `${missing} of ${checks.length} not ready`
+    : 'all systems ready';
 }
 
 // Three states, and they differ in what you can do about them. A key from the
@@ -698,11 +715,9 @@ $('clear-key').onclick = async () => {
   await refreshOptions();
 };
 
-// Each spine segment scrolls to the controls it names.
-for (const seg of document.querySelectorAll('.spine-seg')) {
-  seg.onclick = () => $(seg.dataset.target)
-    .scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
+// The four step strips that used to scroll to a stage's controls are gone; the
+// cards they pointed at are one scroll away and carry the same step ink and the
+// same served titles, so the strips were chrome duplicating content.
 
 // Which step a stage belongs to, read off the stage the service reports rather
 // than guessed from the job kind. An unknown stage lights nothing, since a
@@ -715,16 +730,12 @@ const STAGE_STEP = {
 
 function renderSpine(job) {
   const step = job ? STAGE_STEP[job.stage] || '' : '';
-  const track = $('spineTrack');
+  const track = $('chromeProgress');
   const caption = $('spineCaption');
   track.dataset.step = step;
   caption.dataset.step = step;
   track.firstElementChild.style.width =
     ((job ? job.progress : 0) * 100).toFixed(1) + '%';
-  for (const seg of document.querySelectorAll('.spine-seg')) {
-    if (seg.dataset.step === step) seg.setAttribute('aria-current', 'step');
-    else seg.removeAttribute('aria-current');
-  }
   if (!job) { caption.innerHTML = '<span>nothing running</span>'; return; }
   // The detail ("question 16/30 · hard", "judge call 137 of ~420") is the part
   // that distinguishes a slow stage from a stuck one, and on a local judge one
@@ -1119,11 +1130,17 @@ function restoreDashboard(before) {
   }
   $('archive-status').textContent = before.statusText;
   $('archive-status').className = before.statusClass;
+  $('archive-status').hidden = !before.statusText;
 }
 
+// The banner under the bar, not a permanent strip inside it: a caution that is
+// true only sometimes reads as decoration within a day, so it is hidden whenever
+// it has nothing to say.
 function setArchiveStatus(message, tone = '') {
-  $('archive-status').textContent = message;
-  $('archive-status').className = `archive-status${tone ? ' ' + tone : ''}`;
+  const box = $('archive-status');
+  box.textContent = message;
+  box.className = `banner archive-status${tone ? ' ' + tone : ''}`;
+  box.hidden = !message;
 }
 
 function databaseMessage(disposition) {

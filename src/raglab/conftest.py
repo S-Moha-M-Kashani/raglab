@@ -38,6 +38,22 @@ def _font_size_literals(css: str) -> list[str]:
             + _FONT_SHORTHAND_LITERAL.findall(css))
 
 
+# A hand-spelled corner radius, longhand or shorthand alike — but not a
+# var() reference. Shared by test_panel.py and test_inspector.py, both of
+# which check their sheet's radius scale against the same claim, so the
+# pattern is named once here rather than twice.
+_RADIUS_LITERAL = re.compile(
+    r'border-radius:[^;]*?(?<![-\w])[0-9]*\.?[0-9]+(?:rem|px|%)')
+
+
+def _radius_literals(css: str) -> list[str]:
+    """Every hand-spelled corner radius. Two sheets carried six different
+    values between them with nothing choosing among them; a corner is either
+    the small one or the large one, and that decision belongs in the shared
+    sheet."""
+    return _RADIUS_LITERAL.findall(css)
+
+
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 # The local backend's own settings, read by the service tests (which check

@@ -8,7 +8,7 @@ from raglab.configuration import lab_config as config
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
 
-from raglab.conftest import RAGLAB_DIR, _font_size_literals
+from raglab.conftest import RAGLAB_DIR, _font_size_literals, _radius_literals
 
 PANEL_JS = RAGLAB_DIR / 'dashboard' / 'frontend' / 'panel.js'
 
@@ -330,6 +330,38 @@ def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
         assert _font_size_literals(css) == [], css
     for css in flagged:
         assert _font_size_literals(css) != [], css
+
+
+def test_the_panel_rounds_every_corner_from_the_shared_scale(panel_texts):
+    # this is a convention test
+    """2px, 3px, 4px, 5px, 6px, 999px and 50% all appeared as literal radii.
+    Each must name a --radius-* token, shorthand corners included, so the two
+    pages cannot round the same kind of thing differently."""
+    assert _radius_literals(panel_texts['panel.css']) == []
+
+
+def test_radius_literals_catches_shorthand_and_ignores_the_named_tokens():
+    # this is a unit test
+    """A regex matching nothing at all would pass the convention test above
+    just as well as a correct one, so this proves the guard actually guards:
+    fed the three literal forms the panel conversion had to remove, plus the
+    four token forms — including the shorthand and the two shape tokens —
+    the conversion had to leave alone."""
+    flagged = [
+        'a{border-radius: 3px;}',
+        'a{border-radius: 999px;}',
+        'a{border-radius: 0 3px 3px 0;}',
+    ]
+    not_flagged = [
+        'a{border-radius: var(--radius-sm);}',
+        'a{border-radius: 0 var(--radius-sm) var(--radius-sm) 0;}',
+        'a{border-radius: var(--radius-pill);}',
+        'a{border-radius: var(--radius-circle);}',
+    ]
+    for css in flagged:
+        assert _radius_literals(css) != [], css
+    for css in not_flagged:
+        assert _radius_literals(css) == [], css
 
 
 # --- the routes behind the split files --------------------------------------

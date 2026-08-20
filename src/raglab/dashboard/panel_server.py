@@ -415,24 +415,29 @@ def create_app() -> FastAPI:
         if problems:
             raise HTTPException(400, '; '.join(problems))
 
-        def work(report, _cancelled):
-            index = registry.get(cfg.index, progress=report, force=force)
-            return {'collection': index.stats.collection,
-                    'chunks': index.stats.chunks,
-                    'leaves': index.stats.leaves,
-                    'avg_chars': index.stats.avg_chars,
-                    'p95_chars': index.stats.p95_chars,
-                    'embed_dim': index.stats.embed_dim,
-                    'build_seconds': index.stats.build_seconds,
-                    # None on a flat build, distinguishing "no hierarchy" from
-                    # "a hierarchy that found nothing".
-                    'hierarchy': index.stats.hierarchy,
-                    'reused': index.stats.reused, 'notes': index.stats.notes,
-                    # So a follower (the Inspector) can render what was built
-                    # without holding its own index; both halves, since
-                    # `chunks_by_session` alone omits every summary a grouping wrote.
-                    'chunks_by_session': chunks_by_session(index),
-                    'summaries': summary_rows(index)}
+        def work(report, cancelled):
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                index = registry.get(cfg.index, progress=report, force=force)
+                return {'collection': index.stats.collection,
+                        'chunks': index.stats.chunks,
+                        'leaves': index.stats.leaves,
+                        'avg_chars': index.stats.avg_chars,
+                        'p95_chars': index.stats.p95_chars,
+                        'embed_dim': index.stats.embed_dim,
+                        'build_seconds': index.stats.build_seconds,
+                        # None on a flat build, distinguishing "no hierarchy"
+                        # from "a hierarchy that found nothing".
+                        'hierarchy': index.stats.hierarchy,
+                        'reused': index.stats.reused, 'notes': index.stats.notes,
+                        # So a follower (the Inspector) can render what was
+                        # built without holding its own index; both halves,
+                        # since `chunks_by_session` alone omits every summary a
+                        # grouping wrote.
+                        'chunks_by_session': chunks_by_session(index),
+                        'summaries': summary_rows(index)}
 
         return _accepted(jobs.start('index', work, config=cfg.to_dict()))
 
@@ -507,13 +512,16 @@ def create_app() -> FastAPI:
 
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
-            return evaluate.run_retrieval(
-                registry, questions_for(cfg), cfg, run_settings,
-                types=payload.get('types') or None,
-                difficulty=payload.get('difficulty') or None,
-                limit=payload.get('limit') or None,
-                balance=payload.get('balance') or 'stride',
-                progress=report, cancelled=check_cancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                return evaluate.run_retrieval(
+                    registry, questions_for(cfg), cfg, run_settings,
+                    types=payload.get('types') or None,
+                    difficulty=payload.get('difficulty') or None,
+                    limit=payload.get('limit') or None,
+                    balance=payload.get('balance') or 'stride',
+                    progress=report, cancelled=check_cancelled)
 
         return _accepted(jobs.start('retrieve', work,
                                     config=_with_backend(cfg, run_settings)))
@@ -597,49 +605,59 @@ def create_app() -> FastAPI:
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
-        asked = questions_for(cfg)
-        query_date = payload.get('query_date') or asked['meta']['query_date']
+        requested_query_date = payload.get('query_date')
 
-        def work(report):
-            # The implicit build is the long silent part — hand it the front of
-            # the bar, or it all happens on 'starting 0%'.
-            index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
-            llm = lab_llm(run_settings)
-            roles = models.resolve(cfg, run_settings)
-            report('retrieving', 0.75, question[:80])
-            # Traced rather than plain `retrieve`, for the per-step ranks the
-            # Inspector's table needs. Same agent branch `run_eval` takes, so
-            # the fast and slow paths cannot disagree about what a config does.
-            if cfg.agent.scope:
-                trace = {}
-                outcome = agentic_rag.run(index, cfg, question, query_date,
-                                          llm=llm, models=roles, trace=trace)
-                report('answering', 0.9)
-            else:
-                outcome, trace = pipeline.retrieve_traced(
-                    index, cfg.retrieval, question, query_date,
-                    llm=llm, models=roles)
-                report('answering', 0.9)
-                outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
-                                          models=roles)
-            # Exact match only, never fuzzy: everything else stays plainly
-            # ungraded rather than guessed at.
-            gt_question = next((q for q in asked['questions']
-                                if q['question_fa'] == question), None)
-            if gt_question is not None:
-                quotes = [ev['quote'] for ev in gt_question.get('evidence', [])]
-                gold_flags = mark_gold(
-                    [c['text'] for c in trace['candidates']], quotes)
-                question_id = gt_question['id']
-            else:
-                gold_flags = [False] * len(trace['candidates'])
-                question_id = None
-            for candidate, gold in zip(trace['candidates'], gold_flags):
-                candidate['gold'] = gold
-                candidate['question_id'] = question_id
-            return (outcome.as_dict()
-                   | {'models': roles.as_dict(), 'trace': trace,
-                      'question_id': question_id})
+        def work(report, cancelled):
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                asked = questions_for(cfg)
+                query_date = (requested_query_date
+                              or asked['meta']['query_date'])
+                # The implicit build is the long silent part — hand it the
+                # front of the bar, or it all happens on 'starting 0%'.
+                index = registry.get(
+                    cfg.index, progress=scaled_progress(report, 0.7))
+                llm = lab_llm(run_settings)
+                roles = models.resolve(cfg, run_settings)
+                report('retrieving', 0.75, question[:80])
+                # Traced rather than plain `retrieve`, for the per-step ranks
+                # the Inspector's table needs. Same agent branch `run_eval`
+                # takes, so the fast and slow paths cannot disagree about what
+                # a config does.
+                if cfg.agent.scope:
+                    trace = {}
+                    outcome = agentic_rag.run(
+                        index, cfg, question, query_date,
+                        llm=llm, models=roles, trace=trace)
+                    report('answering', 0.9)
+                else:
+                    outcome, trace = pipeline.retrieve_traced(
+                        index, cfg.retrieval, question, query_date,
+                        llm=llm, models=roles)
+                    report('answering', 0.9)
+                    outcome = pipeline.answer(
+                        outcome, cfg.generation, llm=llm, models=roles)
+                # Exact match only, never fuzzy: everything else stays plainly
+                # ungraded rather than guessed at.
+                gt_question = next((q for q in asked['questions']
+                                    if q['question_fa'] == question), None)
+                if gt_question is not None:
+                    quotes = [ev['quote']
+                              for ev in gt_question.get('evidence', [])]
+                    gold_flags = mark_gold(
+                        [c['text'] for c in trace['candidates']], quotes)
+                    question_id = gt_question['id']
+                else:
+                    gold_flags = [False] * len(trace['candidates'])
+                    question_id = None
+                for candidate, gold in zip(trace['candidates'], gold_flags):
+                    candidate['gold'] = gold
+                    candidate['question_id'] = question_id
+                return (outcome.as_dict()
+                        | {'models': roles.as_dict(), 'trace': trace,
+                           'question_id': question_id})
 
         return _accepted(jobs.start('query', work,
                                     config=_with_backend(cfg, run_settings)))

@@ -17,7 +17,7 @@ from raglab.configuration.lab_config import (
     LabSettings)
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
-from raglab.conftest import _finished
+from raglab.conftest import _finished, _font_size_literals, _radius_literals
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 INSPECTOR_JS = inspector.STATIC / 'inspector.js'
@@ -554,6 +554,29 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     assert lab.headers['content-type'].startswith('application/javascript')
     assert (html.index('href="/tokens.css"') < html.index('href="/inspector.css"'))
     assert (html.index('src="/lab.js"') < html.index('src="/inspector.js"'))
+
+
+def test_the_inspector_draws_its_scale_from_the_shared_sheet(inspector_texts):
+    # this is a convention test
+    """The Inspector carried 16 hand-set type sizes and its own radii, and
+    agreed with the panel on none of them. Both surfaces read one scale or the
+    shared sheet is decoration. The panel's half of this claim lives in
+    test_panel.py."""
+    css = inspector_texts['inspector.css']
+    assert _font_size_literals(css) == []
+    assert _radius_literals(css) == []
+
+
+def test_the_inspector_centres_on_the_shared_measure(inspector_texts):
+    # this is a convention test
+    """The Inspector set its own 92rem measure, its own 1.25rem gutter, and
+    never centred itself, so the two surfaces disagreed about how wide a page
+    is and where its left edge falls."""
+    css = inspector_texts['inspector.css']
+    assert '92rem' not in css, 'the Inspector must not keep its own measure'
+    assert 'max-width: var(--measure)' in css
+    assert 'margin: 0 auto' in css, (
+        'the Inspector was left-aligned while the panel was centred')
 
 
 # --- following the lab (:9002) ----------------------------------------------

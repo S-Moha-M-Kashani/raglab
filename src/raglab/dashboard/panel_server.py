@@ -335,6 +335,19 @@ def create_app() -> FastAPI:
         return ground_truth_for(cfg, ground_truth)
 
     registry = IndexRegistry(settings, diary)
+    # A dataset id names mutable machine-local content. Keep its snapshot,
+    # in-memory index use and replacement atomic without making unrelated
+    # datasets wait for one another. Lock order is deliberately one-way: the
+    # guard is held only while looking up a per-id lock and is always released
+    # before that dataset lock is acquired.
+    dataset_locks_guard = threading.Lock()
+    dataset_locks: dict[str, threading.Lock] = {}
+
+    def dataset_lock(dataset_id: str = '') -> threading.Lock:
+        key = dataset_id or datasets.BUILTIN
+        with dataset_locks_guard:
+            return dataset_locks.setdefault(key, threading.Lock())
+
     # This service owns the ledger, so this is the one place a recorder is passed.
     jobs = Jobs(record=ledger.record)
     archives = ImportedArchiveStore()
@@ -431,11 +444,6 @@ def create_app() -> FastAPI:
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
-        # Resolve every identity-bearing input once, before the job starts.
-        # The transient archive evidence below must describe the exact corpus,
-        # truth and model mapping this request used even if files or settings
-        # change while the worker is running.
-        run_corpus, run_truth = datasets.load(cfg.index.dataset)
         run_execution = {
             'provider': run_settings.provider,
             'models': models.resolve(cfg, run_settings).as_dict(),
@@ -444,38 +452,44 @@ def create_app() -> FastAPI:
 
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
-            result = evaluate.run_eval(
-                registry, run_truth, cfg, run_settings,
-                types=payload.get('types') or None,
-                difficulty=payload.get('difficulty') or None,
-                limit=payload.get('limit') or None,
-                balance=payload.get('balance') or 'stride',
-                ragas_mode=payload.get('ragas_mode', 'offline'),
-                ragas_limit=payload.get('ragas_limit') or None,
-                workers=int(payload.get('workers', 1)), progress=report,
-                # Always traced, so the Inspector is never blank after a run —
-                # a recording of the same retrieval, so no score can move.
-                trace=True, cancelled=check_cancelled)
-            # Added here, not inside `as_dict`: the run file `save_run` writes
-            # stays the summary, with no trace or chunk text in it.
-            return result.as_dict() | {
-                'traces': result.traces,
-                'chunks_by_session': result.chunks_by_session,
-                'summaries': result.summaries,
-                'archive_evidence': {
-                    'execution': run_execution,
-                    'metric_catalogue': metric_catalogue,
-                    'inspector': {
-                        'dataset': {
-                            'id': cfg.index.dataset or datasets.BUILTIN,
-                            'corpus': run_corpus,
-                            'ground_truth': run_truth,
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                # Snapshot and index use share this boundary. A replacement of
+                # the same id cannot put new corpus evidence beside old chunks.
+                check_cancelled()
+                run_corpus, run_truth = datasets.load(cfg.index.dataset)
+                result = evaluate.run_eval(
+                    registry, run_truth, cfg, run_settings,
+                    types=payload.get('types') or None,
+                    difficulty=payload.get('difficulty') or None,
+                    limit=payload.get('limit') or None,
+                    balance=payload.get('balance') or 'stride',
+                    ragas_mode=payload.get('ragas_mode', 'offline'),
+                    ragas_limit=payload.get('ragas_limit') or None,
+                    workers=int(payload.get('workers', 1)), progress=report,
+                    # Always traced, so the Inspector is never blank after a run —
+                    # a recording of the same retrieval, so no score can move.
+                    trace=True, cancelled=check_cancelled)
+                # Added here, not inside `as_dict`: the run file `save_run`
+                # writes stays the summary, with no trace or chunk text in it.
+                return result.as_dict() | {
+                    'traces': result.traces,
+                    'chunks_by_session': result.chunks_by_session,
+                    'summaries': result.summaries,
+                    'archive_evidence': {
+                        'execution': run_execution,
+                        'metric_catalogue': metric_catalogue,
+                        'inspector': {
+                            'dataset': {
+                                'id': cfg.index.dataset or datasets.BUILTIN,
+                                'corpus': run_corpus,
+                                'ground_truth': run_truth,
+                            },
+                            'chunks_by_session': result.chunks_by_session,
+                            'summaries': result.summaries,
+                            'traces': result.traces,
                         },
-                        'chunks_by_session': result.chunks_by_session,
-                        'summaries': result.summaries,
-                        'traces': result.traces,
-                    },
-                }}
+                    }}
 
         return _accepted(jobs.start('run', work, config=_with_backend(cfg, run_settings)))
 
@@ -648,11 +662,18 @@ def create_app() -> FastAPI:
     @app.post('/api/datasets')
     def import_dataset(payload: dict):
         """Take one dataset file, check it against the contract, keep it — 400 with every problem at once."""
-        try:
-            found = datasets.import_dataset(payload)
-        except ValueError as error:
-            raise HTTPException(400, str(error))
-        registry.invalidate_dataset(found.id)
+        meta = payload.get('dataset') if isinstance(payload, dict) else None
+        raw_id = meta.get('id') if isinstance(meta, dict) else ''
+        lock_id = raw_id if isinstance(raw_id, str) else ''
+        with dataset_lock(lock_id):
+            try:
+                found = datasets.import_dataset(payload)
+            except ValueError as error:
+                raise HTTPException(400, str(error))
+            # Import writes the file and clears the loader cache first; eviction
+            # is the final step under the same lock, so no later index lookup
+            # can observe the new file through an old cached index.
+            registry.invalidate_dataset(found.id)
         return found.as_dict()
 
     @app.post('/api/credentials')

@@ -380,6 +380,10 @@ def inspector_texts():
         # switcher and — since the tables pass — the scroll region and sticky
         # header this page's own tables now sit inside.
         'chrome.css': client.get('/chrome.css').text,
+        # The shared script, over its own route as well: the reveal placer both
+        # surfaces need moved into it, so a claim about where a fixed reveal is
+        # put is now a claim about this file rather than about inspector.js.
+        'lab.js': client.get('/lab.js').text,
     }
 
 
@@ -727,10 +731,15 @@ def test_the_inspector_tables_sit_in_the_shared_scroll_region(inspector_texts):
     assert 'position: fixed' in css.split('.chunk-reveal {')[1].split('}')[0], (
         'the reveal must leave the scroll region\'s flow, or the region clips '
         'the text it exists to show')
-    assert 'function placeReveal' in js, (
+    assert 'function placeReveal' in inspector_texts['lab.js'], (
         'a fixed reveal has to be told where to go, and told at the moment it '
-        'opens — its row may have been scrolled anywhere inside the region'
+        'opens — its row may have been scrolled anywhere inside the region. It '
+        'lives in the shared script because the board on :9002 hangs a reveal '
+        'off a cell in this same region and needs the same answer'
     )
+    assert "placeReveal(revealCell(event.target), '.chunk-reveal')" in js, (
+        'and this page must actually call it — only the caller knows which '
+        'reveal its cell holds')
     assert '.table-scroll { overflow-x: auto; }' not in css, (
         'the narrow-width-only scroll override is what the shared region '
         'replaced; keeping both means the page has two answers')

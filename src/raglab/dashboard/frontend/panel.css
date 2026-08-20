@@ -110,33 +110,14 @@ body {
    Which corpus the controls below measure against. The name is always on
    screen because it changes what every number on the page means; the census
    (sessions, messages, period, question count) is one click away, because a
-   stats strip is not something anyone reads twice an hour. */
-.context-bar {
-  max-width: var(--measure); margin: 0 auto;
-  padding: var(--s-2) var(--gutter) 0;
-}
-.context-scope {
-  appearance: none; display: inline-flex; align-items: baseline; gap: var(--s-2);
-  background: transparent; border: 1px solid var(--rule);
-  border-radius: var(--radius-pill);
-  padding: var(--s-1) var(--s-3); cursor: pointer;
-  color: var(--ink); font: var(--t-xs)/1.5 var(--mono);
-}
-.context-scope:hover { border-color: var(--ink-soft); background: var(--card); }
-.context-label {
-  color: var(--ink-soft); font: var(--label-font);
-  text-transform: uppercase; letter-spacing: var(--label-track);
-}
-.context-caret { color: var(--ink-soft); font-size: var(--t-2xs); }
+   stats strip is not something anyone reads twice an hour.
+
+   The rules themselves are in chrome.css now: the leaderboard picks its dataset
+   with the same scope button and the same popover, and that is one affordance
+   asking one question on two surfaces rather than two that happen to look
+   alike. What stays here is only the one place this page reuses the caret
+   inside a control chrome.css does not know about. */
 .status-pill .context-caret { color: inherit; }
-.context-detail {
-  margin: 0; padding: var(--s-3);
-  max-width: min(46rem, calc(100vw - 2rem));
-  color: var(--ink); background: var(--plate);
-  border: 1px solid var(--rule); border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  font: var(--t-xs)/1.6 var(--mono);
-}
 
 /* ── the conditional banner ──────────────────────────────────────────────────
    The archive warning, which is true only sometimes and so is not chrome. It
@@ -444,11 +425,10 @@ p.explain {
   white-space: pre-wrap; min-width: 15rem; max-width: 22rem; text-align: left;
 }
 
-/* The leaderboard surface's verdict line, above its table rather than inside
-   the scroll region — the old board put its group heading inside the scroller,
-   so the label scrolled away sideways with the data it named. */
-.verdict { margin: 0 0 var(--s-2); font: var(--t-xs)/1.6 var(--sans); color: var(--ink-soft); }
-.verdict b { color: var(--ink); }
+/* The leaderboard's verdict line is gone with the thing it stated: a board is
+   one table per dataset mixing judges and question sets, and 'winner by more
+   than the combined error' is a claim about a comparability group, which a
+   board is not. The claim still exists for the sweep, which prints it. */
 
 .muted { color: var(--ink-soft); }
 /* Attached to the score it qualifies, quieter but never dropped. */

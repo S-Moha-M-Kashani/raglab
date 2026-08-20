@@ -132,7 +132,13 @@ function renderTable(dataset, rows) {
 
   const body = rows.map((row) => columns.map((col) => {
     const cls = [col.text ? 'text' : '', col.freeze || ''].filter(Boolean).join(' ');
-    return `<td${cls ? ` class="${cls}"` : ''}>${cell(row, col.key)}</td>`;
+    // The settings reveal hangs off the pipeline cell, which is the cell that
+    // shows the short form of the same thing. The cell takes focus so there is
+    // a keyboard way to it and not only a pointer one.
+    const reveal = col.key === 'pipeline' ? settingsReveal(row) : '';
+    return `<td${cls ? ` class="${cls}"` : ''}`
+      + `${col.key === 'pipeline' ? ' tabindex="0"' : ''}>`
+      + `${cell(row, col.key)}${reveal}</td>`;
   }).join('')).map((cells) => `<tr>${cells}</tr>`).join('');
 
   return { html: `
@@ -144,6 +150,24 @@ function renderTable(dataset, rows) {
           <tbody>${body}</tbody>
         </table>
       </div>`, rankAt };
+}
+
+// The whole recorded config, grouped by step and inked by step, so it reads as
+// a longer form of the sentence that opened it. Opens on hover AND on keyboard
+// focus: a reveal that only answers a mouse publishes to a mouse and to nothing
+// else, which is why the tooltips on these pages were removed.
+function settingsReveal(row) {
+  const config = row.config || {};
+  const blocks = ['index', 'retrieval', 'generation', 'agent']
+    .filter((step) => config[step] && Object.keys(config[step]).length)
+    .map((step) => `<div class="reveal-step" data-step="${step}">`
+      + `<b>${step}</b>`
+      + Object.entries(config[step]).map(([k, v]) =>
+        `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`).join('')
+      + '</div>').join('');
+  return blocks
+    ? `<div class="settings-reveal">${blocks}</div>`
+    : '';
 }
 
 // Which corpus is on screen. The same affordance the lab page uses for its
@@ -230,6 +254,29 @@ function wirePicker() {
     loadBoard(chosen);
   });
 }
+
+// The reveal is `position: fixed`, so it has to be told where to go — and told
+// at the moment it opens, because its row may have been scrolled anywhere
+// inside the region since the table was built, and re-told while anything under
+// it scrolls, because a fixed box does not travel with its cell. The scroll
+// listener is capturing so it hears the region as well as the page: a wheel
+// scroll does not end a hover, and a reveal left where it opened would drift
+// away from the row that owns it.
+//
+// Delegated at the document and registered once, because the whole board is
+// rebuilt on every pick and a listener added per render would stack.
+const revealCell = (node) => (node && node.closest
+  ? node.closest('td.freeze-1') : null);
+document.addEventListener('mouseover',
+  event => placeReveal(revealCell(event.target), '.settings-reveal'));
+document.addEventListener('focusin',
+  event => placeReveal(revealCell(event.target), '.settings-reveal'));
+document.addEventListener('scroll', () => {
+  for (const cell of document.querySelectorAll(
+    'td.freeze-1:hover, td.freeze-1:focus-within')) {
+    placeReveal(cell, '.settings-reveal');
+  }
+}, true);
 
 // Why a row is not `done` is the reason that row is degraded, so it goes through
 // the same '!' the lab page uses rather than a `title` — a reason published to a

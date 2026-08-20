@@ -442,25 +442,11 @@ function scrollable(table, label) {
   return box;
 }
 
-// Where an open reveal goes. It is `position: fixed`, so it must be told; and
-// it must be told at the moment it opens, because the row it belongs to may
-// have been scrolled anywhere inside its region since the table was built.
-// Below the cell when there is room below, above it when there is not, and
-// never off either side.
-function placeReveal(cell) {
-  const reveal = cell && cell.querySelector('.chunk-reveal');
-  // `position: static` is the narrow-width variant, which opens in place and
-  // wants no insets at all.
-  if (!reveal || getComputedStyle(reveal).position === 'static') return;
-  const box = cell.getBoundingClientRect();
-  const gap = 4;
-  const below = box.bottom + gap;
-  const height = reveal.offsetHeight;
-  reveal.style.top = `${below + height <= window.innerHeight
-    ? below : Math.max(gap, box.top - gap - height)}px`;
-  reveal.style.left = `${Math.max(gap,
-    Math.min(box.left, window.innerWidth - reveal.offsetWidth - gap))}px`;
-}
+// Where an open reveal goes is `placeReveal`, in lab.js: the board on :9002
+// grew a reveal off a cell in the same bounded region, and the placement is the
+// same problem on both surfaces, so it is answered once in the file both pages
+// load rather than copied. The selector is passed because only the caller knows
+// which reveal its cell holds.
 
 // The cell whose reveal a pointer or a focus has opened. Hover opens on the
 // whole row (`.retrieval-row:hover .chunk-reveal`), so the event target is
@@ -474,11 +460,15 @@ function revealCell(node) {
 // time the lab finishes a job. The scroll listener is capturing: a wheel scroll
 // does not end a hover, so a reveal left where it opened would drift away from
 // the row that owns it.
-document.addEventListener('pointerover', event => placeReveal(revealCell(event.target)));
-document.addEventListener('focusin', event => placeReveal(revealCell(event.target)));
+document.addEventListener('pointerover',
+  event => placeReveal(revealCell(event.target), '.chunk-reveal'));
+document.addEventListener('focusin',
+  event => placeReveal(revealCell(event.target), '.chunk-reveal'));
 document.addEventListener('scroll', () => {
   for (const cell of document.querySelectorAll(
-    '.retrieval-row:hover .chunk-cell, .chunk-cell:focus-within')) placeReveal(cell);
+    '.retrieval-row:hover .chunk-cell, .chunk-cell:focus-within')) {
+    placeReveal(cell, '.chunk-reveal');
+  }
 }, true);
 
 function retrievalTable(candidates) {

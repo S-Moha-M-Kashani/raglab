@@ -66,6 +66,11 @@ def panel_texts(client):
         # follow it here rather than being deleted with the old board.
         'leaderboard.html': client.get('/leaderboard').text,
         'leaderboard.js': client.get('/leaderboard.js').text,
+        # The script all three pages load before their own, over its own route
+        # for the same reason as tokens.css. What both surfaces turned out to
+        # need identically lives in it, so a claim about "one implementation"
+        # is a claim about this file.
+        'lab.js': client.get('/lab.js').text,
         'panel.css': css,
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
@@ -585,10 +590,12 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
     # this is a convention test
-    """The masthead, the chip row, the findings block, the spine and main each
-    set their own max-width. They are the same band and must read from the same
-    token, or one of them drifts the next time a band is added."""
-    css = panel_texts['panel.css']
+    """The bar, the context scope, the banner, the actions row and main each set
+    their own max-width. They are the same band and must read from the same
+    token, or one of them drifts the next time a band is added. Counted over
+    both sheets the page loads, since the bands the two surfaces share sit in
+    the shared one — a band that moved there is still a band on this page."""
+    css = panel_texts['panel.css'] + panel_texts['chrome.css']
     assert 'max-width: var(--measure)' in css
     assert css.count('max-width: var(--measure)') >= 5, (
         'every band that centres on the page measure must name the token; '
@@ -958,6 +965,27 @@ def test_the_board_offers_a_dataset_picker_naming_every_experiment(panel_texts):
     js = panel_texts['leaderboard.js']
     assert 'every experiment' in js
     assert 'context-scope' in js or 'context-scope' in panel_texts['leaderboard.html']
+
+
+def test_the_settings_reveal_opens_to_a_keyboard_as_well_as_a_mouse(panel_texts):
+    # this is a convention test
+    """Hover alone is what this project already removed from these pages twice:
+    a reveal that answers only a pointer publishes to a mouse and to nothing
+    else. So `:focus-within` opens it too, and the cell takes focus."""
+    css = panel_texts['chrome.css']
+    assert ':focus-within .settings-reveal' in css
+    assert ':hover .settings-reveal' in css
+    assert 'tabindex="0"' in panel_texts['leaderboard.js']
+
+
+def test_the_reveal_escapes_the_scroll_region_that_would_clip_it(panel_texts):
+    # this is a convention test
+    """The reveal hangs off a sticky cell inside a bounded scroll region, so an
+    absolutely-positioned box is clipped at every width — the exact defect the
+    Inspector's chunk reveal already had and solved by going `fixed` and being
+    placed by script. One implementation, in the file both pages load."""
+    assert 'position: fixed' in panel_texts['chrome.css']
+    assert 'placeReveal' in panel_texts['lab.js']
 
 
 def test_the_board_names_no_winner(panel_texts):

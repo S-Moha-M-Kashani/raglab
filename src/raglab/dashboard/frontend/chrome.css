@@ -289,3 +289,87 @@ th.sort-col:hover { color: var(--ink); }
 th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
 th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
 th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
+
+/* ── the pipeline sentence and its reveal ──────────────────────────────────
+   One fragment per step that ran, each in that step's own ink, so a row says
+   which pipeline produced it before you read a single number. `data-step`
+   resolves `--step` from the four definitions in tokens.css — this file invents
+   no colour. */
+.pipe-part { color: var(--step, var(--ink)); font-weight: 600; }
+.pipe-sep { color: var(--ink-soft); margin: 0 var(--s-1); }
+
+/* The whole recorded config, opened by the cell above. `fixed`, because the
+   cell is sticky inside a bounded scroll region and an absolute box is clipped
+   at every width; placed by `placeReveal` in lab.js, since a fixed box does not
+   travel with its cell. The insets here are placeholders — every open reveal is
+   positioned by script. */
+.settings-reveal {
+  display: none; position: fixed; z-index: 20;
+  top: 0; left: 0;
+  width: 34rem; max-width: 78vw; max-height: 42vh; overflow-y: auto;
+  padding: var(--s-3);
+  background: var(--card); border: 1px solid var(--ink);
+  box-shadow: var(--shadow);
+  font: var(--t-xs)/1.6 var(--mono); text-align: left;
+}
+/* Hover AND focus. Hover alone is what these pages already removed twice: a
+   reveal that answers only a pointer publishes to a mouse and to nothing else,
+   and there is no keyboard way to the settings otherwise. */
+.data-table td:hover .settings-reveal,
+.data-table td:focus-within .settings-reveal { display: block; }
+.reveal-step { border-left: 3px solid var(--step, var(--rule));
+               padding-left: var(--s-2); margin-bottom: var(--s-2); }
+.reveal-step > b { color: var(--step, var(--ink)); text-transform: uppercase;
+                   font: var(--label-font); letter-spacing: var(--label-track);
+                   display: block; margin-bottom: var(--s-1); }
+.reveal-knob { display: block; color: var(--ink-soft); }
+.reveal-knob > b { color: var(--ink); }
+
+/* ── the context scope ─────────────────────────────────────────────────────
+   Which corpus is in force: the lab page's Corpus scope and the board's Dataset
+   picker are the same affordance answering the same question on two surfaces,
+   so the rules moved here from panel.css rather than being written twice.
+
+   The detail box is a native `popover` on both pages, which is why nothing here
+   positions it: the browser owns show, hide, light-dismiss and Escape. */
+.board-bar { display: flex; align-items: center; gap: var(--s-2);
+             margin-bottom: var(--s-3); position: relative; }
+.context-bar {
+  max-width: var(--measure); margin: 0 auto;
+  padding: var(--s-2) var(--gutter) 0;
+}
+.context-scope {
+  appearance: none; display: inline-flex; align-items: baseline; gap: var(--s-2);
+  background: transparent; border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  padding: var(--s-1) var(--s-3); cursor: pointer;
+  color: var(--ink); font: var(--t-xs)/1.5 var(--mono);
+}
+.context-scope:hover { border-color: var(--ink-soft); background: var(--card); }
+.context-label {
+  color: var(--ink-soft); font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track);
+}
+.context-caret { color: var(--ink-soft); font-size: var(--t-2xs); }
+.context-detail {
+  margin: 0; padding: var(--s-3);
+  max-width: min(46rem, calc(100vw - 2rem));
+  color: var(--ink); background: var(--plate);
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  font: var(--t-xs)/1.6 var(--mono);
+}
+/* The lab wraps a census in this box; the board wraps a list of corpora. A list
+   brings markers and an indent the box was never told to suppress, so it is
+   told here rather than by a second box. */
+ul.context-detail { list-style: none; }
+.pick {
+  appearance: none; display: block; width: 100%; text-align: left;
+  background: transparent; border: 0; border-radius: var(--radius-sm);
+  padding: var(--s-1) var(--s-2); cursor: pointer;
+  color: var(--ink-soft); font: var(--t-xs)/1.6 var(--mono);
+}
+.pick:hover, .pick:focus-visible { background: var(--card); color: var(--ink); }
+/* The one in force is marked by weight as well as ink: colour alone would be
+   the only difference between it and the five it sits with. */
+.pick[aria-current="true"] { color: var(--ink); font-weight: 700; }

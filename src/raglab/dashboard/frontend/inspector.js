@@ -112,12 +112,8 @@ const GT = new Map();
 // starts on so the tab has something in it before the first poll answers.
 let FOLLOWED_DATASET = '';
 
-async function loadGroundTruth(dataset) {
-  FOLLOWED_DATASET = dataset || '';
-  // Named on every request, never assumed, so this view can't show one corpus
-  // while another view on the page shows a different one.
-  const body = await (await fetch('/api/groundtruth?dataset='
-                                  + encodeURIComponent(FOLLOWED_DATASET))).json();
+function renderGroundTruth(body) {
+  FOLLOWED_DATASET = body.dataset || '';
   const root = document.getElementById('view-groundtruth');
   GT.clear();
   root.innerHTML = '';
@@ -151,6 +147,20 @@ async function loadGroundTruth(dataset) {
   followed.retrievalJobId = null;
   followed.generationJobId = null;
   if (!picker.hidden) renderPicker(pickerFilter.value);
+}
+
+async function loadGroundTruth(dataset) {
+  const requestedDataset = dataset || '';
+  // Named on every request, never assumed, so this view can't show one corpus
+  // while another view on the page shows a different one.
+  const response = await fetch('/api/groundtruth?dataset='
+                               + encodeURIComponent(requestedDataset));
+  const body = await response.json().catch(() => ({ detail: response.statusText }));
+  if (!response.ok) throw new Error(body.detail || response.statusText);
+  // A live fetch that began before archive mode must not land afterwards and
+  // replace the imported ground truth with a different corpus.
+  if (activeArchiveId !== null || archiveLoadingId !== null) return;
+  renderGroundTruth(body);
 }
 loadGroundTruth('');
 
@@ -676,7 +686,113 @@ function setFollowState(body) {
     : `cannot reach the lab at ${body.lab_url}`;
 }
 
-function renderFollow(body) {
+let activeArchiveId = null;
+let archiveLoadingId = null;
+let liveDatasetBeforeArchive = '';
+
+function setArchiveState(runId) {
+  const state = document.getElementById('archive-state');
+  const button = document.getElementById('archive-return-live');
+  const readOnly = runId !== null;
+  state.hidden = !readOnly;
+  button.hidden = !readOnly;
+  document.getElementById('build-chunks').disabled = readOnly;
+  document.getElementById('add-question').disabled = readOnly;
+  if (readOnly) state.textContent = `Imported archive · read-only · ${runId}`;
+  else state.textContent = '';
+}
+
+function renderImportedArchive(archive) {
+  const evaluation = archive.evaluation;
+  const evidence = evaluation.inspector;
+  const result = evaluation.result;
+  if (activeArchiveId === null) liveDatasetBeforeArchive = FOLLOWED_DATASET;
+  FOLLOWED_CONFIG = result.config;
+  ADDED.clear();
+  renderAdded();
+  renderGroundTruth({ dataset: evidence.dataset.id,
+                      meta: evidence.dataset.ground_truth.meta,
+                      questions: evidence.dataset.ground_truth.questions,
+                      datasets: [] });
+  renderChunkGroups(document.getElementById('chunks-body'),
+                    evidence.chunks_by_session);
+  chunkView.summaries = evidence.summaries;
+  showChunkMode(document.getElementById('summaries-body').hidden
+    ? 'chunks' : 'summaries');
+  renderQuestionTables(evidence.traces);
+  const traces = new Map(evidence.traces.map(row => [row.question_id, row.trace]));
+  renderGeneration({ job_id: result.run_id, config: result.config,
+                     rows: result.rows, summary: result.summary,
+                     ragas: result.ragas }, traces);
+  for (const id of ['chunks-active-config', 'retrieval-active-config',
+                    'retrieval-set-config', 'generation-active-config']) {
+    document.getElementById(id).textContent = formatConfig(result.config);
+  }
+  document.getElementById('retrieval-body').innerHTML = '';
+  document.getElementById('retrieval-answer').textContent = '';
+  setArchiveState(result.run_id);
+}
+
+async function archiveRequest(path, method = 'GET') {
+  const response = await fetch(path, { method });
+  const body = await response.json().catch(() => ({ detail: response.statusText }));
+  if (!response.ok) throw new Error(body.detail || response.statusText);
+  return body;
+}
+
+async function followImportedArchive(archiveId) {
+  if (archiveId === activeArchiveId) return;
+  archiveLoadingId = archiveId;
+  try {
+    const archive = await archiveRequest(
+      '/api/imported-archives/' + encodeURIComponent(archiveId));
+    renderImportedArchive(archive);
+    activeArchiveId = archiveId;
+  } finally {
+    archiveLoadingId = null;
+  }
+}
+
+async function leaveArchiveMode() {
+  const dataset = liveDatasetBeforeArchive;
+  activeArchiveId = null;
+  FOLLOWED_CONFIG = null;
+  followed.indexJobId = null;
+  followed.queryJobId = null;
+  followed.retrievalJobId = null;
+  followed.generationJobId = null;
+  // Leave the live dataset dirty until its ground truth arrives. If that
+  // request fails, the next follow tick sees a change and retries it.
+  followed.dataset = null;
+  setArchiveState(null);
+  await loadGroundTruth(dataset);
+  followed.dataset = dataset;
+}
+
+document.getElementById('archive-return-live').addEventListener('click', async () => {
+  const state = document.getElementById('archive-state');
+  let cleared = false;
+  try {
+    state.textContent = 'Returning to live…';
+    await archiveRequest('/api/imported-archives/active', 'DELETE');
+    cleared = true;
+    await leaveArchiveMode();
+  } catch (error) {
+    state.hidden = false;
+    state.textContent = cleared
+      ? `Returning to live · ${error.message} · retrying…`
+      : `Imported archive · read-only · ${error.message}`;
+  }
+});
+
+async function renderFollow(body) {
+  if (body.archive_id) {
+    await followImportedArchive(body.archive_id);
+    return;
+  }
+  if (activeArchiveId !== null) await leaveArchiveMode();
+  else setArchiveState(null);
+
   const chunksCfg = document.getElementById('chunks-active-config');
   const retrievalCfg = document.getElementById('retrieval-active-config');
   const setCfg = document.getElementById('retrieval-set-config');
@@ -686,8 +802,14 @@ function renderFollow(body) {
   // Guarded on a change, not reloaded every tick: this polls every ~2s, and
   // re-rendering would collapse the reader's scroll and drop added questions.
   if (body.lab === 'up' && (body.dataset || '') !== followed.dataset) {
+    const previousDataset = followed.dataset;
     followed.dataset = body.dataset || '';
-    followDataset(followed.dataset);
+    try {
+      await followDataset(followed.dataset);
+    } catch (error) {
+      followed.dataset = previousDataset;
+      throw error;
+    }
   }
 
   if (body.lab === 'down') {
@@ -783,7 +905,7 @@ function renderFollow(body) {
 
 async function pollFollow() {
   try {
-    renderFollow(await (await fetch('/api/follow')).json());
+    await renderFollow(await (await fetch('/api/follow')).json());
   } catch (error) {
     // A hiccup fetching our own origin — try again next tick rather than
     // treating a transient failure as "the lab is down".

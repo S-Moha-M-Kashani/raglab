@@ -18,7 +18,13 @@
     <!-- The lab is another process and may not be running; say which, and stop
          the reader wondering whether an empty view means "nothing ran" or
          "nothing is listening". -->
-    <span class="follow-state" id="follow-state">looking for the lab&hellip;</span>
+    <div class="inspector-status-line">
+      <span class="follow-state" id="follow-state">looking for the lab&hellip;</span>
+      <span class="archive-state" id="archive-state" aria-live="polite" hidden></span>
+      <button class="archive-return-live" id="archive-return-live" type="button" hidden>
+        Return to live
+      </button>
+    </div>
     <nav class="inspector-tabs">
       <button class="inspector-tab" id="tab-groundtruth" data-view="groundtruth">Ground truth</button>
       <button class="inspector-tab" id="tab-chunks" data-view="chunks" data-step="index">Chunks / Summaries</button>

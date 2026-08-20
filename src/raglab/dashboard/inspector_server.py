@@ -8,6 +8,7 @@ running comes back as `{'lab': 'down', ...}`, never an exception.
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -58,6 +59,18 @@ def _lab_get(path: str) -> dict | None:
     url = f'{lab_base_url()}{path}'
     try:
         with urllib.request.urlopen(url, timeout=LAB_TIMEOUT) as response:
+            if response.status != 200:
+                return None
+            return json.loads(response.read().decode('utf-8'))
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return None
+
+
+def _lab_delete(path: str) -> dict | None:
+    """DELETE one lab path with the same bounded, failure-as-None policy as GET."""
+    request = urllib.request.Request(f'{lab_base_url()}{path}', method='DELETE')
+    try:
+        with urllib.request.urlopen(request, timeout=LAB_TIMEOUT) as response:
             if response.status != 200:
                 return None
             return json.loads(response.read().decode('utf-8'))
@@ -339,14 +352,33 @@ def create_inspector_app() -> FastAPI:
             raise HTTPException(404, 'unknown run')
         return data
 
+    @app.get('/api/imported-archives/{archive_id}')
+    def imported_archive(archive_id: str):
+        encoded_id = urllib.parse.quote(archive_id, safe='')
+        found = _lab_get(f'/api/imported-archives/{encoded_id}')
+        if found is None:
+            raise HTTPException(
+                404, 'imported archive is unavailable from the lab')
+        return found
+
+    @app.delete('/api/imported-archives/active')
+    def clear_imported_archive():
+        cleared = _lab_delete('/api/imported-archives/active')
+        if cleared is None:
+            raise HTTPException(
+                503, 'lab is unavailable; archive preview was not cleared')
+        return cleared
+
     @app.get('/api/follow')
     def follow():
         """The lab's newest *finished* jobs in one call, or 'down' when :9002 cannot be reached — HTTP 200 either way."""
+        active = _lab_get('/api/imported-archives/active')
+        archive_id = (active or {}).get('archive_id')
         jobs_index = _lab_get('/api/jobs')
         if jobs_index is None:
             return {'lab': 'down', 'lab_url': lab_base_url(), 'dataset': '',
                     'index': None, 'query': None, 'retrieval': None,
-                    'generation': None}
+                    'generation': None, 'archive_id': archive_id}
 
         query_view = _job_view(jobs_index, 'query',
                                ('trace', 'question', 'question_id', 'answer'))
@@ -354,7 +386,8 @@ def create_inspector_app() -> FastAPI:
                 'dataset': _followed_dataset(jobs_index),
                 'index': _newest_chunks(jobs_index), 'query': query_view,
                 'retrieval': _question_set(jobs_index),
-                'generation': _generation_view(jobs_index)}
+                'generation': _generation_view(jobs_index),
+                'archive_id': archive_id}
 
     return app
 

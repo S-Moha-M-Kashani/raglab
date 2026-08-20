@@ -369,6 +369,24 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.html', 'role="tablist"', None,
+     'the four views are a tablist: `aria-selected` on a plain <button> means '
+     'nothing, so a screen reader was told which view was showing by nothing '
+     'at all'),
+    ('inspector.html', 'role="tabpanel"', None,
+     'a tab must control a panel that says it is one, or `aria-controls` '
+     'points at an anonymous section'),
+    ('inspector.html', 'aria-controls="view-retrieval"', None,
+     'each tab must name the panel it opens — checked on one real pairing, so '
+     'a `role="tab"` added without the wiring cannot satisfy the rows above'),
+    ('inspector.js', 'tab.tabIndex = on ? 0 : -1', None,
+     'a tablist is one stop in the page tab order, not four; the roving '
+     'tabindex is what makes the arrow keys the way between them rather than '
+     'an addition nobody needs'),
+    ('inspector.css', '.inspector-header-inner', None,
+     'the header is a page-level band and centres on the shared measure: '
+     'without its own inner band its title and tabs sat 77px left of every '
+     'card on the page at any viewport wider than the measure'),
     ('inspector.js', None, 'query box on the lab',
      'the one-off-query view must not send the reader to a control that is '
      'not there: the lab has had no query box for a while, and an empty state '

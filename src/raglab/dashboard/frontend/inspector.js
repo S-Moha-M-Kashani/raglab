@@ -8,16 +8,43 @@ async function loadChosen() {
 const chosenReady = loadChosen();
 
 const views = ['groundtruth', 'chunks', 'retrieval', 'generation'];
+const tabOf = view => document.getElementById(`tab-${view}`);
+
+// Roving tabindex: a tablist is one stop in the page's tab order, not four, and
+// the selected tab is the one that stop lands on. Reached by four buttons that
+// only ever set `aria-selected`, which is inert without `role="tab"` — so a
+// screen reader was told which of the four views was showing by nothing at all,
+// and there was no way between them but Tab, Tab, Tab.
 function show(view) {
   for (const v of views) {
-    document.getElementById(`view-${v}`).hidden = v !== view;
-    const tab = document.getElementById(`tab-${v}`);
-    tab.setAttribute('aria-selected', String(v === view));
+    const on = v === view;
+    document.getElementById(`view-${v}`).hidden = !on;
+    const tab = tabOf(v);
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
   }
 }
-for (const v of views) {
-  document.getElementById(`tab-${v}`).addEventListener('click', () => show(v));
-}
+for (const v of views) tabOf(v).addEventListener('click', () => show(v));
+
+// The arrows walk the strip and switch as they go: all four panels are already
+// in the page, so there is nothing to fetch and nothing a reader would gain by
+// having to confirm the move. Home and End go to the ends. Same shape as the
+// question picker further down, which is the keyboard implementation this page
+// already had right.
+document.querySelector('.inspector-tabs').addEventListener('keydown', event => {
+  const at = views.findIndex(v => tabOf(v) === document.activeElement);
+  if (at < 0) return;
+  const next = {
+    ArrowRight: (at + 1) % views.length,
+    ArrowLeft: (at - 1 + views.length) % views.length,
+    Home: 0,
+    End: views.length - 1,
+  }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  show(views[next]);
+  tabOf(views[next]).focus();
+});
 show('groundtruth');
 
 async function pollJob(jobId) {

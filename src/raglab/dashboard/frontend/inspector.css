@@ -65,12 +65,20 @@ select { font: inherit; color: inherit; }
 /* A readout, not a hero: the title stays small so the run's own state is what
    the eye lands on. */
 .inspector-header {
-  /* Horizontal value is the shared page gutter (--gutter), not a ramp step —
-     it must match .inspector-view's so both bands share one left/right
-     edge. Do not move this back onto --s-4; that re-breaks the alignment. */
-  padding: var(--s-3) var(--gutter) 0;
+  /* The band's ink runs edge to edge; its content does not. */
   background: var(--chassis);
   color: var(--chassis-ink);
+}
+/* A page-level band, so it takes the shared measure AND the shared gutter, the
+   same way .topbar-inner above it and .inspector-view below it do. The gutter
+   is the page gutter (--gutter), not a ramp step: it has to match its
+   neighbours' or the page has three left edges. Do not move it back onto
+   --s-4; that re-breaks the alignment. Centring is the other half of the same
+   rule and was missing — past 1560px the title and the tabs sat 77px left of
+   every card on the page. */
+.inspector-header-inner {
+  max-width: var(--measure); margin: 0 auto;
+  padding: var(--s-3) var(--gutter) 0;
 }
 .inspector-header h1 {
   font-family: var(--slab);
@@ -151,6 +159,12 @@ select { font: inherit; color: inherit; }
   color: var(--chassis-ink-soft);
 }
 .inspector-tab:hover { color: #fff; }
+/* On the chassis, so the ring is the lit ink rather than the porcelain one the
+   rest of the page uses. With a roving tabindex the selected tab is the only
+   one Tab reaches, which makes its ring the reader's only position cue. */
+.inspector-tab:focus-visible {
+  outline: 2px solid var(--step-retrieval-lit); outline-offset: 2px;
+}
 .inspector-tab[aria-selected="true"] { color: #fff; }
 .inspector-tab[data-step="index"][aria-selected="true"] { border-bottom-color: var(--step-index-lit); }
 .inspector-tab[data-step="retrieval"][aria-selected="true"] { border-bottom-color: var(--step-retrieval-lit); }

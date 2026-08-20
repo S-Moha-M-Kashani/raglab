@@ -4,9 +4,10 @@
    reads) and before each page's own sheet, so a page can still override.
 
    What lives here is only what BOTH pages render: the skip link, the top bar,
-   and the surface switcher. The panel's status rail and status pill stay in
-   panel.css — they report lab state the Inspector does not hold, and they read
-   `--good`, which is a panel-local token. */
+   the surface switcher, the table scroll region and its sortable header, and
+   the '!' that opens an explainer. The panel's status rail and status pill stay
+   in panel.css — they report lab state the Inspector does not hold, and they
+   read `--good`, which is a panel-local token. */
 
 /* Keyboard users reach the content without walking the whole switcher, and on
    the panel without walking sixty form controls after it. Visible only when
@@ -99,6 +100,42 @@
   .topbar-actions { margin-left: 0; width: 100%; }
   .topnav { flex-wrap: wrap; }
 }
+
+/* ── the '!' that opens an explainer ───────────────────────────────────────
+   Both surfaces put this mark beside a thing that needs a sentence — a knob,
+   a metric, a failed run's reason — and both used to draw it themselves, as
+   `button.why` here and `.inspector-why` there, in different units, under
+   comments on each side claiming they were "the same affordance". They are,
+   so there is one of them now. What stays per-page is only where the opened
+   sentence goes: the lab puts it after the whole field (a <p> placed straight
+   after a <td> gets hoisted out of the table by the parser), the Inspector
+   sends it to the end of the metrics row so opening one cannot push the
+   scores beside it out of line. That is a placement decision, not a look. */
+button.why {
+  font: 700 var(--t-2xs)/1 var(--mono); padding: var(--s-px) var(--s-1); margin-left: var(--s-1);
+  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
+  border-radius: var(--radius-pill); vertical-align: middle;
+  position: relative; cursor: pointer;
+}
+/* The target is 24×24; the mark stays small. The mark has to: it sits at the
+   end of an eleven-pixel uppercase label, and a 24px disc there would set the
+   line height of every label on a page with dozens of them — around nine pixels
+   each, which is the difference between the controls fitting on a laptop screen
+   and not. So the hit area is a pseudo-element centred on the mark and outside
+   the layout: the button was about 16×15, which is under the floor and there is
+   one of these per knob and per metric. Adjacent marks are 25px or more apart,
+   so no two of these boxes overlap. */
+button.why::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: 24px; height: 24px; transform: translate(-50%, -50%);
+}
+/* Lit in the step's ink where a step owns the mark, and in the page's own ink
+   where none does. The fallback used to be `--chassis`, which is near-black on
+   both themes while the text is `--card` — so on dark mode the hovered mark was
+   a dark fill under dark text. `--ink` inverts with the theme, so both cases
+   read at full contrast. */
+button.why:hover { color: var(--card); background: var(--step, var(--ink));
+                   border-color: var(--step, var(--ink)); }
 
 /* ── data tables ───────────────────────────────────────────────────────────
    A wide table is only usable if you can reach the right-hand side of it, and

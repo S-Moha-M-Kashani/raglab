@@ -16,7 +16,6 @@
      cannot climb back out of an ancestor's opacity. Page-local: the Inspector
      has no knobs to disable. */
   --ink-off: #8b98a6;
-  --shadow: 0 1px 2px rgba(16, 22, 32, .05), 0 10px 24px -18px rgba(16, 22, 32, .5);
 }
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
@@ -351,27 +350,13 @@ button:disabled { opacity: .4; cursor: default; }
   color: var(--ink-soft); margin-top: var(--s-1);
 }
 
-button.why {
-  font: 700 var(--t-2xs)/1 var(--mono); padding: var(--s-px) var(--s-1); margin-left: var(--s-1);
-  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
-  border-radius: var(--radius-pill); vertical-align: middle;
-  position: relative;
-}
-/* The target is 24×24; the mark stays small. The mark has to: it sits at the
-   end of an eleven-pixel uppercase label, and a 24px disc there would set the
-   line height of every label on a page with dozens of them — around nine pixels
-   each, which is the difference between the controls fitting on a laptop screen
-   and not. So the hit area is a pseudo-element centred on the mark and outside
-   the layout: the button was about 16×15, which is under the floor and there is
-   one of these per knob and per metric. Adjacent marks are 25px or more apart,
-   so no two of these boxes overlap. */
-button.why::after {
-  content: ''; position: absolute; top: 50%; left: 50%;
-  width: 24px; height: 24px; transform: translate(-50%, -50%);
-}
-button.why:hover { color: var(--card); background: var(--step, var(--chassis));
-                   border-color: var(--step, var(--chassis)); }
-/* pre-wrap because one explainer — the import control's — is a JSON shape, and
+/* The '!' mark itself — its box, its 24×24 target and its hover — is in
+   chrome.css, shared with the Inspector, which draws the same one. What is
+   page-local is only where the sentence it opens lands, which is here: after
+   the whole field, because a <p> placed straight after a <td> gets hoisted out
+   of the table by the parser.
+
+   pre-wrap because one explainer — the import control's — is a JSON shape, and
    a shape flattened into a paragraph is prose about nesting rather than the
    nesting. Every other text in the registry is a single line with no leading
    space, so they render exactly as they did. */
@@ -505,7 +490,6 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
   :root {
     --alert-wash: #2a1d1b;
     --ink-off: #6c7987;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
   }
   button { background: var(--step-generation); border-color: var(--step-generation);
            color: var(--chassis); }

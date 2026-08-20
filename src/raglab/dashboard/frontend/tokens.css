@@ -65,6 +65,14 @@
   --t-md: 1rem;
   --t-lg: 1.25rem;
   --t-xl: 1.5rem;
+  /* How far a card sits off the plate. One decision, and it was made twice:
+     a --shadow token here on the panel, and the same hairline written out by
+     hand three times on the Inspector — with no dark-mode value, so on that
+     theme an Inspector card had a 5%-black shadow against a near-black plate
+     and read as flat. Two layers, because one hairline alone gives an edge
+     without a lift. An overlay needs a heavier shadow than a card does; that
+     is a different decision and the surface that has overlays names it. */
+  --shadow: 0 1px 2px rgba(16, 22, 32, .05), 0 10px 24px -18px rgba(16, 22, 32, .5);
   /* Two radii and two shapes. Six hand-set values collapse to these. */
   --radius-sm: 3px;
   --radius-md: 6px;
@@ -91,6 +99,9 @@
     --ink: #e3e9ef;
     --ink-soft: #97a4b3;
     --alert: #d98376;
+    /* Against a dark plate a wash of the plate's own colour is invisible; the
+       lift has to come from black. */
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
     /* On this theme every surface is the chassis, so a step reads at the
        weight the chassis needs. `--step-agent` is deliberately absent here:
        the panel never re-lit it in dark mode and the Inspector always did —

@@ -9,6 +9,14 @@
   --farsi: "Vazirmatn", "IRANSansX", "IRANSans", "Geeza Pro", "Tahoma",
            "Segoe UI", sans-serif;
 
+  /* How far an overlay sits off the page: the chunk reveal and the question
+     popover, both of which float over content rather than sitting in it, so
+     the card's `--shadow` in tokens.css is too light to separate them from
+     what they cover. This page is the only one with overlays, so the decision
+     stays here — but it was made twice, at .24 and .22 opacity, two values two
+     hundredths apart for the same job. */
+  --shadow-pop: 0 .35rem 1.1rem rgb(0 0 0 / .24);
+
   --ink-amber: var(--step-index);        /* index */
   --ink-green: var(--step-retrieval);    /* retrieval */
   --ink-blue: var(--step-generation);    /* generation */
@@ -234,7 +242,7 @@ select { font: inherit; color: inherit; }
 .gt-row {
   background: var(--card);
   border: 1px solid var(--rule-soft); border-radius: var(--radius-md);
-  box-shadow: 0 1px 2px rgb(16 22 32 / .05);
+  box-shadow: var(--shadow);
   border-left: 3px solid var(--ink);
   padding: var(--s-2) var(--s-3);
   margin-bottom: var(--s-2);
@@ -257,7 +265,7 @@ select { font: inherit; color: inherit; }
 .chunk-session {
   background: var(--card);
   border: 1px solid var(--rule-soft); border-radius: var(--radius-md);
-  box-shadow: 0 1px 2px rgb(16 22 32 / .05);
+  box-shadow: var(--shadow);
   border-left: 3px solid var(--ink-amber);
   margin-bottom: var(--s-2);
   padding: var(--s-2) var(--s-3);
@@ -367,7 +375,7 @@ select { font: inherit; color: inherit; }
   width: 36rem; max-width: 80vw;
   padding: var(--s-2) var(--s-3);
   background: var(--card); border: 1px solid var(--ink);
-  box-shadow: 0 .35rem 1.1rem rgb(0 0 0 / .24);
+  box-shadow: var(--shadow-pop);
 }
 .q-option:hover .q-option-detail, .q-option:focus .q-option-detail { display: block; }
 .q-option-fa { font-size: var(--t-base); }
@@ -400,7 +408,7 @@ select { font: inherit; color: inherit; }
 .retrieval-question, .gen-question {
   background: var(--card);
   border: 1px solid var(--rule-soft); border-radius: var(--radius-md);
-  box-shadow: 0 1px 2px rgb(16 22 32 / .05);
+  box-shadow: var(--shadow);
   margin-bottom: var(--s-2);
   padding: var(--s-2) var(--s-3) var(--s-3);
 }
@@ -527,7 +535,7 @@ select { font: inherit; color: inherit; }
   background: var(--card);
   border: 1px solid var(--ink);
   border-left: 3px solid var(--ink-green);
-  box-shadow: 0 .35rem 1.1rem rgb(0 0 0 / .22);
+  box-shadow: var(--shadow-pop);
   white-space: pre-wrap;
   font-family: var(--farsi); font-size: var(--t-base); line-height: 1.9;
 }
@@ -590,26 +598,13 @@ select { font: inherit; color: inherit; }
 }
 
 /* --- the '!' beside a score, and the sentence it opens ------------------- */
-/* The same affordance the lab's panel carries, reading the same served text. */
-.inspector-why {
-  font: 700 var(--t-2xs)/1 var(--mono);
-  background: transparent; color: var(--ink-soft);
-  border: 1px solid var(--rule); border-radius: var(--radius-pill); padding: .12em .34em;
-  margin-left: .35em;
-  position: relative;
-}
-/* Same affordance as the lab's `button.why`, so the same 24×24 target and the
-   same reason for taking it from a pseudo-element: the mark sits at the end of
-   a small label and a 24px disc would set that row's line height. The two
-   implementations are still two — different classes, different explainer
-   mechanics — and unifying them is worth doing; the floor is not waiting on
-   that. */
-.inspector-why::after {
-  content: ''; position: absolute; top: 50%; left: 50%;
-  width: 24px; height: 24px; transform: translate(-50%, -50%);
-}
-.inspector-why:hover { border-color: var(--alert); color: var(--alert); }
-.inspector-why-text {
+/* The mark itself is in chrome.css — one rule for both surfaces now, where
+   this page used to draw its own copy in `em` beside a comment claiming the two
+   were the same thing. What is page-local is only where the sentence lands,
+   which is genuinely different here: these marks sit in a flex row of scores,
+   so the note is a flex item sent to the end of the row rather than a block
+   after the field. */
+.why-text {
   /* Inside the metrics row this is a flex item; `order` sends it to the end so
      opening one explainer cannot push the scores beside it out of line. */
   display: block; flex-basis: 100%; order: 99;

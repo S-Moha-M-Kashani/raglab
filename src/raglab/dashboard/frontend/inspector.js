@@ -106,19 +106,19 @@ function whyText(key) {
 
 function whyMark(key) {
   const label = escapeHtml(measureOf(key).label || key);
-  return `<button type="button" class="inspector-why" data-why="${escapeHtml(key)}"`
+  return `<button type="button" class="why" data-why="${escapeHtml(key)}"`
     + ` aria-label="What is ${label}?">!</button>`;
 }
 
 // One listener for the page: the marks are re-rendered on every poll tick, and
 // a listener per button would leak one per render.
 document.addEventListener('click', event => {
-  const button = event.target.closest('.inspector-why');
+  const button = event.target.closest('button.why');
   if (!button) return;
   const open = button.nextElementSibling;
-  if (open && open.classList.contains('inspector-why-text')) { open.remove(); return; }
+  if (open && open.classList.contains('why-text')) { open.remove(); return; }
   const note = document.createElement('span');
-  note.className = 'inspector-why-text';
+  note.className = 'why-text';
   note.textContent = whyText(button.dataset.why) || 'no description for this one yet';
   button.after(note);
 });

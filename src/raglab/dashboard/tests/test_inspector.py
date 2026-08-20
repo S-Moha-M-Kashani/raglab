@@ -377,10 +377,16 @@ INSPECTOR_CONVENTIONS = [
      'and no smaller type on a narrow screen — that step is under the '
      'readable floor, and what a narrow screen needs is a table that scrolls, '
      'which it now has at every width'),
-    ('inspector.css', '.inspector-why::after', None,
-     "the Inspector's '!' is the same affordance as the lab's and clears the "
-     'same 24×24 floor, from a pseudo-element for the same reason: a 24px '
+    ('chrome.css', 'button.why::after', None,
+     "the Inspector's '!' is not merely the same affordance as the lab's, it "
+     'is the same rule: two copies in two units under comments on each side '
+     'claiming they were one thing is what this replaces. It still clears the '
+     'same 24×24 floor from a pseudo-element, for the same reason — a 24px '
      'disc at the end of a small label would set that row\'s line height'),
+    ('inspector.css', None, '.inspector-why',
+     'and the page keeps no copy of the mark: what stays here is only where '
+     'the sentence it opens goes, which is genuinely page-local because these '
+     'marks sit in a flex row of scores'),
     ('inspector.html', 'id="chunks-status" aria-live="polite"', None,
      'a build that finished, or failed, must say so — this span is the only '
      'place it is reported'),

@@ -492,11 +492,13 @@ def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
     `opacity: 1` this block used to carry on the note did nothing at all and the
     sentence rendered at half of an already soft ink."""
     css = panel_texts['panel.css']
-    # The end anchor is the *bare* selector: `.rag-field-off button.why {` is
-    # inside this block and would cut the slice in half, hiding the note's own
-    # rule from the guard that exists to check it.
+    # The end anchor is the next rule after the block. It used to be
+    # `\nbutton.why {` — the *bare* selector, because `.rag-field-off
+    # button.why {` is inside this block and would have cut the slice in half.
+    # That rule now lives in chrome.css, shared with the Inspector, so the
+    # anchor is the explainer paragraph that follows instead.
     block = css[css.index('/* A knob the current pipeline would ignore'):
-                css.index('\nbutton.why {')]
+                css.index('\np.explain {')]
     # Comments out: this block's own comment explains the bug by naming it, and
     # a guard that cannot tell an explanation from a declaration guards nothing.
     block = re.sub(r'/\*.*?\*/', '', block, flags=re.S)
@@ -519,10 +521,15 @@ def test_the_smallest_controls_clear_the_target_floor(panel_texts):
     head bar has room for the size outright, while the `!` keeps a small mark
     and takes its target from a pseudo-element — a 24px disc at the end of an
     eleven-pixel uppercase label would set the line height of every label on
-    the page."""
-    css = panel_texts['panel.css']
+    the page. The `!` is read from chrome.css because there is one of it for
+    both surfaces now; the Inspector's half of that claim lives in
+    test_inspector.py."""
+    css = panel_texts['chrome.css']
     assert 'button.why::after' in css
     assert 'width: 24px; height: 24px' in css
+    assert 'button.why::after' not in panel_texts['panel.css'], (
+        'the lab must not carry a second copy of the mark — only what it adds '
+        'to it, which is the dimmed variant on a locked knob')
     widget = panel_texts['panel.css (widget block)']
     assert 'min-width: 24px; min-height: 24px' in widget, (
         "the widget's own header controls must clear the floor too — the "

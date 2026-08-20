@@ -1,5 +1,6 @@
 """Contracts for portable RAG Lab experiment archives."""
 import copy
+import json
 
 import pytest
 
@@ -45,6 +46,15 @@ def test_archive_size_config_and_stage_mismatches_are_refused():
     full['evaluation']['stage_results']['retrieval']['metrics']['recall'] = 0.2
     with pytest.raises(archive.ArchiveError, match='stage_results'):
         archive.validate_archive(full)
+
+
+def test_direct_posts_enforce_the_encoded_archive_size_limit(monkeypatch):
+    payload = completed_archive()
+    encoded_size = len(json.dumps(payload, ensure_ascii=False,
+                                  allow_nan=False).encode('utf-8'))
+    monkeypatch.setattr(archive, 'MAX_BYTES', encoded_size - 1)
+    with pytest.raises(archive.ArchiveError, match='archive.*(encoded|size|MiB)'):
+        archive.validate_archive(payload)
 
 
 def test_result_config_requires_json_type_equality():

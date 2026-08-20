@@ -30,6 +30,7 @@ def test_completed_import_is_persisted_once_without_a_run_file(
     changed = completed_archive()
     changed['evaluation']['result']['label'] = 'preview only'
     changed['settings']['config']['label'] = 'preview only'
+    changed['evaluation']['result']['config']['label'] = 'preview only'
     assert client.post('/api/imported-archives', json=changed).json()['database'] \
         == 'existing'
     assert client.get('/api/imported-archives/imported-run-001').json() == changed
@@ -63,7 +64,7 @@ def test_a_failed_archive_insert_leaves_no_row_or_active_archive(
     assert 'database' in response.json()['detail']
     assert client.get('/api/experiments').json()['experiments'] == []
     assert client.get('/api/imported-archives/active').json() == {
-        'archive_id': None}
+        'archive_id': None, 'source': None}
 
 
 def test_clear_only_returns_inspector_to_live(client):

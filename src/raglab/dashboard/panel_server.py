@@ -10,6 +10,7 @@ import time
 import traceback
 import uuid
 import inspect
+import sqlite3
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,7 @@ from raglab.llm_backends import openrouter_key_memory as credentials
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.evaluation import run_evaluation as evaluate
+from raglab.evaluation import experiment_archive as archive
 from raglab.configuration import explainer_assembly as explain
 from raglab.evaluation import service_experiment_ledger as ledger
 from raglab.evaluation import deterministic_metrics as metrics
@@ -61,6 +63,7 @@ from raglab.dashboard.service_presentation import (
     chunks_by_session,
     mark_gold,
     summary_rows)
+from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
     _accepted,
     cancel_checker,
@@ -338,6 +341,7 @@ def create_app() -> FastAPI:
     registry = IndexRegistry(settings, diary)
     # This service owns the ledger, so this is the one place a recorder is passed.
     jobs = Jobs(record=ledger.record)
+    archives = ImportedArchiveStore()
     app = FastAPI(title='Lodestar RAG Lab')
 
     @app.get('/')
@@ -506,6 +510,31 @@ def create_app() -> FastAPI:
         found = ledger.experiment(experiment_id)
         if found is None:
             raise HTTPException(404, 'unknown experiment')
+        return found
+
+    @app.post('/api/imported-archives')
+    def import_archive(payload: dict):
+        try:
+            return archives.import_archive(payload)
+        except archive.ArchiveError as error:
+            raise HTTPException(400, str(error)) from error
+        except sqlite3.Error as error:
+            raise HTTPException(500, 'archive database persistence failed') from error
+
+    @app.get('/api/imported-archives/active')
+    def active_archive():
+        return archives.metadata()
+
+    @app.delete('/api/imported-archives/active')
+    def clear_active_archive():
+        archives.clear()
+        return {'archive_id': None}
+
+    @app.get('/api/imported-archives/{archive_id}')
+    def imported_archive(archive_id: str):
+        found = archives.get(archive_id)
+        if found is None:
+            raise HTTPException(404, 'unknown imported archive')
         return found
 
     @app.get('/api/evaluations/{run_id}')

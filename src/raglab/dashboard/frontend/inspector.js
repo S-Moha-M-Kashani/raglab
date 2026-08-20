@@ -347,15 +347,23 @@ function chunkCell(candidate) {
   // A summary row wears the index ink and names its group, so it reads as
   // build-written rather than mistaken for the diarist's own words.
   const badge = candidate.layer === 'summary'
-    ? `<span class="layer-badge" data-step="index" title="a summary this build `
-      + `wrote over ${candidate.members} chunks — not the diarist's own words">`
+    ? `<span class="layer-badge" data-step="index">`
       + `L${candidate.level} ${escapeHtml(candidate.group_id || '')} `
       + `· ${candidate.members}</span> ` : '';
+  // What the badge means, in the reveal rather than in a `title`. That this row
+  // is not the corpus's own words is the most important thing about it, and a
+  // mouse-hover tooltip is not a way to publish that — the reveal is where the
+  // row's full text already goes, and it opens to a keyboard as well.
+  const layerNote = candidate.layer === 'summary'
+    ? '<span class="no-evidence">a summary this build wrote over '
+      + `${candidate.members} chunk${candidate.members === 1 ? '' : 's'} `
+      + '— not the corpus\'s own words</span>' : '';
   return `<td class="chunk-cell" data-sort="${escapeHtml(preview.slice(0, 60))}">`
     + badge
     + `<span class="chunk-preview" dir="rtl" tabindex="0">`
     + `${escapeHtml(preview.slice(0, 60))}${preview.length > 60 ? '…' : ''}</span>`
-    + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}${footnote}</div></td>`;
+    + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}`
+    + `${footnote}${layerNote}</div></td>`;
 }
 
 // One bar per rank-producing step (dense, BM25, RRF fusion), height standing

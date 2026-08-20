@@ -353,6 +353,35 @@ CONVENTIONS = [
      'the footer rail height is a shared token for the same reason as '
      '--bar-h'),
 
+    # --- what changed, said out loud ---------------------------------------
+    ('index.html', 'id="resultMeta" aria-live="polite"', None,
+     'a finished evaluation is the single most important thing that happens '
+     'on this page, and it announced itself to nobody'),
+    ('index.html', 'id="indexInfo" aria-live="polite"', None,
+     "a build's result is the only place the collection name and the chunk "
+     'count appear, so it has to say when it arrives'),
+    ('index.html', 'id="retrieveInfo" aria-live="polite"', None,
+     'the same for a retrieval, which otherwise finishes in silence'),
+
+    # --- a reason is published on the page, not to a mouse -----------------
+    ('panel.js', None, 'holder.title = enabled',
+     'the disabled-knob reason is written into a visible note; a tooltip '
+     'saying the same thing is a second copy only a mouse can reach'),
+    ('panel.js', None, 'title="a stub answered',
+     'what `fake` means is in the prose above the ledger, on the page — the '
+     'tooltip was a hover-only duplicate of it'),
+    ('panel.js', None, 'title="${safe(r.error',
+     'why a run failed is the reason the row is degraded, and a title '
+     'attribute publishes it to a mouse and to nothing else'),
+    ('panel.js', 'class="failed"', None,
+     'the failed state and the mark that opens its reason travel together, '
+     'wrapped — an explainer inserted directly after a <td> is hoisted out '
+     'of the table by the parser'),
+    ('panel.css', None, '.rag-field-off { opacity',
+     'group opacity is the bug: it composites the whole subtree, so the '
+     "`opacity: 1` that used to sit on the field's own explanation did "
+     'nothing and the sentence rendered at about 2:1'),
+
     # --- tables: one component, both surfaces ------------------------------
     ('chrome.css', 'position: sticky; top: 0; z-index: 2;', None,
      'a table header declared `position: sticky` with no inset resolves '
@@ -419,6 +448,53 @@ def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
             f'#{host} must be written through renderTable, which wires the '
             'column sorter after insertion — building it with innerHTML is '
             'how #ragas and #extras came to look sortable and do nothing')
+
+
+def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
+    # this is a convention test
+    """A knob this pipeline would ignore is dimmed, and the one sentence saying
+    why is the only part of it still worth reading — so the dimming is colour on
+    the fields, never `opacity` on the group. Opacity composites the whole
+    subtree: a child cannot climb back out of an ancestor's, which is why the
+    `opacity: 1` this block used to carry on the note did nothing at all and the
+    sentence rendered at half of an already soft ink."""
+    css = panel_texts['panel.css']
+    # The end anchor is the *bare* selector: `.rag-field-off button.why {` is
+    # inside this block and would cut the slice in half, hiding the note's own
+    # rule from the guard that exists to check it.
+    block = css[css.index('/* A knob the current pipeline would ignore'):
+                css.index('\nbutton.why {')]
+    # Comments out: this block's own comment explains the bug by naming it, and
+    # a guard that cannot tell an explanation from a declaration guards nothing.
+    block = re.sub(r'/\*.*?\*/', '', block, flags=re.S)
+    assert 'opacity' not in block, (
+        'no opacity anywhere in this block — not on the group, and not the '
+        'countermand on the note that made it look handled')
+    assert 'var(--ink-off)' in block, (
+        'the dimming is a named ink, so the one value that means "this knob is '
+        'out of play" is decided once')
+    assert 'color: var(--ink-soft)' in block, (
+        'the reason itself stays at the page\'s ordinary soft ink, which is '
+        'what full contrast means here')
+
+
+def test_the_smallest_controls_clear_the_target_floor(panel_texts):
+    # this is a convention test
+    """`button.why` was about 16×15 and there is one per knob and per metric;
+    the widget's gear and close were about 14×19, side by side in the corner of
+    a floating window. Both clear 24×24 now, by different means: the widget's
+    head bar has room for the size outright, while the `!` keeps a small mark
+    and takes its target from a pseudo-element — a 24px disc at the end of an
+    eleven-pixel uppercase label would set the line height of every label on
+    the page."""
+    css = panel_texts['panel.css']
+    assert 'button.why::after' in css
+    assert 'width: 24px; height: 24px' in css
+    widget = panel_texts['panel.css (widget block)']
+    assert 'min-width: 24px; min-height: 24px' in widget, (
+        "the widget's own header controls must clear the floor too — the "
+        'scoped read is what stops an unrelated 24px elsewhere in the sheet '
+        'from satisfying this')
 
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):

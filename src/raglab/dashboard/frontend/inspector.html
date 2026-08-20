@@ -76,7 +76,7 @@
       <div class="inspector-active-config" id="chunks-active-config"></div>
       <div class="inspector-controls">
         <button id="build-chunks">Build index &amp; list chunks</button>
-        <span id="chunks-status"></span>
+        <span id="chunks-status" aria-live="polite" aria-atomic="true"></span>
       </div>
       <!-- Two kinds of row, one index. The leaves are what the chunker cut; the
            summaries are what a grouping wrote *beside* them, and both are in the
@@ -103,7 +103,7 @@
       <div class="inspector-controls">
         <button id="add-question" aria-expanded="false"
                 aria-controls="question-picker">Add a question</button>
-        <span id="retrieval-status"></span>
+        <span id="retrieval-status" aria-live="polite" aria-atomic="true"></span>
       </div>
       <div class="question-picker" id="question-picker" hidden>
         <input type="search" id="question-picker-filter" class="q-filter"

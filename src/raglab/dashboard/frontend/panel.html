@@ -147,7 +147,11 @@
       <button class="step-action" id="build">Build / reuse index</button>
       <button class="ghost" id="rebuild">Force rebuild</button>
     </div>
-    <div id="indexInfo"></div>
+    <!-- A build's result is an announcement, not a decoration: it is the
+         only place the collection name, the chunk count and any note about
+         the partition appear. Atomic because the whole line is replaced at
+         once and half of it read on its own says nothing. -->
+    <div id="indexInfo" aria-live="polite" aria-atomic="true"></div>
   </section>
 
   <section class="card" id="card-retrieval" data-step="retrieval">
@@ -202,7 +206,7 @@
       <button class="step-action" id="retrieve-selected"
         title="Retrieve for the questions selected in 3 · Generation. No answers, no judging, no run file.">Retrieve selected questions</button>
     </div>
-    <div id="retrieveInfo"></div>
+    <div id="retrieveInfo" aria-live="polite" aria-atomic="true"></div>
   </section>
 
   <section class="card" id="card-generation" data-step="generation">
@@ -326,7 +330,7 @@
 
 <div class="stack">
   <section class="card" id="resultCard">
-    <div class="card-head"><h2>Readings</h2><span class="section-meta right" id="resultMeta"></span></div>
+    <div class="card-head"><h2>Readings</h2><span class="section-meta right" id="resultMeta" aria-live="polite" aria-atomic="true"></span></div>
     <div id="notes"></div>
     <!-- An empty screen is an invitation to act, not a set of headings with
          nothing under them: until a run is on screen the breakdowns are hidden
@@ -401,7 +405,7 @@
 <div id="widget-window" class="widget-window" hidden>
   <div class="widget-head">
     <span>Lab helper</span>
-    <span>
+    <span class="widget-head-actions">
       <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
       <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
     </span>

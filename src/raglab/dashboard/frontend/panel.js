@@ -434,7 +434,9 @@ function applyDependencies() {
     const holder = el.closest('div') || el.parentElement;
     if (!holder) continue;
     holder.classList.toggle('rag-field-off', !enabled);
-    holder.title = enabled ? '' : 'Disabled because ' + reason;
+    // No `title` here. The same sentence is written into the visible note
+    // below, so the tooltip was a second copy reachable only by hovering —
+    // and a reason worth giving is worth giving on the page.
     let note = holder.querySelector('.rag-when-dep');
     if (!enabled) {
       if (!note) {
@@ -1407,11 +1409,10 @@ async function loadExperiments(throwOnError = false) {
       safe(r.experiment_id),
       safe(r.label || ''),
       // Marked rather than merely printed: on `fake` every LLM number on the
-      // row came from a stub that cannot fail.
-      r.provider === 'fake'
-        ? '<b title="a stub answered and judged every call: these numbers measure '
-          + 'nothing">fake</b>'
-        : safe(r.provider || '—'),
+      // row came from a stub that cannot fail. No tooltip — what that means is
+      // written in the prose above this table, on the page, where a reader who
+      // is not holding a mouse over the cell can still find it.
+      r.provider === 'fake' ? '<b>fake</b>' : safe(r.provider || '—'),
       safe(r.chunker || '—'), safe(r.embedder || '—'),
       safe(r.retriever || '—'), safe(r.reranker || '—'),
       safe(r.grader || '—'), safe(r.answerer || '—'),
@@ -1420,8 +1421,22 @@ async function loadExperiments(throwOnError = false) {
       r.decision == null ? '—' : `<b>${safe(fmt(r.decision))}</b>`
         + (r.decision_stderr != null
           ? ` <span class="stderr">± ${safe(fmt(r.decision_stderr))}</span>` : ''),
+      // Why a row is not `done` is the reason the row is degraded, and it used
+      // to live only in a `title` — so it was published to a mouse and to
+      // nothing else. It goes through the page's own '!' affordance instead:
+      // focusable, and the explainer opens as text under the cell. Wrapped in
+      // a span for the same reason the RAGAS metric names are: the explainer
+      // is inserted after the button's parent, and a <p> placed directly after
+      // a <td> gets hoisted out of the table by the parser.
+      // The '!' only where there is something behind it. A cancelled job has
+      // no error to give, and a mark that opens onto "no reason recorded" is
+      // an affordance that lies about having an answer.
       r.state === 'done' ? 'done'
-        : `<b title="${safe(r.error || '')}">${safe(r.state)}</b>`,
+        : r.error
+          ? `<span class="failed"><b>${safe(r.state)}</b>`
+            + `<button type="button" class="why" data-help="${safe(r.error)}" `
+            + `aria-label="Why did this ${safe(r.state)}?">!</button></span>`
+          : `<b>${safe(r.state)}</b>`,
       safe(Math.round(r.seconds)),
     ]),
     // Every column but the three counts holds words, and this is the widest

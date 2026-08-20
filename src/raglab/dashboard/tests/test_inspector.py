@@ -369,6 +369,17 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.html', 'id="chunks-status" aria-live="polite"', None,
+     'a build that finished, or failed, must say so — this span is the only '
+     'place it is reported'),
+    ('inspector.html', 'id="retrieval-status" aria-live="polite"', None,
+     'the same for a question added by hand, which can take a while and can '
+     'fail'),
+    ('inspector.js', None, 'title="a summary this build',
+     'that a row is a summary rather than the corpus\'s own words is the most '
+     'important thing about it, and a tooltip publishes it to a mouse and to '
+     'nothing else — it is a line in the reveal now, which opens to a '
+     'keyboard as well'),
     ('inspector.html', 'role="tablist"', None,
      'the four views are a tablist: `aria-selected` on a plain <button> means '
      'nothing, so a screen reader was told which view was showing by nothing '

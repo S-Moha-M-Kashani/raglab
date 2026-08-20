@@ -496,7 +496,9 @@ select { font: inherit; color: inherit; }
   /* .3em, relative to this badge's own mono font-size: the spacing ramp is
      rem-based (fixed relative to the page root), so a value meant to scale
      with this element's own type size falls outside it — left literal. */
-  padding: 0 .3em; cursor: help;
+  padding: 0 .3em;
+  /* No `cursor: help`: there is no tooltip to promise. What the badge means is
+     a line in the reveal now, which opens to a keyboard too. */
 }
 .chunk-preview {
   display: block; cursor: help;

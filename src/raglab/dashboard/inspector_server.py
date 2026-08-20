@@ -246,8 +246,18 @@ def create_inspector_app() -> FastAPI:
     def groundtruth(dataset: str = ''):
         """The pairs for whichever corpus is being followed, asked for by name rather than assumed built-in."""
         asked = datasets.load(dataset)[1] if dataset else ground_truth
+        described = datasets.find(dataset)
         return {'meta': asked['meta'], 'questions': asked['questions'],
                 'dataset': dataset or datasets.BUILTIN,
+                # Which language the corpus is in, so the page can render its
+                # text in the direction that language reads. Said outright
+                # rather than left in `meta`: a ground-truth file's meta
+                # describes the question set, and no corpus carries a language
+                # there — the built-in diary keeps its own on the corpus half,
+                # and `_split` writes it only onto that half too. Empty for a
+                # dataset the catalogue cannot describe, which the page reads
+                # as "unknown" rather than as any particular direction.
+                'language': described.language if described else '',
                 'datasets': [found.as_dict() for found in datasets.catalogue()]}
 
     @app.get('/api/config')

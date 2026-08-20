@@ -139,8 +139,46 @@ const GT = new Map();
 // starts on so the tab has something in it before the first poll answers.
 let FOLLOWED_DATASET = '';
 
+// --- which direction the corpus reads ---
+// This page used to answer that with a hardcoded rtl written into fourteen template
+// strings and a Persian face pinned into four CSS rules, because the first
+// corpus was a Farsi diary. Four of the five bundled corpora are German or
+// English, and every one of them rendered right-to-left in Vazirmatn with its
+// chunk column against the wrong edge. The dataset has always known its
+// language; `/api/groundtruth` says so now, and this is the page asking.
+//
+// The scripts that run right to left, by language subtag. A list rather than a
+// script lookup because there is no way to ask the platform offline, and this
+// list is short and does not move.
+const RTL_LANGUAGES = new Set(['ar', 'arc', 'ckb', 'dv', 'fa', 'he', 'ku',
+                               'ps', 'sd', 'ug', 'ur', 'yi']);
+
+// `auto` until a corpus says otherwise — not `ltr`, and not the diary's `rtl`.
+// `auto` is a real answer: the browser takes each block's direction from its
+// own first strong character, which is the honest reading for text whose
+// language nothing has stated. An archive written without one lands here.
+let CORPUS_DIR = 'auto';
+
+function dirFor(language) {
+  const base = String(language || '').toLowerCase().split(/[-_]/)[0];
+  if (!base) return 'auto';
+  return RTL_LANGUAGES.has(base) ? 'rtl' : 'ltr';
+}
+
+// One fact, set in one place, read two ways: the attribute is what the
+// stylesheet reads to put the chunk column and its header against the right
+// edge (that is layout, and belongs to the page), while `CORPUS_DIR` goes onto
+// each block of corpus text as its own `dir` (that is the text's own property,
+// and is what bidi, the font stack, selection and a screen reader all need).
+function setCorpusDir(language) {
+  CORPUS_DIR = dirFor(language);
+  document.documentElement.dataset.corpusDir = CORPUS_DIR;
+}
+
 function renderGroundTruth(body) {
   FOLLOWED_DATASET = body.dataset || '';
+  // Before the first row is written, because every render below reads it.
+  setCorpusDir(body.language);
   const root = document.getElementById('view-groundtruth');
   GT.clear();
   root.innerHTML = '';
@@ -151,20 +189,20 @@ function renderGroundTruth(body) {
     // Label above its text, never beside it. A label set inline with a
     // right-aligned Farsi block ends up at the opposite edge of the row from the
     // thing it labels, with the width of the page in between.
-    const field = (label, text, rtl) => text
+    const field = (label, text, corpusText) => text
       ? `<div class="gt-field"><div class="qh-label">${label}</div>`
-        + `<div${rtl ? ' dir="rtl"' : ''}>${escapeHtml(text)}</div></div>` : '';
+        + `<div${corpusText ? ` dir="${CORPUS_DIR}"` : ''}>${escapeHtml(text)}</div></div>` : '';
     const quotes = (q.evidence || []).map(e => e.quote);
     row.innerHTML = `<div class="gt-head"><span class="q-id">${escapeHtml(q.id)}</span> `
       + `<span class="q-tally">${escapeHtml(q.type)} · ${escapeHtml(q.difficulty)}`
       + `${q.answerable ? '' : ' · unanswerable'}</span></div>`
-      + `<div class="gt-q" dir="rtl">${escapeHtml(q.question_fa)}</div>`
+      + `<div class="gt-q" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa)}</div>`
       + `<div class="gt-en">${escapeHtml(q.question_en || '')}</div>`
       + field('answer', q.answer_fa, true)
       + (quotes.length
          ? `<div class="gt-field"><div class="qh-label">evidence quoted from the diary</div>`
            + quotes.map(quote =>
-               `<div dir="rtl" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
+               `<div dir="${CORPUS_DIR}" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
            + `</div>` : '');
     root.appendChild(row);
   }
@@ -216,7 +254,7 @@ function renderChunkGroups(container, groups) {
       // The number is a Latin marker on its own line rather than a prefix inside
       // the Farsi string, where bidi puts it at whichever edge the run ends on.
       line.innerHTML = `<div class="chunk-no">chunk ${i + 1}</div>`
-        + `<div dir="rtl">${escapeHtml(c.text)}</div>`;
+        + `<div dir="${CORPUS_DIR}">${escapeHtml(c.text)}</div>`;
       det.appendChild(line);
     });
     container.appendChild(det);
@@ -248,7 +286,7 @@ function renderSummaries(container, summaries) {
     const line = document.createElement('div');
     line.className = 'chunk-line';
     line.innerHTML = `<div class="chunk-no">summary</div>`
-      + `<div dir="rtl">${escapeHtml(s.text)}</div>`;
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(s.text)}</div>`;
     det.appendChild(line);
     // The members by id, so a summary can be traced back to the rows it stands
     // for — without them the card is an assertion the reader cannot check.
@@ -360,9 +398,9 @@ function chunkCell(candidate) {
       + '— not the corpus\'s own words</span>' : '';
   return `<td class="chunk-cell" data-sort="${escapeHtml(preview.slice(0, 60))}">`
     + badge
-    + `<span class="chunk-preview" dir="rtl" tabindex="0">`
+    + `<span class="chunk-preview" dir="${CORPUS_DIR}" tabindex="0">`
     + `${escapeHtml(preview.slice(0, 60))}${preview.length > 60 ? '…' : ''}</span>`
-    + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}`
+    + `<div class="chunk-reveal" dir="${CORPUS_DIR}">${highlighted(text, spans)}`
     + `${footnote}${layerNote}</div></td>`;
 }
 
@@ -478,7 +516,7 @@ function questionHead(questionId, fallbackFa) {
   const q = GT.get(questionId) || {};
   const facts = (q.key_facts || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
   return `<div class="question-head">`
-    + `<div class="qh-fa" dir="rtl">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
+    + `<div class="qh-fa" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
     + `<div class="qh-en">${escapeHtml(q.question_en || '')}</div>`
     + (facts ? `<div class="qh-label">what a right answer contains</div>`
              + `<ol class="qh-facts">${facts}</ol>` : '')
@@ -608,7 +646,7 @@ function renderPicker(filter) {
     option.tabIndex = -1;
     option.dataset.id = q.id;
     const quotes = (q.evidence || []).map(ev =>
-      `<div class="gt-quote" dir="rtl">${escapeHtml(ev.quote)}</div>`).join('');
+      `<div class="gt-quote" dir="${CORPUS_DIR}">${escapeHtml(ev.quote)}</div>`).join('');
     option.innerHTML =
       `<span class="q-option-id">${escapeHtml(q.id)}</span>`
       + `<span class="q-chip q-chip--${escapeHtml(q.difficulty || 'easy')}">`
@@ -618,9 +656,9 @@ function renderPicker(filter) {
       // The detail is in the DOM from the start rather than built on hover, so
       // it opens with no delay and reads the same to a screen reader.
       + `<div class="q-option-detail">`
-      + `<div dir="rtl" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
+      + `<div dir="${CORPUS_DIR}" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
       + `<div class="qh-label">expected answer</div>`
-      + `<div dir="rtl">${escapeHtml(q.answer_fa || '—')}</div>`
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(q.answer_fa || '—')}</div>`
       + (quotes ? `<div class="qh-label">evidence quoted from the diary</div>${quotes}` : '')
       + `</div>`;
     pickerList.appendChild(option);
@@ -744,10 +782,10 @@ function generationBlock(row, trace) {
     + questionHead(row.id, '')
     + '<div class="gen-answers">'
     + '<div class="gen-answer gen-answer--ideal"><h4>what the diary says</h4>'
-    + `<div dir="rtl">${escapeHtml(gt.answer_fa || '—')}</div></div>`
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(gt.answer_fa || '—')}</div></div>`
     + '<div class="gen-answer gen-answer--actual">'
     + `<h4>what this run wrote${row.abstained ? ' — it refused' : ''}</h4>`
-    + `<div dir="rtl">${escapeHtml(row.answer || '—')}</div></div>`
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(row.answer || '—')}</div></div>`
     + '</div>'
     + metricLine(row, GEN_METRICS);
   if (trace) {
@@ -807,6 +845,13 @@ function renderImportedArchive(archive) {
   renderGroundTruth({ dataset: evidence.dataset.id,
                       meta: evidence.dataset.ground_truth.meta,
                       questions: evidence.dataset.ground_truth.questions,
+                      // The archive carries the corpus it was run against, and
+                      // the corpus half is where a language lives — so an
+                      // archive is read in its own direction rather than in
+                      // whatever the live corpus happened to be. An archive
+                      // written without one falls through to `auto`, which is
+                      // the honest answer for text whose language is unstated.
+                      language: ((evidence.dataset.corpus || {}).meta || {}).language,
                       datasets: [] });
   renderChunkGroups(document.getElementById('chunks-body'),
                     evidence.chunks_by_session);
@@ -991,7 +1036,13 @@ async function renderFollow(body) {
       followed.queryJobId = body.query.job_id;
       retrievalCfg.textContent = formatConfig(body.query.config);
       renderRetrievalRows(body.query.trace.candidates);
-      document.getElementById('retrieval-answer').textContent = body.query.answer || '';
+      // An answer is written in the corpus's language, so it reads in the
+      // corpus's direction. The box used to carry a fixed right-to-left in the
+      // markup, which is a claim markup cannot make: it is settled at page load
+      // and the corpus is not.
+      const answer = document.getElementById('retrieval-answer');
+      answer.dir = CORPUS_DIR;
+      answer.textContent = body.query.answer || '';
     }
   } else {
     // This used to send the reader to a control on the lab that has not

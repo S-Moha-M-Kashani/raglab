@@ -230,8 +230,14 @@ select { font: inherit; color: inherit; }
 .inspector-controls select { border: 1px solid var(--rule); background: var(--card);
                              padding: var(--s-1) var(--s-1); max-width: 22rem; }
 
-/* --- Farsi, wherever it appears ------------------------------------------- */
-/* `plaintext` lets each line take the direction of its own first strong
+/* --- a corpus that reads right to left ------------------------------------ */
+/* Scoped to the direction, never to the page: `dir` is written onto each block
+   of corpus text from the language `/api/groundtruth` reports, so a German or
+   English corpus gets none of this. It used to get all of it — the Persian face
+   was pinned into four rules that no direction guarded, and the direction
+   itself was a literal `rtl` in fourteen template strings.
+
+   `plaintext` lets each line take the direction of its own first strong
    character — a blanket rtl would reverse embedded Latin fragments (session
    ids, topic slugs) like `[2025-11-08-a]` into `[a-08-11-2025]`. */
 [dir="rtl"] { font-family: var(--farsi); line-height: 1.85; unicode-bidi: plaintext; }
@@ -304,7 +310,10 @@ select { font: inherit; color: inherit; }
   background: var(--step-index); color: #fff;
 }
 /* Data face, since these are ids to match against the chunk list, not prose;
-   LTR explicitly, since they are Latin ids on a page that otherwise runs rtl. */
+   LTR explicitly, since they are Latin ids and they sit inside a block that
+   takes the corpus's direction — which for a Farsi or Hebrew corpus is not
+   theirs. Explicit rather than inherited, because the direction around them is
+   now a variable. */
 .summary-members {
   font-family: var(--mono); font-size: var(--t-xs); line-height: 1.6;
   color: var(--ink-soft); direction: ltr; word-break: break-all;
@@ -464,10 +473,17 @@ select { font: inherit; color: inherit; }
 /* Tabular figures so centred numbers still line up digit under digit — ranks
    and scores are fixed-width here, which is what makes centring safe. */
 .retrieval-table td.num { font-variant-numeric: tabular-nums; }
-/* The one exception: the chunk column is a paragraph of Farsi, so it keeps the
-   text's own direction and its header sits over that edge. */
-.retrieval-table th:first-child { text-align: right; }
-.retrieval-table td.chunk-cell { text-align: right; }
+/* The one exception: the chunk column is a paragraph of the corpus's own text,
+   so it sits against the edge that text starts from, and its header sits over
+   that same edge. Both used to be a flat `right`, which put an English or German
+   corpus's chunks against the wrong side of their own column. The direction is
+   read from the page root, where the page states it once from the language the
+   dataset reports — the text inside carries its own `dir`, but where a column
+   and its header sit is layout, and layout is the page's to state. */
+.retrieval-table th:first-child { text-align: left; }
+.retrieval-table td.chunk-cell { text-align: left; }
+:root[data-corpus-dir="rtl"] .retrieval-table th:first-child,
+:root[data-corpus-dir="rtl"] .retrieval-table td.chunk-cell { text-align: right; }
 .retrieval-row--gold { background: var(--card); }     /* relevant */
 .retrieval-row--plain { background: var(--row-plain); }  /* not relevant */
 /* The verdict again, in the margin, because a shade of background is a weak
@@ -516,7 +532,7 @@ select { font: inherit; color: inherit; }
 }
 .chunk-preview {
   display: block; cursor: help;
-  font-family: var(--farsi); font-size: var(--t-sm); line-height: 1.7;
+  font-size: var(--t-sm); line-height: 1.7;
 }
 /* Fixed, not absolute, and placed by `placeReveal` in inspector.js. The row it
    hangs off lives inside a scroll region that clips on both axes, so an
@@ -537,7 +553,7 @@ select { font: inherit; color: inherit; }
   border-left: 3px solid var(--ink-green);
   box-shadow: var(--shadow-pop);
   white-space: pre-wrap;
-  font-family: var(--farsi); font-size: var(--t-base); line-height: 1.9;
+  font-size: var(--t-base); line-height: 1.9;
 }
 .retrieval-row:hover .chunk-reveal,
 .chunk-cell:focus-within .chunk-reveal { display: block; }
@@ -619,7 +635,7 @@ select { font: inherit; color: inherit; }
   margin-top: var(--s-3); padding: var(--s-2) var(--s-3);
   background: var(--card); border: 1px solid var(--rule-soft);
   border-left: 3px solid var(--ink-blue);
-  font-family: var(--farsi); min-height: 1.2em;
+  min-height: 1.2em;
 }
 /* No answer, no box. `min-height` above holds the box open once there is
    something in it — with nothing in it, it drew a bare generation-blue stripe

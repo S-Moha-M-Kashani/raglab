@@ -243,6 +243,25 @@ def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     assert 'quote' in q['evidence'][0]
 
 
+@pytest.mark.parametrize('dataset, language', [
+    ('', 'fa'), ('diary-fa', 'fa'), ('meetings-de', 'de'), ('support-en', 'en'),
+])
+def test_groundtruth_endpoint_names_the_corpus_language(monkeypatch, dataset,
+                                                       language):
+    # this is an integration test
+    """The page cannot render a corpus in the direction it reads unless it is
+    told which language that is, and it is not in `meta`: a ground-truth file's
+    meta describes the question set, and `_split` writes no language into it for
+    any corpus — the built-in diary keeps its own on the *corpus* half. So the
+    route says it outright, resolved from the catalogue where the fact lives."""
+    client = _client(monkeypatch)
+    body = client.get(f'/api/groundtruth?dataset={dataset}').json()
+    assert body['language'] == language, (
+        'the Inspector rendered every corpus right-to-left in a Persian face '
+        'because this fact never reached it'
+    )
+
+
 # FastAPI TestClient over the read-only app; real in-memory index build via
 # the job runner. Parametrized over a flat build and a hierarchical one, both
 # on the five-session smoke corpus, so the toggle's two halves (leaves-only,
@@ -587,6 +606,48 @@ def test_archive_mode_still_reports_lab_reachability():
         < follow.index('if (body.archive_id)'), (
         'renderFollow must set the follow state before the early-returning '
         'archive branch, or archive mode never reports lab reachability')
+
+
+def test_the_inspector_reads_a_corpus_in_its_own_direction(inspector_texts):
+    # this is a convention test
+    """The largest honesty gap this page had: it rendered every corpus
+    right-to-left in a Persian face because the first one was a Farsi diary.
+    Four of the five bundled corpora are German or English, and all four came
+    out reversed, in Vazirmatn, with the chunk column against the wrong edge of
+    its own column. Nothing was broken — the page simply never asked, while
+    `/api/groundtruth` knew.
+
+    So: no literal `rtl` anywhere in the page's markup or its script, the
+    Persian face reachable only through a direction, and the chunk column's edge
+    read from the one attribute the page sets from the reported language."""
+    js, css, html = (inspector_texts['inspector.js'],
+                     inspector_texts['inspector.css'],
+                     inspector_texts['inspector.html'])
+    assert 'dir="rtl"' not in js and 'dir="rtl"' not in html, (
+        'a hardcoded direction is a claim about a corpus the page has not been '
+        'told the language of — there were fourteen of these in the script and '
+        'one in the markup, and the markup is fixed at page load while the '
+        'corpus is not'
+    )
+    assert 'setCorpusDir(body.language)' in js, (
+        'the direction comes from the language the route reports, resolved '
+        'before the first row is written'
+    )
+    # Every rule that names the Persian stack must sit behind a direction. The
+    # declaration and the token's own definition are the two that may not.
+    for line in css.splitlines():
+        if 'var(--farsi)' not in line or '--farsi:' in line:
+            continue
+        assert '[dir="rtl"]' in line, (
+            f'this rule pins the Persian face with nothing guarding it: {line.strip()!r} '
+            '— it was on the chunk preview, the reveal and the answer box, so '
+            'an English corpus was set in Vazirmatn'
+        )
+    assert ':root[data-corpus-dir="rtl"] .retrieval-table td.chunk-cell' in css, (
+        "the chunk column's edge follows the corpus, and where a column sits "
+        'is layout — so it reads the direction from the page root rather than '
+        'from the text inside it'
+    )
 
 
 def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():

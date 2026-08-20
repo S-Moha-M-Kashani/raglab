@@ -1,4 +1,4 @@
-# The widget's two system prompts. `system` drives the tool-loop agent;
+# The widget's two system prompts, and the four questions its empty log offers. `system` drives the tool-loop agent;
 # `cli_system` is the tool-less template — `{facts}` takes the knowledge base
 # in full, `{skills_index}` the skills catalogue with the distinctions guide.
 system: >-
@@ -22,3 +22,18 @@ cli_system: |-
   There is also a corpus of RAG-technique skills. Only its index is below — the full texts are not readable from here, so point at a skill by name rather than guessing its content.
 
   {skills_index}
+
+# What the empty log offers, as four buttons. These strings are sent to the
+# model verbatim when one is clicked, which makes them model-facing text and
+# puts them here with the rest of it rather than in the page.
+#
+# Four, and deliberately not four flavours of the same lookup: example prompts
+# exist to teach the level of detail that works, so they span what the helper
+# can actually do — a fact about this project, an explanation of a measure, an
+# action over what has been recorded, and a question about the corpus. Each is
+# phrased as a specific verb-first task rather than as a category name.
+starters:
+  - Which ports do the lab and the Inspector serve on?
+  - What does context recall actually measure, and why does it need ground truth?
+  - Compare the last two runs on the four decision metrics
+  - How many sessions are in diary-fa, and what period do they cover?

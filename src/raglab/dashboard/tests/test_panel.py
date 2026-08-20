@@ -1,5 +1,7 @@
 """Tests for the served panel's own markup and script."""
 import json
+import shutil
+import subprocess
 import re
 
 import pytest
@@ -8,7 +10,7 @@ from raglab.configuration import lab_config as config
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
 
-from raglab.conftest import RAGLAB_DIR
+from raglab.conftest import RAGLAB_DIR, _font_size_literals, _radius_literals
 
 PANEL_JS = RAGLAB_DIR / 'dashboard' / 'frontend' / 'panel.js'
 
@@ -42,6 +44,7 @@ def panel_texts(client):
     html = client.get('/').text
     css = client.get('/panel.css').text
     js = client.get('/panel.js').text
+    tokens = client.get('/tokens.css').text
 
     embed_label = re.search(r'<label>Embedding model.*?</label>', html, re.S)
     model_card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)
@@ -49,6 +52,20 @@ def panel_texts(client):
 
     return {
         'index.html': html,
+        # The shared scale, fetched over its own route because both pages link
+        # it before their own sheet — a disk read would be a claim about a copy
+        # nobody is served.
+        'tokens.css': tokens,
+        # The shared chrome sheet, over its own route for the same reason as
+        # tokens.css. It now holds the table component every table on either
+        # surface is built against, so its contract is checked here beside the
+        # markup that depends on it.
+        'chrome.css': client.get('/chrome.css').text,
+        # The leaderboard surface, served by this same lab: the ranking moved
+        # off the lab page, so the rows that guard what a ranking must say
+        # follow it here rather than being deleted with the old board.
+        'leaderboard.html': client.get('/leaderboard').text,
+        'leaderboard.js': client.get('/leaderboard.js').text,
         'panel.css': css,
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
@@ -119,9 +136,9 @@ CONVENTIONS = [
      'the embedder control must live in the one model column'),
     ('index.html (modelCard section)', 'id="embed_model"', None,
      'the embed-model control must live in the one model column'),
-    ('index.html', 'ragas_decision', None,
+    ('leaderboard.html', 'decision score', None,
      'the leaderboard must say which column chose the architecture'),
-    ('panel.js', 'ragas_decision_stderr', None,
+    ('leaderboard.js', 'ragas_decision_stderr', None,
      'the leaderboard must show the deciding score with its error, never the '
      'mean alone'),
     ('panel.js', 'job.detail', None,
@@ -168,10 +185,11 @@ CONVENTIONS = [
      'the hidden archive file input must keep its script hook'),
     ('index.html', 'id="archive-status"', None,
      'the archive status must keep its render hook'),
-    ('index.html', 'id="board"', None,
-     'the ranked leaderboard must stay on the page'),
+    ('leaderboard.html', 'id="board"', None,
+     'the ranked leaderboard must stay on its own surface'),
     ('index.html', 'id="experiments"', None,
-     'the ledger of every experiment must sit beside the ranked leaderboard'),
+     'the ledger of every experiment must stay on the lab page — an index '
+     'build has no decision score, so it never belonged in the ranking'),
     ('panel.js', '/api/experiments', None,
      'the experiments list must be read from the ledger route'),
     ('index.html', 'sorttable.js', None,
@@ -181,9 +199,20 @@ CONVENTIONS = [
      'move once the column is sorted a different way'),
     ('panel.js', None, 'ragas_decision ▼',
      'the hard-coded sort arrow must not come back to the script either'),
-    ('panel.js', '/api/evaluations?limit=', None,
-     'the leaderboard must ask for a stated limit rather than the whole '
-     'directory'),
+    ('leaderboard.js', '/api/leaderboard', None,
+     'the leaderboard must read the grouped route, not re-derive its own '
+     'grouping from the raw run list — two groupings is how two surfaces come '
+     'to name different winners'),
+    ('leaderboard.js', 'group.ranked', None,
+     'a numbered row is a rank claim, so the page must honour the grouping '
+     "module's own answer about whether the sample was recorded rather than "
+     'counting rows from one'),
+    ('leaderboard.js', 'tabindex="0"', None,
+     'the table must sit in a focusable scroll region, or there is no keyboard '
+     'way to reach the right-hand side of it at all'),
+    ('leaderboard.html', 'chrome.css', None,
+     'the leaderboard surface must wear the shared bar, or the switcher cannot '
+     'lead back out of it'),
     ('panel.js', 'localStorage', None,
      'the grades card and the settings on screen must be remembered across a '
      'reload'),
@@ -222,16 +251,98 @@ CONVENTIONS = [
      'widget that scrolls with the page is a fourth card, not a widget — '
      'scoped to the widget rules so an unrelated `position: fixed` '
      'elsewhere in the sheet cannot satisfy this'),
-    ('panel.css (widget block)', 'right: 1rem; bottom: 1rem;', None,
+    ('panel.css (widget block)',
+     'right: var(--gutter); bottom: calc(var(--rail-h) + var(--s-2));', None,
      "the launcher's real anchor values, right down to the unit — not just "
      'the property names, which `.widget-config`\'s `border-bottom: 1px '
      'solid var(--rule)` in the same scoped block would otherwise satisfy '
-     'even with both real anchors deleted'),
-    ('panel.css (widget block)', 'right: 1rem; bottom: 3.6rem;', None,
+     'even with both real anchors deleted. Measured off --rail-h because the '
+     'status rail is fixed to the viewport floor: a literal offset would put '
+     'the launcher underneath it'),
+    ('panel.css (widget block)',
+     'bottom: calc(var(--rail-h) + var(--s-2) + 2.6rem);', None,
      "the window's real anchor values, distinct from the launcher's own — "
-     'same collision this guards against as the launcher row above'),
+     'same collision this guards against as the launcher row above. The '
+     "2.6rem is the launcher's own box, which has no ramp step"),
     ('panel.css (widget block)', None, '--step-',
      'the widget is a helper, not a pipeline stage, and must wear no step ink'),
+    ('panel.css (widget block)', 'background: var(--card)', None,
+     "a reply's bubble must name a colour. It named var(--slab), which is the "
+     'slab-serif font stack — an invalid background, so every reply the '
+     'helper had ever given rendered on no bubble at all'),
+    ('panel.css (widget block)', None, 'background: var(--slab)',
+     'and the font stack must not come back as a colour'),
+    ('index.html', 'class="widget-grip widget-grip-top"', None,
+     'the window grows from its top and left edges, because it is anchored '
+     'bottom-right — the handles have to exist on those two edges'),
+    ('index.html', 'role="separator"', None,
+     'the two straight handles take focus and answer the arrow keys, so a '
+     'reader without a mouse can still size the window'),
+    ('index.html', None, 'What you can ask',
+     'the empty state is built from the served fixture, not written into the '
+     'markup — a starter in two places is a starter that drifts'),
+    ('panel.js', None, 'Which ports do the lab',
+     'and not written into the script either: the starters are the message '
+     'sent to the model, which makes them model-facing text and a fixture'),
+    ('panel.js', 'data.starters', None,
+     'the starters ride the /api/widget response the model list already '
+     'ride, so the widget stays a sealed leaf with no new route'),
+    ('panel.js', 'widget-empty', None,
+     'the empty log offers four questions and clears them on the first '
+     'thing said'),
+    ('panel.js', 'lodestar:raglab-widget-size', None,
+     'an adjusted window is a preference, not a gesture, and survives a '
+     'reload under the same prefix as the settings and the last run'),
+    ('panel.js', 'setPointerCapture', None,
+     'a drag off a six-pixel handle must keep going — without capture the '
+     'resize stops the instant the cursor outruns the edge, which is at once'),
+    ('panel_server.py', "'starters': widget.STARTERS", None,
+     'the four questions are served from the widget package, whose fixture '
+     'they live in — a copy in the page would be text nothing pins'),
+
+    # --- the chrome: one bar, one rail ------------------------------------
+    # The header was ~250px of chrome carrying four step strips, six
+    # always-green capability chips and a 1200-character findings essay. These
+    # rows pin what replaced it, and — just as importantly — pin that the
+    # replaced things are gone, since a half-finished revert would leave both.
+    ('index.html', '/chrome.css', None,
+     'the bar and the surface switcher are shared with the Inspector, so the '
+     'page must actually link the shared sheet rather than restyle a copy'),
+    ('index.html', 'class="topnav"', None,
+     'the three surfaces need a switcher on the page, or the Leaderboard and '
+     'the Inspector are only reachable by typing a URL'),
+    ('index.html', 'href="/leaderboard"', None,
+     'the switcher must point at the leaderboard surface — a nav item that '
+     'goes nowhere is worse than no nav item'),
+    ('index.html', 'aria-current="page"', None,
+     'the current surface must say so in markup, not by colour alone'),
+    ('index.html', 'class="statusrail"', None,
+     'what is running and what this installation can do report from the rail '
+     'at the foot of the page, not from the top chrome'),
+    ('index.html', 'id="statusPill"', None,
+     'the six capability checks roll up into one worst-state pill; six '
+     'always-green badges is how the header got crowded'),
+    ('index.html', 'id="caps"', None,
+     'the capability chips still render, inside the pill\'s popover — rolling '
+     'them up must not mean deleting the detail'),
+    ('index.html', None, 'class="spine-seg"',
+     'the four step strips are retired: they duplicated the four cards below, '
+     'which already carry the same step ink and the same served titles'),
+    ('index.html', None, 'class="chips" id="caps"></div>\n  <details',
+     'the chip row and the findings essay must not both sit in the header '
+     'again — the findings moved to the leaderboard surface, which is where '
+     'cross-run reading belongs'),
+    ('index.html', 'id="chromeProgress"', None,
+     "the running step's ink and progress moved to the bar's bottom edge, "
+     'which is the one job of the retired step strips worth keeping'),
+    ('panel.js', 'renderStatusPill', None,
+     'the pill must be rendered from the same served capabilities the chips '
+     'are, so the roll-up cannot disagree with the detail it summarises'),
+    ('panel.js', "$('chromeProgress')", None,
+     'the job progress must drive the bar\'s progress line now that the '
+     'separate spine track is gone'),
+    ('panel.js', None, '.spine-seg',
+     'nothing may still be reaching for the retired step strips'),
     ('panel.css', '.widget-window[hidden] { display: none; }', None,
      "a rule setting `display` beats the browser's own `[hidden] { display: "
      'none }` — found live: the window stayed visible because nothing said '
@@ -252,6 +363,84 @@ CONVENTIONS = [
      'the chosen model must travel with every message — scoped past the '
      "header comment so `embed_model:`, elsewhere in the file, cannot "
      'satisfy this by suffix collision'),
+    ('tokens.css', '--s-1: 0.25rem', None,
+     'the spacing ramp must ship in the shared sheet: both pages hand-set '
+     'every padding and margin today, which is why neither reads as '
+     'uncrowded'),
+    ('tokens.css', '--t-base: 0.875rem', None,
+     'the type scale must ship in the shared sheet, and its base is 14px — '
+     'the old 13px body put dense tables under the readable floor'),
+    ('tokens.css', '--radius-sm: 3px', None,
+     'the radius scale must ship in the shared sheet; six hand-set radii '
+     'across two sheets is drift, not design'),
+    ('tokens.css', '--measure: 1560px', None,
+     'the page measure must be named once — it was written out five times in '
+     'panel.css and disagreed with the Inspector'),
+    ('tokens.css', '--gutter:', None,
+     'the page gutter must be named once, so the two surfaces stop '
+     'disagreeing (1.4rem on the panel, 1.25rem on the Inspector)'),
+    ('tokens.css', '--bar-h:', None,
+     'the top bar height is a shared token because Phase 2 chrome and the '
+     "widget's anchor both measure against it"),
+    ('tokens.css', '--rail-h:', None,
+     'the footer rail height is a shared token for the same reason as '
+     '--bar-h'),
+
+    # --- what changed, said out loud ---------------------------------------
+    ('index.html', 'id="resultMeta" aria-live="polite"', None,
+     'a finished evaluation is the single most important thing that happens '
+     'on this page, and it announced itself to nobody'),
+    ('index.html', 'id="indexInfo" aria-live="polite"', None,
+     "a build's result is the only place the collection name and the chunk "
+     'count appear, so it has to say when it arrives'),
+    ('index.html', 'id="retrieveInfo" aria-live="polite"', None,
+     'the same for a retrieval, which otherwise finishes in silence'),
+
+    # --- a reason is published on the page, not to a mouse -----------------
+    ('panel.js', None, 'holder.title = enabled',
+     'the disabled-knob reason is written into a visible note; a tooltip '
+     'saying the same thing is a second copy only a mouse can reach'),
+    ('panel.js', None, 'title="a stub answered',
+     'what `fake` means is in the prose above the ledger, on the page — the '
+     'tooltip was a hover-only duplicate of it'),
+    ('panel.js', None, 'title="${safe(r.error',
+     'why a run failed is the reason the row is degraded, and a title '
+     'attribute publishes it to a mouse and to nothing else'),
+    ('panel.js', 'class="failed"', None,
+     'the failed state and the mark that opens its reason travel together, '
+     'wrapped — an explainer inserted directly after a <td> is hoisted out '
+     'of the table by the parser'),
+    ('panel.css', None, '.rag-field-off { opacity',
+     'group opacity is the bug: it composites the whole subtree, so the '
+     "`opacity: 1` that used to sit on the field's own explanation did "
+     'nothing and the sentence rendered at about 2:1'),
+
+    # --- tables: one component, both surfaces ------------------------------
+    ('chrome.css', 'position: sticky; top: 0; z-index: 2;', None,
+     'a table header declared `position: sticky` with no inset resolves '
+     'against nothing and stays in flow, which reads on screen as a header '
+     'that is simply not sticky — the inset is the whole rule'),
+    ('chrome.css', None, 'position: sticky; top: 0; z-index: 3;',
+     "the caption must not be sticky: it and the header row both sat at "
+     '`top: 0` and the caption won on z-index, so the column names vanished '
+     'under it the moment a table scrolled'),
+    ('chrome.css', 'th.sort-col:focus-visible', None,
+     'a focused sortable header must show a ring in the shared sheet — while '
+     'each page kept its own copy of these rules only the Inspector had one, '
+     'so on the lab a keyboard user could not see which column they were on'),
+    ('panel.css', None, '#experiments, #byType, #ragas, #extras, #rows',
+     'per-host `overflow-x` is what the shared scroll region replaced: it '
+     'makes the host a scroll container on both axes with no bounded height, '
+     'so the sticky header had nothing to stick against'),
+    ('panel.css', None, 'grid-column: span 2',
+     "the readings breakdown must not borrow the control bench's grid — that "
+     'one reserves a 300px column for a models card the readings card does '
+     'not have, so the column sat empty while the tables were squeezed'),
+
+    ('panel.css', None, '1560px',
+     'the page measure is a token, not a number typed in five places — the '
+     'five copies are exactly how the panel and the Inspector came to '
+     'disagree about how wide a page is'),
 ]
 
 
@@ -269,6 +458,211 @@ def test_the_served_panel_keeps_its_conventions(
         assert must_contain in text, reason
     if must_not_contain is not None:
         assert must_not_contain not in text, reason
+
+
+def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
+    # this is a convention test
+    """Five tables on this page — the four readings breakdowns and the
+    experiment ledger — and until now three of them were built by hand. Two of
+    those three took the sortable styling from the stylesheet and none of the
+    listeners, so they looked sortable and were inert. One builder, wearing the
+    shared region from chrome.css, is what makes a table added later sortable
+    and scrollable by having been rendered rather than by someone remembering."""
+    js = panel_texts['panel.js']
+    assert js.count('<table') == 1, (
+        'there must be exactly one place a table is built; found '
+        f"{js.count('<table')}")
+    assert 'class="table-scroll" tabindex="0" role="region"' in js, (
+        'the region must be focusable and labelled, or there is no keyboard '
+        'way to reach the right-hand side of a fifteen-column table')
+    assert '<table class="data-table">' in js
+    for host in ('byType', 'ragas', 'extras', 'rows', 'experiments'):
+        assert f"renderTable('{host}'" in js, (
+            f'#{host} must be written through renderTable, which wires the '
+            'column sorter after insertion — building it with innerHTML is '
+            'how #ragas and #extras came to look sortable and do nothing')
+
+
+def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
+    # this is a convention test
+    """A knob this pipeline would ignore is dimmed, and the one sentence saying
+    why is the only part of it still worth reading — so the dimming is colour on
+    the fields, never `opacity` on the group. Opacity composites the whole
+    subtree: a child cannot climb back out of an ancestor's, which is why the
+    `opacity: 1` this block used to carry on the note did nothing at all and the
+    sentence rendered at half of an already soft ink."""
+    css = panel_texts['panel.css']
+    # The end anchor is the next rule after the block. It used to be
+    # `\nbutton.why {` — the *bare* selector, because `.rag-field-off
+    # button.why {` is inside this block and would have cut the slice in half.
+    # That rule now lives in chrome.css, shared with the Inspector, so the
+    # anchor is the explainer paragraph that follows instead.
+    block = css[css.index('/* A knob the current pipeline would ignore'):
+                css.index('\np.explain {')]
+    # Comments out: this block's own comment explains the bug by naming it, and
+    # a guard that cannot tell an explanation from a declaration guards nothing.
+    block = re.sub(r'/\*.*?\*/', '', block, flags=re.S)
+    assert 'opacity' not in block, (
+        'no opacity anywhere in this block — not on the group, and not the '
+        'countermand on the note that made it look handled')
+    assert 'var(--ink-off)' in block, (
+        'the dimming is a named ink, so the one value that means "this knob is '
+        'out of play" is decided once')
+    assert 'color: var(--ink-soft)' in block, (
+        'the reason itself stays at the page\'s ordinary soft ink, which is '
+        'what full contrast means here')
+
+
+def test_the_smallest_controls_clear_the_target_floor(panel_texts):
+    # this is a convention test
+    """`button.why` was about 16×15 and there is one per knob and per metric;
+    the widget's gear and close were about 14×19, side by side in the corner of
+    a floating window. Both clear 24×24 now, by different means: the widget's
+    head bar has room for the size outright, while the `!` keeps a small mark
+    and takes its target from a pseudo-element — a 24px disc at the end of an
+    eleven-pixel uppercase label would set the line height of every label on
+    the page. The `!` is read from chrome.css because there is one of it for
+    both surfaces now; the Inspector's half of that claim lives in
+    test_inspector.py."""
+    css = panel_texts['chrome.css']
+    assert 'button.why::after' in css
+    assert 'width: 24px; height: 24px' in css
+    assert 'button.why::after' not in panel_texts['panel.css'], (
+        'the lab must not carry a second copy of the mark — only what it adds '
+        'to it, which is the dimmed variant on a locked knob')
+    widget = panel_texts['panel.css (widget block)']
+    assert 'min-width: 24px; min-height: 24px' in widget, (
+        "the widget's own header controls must clear the floor too — the "
+        'scoped read is what stops an unrelated 24px elsewhere in the sheet '
+        'from satisfying this')
+
+
+def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
+    # this is a convention test
+    """One chip built from the run on the Readings card, and nothing when there
+    is no run — never a chip that refers to nothing. It is deliberately the
+    *lab's* last run rather than the last conversation: widget memory is an
+    in-process checkpointer keyed to a page-scoped session id, so a reload
+    genuinely forgets, and a chip implying otherwise would be a panel lying
+    about what produced it."""
+    js = panel_texts['panel.js']
+    ask = js[js.index('function widgetRunAsk'):js.index('function widgetOffer')]
+    assert 'result.started_at' in ask, (
+        'the chip identifies the run by when it started, the same way the '
+        "leaderboard's `when` column does")
+    assert '.slice(0, 16)' in ask, (
+        'and to the same precision — seconds help nobody identify a run'
+    )
+    assert 'if (!when) return null' in ask, (
+        'a run with no start time gets no chip rather than a chip naming a '
+        'blank')
+    assert 'DECISION_KEYS' in ask, (
+        'the metric it names is one of the four that decide, so the chip and '
+        'a ranking are asking about the same number')
+    assert 'WIDGET_RUN_ASK = widgetRunAsk(result' in js, (
+        'renderResult is the one place that holds the run, so it is where the '
+        'chip is set — reading it back off the DOM later would be a second '
+        'source for the same fact')
+
+
+def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
+    # this is a convention test
+    """The masthead, the chip row, the findings block, the spine and main each
+    set their own max-width. They are the same band and must read from the same
+    token, or one of them drifts the next time a band is added."""
+    css = panel_texts['panel.css']
+    assert 'max-width: var(--measure)' in css
+    assert css.count('max-width: var(--measure)') >= 5, (
+        'every band that centres on the page measure must name the token; '
+        f"found {css.count('max-width: var(--measure)')} of the 5 bands")
+
+
+def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
+    # this is a convention test
+    """22 hand-set sizes in three units is why the panel read as cramped. Each
+    must name a --t-* step instead, so a size is a decision recorded once
+    rather than a number typed at the point of use. The Inspector's half of
+    this claim lives in test_inspector.py."""
+    assert _font_size_literals(panel_texts['panel.css']) == []
+
+
+def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
+    # this is a unit test
+    """The shorthand's line-height is optional in real CSS, so the guard must
+    not depend on a trailing `/` to notice a hand-set size — that gap is
+    exactly how `.findings code` and `.prose code` slipped past review once
+    already. Proven against the seven forms the panel conversion actually
+    produced (three token forms the guard must leave alone, and three
+    literal shorthand forms plus the no-line-height form it must catch), plus
+    four forms the unit alternation used to miss entirely: a percentage, a
+    viewport unit, a point size and a `calc(...)` value."""
+    not_flagged = [
+        'font: var(--t-sm)/1.45 var(--mono)',
+        'font: 700 var(--t-sm)/1 var(--mono)',
+        'font: 600 var(--t-xl)/1 var(--slab)',
+        'font: inherit',
+    ]
+    flagged = [
+        'font: .72rem var(--mono)',
+        'font: 12.5px/1.45 var(--mono)',
+        'font: 600 1.32rem/1 var(--slab)',
+        # The unit alternation used to stop at rem|px|em, which is an open
+        # path back to a literal size in every other CSS unit and in any
+        # computed value — these four are exactly that gap.
+        'font-size: 90%',
+        'font-size: 1.2vw',
+        'font-size: 11pt',
+        'font-size: calc(1rem + 2px)',
+    ]
+    for css in not_flagged:
+        assert _font_size_literals(css) == [], css
+    for css in flagged:
+        assert _font_size_literals(css) != [], css
+
+
+def test_the_panel_rounds_every_corner_from_the_shared_scale(panel_texts):
+    # this is a convention test
+    """2px, 3px, 4px, 5px, 6px, 999px and 50% all appeared as literal radii.
+    Each must name a --radius-* token, shorthand corners included, so the two
+    pages cannot round the same kind of thing differently."""
+    assert _radius_literals(panel_texts['panel.css']) == []
+
+
+def test_radius_literals_catches_shorthand_and_ignores_the_named_tokens():
+    # this is a unit test
+    """A regex matching nothing at all would pass the convention test above
+    just as well as a correct one, so this proves the guard actually guards:
+    fed the three literal shorthand forms the panel conversion had to
+    remove, the eight corner-longhand forms (four physical, four logical)
+    the shorthand-only pin used to miss entirely, plus the five token forms
+    — including the shorthand, a longhand and the two shape tokens — every
+    one of these must leave alone."""
+    flagged = [
+        'a{border-radius: 3px;}',
+        'a{border-radius: 999px;}',
+        'a{border-radius: 0 3px 3px 0;}',
+        # The shorthand-only pin missed every corner longhand — physical and
+        # logical alike, which is exactly the gap this proves closed.
+        'a{border-top-left-radius: 4px;}',
+        'a{border-top-right-radius: 4px;}',
+        'a{border-bottom-left-radius: 4px;}',
+        'a{border-bottom-right-radius: 4px;}',
+        'a{border-start-start-radius: 6px;}',
+        'a{border-start-end-radius: 6px;}',
+        'a{border-end-start-radius: 6px;}',
+        'a{border-end-end-radius: 6px;}',
+    ]
+    not_flagged = [
+        'a{border-radius: var(--radius-sm);}',
+        'a{border-radius: 0 var(--radius-sm) var(--radius-sm) 0;}',
+        'a{border-radius: var(--radius-pill);}',
+        'a{border-radius: var(--radius-circle);}',
+        'a{border-top-left-radius: var(--radius-sm);}',
+    ]
+    for css in flagged:
+        assert _radius_literals(css) != [], css
+    for css in not_flagged:
+        assert _radius_literals(css) == [], css
 
 
 # --- the routes behind the split files --------------------------------------
@@ -524,3 +918,56 @@ def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
         'the widget must read the served token account')
     assert 'output_tokens' in block, (
         'both directions of the account, not just one')
+
+
+def test_every_served_script_actually_parses():
+    # this is a convention test
+    """A syntax error in a served script takes the whole page down at load —
+    the panel renders as unstyled markup with no controls wired — and the rest
+    of this suite cannot see it: every other check reads the script as *text*,
+    and text with an unbalanced brace in it still contains every substring the
+    table looks for. That gap is not hypothetical; it shipped a stray `}` that
+    only a browser caught.
+
+    Skipped rather than failed where `node` is absent: the suite must stay
+    runnable offline on a machine with no JavaScript runtime, and a guard that
+    cannot run is worth more as a skip that says so than as a silent pass."""
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('no node on PATH to parse the served scripts with')
+    scripts = sorted((RAGLAB_DIR / 'dashboard' / 'frontend').glob('*.js'))
+    assert len(scripts) >= 5, (
+        'the frontend should have several scripts; a glob finding almost '
+        'nothing would let this pass without checking anything')
+    for script in scripts:
+        done = subprocess.run([node, '--check', str(script)],
+                              capture_output=True, text=True)
+        assert done.returncode == 0, (
+            f'{script.name} does not parse, so the page it belongs to is dead '
+            f'on arrival:\n{done.stderr.strip()}')
+
+
+def test_the_column_sorter_keeps_header_semantics_and_survives_a_restore():
+    # this is a convention test
+    """Two defects this file guards against, both invisible to a text check
+    that only asks whether sorting exists at all.
+
+    `role="button"` on a `<th>` overrides the implicit `columnheader` role, so
+    a screen reader stops announcing which column a cell is in — worst exactly
+    where the tables are widest. Sortability belongs to `aria-sort`.
+
+    And the "already wired" flag must not live in the DOM: several places here
+    save a card's markup and put it back, and a `data-` flag survives that
+    round-trip. A restored table came back with the flag, the `.sortable`
+    class, the focus rings and the arrows — and no listeners, because `make`
+    saw the flag and returned early. It looked sortable and did nothing."""
+    source = (RAGLAB_DIR / 'dashboard' / 'frontend' / 'sorttable.js').read_text(
+        encoding='utf-8')
+    assert "setAttribute('role', 'button')" not in source, (
+        'a sortable th must keep its columnheader role')
+    assert "aria-sort" in source, 'sortability is announced with aria-sort'
+    assert 'WeakSet' in source, (
+        'the wired-already flag must not be a DOM attribute, or an innerHTML '
+        'restore produces a table that looks sortable and is inert')
+    assert 'dataset.sortWired' not in source, (
+        'the DOM flag that survived innerHTML must not come back')

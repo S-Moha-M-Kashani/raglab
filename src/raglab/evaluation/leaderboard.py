@@ -175,6 +175,21 @@ def markdown(groups: list[Group]) -> str:
     return '\n'.join(out)
 
 
+def as_dict(found: Group) -> dict:
+    """One serialised shape, so the command line and the panel's route cannot
+    come to disagree about what a group is. `verdict` travels with the group
+    because a caller that re-derived it could reach a different answer from the
+    same rows, and then two surfaces would name different winners."""
+    return {'dataset': found.dataset, 'sample': found.sample,
+            'judge': found.judge, 'verdict': verdict(found),
+            'n_questions': found.n_questions, 'newest': found.newest,
+            # A numbered row is a rank claim, so the ranks are computed here
+            # rather than left to whatever renders them: a client counting from
+            # one would silently promote a row whose sample was never recorded.
+            'ranked': _sample_recorded(found),
+            'rows': found.rows}
+
+
 def build(limit: int = 500) -> list[Group]:
     return group(list_runs(limit=limit))
 
@@ -190,9 +205,8 @@ def main() -> None:
     args = parser.parse_args()
     groups = build(args.limit)
     if args.json:
-        print(json.dumps([{'dataset': g.dataset, 'sample': g.sample, 'judge': g.judge,
-                           'verdict': verdict(g), 'rows': g.rows}
-                          for g in groups], ensure_ascii=False, indent=1))
+        print(json.dumps([as_dict(g) for g in groups],
+                         ensure_ascii=False, indent=1))
         return
     text = markdown(groups)
     if args.write:

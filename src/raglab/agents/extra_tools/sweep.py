@@ -9,7 +9,7 @@ import sys
 import time
 from dataclasses import replace
 
-from raglab.agents.extra_tools import leaderboard
+from raglab.evaluation import leaderboard
 from raglab.llm_backends import cli_subprocess_chat as clichat
 from raglab.corpora import diary_corpus_loader as corpus
 from raglab.evaluation import ragas_judged_metrics as ragas_eval

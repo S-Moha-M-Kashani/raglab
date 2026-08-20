@@ -7,40 +7,76 @@
   <!-- Design tokens shared with the panel on :9002; before inspector.css so
        its overrides still win. -->
   <link rel="stylesheet" href="/tokens.css">
+  <!-- The bar and the surface switcher, shared with the panel on :9002; before
+       inspector.css so its overrides still win. -->
+  <link rel="stylesheet" href="/chrome.css">
   <link rel="stylesheet" href="/inspector.css">
 </head>
 <body>
-  <header class="inspector-header">
-    <!-- The same mark the panel wears, in the retrieval ink rather than the
-         index one: two windows on one instrument, and this is the window you
-         open to see what came back. -->
-    <h1><span class="lab-mark">RL</span>RAG Lab &middot; Inspector</h1>
-    <!-- The lab is another process and may not be running; say which, and stop
-         the reader wondering whether an empty view means "nothing ran" or
-         "nothing is listening". -->
-    <div class="inspector-status-line">
-      <span class="follow-state" id="follow-state">looking for the lab&hellip;</span>
-      <span class="archive-state" id="archive-state" aria-live="polite" hidden></span>
-      <button class="archive-return-live" id="archive-return-live" type="button" hidden>
-        Return to live
-      </button>
+  <a class="skip-link" href="#main">Skip to the evidence</a>
+
+  <!-- The same bar the panel wears, so neither surface is a dead end: the
+       Inspector could always be reached from the lab but never led back. -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="http://localhost:9002/"><span class="lab-mark">RL</span>RAG Lab</a>
+      <nav class="topnav" aria-label="Surfaces">
+        <a href="http://localhost:9002/">Laboratory <span class="port">:9002</span></a>
+        <a href="http://localhost:9002/leaderboard">Leaderboard <span class="port">:9002</span></a>
+        <a href="/" aria-current="page">Inspector</a>
+      </nav>
     </div>
-    <nav class="inspector-tabs">
-      <button class="inspector-tab" id="tab-groundtruth" data-view="groundtruth">Ground truth</button>
-      <button class="inspector-tab" id="tab-chunks" data-view="chunks" data-step="index">Chunks / Summaries</button>
-      <button class="inspector-tab" id="tab-retrieval" data-view="retrieval" data-step="retrieval">Retrieval</button>
-      <button class="inspector-tab" id="tab-generation" data-view="generation" data-step="generation">Generation</button>
-    </nav>
   </header>
 
-  <main>
-    <section id="view-groundtruth" class="inspector-view"></section>
+  <header class="inspector-header">
+    <!-- The band's ink is full-bleed and its content is not: the header is a
+         page-level band like the bar above it, so it centres on the same
+         measure. Without this wrapper its title and tabs sat 77px left of
+         every card on the page at any viewport wider than the measure. -->
+    <div class="inspector-header-inner">
+      <!-- The mark moved to the shared bar above; what stays here is the view's
+           own title and the lab-reachability line beneath it. -->
+      <h1>Inspector</h1>
+      <!-- The lab is another process and may not be running; say which, and stop
+           the reader wondering whether an empty view means "nothing ran" or
+           "nothing is listening". -->
+      <div class="inspector-status-line">
+        <span class="follow-state" id="follow-state">looking for the lab&hellip;</span>
+        <span class="archive-state" id="archive-state" aria-live="polite" hidden></span>
+        <button class="archive-return-live" id="archive-return-live" type="button" hidden>
+          Return to live
+        </button>
+      </div>
+      <!-- A real tablist, not four buttons carrying `aria-selected`: that
+           attribute means nothing on an element without `role="tab"`, so a
+           screen reader was told which view was showing by nothing at all.
+           One stop in the page's tab order (roving tabindex), and the arrows
+           walk between the four. -->
+      <div class="inspector-tabs" role="tablist" aria-label="Views">
+        <button class="inspector-tab" id="tab-groundtruth" role="tab"
+                aria-controls="view-groundtruth" aria-selected="true"
+                data-view="groundtruth">Ground truth</button>
+        <button class="inspector-tab" id="tab-chunks" role="tab"
+                aria-controls="view-chunks" aria-selected="false" tabindex="-1"
+                data-view="chunks" data-step="index">Chunks / Summaries</button>
+        <button class="inspector-tab" id="tab-retrieval" role="tab"
+                aria-controls="view-retrieval" aria-selected="false" tabindex="-1"
+                data-view="retrieval" data-step="retrieval">Retrieval</button>
+        <button class="inspector-tab" id="tab-generation" role="tab"
+                aria-controls="view-generation" aria-selected="false" tabindex="-1"
+                data-view="generation" data-step="generation">Generation</button>
+      </div>
+    </div>
+  </header>
 
-    <section id="view-chunks" class="inspector-view" hidden>
+  <main id="main">
+    <section id="view-groundtruth" class="inspector-view" role="tabpanel" aria-labelledby="tab-groundtruth" tabindex="0"></section>
+
+    <section id="view-chunks" class="inspector-view" role="tabpanel" aria-labelledby="tab-chunks" tabindex="0" hidden>
       <div class="inspector-active-config" id="chunks-active-config"></div>
       <div class="inspector-controls">
         <button id="build-chunks">Build index &amp; list chunks</button>
-        <span id="chunks-status"></span>
+        <span id="chunks-status" aria-live="polite" aria-atomic="true"></span>
       </div>
       <!-- Two kinds of row, one index. The leaves are what the chunker cut; the
            summaries are what a grouping wrote *beside* them, and both are in the
@@ -57,7 +93,7 @@
       <div id="summaries-body" hidden></div>
     </section>
 
-    <section id="view-retrieval" class="inspector-view" hidden>
+    <section id="view-retrieval" class="inspector-view" role="tabpanel" aria-labelledby="tab-retrieval" tabindex="0" hidden>
       <div class="inspector-active-config" id="retrieval-active-config"></div>
       <!-- Add a question the experiment did not select, and it is retrieved,
            answered and scored under the same config as the ones on screen. The
@@ -67,7 +103,7 @@
       <div class="inspector-controls">
         <button id="add-question" aria-expanded="false"
                 aria-controls="question-picker">Add a question</button>
-        <span id="retrieval-status"></span>
+        <span id="retrieval-status" aria-live="polite" aria-atomic="true"></span>
       </div>
       <div class="question-picker" id="question-picker" hidden>
         <input type="search" id="question-picker-filter" class="q-filter"
@@ -97,7 +133,7 @@
       <div id="retrieval-added" class="added-block"></div>
       <!-- The single-question table, for the manual "Run retrieval" above. -->
       <div id="retrieval-body"></div>
-      <div class="inspector-answer" id="retrieval-answer" data-step="generation" dir="rtl"></div>
+      <div class="inspector-answer" id="retrieval-answer" data-step="generation"></div>
 
       <template id="retrieval-table-template">
         <table class="retrieval-table">
@@ -130,7 +166,7 @@
          fixture says is right, the answer the experiment actually wrote, and
          the scores for it — each score with the '!' that explains it. Only an
          evaluation generates, so this view follows the last one of those. -->
-    <section id="view-generation" class="inspector-view" hidden>
+    <section id="view-generation" class="inspector-view" role="tabpanel" aria-labelledby="tab-generation" tabindex="0" hidden>
       <div class="inspector-active-config" id="generation-active-config"></div>
       <div id="generation-ragas"></div>
       <div id="generation-questions"></div>

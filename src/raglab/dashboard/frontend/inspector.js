@@ -8,16 +8,43 @@ async function loadChosen() {
 const chosenReady = loadChosen();
 
 const views = ['groundtruth', 'chunks', 'retrieval', 'generation'];
+const tabOf = view => document.getElementById(`tab-${view}`);
+
+// Roving tabindex: a tablist is one stop in the page's tab order, not four, and
+// the selected tab is the one that stop lands on. Reached by four buttons that
+// only ever set `aria-selected`, which is inert without `role="tab"` — so a
+// screen reader was told which of the four views was showing by nothing at all,
+// and there was no way between them but Tab, Tab, Tab.
 function show(view) {
   for (const v of views) {
-    document.getElementById(`view-${v}`).hidden = v !== view;
-    const tab = document.getElementById(`tab-${v}`);
-    tab.setAttribute('aria-selected', String(v === view));
+    const on = v === view;
+    document.getElementById(`view-${v}`).hidden = !on;
+    const tab = tabOf(v);
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
   }
 }
-for (const v of views) {
-  document.getElementById(`tab-${v}`).addEventListener('click', () => show(v));
-}
+for (const v of views) tabOf(v).addEventListener('click', () => show(v));
+
+// The arrows walk the strip and switch as they go: all four panels are already
+// in the page, so there is nothing to fetch and nothing a reader would gain by
+// having to confirm the move. Home and End go to the ends. Same shape as the
+// question picker further down, which is the keyboard implementation this page
+// already had right.
+document.querySelector('.inspector-tabs').addEventListener('keydown', event => {
+  const at = views.findIndex(v => tabOf(v) === document.activeElement);
+  if (at < 0) return;
+  const next = {
+    ArrowRight: (at + 1) % views.length,
+    ArrowLeft: (at - 1 + views.length) % views.length,
+    Home: 0,
+    End: views.length - 1,
+  }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  show(views[next]);
+  tabOf(views[next]).focus();
+});
 show('groundtruth');
 
 async function pollJob(jobId) {
@@ -79,19 +106,19 @@ function whyText(key) {
 
 function whyMark(key) {
   const label = escapeHtml(measureOf(key).label || key);
-  return `<button type="button" class="inspector-why" data-why="${escapeHtml(key)}"`
+  return `<button type="button" class="why" data-why="${escapeHtml(key)}"`
     + ` aria-label="What is ${label}?">!</button>`;
 }
 
 // One listener for the page: the marks are re-rendered on every poll tick, and
 // a listener per button would leak one per render.
 document.addEventListener('click', event => {
-  const button = event.target.closest('.inspector-why');
+  const button = event.target.closest('button.why');
   if (!button) return;
   const open = button.nextElementSibling;
-  if (open && open.classList.contains('inspector-why-text')) { open.remove(); return; }
+  if (open && open.classList.contains('why-text')) { open.remove(); return; }
   const note = document.createElement('span');
-  note.className = 'inspector-why-text';
+  note.className = 'why-text';
   note.textContent = whyText(button.dataset.why) || 'no description for this one yet';
   button.after(note);
 });
@@ -112,8 +139,46 @@ const GT = new Map();
 // starts on so the tab has something in it before the first poll answers.
 let FOLLOWED_DATASET = '';
 
+// --- which direction the corpus reads ---
+// This page used to answer that with a hardcoded rtl written into fourteen template
+// strings and a Persian face pinned into four CSS rules, because the first
+// corpus was a Farsi diary. Four of the five bundled corpora are German or
+// English, and every one of them rendered right-to-left in Vazirmatn with its
+// chunk column against the wrong edge. The dataset has always known its
+// language; `/api/groundtruth` says so now, and this is the page asking.
+//
+// The scripts that run right to left, by language subtag. A list rather than a
+// script lookup because there is no way to ask the platform offline, and this
+// list is short and does not move.
+const RTL_LANGUAGES = new Set(['ar', 'arc', 'ckb', 'dv', 'fa', 'he', 'ku',
+                               'ps', 'sd', 'ug', 'ur', 'yi']);
+
+// `auto` until a corpus says otherwise — not `ltr`, and not the diary's `rtl`.
+// `auto` is a real answer: the browser takes each block's direction from its
+// own first strong character, which is the honest reading for text whose
+// language nothing has stated. An archive written without one lands here.
+let CORPUS_DIR = 'auto';
+
+function dirFor(language) {
+  const base = String(language || '').toLowerCase().split(/[-_]/)[0];
+  if (!base) return 'auto';
+  return RTL_LANGUAGES.has(base) ? 'rtl' : 'ltr';
+}
+
+// One fact, set in one place, read two ways: the attribute is what the
+// stylesheet reads to put the chunk column and its header against the right
+// edge (that is layout, and belongs to the page), while `CORPUS_DIR` goes onto
+// each block of corpus text as its own `dir` (that is the text's own property,
+// and is what bidi, the font stack, selection and a screen reader all need).
+function setCorpusDir(language) {
+  CORPUS_DIR = dirFor(language);
+  document.documentElement.dataset.corpusDir = CORPUS_DIR;
+}
+
 function renderGroundTruth(body) {
   FOLLOWED_DATASET = body.dataset || '';
+  // Before the first row is written, because every render below reads it.
+  setCorpusDir(body.language);
   const root = document.getElementById('view-groundtruth');
   GT.clear();
   root.innerHTML = '';
@@ -124,20 +189,20 @@ function renderGroundTruth(body) {
     // Label above its text, never beside it. A label set inline with a
     // right-aligned Farsi block ends up at the opposite edge of the row from the
     // thing it labels, with the width of the page in between.
-    const field = (label, text, rtl) => text
+    const field = (label, text, corpusText) => text
       ? `<div class="gt-field"><div class="qh-label">${label}</div>`
-        + `<div${rtl ? ' dir="rtl"' : ''}>${escapeHtml(text)}</div></div>` : '';
+        + `<div${corpusText ? ` dir="${CORPUS_DIR}"` : ''}>${escapeHtml(text)}</div></div>` : '';
     const quotes = (q.evidence || []).map(e => e.quote);
     row.innerHTML = `<div class="gt-head"><span class="q-id">${escapeHtml(q.id)}</span> `
       + `<span class="q-tally">${escapeHtml(q.type)} · ${escapeHtml(q.difficulty)}`
       + `${q.answerable ? '' : ' · unanswerable'}</span></div>`
-      + `<div class="gt-q" dir="rtl">${escapeHtml(q.question_fa)}</div>`
+      + `<div class="gt-q" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa)}</div>`
       + `<div class="gt-en">${escapeHtml(q.question_en || '')}</div>`
       + field('answer', q.answer_fa, true)
       + (quotes.length
          ? `<div class="gt-field"><div class="qh-label">evidence quoted from the diary</div>`
            + quotes.map(quote =>
-               `<div dir="rtl" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
+               `<div dir="${CORPUS_DIR}" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
            + `</div>` : '');
     root.appendChild(row);
   }
@@ -189,7 +254,7 @@ function renderChunkGroups(container, groups) {
       // The number is a Latin marker on its own line rather than a prefix inside
       // the Farsi string, where bidi puts it at whichever edge the run ends on.
       line.innerHTML = `<div class="chunk-no">chunk ${i + 1}</div>`
-        + `<div dir="rtl">${escapeHtml(c.text)}</div>`;
+        + `<div dir="${CORPUS_DIR}">${escapeHtml(c.text)}</div>`;
       det.appendChild(line);
     });
     container.appendChild(det);
@@ -221,7 +286,7 @@ function renderSummaries(container, summaries) {
     const line = document.createElement('div');
     line.className = 'chunk-line';
     line.innerHTML = `<div class="chunk-no">summary</div>`
-      + `<div dir="rtl">${escapeHtml(s.text)}</div>`;
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(s.text)}</div>`;
     det.appendChild(line);
     // The members by id, so a summary can be traced back to the rows it stands
     // for — without them the card is an assertion the reader cannot check.
@@ -320,15 +385,23 @@ function chunkCell(candidate) {
   // A summary row wears the index ink and names its group, so it reads as
   // build-written rather than mistaken for the diarist's own words.
   const badge = candidate.layer === 'summary'
-    ? `<span class="layer-badge" data-step="index" title="a summary this build `
-      + `wrote over ${candidate.members} chunks — not the diarist's own words">`
+    ? `<span class="layer-badge" data-step="index">`
       + `L${candidate.level} ${escapeHtml(candidate.group_id || '')} `
       + `· ${candidate.members}</span> ` : '';
+  // What the badge means, in the reveal rather than in a `title`. That this row
+  // is not the corpus's own words is the most important thing about it, and a
+  // mouse-hover tooltip is not a way to publish that — the reveal is where the
+  // row's full text already goes, and it opens to a keyboard as well.
+  const layerNote = candidate.layer === 'summary'
+    ? '<span class="no-evidence">a summary this build wrote over '
+      + `${candidate.members} chunk${candidate.members === 1 ? '' : 's'} `
+      + '— not the corpus\'s own words</span>' : '';
   return `<td class="chunk-cell" data-sort="${escapeHtml(preview.slice(0, 60))}">`
     + badge
-    + `<span class="chunk-preview" dir="rtl" tabindex="0">`
+    + `<span class="chunk-preview" dir="${CORPUS_DIR}" tabindex="0">`
     + `${escapeHtml(preview.slice(0, 60))}${preview.length > 60 ? '…' : ''}</span>`
-    + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}${footnote}</div></td>`;
+    + `<div class="chunk-reveal" dir="${CORPUS_DIR}">${highlighted(text, spans)}`
+    + `${footnote}${layerNote}</div></td>`;
 }
 
 // One bar per rank-producing step (dense, BM25, RRF fusion), height standing
@@ -352,15 +425,61 @@ function ladder(candidate, cap) {
     + `${cells}</span></td>`;
 }
 
-// A table inside its own scroller, so nine columns on a phone move the table
-// and never the page. The wrapper only scrolls at narrow widths (see the media
-// query) — on a wide screen it would clip the reveal hanging below a row.
-function scrollable(table) {
+// A table inside the scroll region both surfaces share (chrome.css): nine
+// columns move the table and never the page, the header stays put because the
+// region's height is bounded, and the region takes focus so the arrow keys,
+// PageUp/PageDown, Home and End reach the right-hand side of it. It used to
+// scroll only at narrow widths, because on a wide screen it clipped the reveal
+// hanging below a row; the reveal is fixed to the viewport now (`placeReveal`),
+// so the region can be real at every width.
+function scrollable(table, label) {
   const box = document.createElement('div');
   box.className = 'table-scroll';
+  box.tabIndex = 0;
+  box.setAttribute('role', 'region');
+  box.setAttribute('aria-label', label || 'retrieved candidates');
   box.appendChild(table);
   return box;
 }
+
+// Where an open reveal goes. It is `position: fixed`, so it must be told; and
+// it must be told at the moment it opens, because the row it belongs to may
+// have been scrolled anywhere inside its region since the table was built.
+// Below the cell when there is room below, above it when there is not, and
+// never off either side.
+function placeReveal(cell) {
+  const reveal = cell && cell.querySelector('.chunk-reveal');
+  // `position: static` is the narrow-width variant, which opens in place and
+  // wants no insets at all.
+  if (!reveal || getComputedStyle(reveal).position === 'static') return;
+  const box = cell.getBoundingClientRect();
+  const gap = 4;
+  const below = box.bottom + gap;
+  const height = reveal.offsetHeight;
+  reveal.style.top = `${below + height <= window.innerHeight
+    ? below : Math.max(gap, box.top - gap - height)}px`;
+  reveal.style.left = `${Math.max(gap,
+    Math.min(box.left, window.innerWidth - reveal.offsetWidth - gap))}px`;
+}
+
+// The cell whose reveal a pointer or a focus has opened. Hover opens on the
+// whole row (`.retrieval-row:hover .chunk-reveal`), so the event target is
+// usually some rank cell three columns away from the text it reveals.
+function revealCell(node) {
+  const row = node && node.closest && node.closest('.retrieval-row');
+  return row ? row.querySelector('.chunk-cell') : null;
+}
+
+// Delegated at the document, because every one of these tables is rebuilt each
+// time the lab finishes a job. The scroll listener is capturing: a wheel scroll
+// does not end a hover, so a reveal left where it opened would drift away from
+// the row that owns it.
+document.addEventListener('pointerover', event => placeReveal(revealCell(event.target)));
+document.addEventListener('focusin', event => placeReveal(revealCell(event.target)));
+document.addEventListener('scroll', () => {
+  for (const cell of document.querySelectorAll(
+    '.retrieval-row:hover .chunk-cell, .chunk-cell:focus-within')) placeReveal(cell);
+}, true);
 
 function retrievalTable(candidates) {
   const table = document.getElementById('retrieval-table-template')
@@ -397,7 +516,7 @@ function questionHead(questionId, fallbackFa) {
   const q = GT.get(questionId) || {};
   const facts = (q.key_facts || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
   return `<div class="question-head">`
-    + `<div class="qh-fa" dir="rtl">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
+    + `<div class="qh-fa" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
     + `<div class="qh-en">${escapeHtml(q.question_en || '')}</div>`
     + (facts ? `<div class="qh-label">what a right answer contains</div>`
              + `<ol class="qh-facts">${facts}</ol>` : '')
@@ -415,7 +534,8 @@ function questionSummary(id, type, difficulty, tally) {
 function renderRetrievalRows(candidates) {
   const host = document.getElementById('retrieval-body');
   host.innerHTML = '';
-  host.appendChild(scrollable(retrievalTable(candidates)));
+  host.appendChild(scrollable(retrievalTable(candidates),
+    'candidates for the one-off query'));
 }
 
 // One collapsible table per question, collapsed by default, shared by both the
@@ -436,6 +556,17 @@ function agentLadder(visits) {
         + `<td class="detail" dir="auto">${escapeHtml(v.detail || '')}</td></tr>`)
       .join('')
     + '</tbody></table>';
+  // Wired, like every other table on either surface. It was the one built by a
+  // path that never reached the sorter — and the two questions a reader brings
+  // to a loop trace are both column questions: sort by node and a node that
+  // appears three times collects itself, sort by hop and you see what each hop
+  // cost. The third click restores the order it was served in, which for this
+  // table is the sequence itself.
+  //
+  // Deliberately not inside a `.table-scroll`: four columns, one of which
+  // wraps, so it has nothing to overflow. A bounded, bordered region around a
+  // table that never scrolls is the component worn as costume.
+  SortTable.make(box.querySelector('table'));
   return box;
 }
 
@@ -456,7 +587,8 @@ function questionBlock(q) {
   // Above the candidate table, because the ladder is how the candidates came to
   // be: the table answers "what came back", the ladder answers "after what".
   if (visits.length) det.appendChild(agentLadder(visits));
-  det.appendChild(scrollable(retrievalTable(candidates)));
+  det.appendChild(scrollable(retrievalTable(candidates),
+    `candidates for ${q.question_id}`));
   return det;
 }
 
@@ -514,7 +646,7 @@ function renderPicker(filter) {
     option.tabIndex = -1;
     option.dataset.id = q.id;
     const quotes = (q.evidence || []).map(ev =>
-      `<div class="gt-quote" dir="rtl">${escapeHtml(ev.quote)}</div>`).join('');
+      `<div class="gt-quote" dir="${CORPUS_DIR}">${escapeHtml(ev.quote)}</div>`).join('');
     option.innerHTML =
       `<span class="q-option-id">${escapeHtml(q.id)}</span>`
       + `<span class="q-chip q-chip--${escapeHtml(q.difficulty || 'easy')}">`
@@ -524,9 +656,9 @@ function renderPicker(filter) {
       // The detail is in the DOM from the start rather than built on hover, so
       // it opens with no delay and reads the same to a screen reader.
       + `<div class="q-option-detail">`
-      + `<div dir="rtl" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
+      + `<div dir="${CORPUS_DIR}" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
       + `<div class="qh-label">expected answer</div>`
-      + `<div dir="rtl">${escapeHtml(q.answer_fa || '—')}</div>`
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(q.answer_fa || '—')}</div>`
       + (quotes ? `<div class="qh-label">evidence quoted from the diary</div>${quotes}` : '')
       + `</div>`;
     pickerList.appendChild(option);
@@ -650,10 +782,10 @@ function generationBlock(row, trace) {
     + questionHead(row.id, '')
     + '<div class="gen-answers">'
     + '<div class="gen-answer gen-answer--ideal"><h4>what the diary says</h4>'
-    + `<div dir="rtl">${escapeHtml(gt.answer_fa || '—')}</div></div>`
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(gt.answer_fa || '—')}</div></div>`
     + '<div class="gen-answer gen-answer--actual">'
     + `<h4>what this run wrote${row.abstained ? ' — it refused' : ''}</h4>`
-    + `<div dir="rtl">${escapeHtml(row.answer || '—')}</div></div>`
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(row.answer || '—')}</div></div>`
     + '</div>'
     + metricLine(row, GEN_METRICS);
   if (trace) {
@@ -713,6 +845,13 @@ function renderImportedArchive(archive) {
   renderGroundTruth({ dataset: evidence.dataset.id,
                       meta: evidence.dataset.ground_truth.meta,
                       questions: evidence.dataset.ground_truth.questions,
+                      // The archive carries the corpus it was run against, and
+                      // the corpus half is where a language lives — so an
+                      // archive is read in its own direction rather than in
+                      // whatever the live corpus happened to be. An archive
+                      // written without one falls through to `auto`, which is
+                      // the honest answer for text whose language is unstated.
+                      language: ((evidence.dataset.corpus || {}).meta || {}).language,
                       datasets: [] });
   renderChunkGroups(document.getElementById('chunks-body'),
                     evidence.chunks_by_session);
@@ -897,11 +1036,24 @@ async function renderFollow(body) {
       followed.queryJobId = body.query.job_id;
       retrievalCfg.textContent = formatConfig(body.query.config);
       renderRetrievalRows(body.query.trace.candidates);
-      document.getElementById('retrieval-answer').textContent = body.query.answer || '';
+      // An answer is written in the corpus's language, so it reads in the
+      // corpus's direction. The box used to carry a fixed right-to-left in the
+      // markup, which is a claim markup cannot make: it is settled at page load
+      // and the corpus is not.
+      const answer = document.getElementById('retrieval-answer');
+      answer.dir = CORPUS_DIR;
+      answer.textContent = body.query.answer || '';
     }
   } else {
-    retrievalCfg.textContent = 'Ask one question from the query box on the lab '
-      + 'to trace it here.';
+    // This used to send the reader to a control on the lab that has not
+    // existed for a while, which is worse than saying nothing: they go
+    // looking. The view follows a one-off query job, which only the lab's own
+    // route still starts — so it says that, and points at the control on this
+    // page that traces a question the same way.
+    retrievalCfg.textContent = 'No one-off query traced. The lab starts one '
+      + 'through POST /api/queries; every question of its last retrieval or '
+      + 'evaluation is listed above, and Add a question traces any other one '
+      + 'under the same config.';
   }
 }
 

@@ -17,7 +17,7 @@ from raglab.configuration.lab_config import (
     LabSettings)
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
-from raglab.conftest import _finished
+from raglab.conftest import _finished, _font_size_literals, _radius_literals
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 INSPECTOR_JS = inspector.STATIC / 'inspector.js'
@@ -243,6 +243,25 @@ def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     assert 'quote' in q['evidence'][0]
 
 
+@pytest.mark.parametrize('dataset, language', [
+    ('', 'fa'), ('diary-fa', 'fa'), ('meetings-de', 'de'), ('support-en', 'en'),
+])
+def test_groundtruth_endpoint_names_the_corpus_language(monkeypatch, dataset,
+                                                       language):
+    # this is an integration test
+    """The page cannot render a corpus in the direction it reads unless it is
+    told which language that is, and it is not in `meta`: a ground-truth file's
+    meta describes the question set, and `_split` writes no language into it for
+    any corpus — the built-in diary keeps its own on the *corpus* half. So the
+    route says it outright, resolved from the catalogue where the fact lives."""
+    client = _client(monkeypatch)
+    body = client.get(f'/api/groundtruth?dataset={dataset}').json()
+    assert body['language'] == language, (
+        'the Inspector rendered every corpus right-to-left in a Persian face '
+        'because this fact never reached it'
+    )
+
+
 # FastAPI TestClient over the read-only app; real in-memory index build via
 # the job runner. Parametrized over a flat build and a hierarchical one, both
 # on the five-session smoke corpus, so the toggle's two halves (leaves-only,
@@ -357,6 +376,10 @@ def inspector_texts():
         'inspector.html': client.get('/').text,
         'inspector.css': client.get('/inspector.css').text,
         'inspector.js': client.get('/inspector.js').text,
+        # The shared chrome sheet, over its own route: the bar, the surface
+        # switcher and — since the tables pass — the scroll region and sticky
+        # header this page's own tables now sit inside.
+        'chrome.css': client.get('/chrome.css').text,
     }
 
 
@@ -365,6 +388,61 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.css', 'font-size: var(--t-sm)', None,
+     'one table step for both surfaces: this table read --t-xs where the '
+     "lab's read --t-sm, which is what a ramp offering three indiscriminable "
+     'choices does to two pages written months apart'),
+    ('inspector.css', None, '.retrieval-table { font-size: var(--t-2xs); }',
+     'and no smaller type on a narrow screen — that step is under the '
+     'readable floor, and what a narrow screen needs is a table that scrolls, '
+     'which it now has at every width'),
+    ('chrome.css', 'button.why::after', None,
+     "the Inspector's '!' is not merely the same affordance as the lab's, it "
+     'is the same rule: two copies in two units under comments on each side '
+     'claiming they were one thing is what this replaces. It still clears the '
+     'same 24×24 floor from a pseudo-element, for the same reason — a 24px '
+     'disc at the end of a small label would set that row\'s line height'),
+    ('inspector.css', None, '.inspector-why',
+     'and the page keeps no copy of the mark: what stays here is only where '
+     'the sentence it opens goes, which is genuinely page-local because these '
+     'marks sit in a flex row of scores'),
+    ('inspector.html', 'id="chunks-status" aria-live="polite"', None,
+     'a build that finished, or failed, must say so — this span is the only '
+     'place it is reported'),
+    ('inspector.html', 'id="retrieval-status" aria-live="polite"', None,
+     'the same for a question added by hand, which can take a while and can '
+     'fail'),
+    ('inspector.js', None, 'title="a summary this build',
+     'that a row is a summary rather than the corpus\'s own words is the most '
+     'important thing about it, and a tooltip publishes it to a mouse and to '
+     'nothing else — it is a line in the reveal now, which opens to a '
+     'keyboard as well'),
+    ('inspector.html', 'role="tablist"', None,
+     'the four views are a tablist: `aria-selected` on a plain <button> means '
+     'nothing, so a screen reader was told which view was showing by nothing '
+     'at all'),
+    ('inspector.html', 'role="tabpanel"', None,
+     'a tab must control a panel that says it is one, or `aria-controls` '
+     'points at an anonymous section'),
+    ('inspector.html', 'aria-controls="view-retrieval"', None,
+     'each tab must name the panel it opens — checked on one real pairing, so '
+     'a `role="tab"` added without the wiring cannot satisfy the rows above'),
+    ('inspector.js', 'tab.tabIndex = on ? 0 : -1', None,
+     'a tablist is one stop in the page tab order, not four; the roving '
+     'tabindex is what makes the arrow keys the way between them rather than '
+     'an addition nobody needs'),
+    ('inspector.css', '.inspector-header-inner', None,
+     'the header is a page-level band and centres on the shared measure: '
+     'without its own inner band its title and tabs sat 77px left of every '
+     'card on the page at any viewport wider than the measure'),
+    ('inspector.js', None, 'query box on the lab',
+     'the one-off-query view must not send the reader to a control that is '
+     'not there: the lab has had no query box for a while, and an empty state '
+     'naming one is worse than an empty state, because the reader goes '
+     'looking'),
+    ('inspector.js', 'POST /api/queries', None,
+     'it must name what does still start a one-off query, so the empty state '
+     'says something true rather than nothing'),
     ('inspector.html', 'tab-groundtruth', None,
      'the served shell must expose its ground-truth tab hook'),
     ('inspector.html', 'tab-chunks', None,
@@ -530,30 +608,150 @@ def test_archive_mode_still_reports_lab_reachability():
         'archive branch, or archive mode never reports lab reachability')
 
 
+def test_the_inspector_reads_a_corpus_in_its_own_direction(inspector_texts):
+    # this is a convention test
+    """The largest honesty gap this page had: it rendered every corpus
+    right-to-left in a Persian face because the first one was a Farsi diary.
+    Four of the five bundled corpora are German or English, and all four came
+    out reversed, in Vazirmatn, with the chunk column against the wrong edge of
+    its own column. Nothing was broken — the page simply never asked, while
+    `/api/groundtruth` knew.
+
+    So: no literal `rtl` anywhere in the page's markup or its script, the
+    Persian face reachable only through a direction, and the chunk column's edge
+    read from the one attribute the page sets from the reported language."""
+    js, css, html = (inspector_texts['inspector.js'],
+                     inspector_texts['inspector.css'],
+                     inspector_texts['inspector.html'])
+    assert 'dir="rtl"' not in js and 'dir="rtl"' not in html, (
+        'a hardcoded direction is a claim about a corpus the page has not been '
+        'told the language of — there were fourteen of these in the script and '
+        'one in the markup, and the markup is fixed at page load while the '
+        'corpus is not'
+    )
+    assert 'setCorpusDir(body.language)' in js, (
+        'the direction comes from the language the route reports, resolved '
+        'before the first row is written'
+    )
+    # Every rule that names the Persian stack must sit behind a direction. The
+    # declaration and the token's own definition are the two that may not.
+    for line in css.splitlines():
+        if 'var(--farsi)' not in line or '--farsi:' in line:
+            continue
+        assert '[dir="rtl"]' in line, (
+            f'this rule pins the Persian face with nothing guarding it: {line.strip()!r} '
+            '— it was on the chunk preview, the reveal and the answer box, so '
+            'an English corpus was set in Vazirmatn'
+        )
+    assert ':root[data-corpus-dir="rtl"] .retrieval-table td.chunk-cell' in css, (
+        "the chunk column's edge follows the corpus, and where a column sits "
+        'is layout — so it reads the direction from the page root rather than '
+        'from the text inside it'
+    )
+
+
 def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     # this is a convention test
-    """`tokens.css` and `lab.js` are one file for both pages rather than a
-    copy each, so a design token or a utility cannot drift apart on either
-    page. This pins that the Inspector actually routes them, its page
-    actually loads them, and each loads before the page's own stylesheet or
-    script — a later link would lose the tokens to the page's own overrides
-    instead of feeding them. The panel's half of this claim lives in
+    """`tokens.css`, `chrome.css`, `lab.js` and `sorttable.js` are one file
+    for both pages rather than a copy each, so a design token, the top bar, a
+    utility or the meaning of clicking a column header cannot drift apart on
+    either page. This pins that the Inspector actually routes each of them, its
+    page actually loads them, and each loads before the page's own stylesheet
+    or script — a later link would lose the shared rules to the page's own
+    overrides instead of feeding them. The panel's half of this claim lives in
     test_panel.py."""
     from fastapi.testclient import TestClient
 
     client = TestClient(inspector.create_inspector_app())
-    assert (inspector.STATIC / 'tokens.css').exists()
-    assert (inspector.STATIC / 'lab.js').exists()
+    shared_css = ('tokens.css', 'chrome.css')
+    shared_js = ('lab.js', 'sorttable.js')
+    for name in shared_css + shared_js:
+        assert (inspector.STATIC / name).exists(), name
 
     html = client.get('/').text
-    tokens = client.get('/tokens.css')
-    lab = client.get('/lab.js')
-    assert tokens.status_code == 200
-    assert tokens.headers['content-type'].startswith('text/css')
-    assert lab.status_code == 200
-    assert lab.headers['content-type'].startswith('application/javascript')
-    assert (html.index('href="/tokens.css"') < html.index('href="/inspector.css"'))
-    assert (html.index('src="/lab.js"') < html.index('src="/inspector.js"'))
+    for name in shared_css:
+        served = client.get(f'/{name}')
+        assert served.status_code == 200, name
+        assert served.headers['content-type'].startswith('text/css'), name
+        assert html.index(f'href="/{name}"') < html.index('href="/inspector.css"'), (
+            f'{name} must be linked before the page\'s own sheet, or the page '
+            'overrides the shared rules instead of building on them')
+    for name in shared_js:
+        served = client.get(f'/{name}')
+        assert served.status_code == 200, name
+        assert served.headers['content-type'].startswith(
+            'application/javascript'), name
+        assert html.index(f'src="/{name}"') < html.index('src="/inspector.js"'), (
+            f'{name} must load before inspector.js, which calls into it')
+
+
+def test_the_inspector_draws_its_scale_from_the_shared_sheet(inspector_texts):
+    # this is a convention test
+    """The Inspector carried 16 hand-set type sizes and its own radii, and
+    agreed with the panel on none of them. Both surfaces read one scale or the
+    shared sheet is decoration. The panel's half of this claim lives in
+    test_panel.py."""
+    css = inspector_texts['inspector.css']
+    assert _font_size_literals(css) == []
+    assert _radius_literals(css) == []
+
+
+def test_the_inspector_centres_on_the_shared_measure(inspector_texts):
+    # this is a convention test
+    """The Inspector set its own 92rem measure, its own 1.25rem gutter, and
+    never centred itself, so the two surfaces disagreed about how wide a page
+    is and where its left edge falls."""
+    css = inspector_texts['inspector.css']
+    assert '92rem' not in css, 'the Inspector must not keep its own measure'
+    assert 'max-width: var(--measure)' in css
+    assert 'margin: 0 auto' in css, (
+        'the Inspector was left-aligned while the panel was centred')
+
+
+def test_the_inspector_tables_sit_in_the_shared_scroll_region(inspector_texts):
+    # this is a convention test
+    """The retrieval table is nine columns, and until the shared region reached
+    this page its wrapper scrolled only under 46rem — because at any wider width
+    it clipped the chunk reveal hanging below a row. The region is real at every
+    width now and the reveal is fixed to the viewport instead of trapped inside
+    it, which is what makes both possible at once: a table a keyboard can scroll
+    across, and a chunk you can read."""
+    js = inspector_texts['inspector.js']
+    css = inspector_texts['inspector.css']
+    chrome = inspector_texts['chrome.css']
+    assert "box.className = 'table-scroll'" in js
+    assert "box.setAttribute('role', 'region')" in js, (
+        'an overflow div that cannot take focus cannot be scrolled by a '
+        'keyboard at all — arrows, PageUp/PageDown, Home and End all do '
+        'nothing, so the mouse is the only way across nine columns')
+    assert 'position: fixed' in css.split('.chunk-reveal {')[1].split('}')[0], (
+        'the reveal must leave the scroll region\'s flow, or the region clips '
+        'the text it exists to show')
+    assert 'function placeReveal' in js, (
+        'a fixed reveal has to be told where to go, and told at the moment it '
+        'opens — its row may have been scrolled anywhere inside the region'
+    )
+    assert '.table-scroll { overflow-x: auto; }' not in css, (
+        'the narrow-width-only scroll override is what the shared region '
+        'replaced; keeping both means the page has two answers')
+    assert '.table-scroll thead th' in chrome, (
+        'the sticky header belongs to the region, not to `.data-table`: this '
+        "page's retrieval table keeps its own centred columns and its own "
+        'row backgrounds, which carry the gold verdict and so cannot also be '
+        'a stripe')
+
+
+def test_the_agent_ladder_is_wired_to_the_shared_sorter(inspector_texts):
+    # this is a convention test
+    """The ladder was the one table on either surface built by a path that
+    never reached `SortTable.make`. Both questions a reader brings to a loop
+    trace are column questions — sort by node and a node visited three times
+    collects itself; sort by hop and you see what each hop cost — and the third
+    click puts back the order it was served in, which for this table is the
+    sequence itself."""
+    js = inspector_texts['inspector.js']
+    ladder = js[js.index('function agentLadder'):js.index('function questionBlock')]
+    assert 'SortTable.make(' in ladder
 
 
 # --- following the lab (:9002) ----------------------------------------------

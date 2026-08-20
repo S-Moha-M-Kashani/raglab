@@ -1,0 +1,256 @@
+/* Shared chrome for both surfaces — the panel (:9002) and the Inspector
+   (:9003) route this one file, so the top of a page cannot come to mean two
+   different things on two ports. Loaded after tokens.css (whose scale it
+   reads) and before each page's own sheet, so a page can still override.
+
+   What lives here is only what BOTH pages render: the skip link, the top bar,
+   the surface switcher, the table scroll region and its sortable header, and
+   the '!' that opens an explainer. The panel's status rail and status pill stay
+   in panel.css — they report lab state the Inspector does not hold, and they
+   read `--good`, which is a panel-local token. */
+
+/* Keyboard users reach the content without walking the whole switcher, and on
+   the panel without walking sixty form controls after it. Visible only when
+   focused, which is the one time it is useful. */
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--card); color: var(--ink);
+  padding: var(--s-2) var(--s-3); border-radius: var(--radius-sm);
+  font: 600 var(--t-sm)/1 var(--sans); text-decoration: none;
+}
+.skip-link:focus { left: var(--gutter); top: var(--s-2); }
+
+/* ── the top bar ───────────────────────────────────────────────────────────
+   One row, --bar-h tall, sticky. It carries identity, the three surfaces and
+   the page's own actions — and nothing else. Everything that used to crowd in
+   here reports from the status rail or from the page below. */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--chassis); color: var(--chassis-ink);
+}
+.topbar-inner {
+  max-width: var(--measure); margin: 0 auto;
+  padding: 0 var(--gutter);
+  min-height: var(--bar-h);
+  display: flex; align-items: center; gap: var(--s-4);
+}
+.topbar a { color: #fff; }
+
+/* Identity sits outside the switcher: the mark says which product this is,
+   the switcher says which of its surfaces you are on. One ornament, once. */
+.brand {
+  display: flex; align-items: center; gap: var(--s-2);
+  font: 600 var(--t-md)/1 var(--slab); color: #fff;
+  text-decoration: none; white-space: nowrap;
+}
+.brand .lab-mark {
+  display: inline-block; padding: var(--s-1) var(--s-2);
+  background: var(--step-index); color: var(--chassis);
+  font: 700 var(--t-sm)/1 var(--mono); border-radius: var(--radius-sm);
+}
+.brand:hover { text-decoration: none; }
+
+/* ── the surface switcher ──────────────────────────────────────────────────
+   Three surfaces, and the Inspector is a different process on a different
+   port rather than a route — so these are honest links, not tabs pretending
+   a click stays in the page. The current one is marked with aria-current, and
+   marked visibly by more than colour: it carries the underline as well. */
+.topnav { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
+.topnav a {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  color: var(--chassis-ink-soft); text-decoration: none;
+  font: 600 var(--t-sm)/1 var(--sans); white-space: nowrap;
+  border-radius: var(--radius-sm);
+  border-bottom: 2px solid transparent;
+}
+.topnav a:hover { background: var(--chassis-soft); color: #fff; }
+.topnav a[aria-current="page"] {
+  background: var(--chassis-soft); color: #fff;
+  border-bottom-color: var(--step-index);
+}
+/* The port, for the surface that is genuinely somewhere else. Small, and
+   never the only thing distinguishing the item. */
+.topnav .port { color: var(--chassis-ink-soft); font: var(--t-2xs)/1 var(--mono); }
+.topnav a[aria-current="page"] .port { color: var(--chassis-ink); }
+
+/* The page's own actions, pushed right. Contents differ per surface: the lab
+   carries Settings, Import and Export; the Inspector carries only what it can
+   actually do. */
+.topbar-actions {
+  margin-left: auto; display: flex; align-items: center; gap: var(--s-2);
+  min-width: 0;
+}
+
+/* ── the progress line ─────────────────────────────────────────────────────
+   The bar's bottom edge, tinted with the running step's ink. This is where
+   the four colour-coded step strips went: their whole remaining job was to
+   say which stage is running and how far along, and a 3px line does that in
+   no vertical space at all. `--step` is set by the page from the job's stage;
+   with nothing running it falls back to a neutral and the width is zero. */
+.chrome-progress { height: 3px; background: var(--chassis-soft); }
+.chrome-progress i {
+  display: block; height: 3px; width: 0;
+  background: var(--step, var(--chassis-ink-soft));
+  transition: width .25s linear;
+}
+
+@media (max-width: 720px) {
+  .topbar-inner { flex-wrap: wrap; gap: var(--s-2); padding: var(--s-2) var(--gutter); }
+  .topbar-actions { margin-left: 0; width: 100%; }
+  .topnav { flex-wrap: wrap; }
+}
+
+/* ── the '!' that opens an explainer ───────────────────────────────────────
+   Both surfaces put this mark beside a thing that needs a sentence — a knob,
+   a metric, a failed run's reason — and both used to draw it themselves, as
+   `button.why` here and `.inspector-why` there, in different units, under
+   comments on each side claiming they were "the same affordance". They are,
+   so there is one of them now. What stays per-page is only where the opened
+   sentence goes: the lab puts it after the whole field (a <p> placed straight
+   after a <td> gets hoisted out of the table by the parser), the Inspector
+   sends it to the end of the metrics row so opening one cannot push the
+   scores beside it out of line. That is a placement decision, not a look. */
+button.why {
+  font: 700 var(--t-2xs)/1 var(--mono); padding: var(--s-px) var(--s-1); margin-left: var(--s-1);
+  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
+  border-radius: var(--radius-pill); vertical-align: middle;
+  position: relative; cursor: pointer;
+}
+/* The target is 24×24; the mark stays small. The mark has to: it sits at the
+   end of an eleven-pixel uppercase label, and a 24px disc there would set the
+   line height of every label on a page with dozens of them — around nine pixels
+   each, which is the difference between the controls fitting on a laptop screen
+   and not. So the hit area is a pseudo-element centred on the mark and outside
+   the layout: the button was about 16×15, which is under the floor and there is
+   one of these per knob and per metric. Adjacent marks are 25px or more apart,
+   so no two of these boxes overlap. */
+button.why::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  width: 24px; height: 24px; transform: translate(-50%, -50%);
+}
+/* Lit in the step's ink where a step owns the mark, and in the page's own ink
+   where none does. The fallback used to be `--chassis`, which is near-black on
+   both themes while the text is `--card` — so on dark mode the hovered mark was
+   a dark fill under dark text. `--ink` inverts with the theme, so both cases
+   read at full contrast. */
+button.why:hover { color: var(--card); background: var(--step, var(--ink));
+                   border-color: var(--step, var(--ink)); }
+
+/* ── data tables ───────────────────────────────────────────────────────────
+   A wide table is only usable if you can reach the right-hand side of it, and
+   an `overflow` div that cannot take focus cannot be scrolled by a keyboard at
+   all — arrows, PageUp/PageDown, Home and End all do nothing, so the mouse is
+   the only way across. `.table-scroll` is therefore a real scroll region:
+   focusable, labelled, and height-bounded so its sticky header has something to
+   stick against. Shared, so both surfaces scroll the same way. */
+.table-scroll {
+  position: relative;
+  max-height: 70vh; overflow: auto;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--card);
+  /* The region must be allowed to be narrower than the table inside it, or the
+     page scrolls sideways instead of the region — the exact failure this
+     component exists to fix. */
+  min-width: 0;
+}
+.table-scroll:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
+
+.data-table { border-collapse: separate; border-spacing: 0; width: 100%;
+              font: var(--t-sm)/1.5 var(--mono); }
+/* The table's own accessible name, and nothing on screen. It was a visible
+   sticky bar until it collided with the header row twice over: both were
+   sticky at `top: 0`, so the caption (higher z-index) sat on top of the
+   column names and hid them the moment a table scrolled — and `top` does
+   nothing about the horizontal axis, so the caption slid away sideways with
+   the data it named anyway. Every table using this component already carries
+   the same words in a heading directly above the region, so the visible copy
+   was a duplicate; what a screen reader needs is not, and stays. */
+.data-table caption {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+/* The header stays put for ANY table in the region, `.data-table` or not: the
+   Inspector's retrieval table keeps its own centred columns and its own row
+   backgrounds (which carry the gold verdict, so they cannot also be a stripe),
+   but a header that leaves the screen is wrong on either surface.
+   Sticky works here because the region has a bounded height. In the old markup
+   `overflow-x: auto` with visible overflow-y made the container as tall as its
+   content, so `top: 0` resolved against a box that never scrolled and the
+   headers simply left the screen. `top` is not optional either: sticky with no
+   inset resolves against nothing and the element just stays in flow, which
+   reads as a header that is not sticky at all. */
+.table-scroll thead th {
+  position: sticky; top: 0; z-index: 2; background: var(--plate);
+}
+/* And this is what a grid of figures looks like — applied where a table IS
+   one, which is every table on the lab and the leaderboard. */
+.data-table thead th {
+  color: var(--ink);
+  font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track);
+  text-align: right; white-space: nowrap;
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--rule);
+}
+.data-table td {
+  padding: var(--s-1) var(--s-3); text-align: right; white-space: nowrap;
+  border-bottom: 1px solid var(--rule-soft);
+}
+/* Identifier columns read left, numbers read right. The old sheet
+   right-aligned everything but the first cell, which left five prose columns
+   ragged-left — the worst alignment there is for scanning down a column. */
+.data-table th.text, .data-table td.text { text-align: left; }
+.data-table tbody tr:nth-child(even) td { background: var(--rule-soft); }
+.data-table tbody tr:hover td { background: var(--plate); }
+
+/* The row's identity survives scrolling right. Without this the run's date
+   leaves the viewport and every remaining number belongs to nothing.
+   Both frozen columns carry a fixed width, because `left` on the second one
+   has to equal the first one's actual width — leave the widths to the content
+   and the second column slides over its neighbour instead of beside it. */
+.data-table .freeze-1, .data-table .freeze-2 {
+  position: sticky; z-index: 1; background: var(--card);
+}
+.data-table tbody tr:nth-child(even) .freeze-1,
+.data-table tbody tr:nth-child(even) .freeze-2 { background: var(--rule-soft); }
+.data-table thead .freeze-1, .data-table thead .freeze-2 { z-index: 4; background: var(--plate); }
+.data-table .freeze-1 { left: 0; width: 3rem; min-width: 3rem; }
+.data-table .freeze-2 {
+  left: 3rem; width: 10rem; min-width: 10rem;
+  box-shadow: 1px 0 0 var(--rule);
+}
+
+/* macOS hides a scrollbar until it moves, so keep one visible: a cue that the
+   table continues sideways, without a floated pseudo-element competing with
+   the sticky columns for the same corner. */
+.table-scroll { scrollbar-width: thin; }
+.table-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+.table-scroll::-webkit-scrollbar-thumb {
+  background: var(--rule); border-radius: var(--radius-pill);
+}
+.table-scroll::-webkit-scrollbar-track { background: var(--plate); }
+
+.table-hint { font: var(--t-2xs)/1.5 var(--mono); color: var(--ink-soft);
+              margin: var(--s-1) 0 var(--s-3); }
+
+/* A cell that links somewhere reads as a link. Both surfaces build tables that
+   can carry one, so the rule belongs with the component. */
+.data-table td a { color: var(--step-generation); text-decoration: none; }
+.data-table td a:hover { text-decoration: underline; }
+
+/* ── a sortable column ─────────────────────────────────────────────────────
+   Both pages had their own copy of these four rules, and the copies had
+   already drifted: only the Inspector's gave a focused header a ring, so on
+   the lab a keyboard user sorting a column could not see which column they
+   were on. One copy, in the file both pages load.
+
+   The arrow is a pseudo-element so it never lands in the cell's text — the
+   e2e suite reads these headers as strings — and it is drawn in the index ink
+   rather than the column's own step ink, because the arrow reports your click
+   and a step ink reports the pipeline; the two must not contend for one mark. */
+th.sort-col { cursor: pointer; user-select: none; }
+th.sort-col:hover { color: var(--ink); }
+th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
+th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
+th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }

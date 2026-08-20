@@ -57,6 +57,15 @@ def test_direct_posts_enforce_the_encoded_archive_size_limit(monkeypatch):
         archive.validate_archive(payload)
 
 
+def test_direct_post_serialization_errors_are_archive_errors():
+    payload = completed_archive()
+    value = 10 ** 5_000
+    payload['evaluation']['result']['summary']['overall']['large_integer'] = value
+    payload['evaluation']['stage_results']['overall']['metrics']['large_integer'] = value
+    with pytest.raises(archive.ArchiveError, match='archive.*(serialize|encoded|size)'):
+        archive.validate_archive(payload)
+
+
 def test_result_config_requires_json_type_equality():
     full = completed_archive()
     assert full['settings']['config']['retrieval']['grade_threshold'] == 0.0

@@ -47,6 +47,21 @@ def test_archive_size_config_and_stage_mismatches_are_refused():
         archive.validate_archive(full)
 
 
+def test_result_config_requires_json_type_equality():
+    full = completed_archive()
+    assert full['settings']['config']['retrieval']['grade_threshold'] == 0.0
+    full['evaluation']['result']['config']['retrieval']['grade_threshold'] = False
+    with pytest.raises(archive.ArchiveError, match='evaluation.result.config'):
+        archive.validate_archive(full)
+
+
+def test_archive_version_requires_an_integer_type():
+    full = completed_archive()
+    full['version'] = 1.0
+    with pytest.raises(archive.ArchiveError, match='archive.version.*integer'):
+        archive.validate_archive(full)
+
+
 def test_broken_question_chunk_and_span_references_are_refused():
     mutations = [
         (lambda full: full['evaluation']['result']['rows'][0].update(id='missing'),

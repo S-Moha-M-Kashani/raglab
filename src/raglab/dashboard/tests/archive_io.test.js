@@ -128,6 +128,28 @@ test('credentials, bad references, wrong versions, and oversized files fail', ()
   assert.throws(() => ArchiveIO.assertFileSize(ArchiveIO.MAX_BYTES + 1), /32 MiB/);
 });
 
+test('token-hash settings cannot retain an embedding model', () => {
+  const value = plain(FULL);
+  value.settings.config.index.embed_model = 'not-used-by-token-hash';
+  value.evaluation.result.config.index.embed_model = 'not-used-by-token-hash';
+  assert.throws(() => ArchiveIO.normalize(value),
+    /settings.config.index.embed_model/);
+});
+
+test('Inspector session dates require YYYY-MM-DD', () => {
+  const value = plain(FULL);
+  value.evaluation.inspector.dataset.corpus.sessions[0].date = '2026/08/19';
+  assert.throws(() => ArchiveIO.normalize(value),
+    /evaluation.inspector.dataset.corpus.sessions.*date.*YYYY-MM-DD/);
+});
+
+test('prototype-sensitive metric keys are rejected before projection', () => {
+  const value = plain(FULL);
+  value.evaluation.result.summary.overall = JSON.parse(
+    '{"recall":1,"__proto__":{"polluted":true}}');
+  assert.throws(() => ArchiveIO.normalize(value), /__proto__/);
+});
+
 test('malicious labels remain data and never become archive markup', () => {
   const value = plain(FULL);
   value.settings.config.label = '<img src=x onerror=alert(1)>';

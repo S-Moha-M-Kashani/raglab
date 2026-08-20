@@ -631,6 +631,52 @@ def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
     assert 'id="archive-return-live"' in html
 
 
+def test_the_inspector_opens_a_recorded_experiment_from_the_url(inspector_texts):
+    # this is a convention test
+    """The board's frozen `↗` column links here, so the page has to read a
+    parameter — neither surface read one before this. It pins itself read-only
+    and reuses archive mode's own chrome rather than growing a second read-only
+    mode with its own controls."""
+    js = inspector_texts['inspector.js']
+    assert 'URLSearchParams' in js
+    assert "'experiment'" in js or '"experiment"' in js
+    assert 'archive-state' in js and 'archive-return-live' in js
+
+
+def test_a_recorded_experiment_says_its_chunk_text_was_not_recorded(
+        inspector_texts):
+    # this is a convention test
+    """`detail_for` strips `chunks_by_session` by design, so the Chunks tab
+    cannot be filled from the record. It says so and offers a rebuild, rather
+    than rebuilding silently: a rebuild months later may not reproduce what ran,
+    and showing today's chunks under an old experiment's id would be a row lying
+    about what produced it."""
+    js = inspector_texts['inspector.js']
+    assert 'not recorded' in js
+    assert 'rebuild' in js.lower()
+
+
+def test_returning_to_live_from_a_record_forgets_it_in_both_places(
+        inspector_texts):
+    # this is a convention test
+    """Two things pin the page to a record: the variable and the URL it was
+    opened with. Clearing only the variable leaves a page whose next reload
+    silently pins itself again, which is not what "return to live" asked for."""
+    js = inspector_texts['inspector.js']
+    assert "searchParams.delete('experiment')" in js
+    assert 'activeExperimentId = null' in js
+
+
+def test_the_chunks_build_has_one_request_path(inspector_texts):
+    # this is a convention test
+    """A record's Chunks tab offers a rebuild under the recorded config, and the
+    button beside the tab builds under the live one. Two buttons, one request:
+    a second `fetch('/api/chunks')` would be a second place for the status
+    line, the config line and the summaries toggle to be updated — or not."""
+    js = inspector_texts['inspector.js']
+    assert js.count("'/api/chunks'") == 1
+
+
 def test_archive_mode_still_reports_lab_reachability():
     # this is a convention test
     """A page opened while an archive is already active must not sit on the

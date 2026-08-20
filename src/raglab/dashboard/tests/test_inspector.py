@@ -513,6 +513,19 @@ def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
     assert 'id="archive-return-live"' in html
 
 
+def test_archive_mode_still_reports_lab_reachability():
+    """A page opened while an archive is already active must not sit on the
+    boot placeholder ("looking for the lab…") forever: the archive branch of
+    `renderFollow` returns early, so the follow state has to be written before
+    that branch, from the same body that carried the archive id."""
+    source = INSPECTOR_JS.read_text()
+    follow = source[source.index('async function renderFollow'):]
+    assert follow.index('setFollowState(body);') \
+        < follow.index('if (body.archive_id)'), (
+        'renderFollow must set the follow state before the early-returning '
+        'archive branch, or archive mode never reports lab reachability')
+
+
 def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     # this is a convention test
     """`tokens.css` and `lab.js` are one file for both pages rather than a

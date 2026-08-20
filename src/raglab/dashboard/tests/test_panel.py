@@ -1001,10 +1001,14 @@ def test_the_board_names_its_dataset_the_way_the_picker_does(panel_texts):
     the same name — a heading reading `diary-fa` over a button reading `Farsi
     diary` makes the reader work out that they are one thing."""
     js = panel_texts['leaderboard.js']
-    assert 'shownOption(CURRENT, body.datasets || []).name' in js
+    assert 'shownOption(CURRENT, CATALOGUE).name' in js
     assert 'const shownOption' in js and 'const optionsFor' in js, (
         'both the heading and the picker read one list of options, or the two '
         'can drift apart again')
+    assert 'const corpusName' in js and 'corpusName(dataset)' in js, (
+        "the caption and the scroll region's name are read aloud, so an id "
+        'there gives the screen reader the internal name while the eye gets '
+        'the human one')
 
 
 def test_the_board_leads_with_what_decides(panel_texts):
@@ -1041,22 +1045,25 @@ def test_the_board_offers_a_dataset_picker_naming_every_experiment(panel_texts):
     assert 'context-scope' in js or 'context-scope' in panel_texts['leaderboard.html']
 
 
-def test_the_settings_reveal_opens_to_a_keyboard_as_well_as_a_mouse(panel_texts):
+def test_the_settings_reveal_has_a_keyboard_way_in_at_all(panel_texts):
     # this is a convention test
     """Hover alone is what this project already removed from these pages twice:
     a reveal that answers only a pointer publishes to a mouse and to nothing
-    else. So focus opens it too, and the cell takes focus. Which reveal is open
-    is decided in the script rather than by two CSS rules, because the box has
-    to be shown into the top layer — so this is where both states are named."""
+    else. This is the half a served file can be asked: that the cell is a tab
+    stop, and that no CSS rule opens the box any more — the box is a popover, so
+    a selector cannot open it and the mechanism is script. That focus actually
+    opens it, and that tabbing into the panel does not close it, is behaviour
+    and is pinned as behaviour, in `board_reveal.test.js`. A grep for the word
+    `focusin` would pass with focus ignored entirely."""
     js = panel_texts['leaderboard.js']
-    for kind in ('mouseover', 'mouseout', 'focusin', 'focusout'):
-        assert f"'{kind}'" in js, (
-            f'without {kind} the reveal either never opens or never closes for '
-            'one of the two ways into it')
-    assert 'HOVERED' in js and 'FOCUSED' in js, (
-        'the two states are tracked apart, so a reveal opened by a keyboard '
-        'does not close because the mouse moved')
-    assert 'tabindex="0"' in js
+    assert 'tabindex="0"' in js, (
+        'a cell that cannot be focused has no keyboard way to its settings '
+        'however good the script is')
+    assert 'popover="manual"' in js
+    css = panel_texts['chrome.css']
+    assert ':hover .settings-reveal' not in css, (
+        'a CSS rule cannot open a popover, so one here would be a second, dead '
+        'mechanism for the same box — and it would read as the live one')
 
 
 def test_the_reveal_escapes_the_scroll_region_that_would_clip_it(panel_texts):

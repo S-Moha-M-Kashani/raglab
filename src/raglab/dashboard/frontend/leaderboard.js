@@ -110,6 +110,13 @@ function cell(row, key) {
 }
 
 let CURRENT = '';        // the dataset in force, '' = the served default
+let CATALOGUE = [];      // the corpora the route named, as served
+
+// The corpus by the name the heading and the picker say, never by its id: the
+// caption and the region's name are read aloud, so an id there hands the screen
+// reader the internal name while the eye gets the human one.
+const corpusName = (dataset) => (dataset === EVERY
+  ? 'every dataset' : shownOption(dataset, CATALOGUE).name);
 
 const columnsFor = (dataset) =>
   COLUMNS.filter((col) => !col.everyOnly || dataset === EVERY);
@@ -156,11 +163,16 @@ function renderTable(dataset, rows) {
       + `${cell(row, col.key)}${reveal}</td>`;
   }).join('')).map((cells) => `<tr>${cells}</tr>`).join('');
 
+  // The corpus by the name the heading and the picker use. The id is what the
+  // route is keyed on, not what anything on the page is supposed to read — and
+  // a caption and a region name are read aloud, so the id here would give the
+  // screen reader the internal name and the eye the human one.
+  const named = `every experiment on ${escapeHtml(corpusName(dataset))}`;
   return { html: `
       <div class="table-scroll" tabindex="0" role="region"
-           aria-label="every experiment on ${escapeHtml(dataset === EVERY ? 'every dataset' : dataset)}">
+           aria-label="${named}">
         <table class="data-table">
-          <caption>every experiment on ${escapeHtml(dataset === EVERY ? 'every dataset' : dataset)}</caption>
+          <caption>${named}</caption>
           <thead><tr>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
@@ -180,8 +192,13 @@ function settingsReveal(row) {
       + Object.entries(config[step]).map(([k, v]) =>
         `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`).join('')
       + '</div>').join('');
+  // A tab stop of its own, because the box holds more than it can show and
+  // scrolls: the part below its own fold is otherwise readable with a pointer
+  // and by nothing else. Some browsers make a scrollable box focusable anyway
+  // and some do not, and which of them a reader has is not something the panel
+  // should decide the answer for.
   return blocks
-    ? `<div class="settings-reveal" popover="manual">${blocks}</div>`
+    ? `<div class="settings-reveal" popover="manual" tabindex="0">${blocks}</div>`
     : '';
 }
 
@@ -242,14 +259,15 @@ async function loadBoard(dataset) {
     return;
   }
   CURRENT = body.dataset || '';
+  CATALOGUE = body.datasets || [];
   const { html, rankAt } = renderTable(CURRENT, body.rows || []);
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
-        <h2>${escapeHtml(shownOption(CURRENT, body.datasets || []).name)}</h2>
+        <h2>${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
         <span class="section-meta right">${(body.rows || []).length} recorded</span>
       </div>
-      ${renderPicker(CURRENT, body.datasets || [])}
+      ${renderPicker(CURRENT, CATALOGUE)}
       ${(body.rows || []).length ? html : '<p class="prose">Nothing recorded for '
         + 'this dataset yet. Open the <a href="/">Laboratory</a>, pick it and '
         + 'press <b>Run evaluation</b>.</p>'}
@@ -317,14 +335,19 @@ const revealCell = (node) => (node && node.closest
 function syncReveal() {
   const cell = live(HOVERED) || live(FOCUSED);
   const reveal = cell ? cell.querySelector('.settings-reveal') : null;
-  if (OPEN && OPEN !== reveal) {
-    // Taking an open popover out of the document closes it, so this asks
-    // rather than assumes — and one is open at a time, because two panels of
-    // settings on screen say nothing about which row you are reading.
-    if (OPEN.matches(':popover-open')) OPEN.hidePopover();
-    OPEN = null;
+  // What is open is read back rather than remembered: the browser closes a
+  // popover itself whenever the element leaves the document, which sorting a
+  // column does to every row it moves and a rebuild does to all of them. A page
+  // that trusted its own record then left the cell that owns that reveal unable
+  // to open it ever again — hover it, and the panel is already 'open'.
+  if (OPEN && !OPEN.matches(':popover-open')) OPEN = null;
+  // One at a time, because two panels of settings on screen say nothing about
+  // which row you are reading.
+  if (OPEN !== reveal) {
+    if (OPEN) OPEN.hidePopover();
+    if (reveal) reveal.showPopover();
+    OPEN = reveal;
   }
-  if (reveal && !OPEN) { reveal.showPopover(); OPEN = reveal; }
   if (OPEN) placeReveal(cell, '.settings-reveal');
 }
 
@@ -344,7 +367,17 @@ document.addEventListener('focusin', (event) => {
   syncReveal();
 });
 document.addEventListener('focusout', (event) => {
-  if (revealCell(event.target)) { FOCUSED = null; syncReveal(); }
+  const leaving = revealCell(event.target);
+  if (!leaving) return;
+  // The panel scrolls, which makes it a tab stop of its own, so the tab after
+  // the cell moves focus *into* it — and closing on that hides the very thing
+  // focus is arriving at: the keypress lands on nothing, and the part of the
+  // panel below its own fold can never be read. Focus moving between the cell
+  // and its own reveal is focus staying, the same way the pointer moving onto
+  // the panel is the pointer staying.
+  if (revealCell(event.relatedTarget) === leaving) return;
+  FOCUSED = null;
+  syncReveal();
 });
 // Capturing, so it hears the scroll region as well as the page: a wheel scroll
 // does not end a hover, and a reveal left where it opened would drift away from

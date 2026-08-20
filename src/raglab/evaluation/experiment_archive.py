@@ -552,8 +552,12 @@ def validate_archive(payload, *, encoded_size=None, limits=None) -> dict:
         raise ArchiveError('archive: object required')
     _walk(payload, 'archive', 0, bounds)
     if encoded_size is None:
-        encoded_size = len(json.dumps(
-            payload, ensure_ascii=False, allow_nan=False).encode('utf-8'))
+        try:
+            encoded_size = len(json.dumps(
+                payload, ensure_ascii=False, allow_nan=False).encode('utf-8'))
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ArchiveError(
+                f'archive: could not serialize encoded size: {error}') from error
         if encoded_size > MAX_BYTES:
             raise ArchiveError('archive: encoded file must not exceed 32 MiB')
     _keys(payload, ('format', 'version', 'settings')

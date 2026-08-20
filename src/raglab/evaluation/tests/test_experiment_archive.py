@@ -75,6 +75,7 @@ def test_broken_question_chunk_and_span_references_are_refused():
 def test_dataset_ids_duplicate_ids_and_non_finite_metrics_are_refused():
     full = completed_archive()
     full['settings']['config']['index']['dataset'] = ''
+    full['evaluation']['result']['config']['index']['dataset'] = ''
     full['evaluation']['result']['dataset'] = 'diary-fa'
     full['evaluation']['inspector']['dataset']['id'] = 'diary-fa'
     assert archive.validate_archive(full) == full

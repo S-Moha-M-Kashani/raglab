@@ -59,7 +59,10 @@ select { font: inherit; color: inherit; }
 /* A readout, not a hero: the title stays small so the run's own state is what
    the eye lands on. */
 .inspector-header {
-  padding: var(--s-3) var(--s-4) 0;
+  /* Horizontal value is the shared page gutter (--gutter), not a ramp step —
+     it must match .inspector-view's so both bands share one left/right
+     edge. Do not move this back onto --s-4; that re-breaks the alignment. */
+  padding: var(--s-3) var(--gutter) 0;
   background: var(--chassis);
   color: var(--chassis-ink);
 }

@@ -374,3 +374,118 @@ def test_boards_are_ordered_newest_experiment_first():
     old['started_at'] = '2026-01-01 10:00:00'
     boards = leaderboard.by_dataset([old, _board_row('new', 'diary-fa', 0.5)])
     assert [b.dataset for b in boards] == ['diary-fa', 'meetings-de']
+
+
+# --- the union of the two durable records ----------------------------------
+# The ledger holds every job — builds, retrievals, evaluations — but not the
+# four judged metrics and not the judge. `.runs/` holds those, for evaluations
+# only. Neither is sufficient, so the board reads both and joins them on the id
+# the ledger already stores: `experiment_id = result['run_id'] or job['id']`.
+
+def _write_run(tmp_path, monkeypatch, run_id, dataset, metrics, decision):
+    """One run file, in the shape `list_runs` reads back."""
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
+    (tmp_path / f'{run_id}.json').write_text(json.dumps({
+        'run_id': run_id, 'label': run_id, 'dataset': dataset,
+        'started_at': '2026-08-01 10:00:00', 'seconds': 12,
+        'config': {'index': {'chunker': 'session', 'embedder': 'token-hash'}},
+        'summary': {'n_questions': 2},
+        'ragas': {'metrics': metrics, 'decision': decision,
+                  'decision_spread': {'stderr': 0.01},
+                  'judge': {'model': 'sonnet-4', 'provider': 'openrouter'}},
+        'selection': {'question_ids': ['q1', 'q2'], 'n': 2},
+    }), encoding='utf-8')
+
+
+def test_a_row_in_both_records_takes_its_metrics_from_the_run_file(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """The ledger supplies identity, kind, state and the knobs; the run file
+    supplies the four metrics and the judge, because the run file is where the
+    number was computed and the one a reader can open to check it."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    # `insert_job` does not exist on the ledger: the real write path is
+    # `record(job, state, path=...)`, state passed separately from the job.
+    ledger.record({'id': 'ignored', 'kind': 'run', 'config': {}, 'seconds': 12,
+                   'result': {'run_id': 'r1', 'dataset': 'diary-fa',
+                              'label': 'r1', 'started_at': '2026-08-01 10:00:00',
+                              'ragas': {'decision': 0.71}}}, 'done', path=db)
+    _write_run(tmp_path, monkeypatch, 'r1', 'diary-fa',
+               {'faithfulness': 0.8, 'answer_relevancy': 0.7,
+                'llm_context_precision_with_reference': 0.6,
+                'context_recall': 0.75}, 0.7125)
+    rows = leaderboard.board_rows(db_path=db)
+    assert len(rows) == 1
+    found = rows[0]
+    assert found['source'] == 'both'
+    assert found['kind'] == 'run'
+    assert found['metrics']['faithfulness'] == 0.8
+    assert found['judge']['model'] == 'sonnet-4'
+
+
+def test_a_ledger_row_with_no_run_file_shows_no_metrics_rather_than_zeros(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """An index build measured nothing, and that is a fact about the build. It
+    appears, with the four metric columns empty — never 0.0, which would sort
+    below real rows and read as a measured refusal."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-1', 'kind': 'index',
+                   'config': {'index': {'chunker': 'session',
+                                        'dataset': 'smoke-mini',
+                                        'embedder': 'token-hash'}},
+                   'seconds': 3, 'result': {}}, 'done', path=db)
+    rows = leaderboard.board_rows(db_path=db)
+    assert rows[0]['source'] == 'ledger'
+    assert rows[0]['kind'] == 'index'
+    assert rows[0]['metrics'] == {}
+    assert rows[0]['decision'] is None
+    assert rows[0]['judge'] == {}
+
+
+def test_a_run_file_with_no_ledger_row_still_appears(tmp_path, monkeypatch):
+    # this is an integration test
+    """The ledger is written in `Jobs.run`, so every evaluation older than the
+    ledger has a run file and no ledger row. Reading only the ledger would drop
+    those off the board without saying so — which is why this is a union."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    ledger.connect(db).close()          # an empty but real ledger
+    _write_run(tmp_path, monkeypatch, 'old-run', 'diary-fa',
+               {'faithfulness': 0.5}, 0.5)
+    rows = leaderboard.board_rows(db_path=db)
+    assert [r['experiment_id'] for r in rows] == ['old-run']
+    assert rows[0]['source'] == 'run'
+    assert rows[0]['kind'] == 'run'
+    assert rows[0]['state'] == 'done'
+
+
+def test_the_metric_columns_are_exactly_the_four_that_decide(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """Read from DECISION_METRICS, never spelled out, so a board column cannot
+    drift from what actually decides. A fifth metric on the run is reported
+    elsewhere and does not belong in these four."""
+    from raglab.evaluation import ragas_judged_metrics as judged
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    ledger.connect(db).close()
+    _write_run(tmp_path, monkeypatch, 'r1', 'diary-fa',
+               {name: 0.5 for name in judged.DECISION_METRICS}
+               | {'answer_correctness': 0.9}, 0.5)
+    assert set(leaderboard.board_rows(db_path=db)[0]['metrics']) \
+        == set(judged.DECISION_METRICS)
+
+
+def test_every_row_carries_its_pipeline_sentence(tmp_path, monkeypatch):
+    # this is an integration test
+    """Assembled once, on the way out, so the page never derives it."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    ledger.connect(db).close()
+    _write_run(tmp_path, monkeypatch, 'r1', 'diary-fa', {}, None)
+    assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
+        {'step': 'index', 'text': 'session·token-hash'}]

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from raglab.configuration.lab_config import RUNS_DIR
 from raglab.evaluation.run_evaluation import list_runs
+from raglab.evaluation import ragas_judged_metrics as judged
+from raglab.evaluation import service_experiment_ledger as ledger
 
 
 # The board's leftmost column: one fragment per pipeline step that actually ran,
@@ -194,9 +196,87 @@ def by_dataset(rows: list[dict]) -> list[Board]:
         dataset = row.get('dataset') or 'diary-fa'
         boards.setdefault(dataset, Board(dataset)).rows.append(row)
     for found in boards.values():
-        found.rows.sort(key=lambda r: (r.get('ragas_decision') is None,
-                                       -(r.get('ragas_decision') or 0.0)))
+        found.rows.sort(key=lambda r: (_decision(r) is None, -(_decision(r) or 0.0)))
     return sorted(boards.values(), key=lambda b: b.newest, reverse=True)
+
+
+# A `.runs/` row calls it `ragas_decision`; a board row calls it `decision`.
+# `by_dataset` is fed both — the sweep's rows and the board's — so it reads
+# either rather than making each caller reshape first.
+def _decision(row: dict):
+    value = row.get('decision')
+    return row.get('ragas_decision') if value is None else value
+
+
+# --- the board's population: both durable records, joined ------------------
+# Two records exist and neither is sufficient. The ledger has every job — index
+# builds, retrievals, evaluations, imported archives — with the knobs, the kind
+# and the state, but not the four judged metrics and not which judge graded.
+# `.runs/` has those, for evaluations only.
+#
+# The join key already exists: the ledger stores
+# `experiment_id = result['run_id'] or job['id']`, so for an evaluation it *is*
+# the .runs/ filename. Nothing new has to be recorded.
+#
+# It is a union rather than a ledger read because the ledger is written in
+# `Jobs.run`: every evaluation older than the ledger has a run file and no
+# ledger row, and reading one record would drop those runs off the board
+# without saying so.
+def _metrics(run: dict) -> dict:
+    """Only the four that decide, read from the tuple that defines them so a
+    board column cannot drift from the decision rule."""
+    found = run.get('ragas') or {}
+    return {name: found[name] for name in judged.DECISION_METRICS
+            if found.get(name) is not None}
+
+
+def board_rows(limit: int = 500, db_path=None) -> list[dict]:
+    runs = {r['run_id']: r for r in list_runs(limit=limit)}
+    out, seen = [], set()
+    for row in ledger.experiments(limit=limit, path=db_path):
+        found = runs.get(row['experiment_id'])
+        seen.add(row['experiment_id'])
+        out.append(_board_row(row, found))
+    # Evaluations the ledger never saw. Ordered after the ledger's rows and then
+    # re-sorted by `by_dataset`, so the seam is not visible in the table.
+    for run_id, found in runs.items():
+        if run_id not in seen:
+            out.append(_board_row(None, found))
+    return out
+
+
+def _board_row(row: dict | None, run: dict | None) -> dict:
+    row = row or {}
+    run = run or {}
+    config = run.get('config') or row.get('config') or {}
+    source = 'both' if (row and run) else ('ledger' if row else 'run')
+    return {
+        'experiment_id': row.get('experiment_id') or run.get('run_id') or '',
+        # A run file is an evaluation by definition; only the ledger records
+        # builds and retrievals, so only it can say otherwise.
+        'kind': row.get('kind') or ('run' if run else ''),
+        # A record that exists is a job that finished. Nothing else is inferred.
+        'state': row.get('state') or ('done' if run else ''),
+        'error': row.get('error') or '',
+        'label': run.get('label') or row.get('label') or '',
+        'started_at': run.get('started_at') or row.get('started_at') or '',
+        'seconds': run.get('seconds') or row.get('seconds') or 0,
+        'dataset': run.get('dataset') or row.get('dataset') or '',
+        'provider': row.get('provider') or '',
+        'n_questions': run.get('n_questions') or row.get('n_questions') or 0,
+        # The run file wins where both carry it: that file is where the number
+        # was computed and the one a reader can open to check it.
+        'decision': (run.get('ragas_decision') if run
+                     else row.get('decision')),
+        'decision_stderr': (run.get('ragas_decision_stderr') if run
+                            else row.get('decision_stderr')),
+        'metrics': _metrics(run),
+        'judge': run.get('judge') or {},
+        'pipeline': pipeline_fragments(config),
+        'config': config,
+        # A reader is entitled to know why a metric column is blank.
+        'source': source,
+    }
 
 
 def _cell(value, digits: int = 3) -> str:

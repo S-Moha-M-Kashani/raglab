@@ -356,7 +356,10 @@ def test_the_leaderboard_never_ranks_across_corpora():
     for found in groups:
         assert leaderboard.verdict(found) == 'unranked', (
             'one row per corpus cannot beat anything')
-    assert 'support-en' in leaderboard.markdown(groups)
+    # `leaderboard.markdown` now prints the flat, one-table-per-dataset board
+    # rather than these comparability groups; the same "never one table"
+    # claim holds there too.
+    assert 'support-en' in leaderboard.markdown(leaderboard.by_dataset(rows))
 
 
 def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():

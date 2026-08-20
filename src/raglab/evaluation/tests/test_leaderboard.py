@@ -153,11 +153,10 @@ def _no_measured_error_rows():
             _row('r2', 'F', 0.72, ids, judge, stderr=None)]
 
 
-@pytest.mark.parametrize('build_rows, check_markdown', [
-    (_unrecorded_sample_rows, True),
-    (_no_measured_error_rows, False),
+@pytest.mark.parametrize('build_rows', [
+    _unrecorded_sample_rows, _no_measured_error_rows,
 ], ids=['sample-not-recorded', 'no-measured-error'])
-def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows, check_markdown):
+def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows):
     # this is a unit test
     """Two different reasons a group refuses a winner. Two runs of 24
     questions apiece may still be two *different* 24 — nothing on those rows
@@ -165,16 +164,12 @@ def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows, check_markdow
     established (`selection` predates `RunResult`, so equal counts are not a
     shared sample). Or the rows recorded a sample but no error, and `± 0` on
     the oldest rows would present them as the most precise. Both must read as
-    'unknown' rather than manufacturing a decision, and the unrecorded case
-    additionally must carry no rank numbers, since a numbered row is a rank
-    claim this data cannot support."""
+    'unknown' rather than manufacturing a decision. `leaderboard.markdown` no
+    longer renders a per-group verdict line at all — that prose now lives in
+    the sweep's own `ranking_verdict` — so what stays checkable here is the
+    verdict computation itself."""
     found, = leaderboard.group(build_rows())
     assert leaderboard.verdict(found) == 'unknown'
-    if check_markdown:
-        text = leaderboard.markdown([found])
-        assert 'not recorded' in text
-        # And no rank numbers, or the table contradicts the sentence above it.
-        assert '| 1 |' not in text, text
 
 
 def test_the_group_that_decides_something_is_printed_first():
@@ -194,22 +189,28 @@ def test_the_group_that_decides_something_is_printed_first():
 
 def test_every_judge_label_reads_as_a_noun_after_judged_by():
     # this is a unit test
+    """`Group.judge` reads after "judged by" in the sweep's own printer
+    (`ranking_verdict`), so every branch has to be a noun phrase — checked
+    directly on the property, since `leaderboard.markdown` no longer renders
+    a per-group heading to read it through."""
     judge = {'model': '', 'provider': ''}
     unjudged, = leaderboard.group([_row('r1', 'retrieval only', None,
                                         ['q1'], judge)])
-    text = leaderboard.markdown([unjudged])
-    assert 'judged by nothing judged' not in text, text
-    assert 'judged by no judge —' in text
+    assert unjudged.judge == 'no judge — nothing on these rows was judged'
 
 
-def test_the_markdown_names_the_sample_and_the_judge_on_every_group():
+def test_the_markdown_names_the_judge_and_the_decision_on_every_board_row():
     # this is a unit test
-    judge = {'model': 'gemma4:e2b', 'provider': 'ollama'}
-    text = leaderboard.markdown(leaderboard.group([
-        _row('r1', 'A baseline', 0.61, ['q1', 'q2'], judge, stderr=0.02)]))
+    """Same claim `test_the_markdown_names_the_sample_and_the_judge_on_every_group`
+    made before `leaderboard.markdown` stopped taking `Group`s: the judge and
+    the decision score are readable on the printed row. The row now lives in
+    a `Board`, built through `by_dataset`, rather than a comparability
+    `Group`."""
+    text = leaderboard.markdown(leaderboard.by_dataset([
+        _board_row('r1', 'diary-fa', 0.61, ('q1', 'q2'),
+                   {'model': 'gemma4:e2b', 'provider': 'ollama'})]))
     assert 'gemma4:e2b' in text and 'ollama' in text
-    assert '2 questions' in text
-    assert '0.610' in text and '0.020' in text
+    assert '0.6100' in text
     assert 'r1' in text, 'the run id is what makes a row checkable'
 
 
@@ -489,3 +490,45 @@ def test_every_row_carries_its_pipeline_sentence(tmp_path, monkeypatch):
     _write_run(tmp_path, monkeypatch, 'r1', 'diary-fa', {}, None)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
         {'step': 'index', 'text': 'session·token-hash'}]
+
+
+# --- the serialised shape and the command line ------------------------------
+
+def test_the_board_serialises_to_one_shape_for_the_page_and_the_command():
+    # this is a unit test
+    """One serialised shape, so the command line and the panel's route cannot
+    come to disagree about what a board is — the same reason `as_dict` exists
+    for a group."""
+    board = leaderboard.by_dataset([_board_row('a', 'diary-fa', 0.7)])[0]
+    shape = leaderboard.board_dict(board)
+    assert set(shape) == {'dataset', 'n_experiments', 'newest', 'rows'}
+    assert shape['dataset'] == 'diary-fa'
+    assert shape['n_experiments'] == 1
+
+
+def test_the_markdown_prints_one_table_per_dataset_and_names_no_winner():
+    # this is a unit test
+    """The board names no winner: rows judged differently share it, so a
+    'winner by more than the combined error' claim would compare numbers that
+    never met. `verdict()` still says it — for a sweep, whose candidates are
+    genuinely comparable — but not here."""
+    text = leaderboard.markdown(leaderboard.by_dataset([
+        _board_row('a', 'diary-fa', 0.71, judge={'model': 'sonnet'}),
+        _board_row('b', 'meetings-de', 0.55, judge={'model': 'gpt-4o'}),
+    ]))
+    assert '## diary-fa' in text and '## meetings-de' in text
+    for banned in ('Winner', 'No winner', 'tie', 'Not comparable'):
+        assert banned not in text, (
+            f'the board must not print {banned!r}: it mixes judges and question '
+            'sets, so no claim of that kind holds across one of its tables')
+
+
+def test_the_markdown_names_the_judge_and_the_questions_on_every_row():
+    # this is a unit test
+    """Comparability stops being a table heading and becomes a column, so the
+    reason two rows are not comparable is on screen rather than inferred."""
+    text = leaderboard.markdown(leaderboard.by_dataset([
+        _board_row('a', 'diary-fa', 0.71, ('q1', 'q2'),
+                   {'model': 'sonnet-4', 'provider': 'openrouter'})]))
+    assert 'sonnet-4' in text
+    assert '| judge |' in text and '| questions |' in text

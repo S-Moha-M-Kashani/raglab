@@ -352,15 +352,61 @@ function ladder(candidate, cap) {
     + `${cells}</span></td>`;
 }
 
-// A table inside its own scroller, so nine columns on a phone move the table
-// and never the page. The wrapper only scrolls at narrow widths (see the media
-// query) — on a wide screen it would clip the reveal hanging below a row.
-function scrollable(table) {
+// A table inside the scroll region both surfaces share (chrome.css): nine
+// columns move the table and never the page, the header stays put because the
+// region's height is bounded, and the region takes focus so the arrow keys,
+// PageUp/PageDown, Home and End reach the right-hand side of it. It used to
+// scroll only at narrow widths, because on a wide screen it clipped the reveal
+// hanging below a row; the reveal is fixed to the viewport now (`placeReveal`),
+// so the region can be real at every width.
+function scrollable(table, label) {
   const box = document.createElement('div');
   box.className = 'table-scroll';
+  box.tabIndex = 0;
+  box.setAttribute('role', 'region');
+  box.setAttribute('aria-label', label || 'retrieved candidates');
   box.appendChild(table);
   return box;
 }
+
+// Where an open reveal goes. It is `position: fixed`, so it must be told; and
+// it must be told at the moment it opens, because the row it belongs to may
+// have been scrolled anywhere inside its region since the table was built.
+// Below the cell when there is room below, above it when there is not, and
+// never off either side.
+function placeReveal(cell) {
+  const reveal = cell && cell.querySelector('.chunk-reveal');
+  // `position: static` is the narrow-width variant, which opens in place and
+  // wants no insets at all.
+  if (!reveal || getComputedStyle(reveal).position === 'static') return;
+  const box = cell.getBoundingClientRect();
+  const gap = 4;
+  const below = box.bottom + gap;
+  const height = reveal.offsetHeight;
+  reveal.style.top = `${below + height <= window.innerHeight
+    ? below : Math.max(gap, box.top - gap - height)}px`;
+  reveal.style.left = `${Math.max(gap,
+    Math.min(box.left, window.innerWidth - reveal.offsetWidth - gap))}px`;
+}
+
+// The cell whose reveal a pointer or a focus has opened. Hover opens on the
+// whole row (`.retrieval-row:hover .chunk-reveal`), so the event target is
+// usually some rank cell three columns away from the text it reveals.
+function revealCell(node) {
+  const row = node && node.closest && node.closest('.retrieval-row');
+  return row ? row.querySelector('.chunk-cell') : null;
+}
+
+// Delegated at the document, because every one of these tables is rebuilt each
+// time the lab finishes a job. The scroll listener is capturing: a wheel scroll
+// does not end a hover, so a reveal left where it opened would drift away from
+// the row that owns it.
+document.addEventListener('pointerover', event => placeReveal(revealCell(event.target)));
+document.addEventListener('focusin', event => placeReveal(revealCell(event.target)));
+document.addEventListener('scroll', () => {
+  for (const cell of document.querySelectorAll(
+    '.retrieval-row:hover .chunk-cell, .chunk-cell:focus-within')) placeReveal(cell);
+}, true);
 
 function retrievalTable(candidates) {
   const table = document.getElementById('retrieval-table-template')
@@ -415,7 +461,8 @@ function questionSummary(id, type, difficulty, tally) {
 function renderRetrievalRows(candidates) {
   const host = document.getElementById('retrieval-body');
   host.innerHTML = '';
-  host.appendChild(scrollable(retrievalTable(candidates)));
+  host.appendChild(scrollable(retrievalTable(candidates),
+    'candidates for the one-off query'));
 }
 
 // One collapsible table per question, collapsed by default, shared by both the
@@ -436,6 +483,17 @@ function agentLadder(visits) {
         + `<td class="detail" dir="auto">${escapeHtml(v.detail || '')}</td></tr>`)
       .join('')
     + '</tbody></table>';
+  // Wired, like every other table on either surface. It was the one built by a
+  // path that never reached the sorter — and the two questions a reader brings
+  // to a loop trace are both column questions: sort by node and a node that
+  // appears three times collects itself, sort by hop and you see what each hop
+  // cost. The third click restores the order it was served in, which for this
+  // table is the sequence itself.
+  //
+  // Deliberately not inside a `.table-scroll`: four columns, one of which
+  // wraps, so it has nothing to overflow. A bounded, bordered region around a
+  // table that never scrolls is the component worn as costume.
+  SortTable.make(box.querySelector('table'));
   return box;
 }
 
@@ -456,7 +514,8 @@ function questionBlock(q) {
   // Above the candidate table, because the ladder is how the candidates came to
   // be: the table answers "what came back", the ladder answers "after what".
   if (visits.length) det.appendChild(agentLadder(visits));
-  det.appendChild(scrollable(retrievalTable(candidates)));
+  det.appendChild(scrollable(retrievalTable(candidates),
+    `candidates for ${q.question_id}`));
   return det;
 }
 
@@ -900,8 +959,15 @@ async function renderFollow(body) {
       document.getElementById('retrieval-answer').textContent = body.query.answer || '';
     }
   } else {
-    retrievalCfg.textContent = 'Ask one question from the query box on the lab '
-      + 'to trace it here.';
+    // This used to send the reader to a control on the lab that has not
+    // existed for a while, which is worse than saying nothing: they go
+    // looking. The view follows a one-off query job, which only the lab's own
+    // route still starts — so it says that, and points at the control on this
+    // page that traces a question the same way.
+    retrievalCfg.textContent = 'No one-off query traced. The lab starts one '
+      + 'through POST /api/queries; every question of its last retrieval or '
+      + 'evaluation is listed above, and Add a question traces any other one '
+      + 'under the same config.';
   }
 }
 

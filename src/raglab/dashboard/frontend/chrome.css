@@ -133,16 +133,23 @@
   position: absolute; width: 1px; height: 1px; overflow: hidden;
   clip-path: inset(50%); white-space: nowrap;
 }
-/* Sticky works here because the region has a bounded height. In the old
-   markup `overflow-x: auto` with visible overflow-y made the container as tall
-   as its content, so `top: 0` resolved against a box that never scrolled and
-   the headers simply left the screen. */
+/* The header stays put for ANY table in the region, `.data-table` or not: the
+   Inspector's retrieval table keeps its own centred columns and its own row
+   backgrounds (which carry the gold verdict, so they cannot also be a stripe),
+   but a header that leaves the screen is wrong on either surface.
+   Sticky works here because the region has a bounded height. In the old markup
+   `overflow-x: auto` with visible overflow-y made the container as tall as its
+   content, so `top: 0` resolved against a box that never scrolled and the
+   headers simply left the screen. `top` is not optional either: sticky with no
+   inset resolves against nothing and the element just stays in flow, which
+   reads as a header that is not sticky at all. */
+.table-scroll thead th {
+  position: sticky; top: 0; z-index: 2; background: var(--plate);
+}
+/* And this is what a grid of figures looks like — applied where a table IS
+   one, which is every table on the lab and the leaderboard. */
 .data-table thead th {
-  /* `top` is not optional: `position: sticky` with no inset resolves against
-     nothing and the element simply stays in flow, which reads as a header that
-     is not sticky at all. */
-  position: sticky; top: 0; z-index: 2;
-  background: var(--plate); color: var(--ink);
+  color: var(--ink);
   font: 700 var(--t-2xs)/1.5 var(--sans);
   text-transform: uppercase; letter-spacing: .07em;
   text-align: right; white-space: nowrap;

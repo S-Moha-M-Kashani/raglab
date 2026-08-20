@@ -357,6 +357,10 @@ def inspector_texts():
         'inspector.html': client.get('/').text,
         'inspector.css': client.get('/inspector.css').text,
         'inspector.js': client.get('/inspector.js').text,
+        # The shared chrome sheet, over its own route: the bar, the surface
+        # switcher and — since the tables pass — the scroll region and sticky
+        # header this page's own tables now sit inside.
+        'chrome.css': client.get('/chrome.css').text,
     }
 
 
@@ -365,6 +369,14 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.js', None, 'query box on the lab',
+     'the one-off-query view must not send the reader to a control that is '
+     'not there: the lab has had no query box for a while, and an empty state '
+     'naming one is worse than an empty state, because the reader goes '
+     'looking'),
+    ('inspector.js', 'POST /api/queries', None,
+     'it must name what does still start a one-off query, so the empty state '
+     'says something true rather than nothing'),
     ('inspector.html', 'tab-groundtruth', None,
      'the served shell must expose its ground-truth tab hook'),
     ('inspector.html', 'tab-chunks', None,
@@ -532,28 +544,37 @@ def test_archive_mode_still_reports_lab_reachability():
 
 def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     # this is a convention test
-    """`tokens.css` and `lab.js` are one file for both pages rather than a
-    copy each, so a design token or a utility cannot drift apart on either
-    page. This pins that the Inspector actually routes them, its page
-    actually loads them, and each loads before the page's own stylesheet or
-    script — a later link would lose the tokens to the page's own overrides
-    instead of feeding them. The panel's half of this claim lives in
+    """`tokens.css`, `chrome.css`, `lab.js` and `sorttable.js` are one file
+    for both pages rather than a copy each, so a design token, the top bar, a
+    utility or the meaning of clicking a column header cannot drift apart on
+    either page. This pins that the Inspector actually routes each of them, its
+    page actually loads them, and each loads before the page's own stylesheet
+    or script — a later link would lose the shared rules to the page's own
+    overrides instead of feeding them. The panel's half of this claim lives in
     test_panel.py."""
     from fastapi.testclient import TestClient
 
     client = TestClient(inspector.create_inspector_app())
-    assert (inspector.STATIC / 'tokens.css').exists()
-    assert (inspector.STATIC / 'lab.js').exists()
+    shared_css = ('tokens.css', 'chrome.css')
+    shared_js = ('lab.js', 'sorttable.js')
+    for name in shared_css + shared_js:
+        assert (inspector.STATIC / name).exists(), name
 
     html = client.get('/').text
-    tokens = client.get('/tokens.css')
-    lab = client.get('/lab.js')
-    assert tokens.status_code == 200
-    assert tokens.headers['content-type'].startswith('text/css')
-    assert lab.status_code == 200
-    assert lab.headers['content-type'].startswith('application/javascript')
-    assert (html.index('href="/tokens.css"') < html.index('href="/inspector.css"'))
-    assert (html.index('src="/lab.js"') < html.index('src="/inspector.js"'))
+    for name in shared_css:
+        served = client.get(f'/{name}')
+        assert served.status_code == 200, name
+        assert served.headers['content-type'].startswith('text/css'), name
+        assert html.index(f'href="/{name}"') < html.index('href="/inspector.css"'), (
+            f'{name} must be linked before the page\'s own sheet, or the page '
+            'overrides the shared rules instead of building on them')
+    for name in shared_js:
+        served = client.get(f'/{name}')
+        assert served.status_code == 200, name
+        assert served.headers['content-type'].startswith(
+            'application/javascript'), name
+        assert html.index(f'src="/{name}"') < html.index('src="/inspector.js"'), (
+            f'{name} must load before inspector.js, which calls into it')
 
 
 def test_the_inspector_draws_its_scale_from_the_shared_sheet(inspector_texts):
@@ -577,6 +598,52 @@ def test_the_inspector_centres_on_the_shared_measure(inspector_texts):
     assert 'max-width: var(--measure)' in css
     assert 'margin: 0 auto' in css, (
         'the Inspector was left-aligned while the panel was centred')
+
+
+def test_the_inspector_tables_sit_in_the_shared_scroll_region(inspector_texts):
+    # this is a convention test
+    """The retrieval table is nine columns, and until the shared region reached
+    this page its wrapper scrolled only under 46rem — because at any wider width
+    it clipped the chunk reveal hanging below a row. The region is real at every
+    width now and the reveal is fixed to the viewport instead of trapped inside
+    it, which is what makes both possible at once: a table a keyboard can scroll
+    across, and a chunk you can read."""
+    js = inspector_texts['inspector.js']
+    css = inspector_texts['inspector.css']
+    chrome = inspector_texts['chrome.css']
+    assert "box.className = 'table-scroll'" in js
+    assert "box.setAttribute('role', 'region')" in js, (
+        'an overflow div that cannot take focus cannot be scrolled by a '
+        'keyboard at all — arrows, PageUp/PageDown, Home and End all do '
+        'nothing, so the mouse is the only way across nine columns')
+    assert 'position: fixed' in css.split('.chunk-reveal {')[1].split('}')[0], (
+        'the reveal must leave the scroll region\'s flow, or the region clips '
+        'the text it exists to show')
+    assert 'function placeReveal' in js, (
+        'a fixed reveal has to be told where to go, and told at the moment it '
+        'opens — its row may have been scrolled anywhere inside the region'
+    )
+    assert '.table-scroll { overflow-x: auto; }' not in css, (
+        'the narrow-width-only scroll override is what the shared region '
+        'replaced; keeping both means the page has two answers')
+    assert '.table-scroll thead th' in chrome, (
+        'the sticky header belongs to the region, not to `.data-table`: this '
+        "page's retrieval table keeps its own centred columns and its own "
+        'row backgrounds, which carry the gold verdict and so cannot also be '
+        'a stripe')
+
+
+def test_the_agent_ladder_is_wired_to_the_shared_sorter(inspector_texts):
+    # this is a convention test
+    """The ladder was the one table on either surface built by a path that
+    never reached `SortTable.make`. Both questions a reader brings to a loop
+    trace are column questions — sort by node and a node visited three times
+    collects itself; sort by hop and you see what each hop cost — and the third
+    click puts back the order it was served in, which for this table is the
+    sequence itself."""
+    js = inspector_texts['inspector.js']
+    ladder = js[js.index('function agentLadder'):js.index('function questionBlock')]
+    assert 'SortTable.make(' in ladder
 
 
 # --- following the lab (:9002) ----------------------------------------------

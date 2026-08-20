@@ -424,13 +424,10 @@ select { font: inherit; color: inherit; }
 }
 .retrieval-table th[data-step="retrieval"] { color: var(--ink-green); }
 .retrieval-table th[data-step="generation"] { color: var(--ink-blue); }
-/* Arrow (your click) and step ink (the pipeline) never contend for the same
-   mark. A pseudo-element rather than text, so a header stays the string it was. */
-th.sort-col { cursor: pointer; user-select: none; }
-th.sort-col:hover { color: var(--ink); }
-th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
-th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
-th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
+/* The four rules that mark a sortable header — the cursor, the hover ink, the
+   focus ring and the arrow — are in chrome.css now, one copy for both pages.
+   This file's copy and the panel's had already drifted: only this one gave a
+   focused header a ring. */
 .retrieval-table td {
   padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--rule-soft);
   vertical-align: top;
@@ -491,9 +488,18 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   display: block; cursor: help;
   font-family: var(--farsi); font-size: var(--t-sm); line-height: 1.7;
 }
+/* Fixed, not absolute, and placed by `placeReveal` in inspector.js. The row it
+   hangs off lives inside a scroll region that clips on both axes, so an
+   absolutely-positioned reveal is cut off by the region's own edge — which is
+   what happened the moment the region became real. Taking it out of the
+   region's flow keeps both: a table you can scroll by keyboard, and a reveal
+   you can read. `left` is physical because the placement is in viewport
+   coordinates; `inset-inline-start` here resolved to `right` (the box is
+   dir=rtl) and would have fought the inline `left` for an over-constrained box.
+   The insets are placeholders — every open reveal is positioned by script. */
 .chunk-reveal {
-  display: none; position: absolute; z-index: 20;
-  top: calc(100% + var(--s-1)); inset-inline-start: 0;
+  display: none; position: fixed; z-index: 20;
+  top: 0; left: 0;
   width: 34rem; max-width: 78vw; max-height: 42vh; overflow-y: auto;
   padding: var(--s-3) var(--s-3);
   background: var(--card);
@@ -587,6 +593,10 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   border-left: 3px solid var(--ink-blue);
   font-family: var(--farsi); min-height: 1.2em;
 }
+/* No answer, no box. `min-height` above holds the box open once there is
+   something in it — with nothing in it, it drew a bare generation-blue stripe
+   under an empty view, which reads as an answer that came back blank. */
+.inspector-answer:empty { display: none; }
 
 /* --- quality floor ------------------------------------------------------- */
 @media (max-width: 46rem) {
@@ -595,10 +605,13 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
   .inspector-view { padding: var(--s-3) var(--s-3) var(--s-7); }
   .chunk-cell { width: auto; min-width: 11rem; }
   .retrieval-table { font-size: var(--t-2xs); }
-  /* Scrolls the table in its own box instead of the page; scoped to this
-     breakpoint because on a wide screen it would clip the reveal below. */
-  .table-scroll { overflow-x: auto; }
-  /* No popover: nothing to hover with. Tapping focuses it, opening in place. */
+  /* The region scrolls at every width now — it is the shared component, and
+     the reveal it used to clip is fixed to the viewport rather than trapped
+     inside it. What this breakpoint still needs is a chunk column that can be
+     narrow. */
+  /* No popover: nothing to hover with. Tapping focuses it, opening in place.
+     `static` also discards the inline top/left the placer wrote, which is why
+     the placer does not need to know about this breakpoint. */
   .chunk-reveal {
     position: static; width: auto; max-width: none; max-height: none;
     margin-top: var(--s-2); box-shadow: none;

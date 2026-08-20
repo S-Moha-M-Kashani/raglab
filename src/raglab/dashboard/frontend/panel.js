@@ -1320,6 +1320,12 @@ function renderResult(result, options = {}) {
       .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]),
     { label: 'Scores by difficulty', text: [0] });
 
+  // The run on screen becomes a question the helper can be asked about it. Set
+  // here rather than read out of the DOM later, because this is the one place
+  // that holds the run itself.
+  WIDGET_RUN_ASK = widgetRunAsk(result, metricCatalogue);
+  widgetOffer();
+
   renderTable('rows',
     ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
     result.rows.map((row) => [safe(row.id), safe(row.type), safe(row.difficulty),
@@ -1495,10 +1501,71 @@ boot();
 
 function widgetSay(kind, text) {
   const log = $('widget-log');
+  // The empty state goes on the first thing said, not on the first reply: a
+  // panel of examples sitting above your own question reads as a menu you
+  // failed to use.
+  const offer = log.querySelector('.widget-empty');
+  if (offer) offer.remove();
   log.insertAdjacentHTML('beforeend',
     `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
   log.scrollTop = log.scrollHeight;
 }
+
+// --- what you can ask -------------------------------------------------------
+// The four examples come from the served fixture (fixtures/prompts/widget.yaml,
+// through the /api/widget response the model list already rides), because
+// clicking one sends that exact string to the model and model-facing text is a
+// fixture in this project.
+let WIDGET_STARTERS = [];
+
+// A question about the run currently on the Readings card, or null when there
+// is none. Deliberately the *lab's* last run and not the last conversation:
+// widget memory is an in-process checkpointer keyed to a page-scoped session
+// id, so a reload genuinely forgets, and a chip claiming otherwise would be a
+// panel lying about what produced it.
+let WIDGET_RUN_ASK = null;
+
+// The four judged metrics, in the order the leaderboard reads them, so the chip
+// names the same thing a ranking would.
+const DECISION_KEYS = ['faithfulness', 'answer_relevancy',
+                       'llm_context_precision_with_reference', 'context_recall'];
+
+function widgetRunAsk(result, catalogue) {
+  // Same slice the leaderboard's `when` column takes: seconds do not help
+  // anyone identifying a run.
+  const when = String(result.started_at || '').slice(0, 16);
+  if (!when) return null;
+  const metrics = (result.ragas || {}).metrics || {};
+  const key = DECISION_KEYS.find((k) => metrics[k] !== null && metrics[k] !== undefined);
+  if (!key) {
+    // No judged metric means no decision score, and why there is none is the
+    // question worth asking about that run.
+    return `The run from ${when} has no decision score — what is missing?`;
+  }
+  return `Why did the run from ${when} score ${fmt(metrics[key])} on `
+    + `${measureOf(key, catalogue).label.toLowerCase()}?`;
+}
+
+// Rendered only while the log is empty. Called again when a run lands, so a
+// widget left open and untouched picks up the chip for the run just finished.
+function widgetOffer() {
+  const log = $('widget-log');
+  if (log.querySelector('.widget-msg')) return;
+  if (!WIDGET_STARTERS.length && !WIDGET_RUN_ASK) return;
+  const chip = (text, extra = '') =>
+    `<button type="button" class="widget-starter${extra}">${escapeHtml(text)}</button>`;
+  log.innerHTML = '<div class="widget-empty"><b>What you can ask</b>'
+    + WIDGET_STARTERS.map((text) => chip(text)).join('')
+    + (WIDGET_RUN_ASK ? chip(WIDGET_RUN_ASK, ' widget-starter-run') : '')
+    + '</div>';
+}
+
+// Delegated, because the offer is rebuilt whenever a run lands.
+$('widget-log').addEventListener('click', (event) => {
+  const starter = event.target.closest('.widget-starter');
+  if (!starter) return;
+  widgetAsk(starter.textContent);
+});
 
 // One conversation per page: the id is minted when the script loads and sent
 // with every ask, so a follow-up lands in the same thread and a reloaded page
@@ -1525,16 +1592,19 @@ async function widgetAsk(message) {
   }
 }
 
-// The model list is served, not kept here — fetched once, on the first open.
-let widgetModelsLoaded = false;
-async function widgetLoadModels() {
-  if (widgetModelsLoaded) return;
+// The model list and the starters are served, not kept here — fetched once, on
+// the first open.
+let widgetOptionsLoaded = false;
+async function widgetLoadOptions() {
+  if (widgetOptionsLoaded) return;
   try {
     const data = await api('/api/widget');
     $('widget-model').innerHTML = data.models.map((m) =>
       `<option value="${escapeHtml(m.value)}"${m.value === data.default ? ' selected' : ''}>`
       + `${escapeHtml(m.label)}</option>`).join('');
-    widgetModelsLoaded = true;
+    WIDGET_STARTERS = data.starters || [];
+    widgetOptionsLoaded = true;
+    widgetOffer();
   } catch (error) {
     widgetSay('err', error.message);
   }
@@ -1543,7 +1613,7 @@ async function widgetLoadModels() {
 $('widget-launch').addEventListener('click', () => {
   const win = $('widget-window');
   win.hidden = !win.hidden;
-  if (!win.hidden) { widgetLoadModels(); $('widget-input').focus(); }
+  if (!win.hidden) { widgetLoadOptions(); $('widget-input').focus(); }
 });
 
 $('widget-settings').addEventListener('click', () => {
@@ -1560,3 +1630,92 @@ $('widget-form').addEventListener('submit', (event) => {
   $('widget-input').value = '';
   widgetAsk(message);
 });
+
+// --- resizing from the top and the left -------------------------------------
+// The window is anchored bottom-right, so growing it means gaining width and
+// height while the anchor holds — which is what dragging those two edges
+// outward looks like. The size is a preference, not a gesture, so it is
+// remembered under the same `lodestar:` prefix as the settings and the last run.
+const SAVED_WIDGET_SIZE = 'lodestar:raglab-widget-size';
+
+const rootPx = () =>
+  parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+
+// Clamped so the window can neither collapse to a strip nor cover the chrome:
+// the bar and the rail are both fixed, and a helper sitting on top of them
+// would hide what is running to say something about it.
+function widgetLimits() {
+  const rem = rootPx();
+  const style = getComputedStyle(document.documentElement);
+  const px = (name) => {
+    const value = style.getPropertyValue(name).trim();
+    return value.endsWith('rem') ? parseFloat(value) * rem : parseFloat(value) || 0;
+  };
+  return {
+    minW: 18 * rem, minH: 14 * rem,
+    maxW: window.innerWidth - 2 * rem,
+    maxH: window.innerHeight - px('--bar-h') - px('--rail-h') - 2 * rem,
+  };
+}
+
+function widgetResize(width, height) {
+  const win = $('widget-window');
+  const limit = widgetLimits();
+  const size = {
+    w: Math.round(Math.max(limit.minW, Math.min(width, limit.maxW))),
+    h: Math.round(Math.max(limit.minH, Math.min(height, limit.maxH))),
+  };
+  win.style.width = `${size.w}px`;
+  win.style.height = `${size.h}px`;
+  // The class is what lets the log take the slack; see panel.css.
+  win.classList.add('widget-sized');
+  return size;
+}
+
+for (const grip of document.querySelectorAll('.widget-grip')) {
+  const axis = grip.dataset.grip;
+  // Pointer capture, so a drag that leaves a six-pixel handle keeps going —
+  // without it the resize stops the moment the cursor outruns the edge, which
+  // it does immediately.
+  grip.addEventListener('pointerdown', (event) => {
+    const box = $('widget-window').getBoundingClientRect();
+    const from = { x: event.clientX, y: event.clientY, w: box.width, h: box.height };
+    grip.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    const move = (moved) => remember(SAVED_WIDGET_SIZE, widgetResize(
+      axis === 'top' ? from.w : from.w + (from.x - moved.clientX),
+      axis === 'left' ? from.h : from.h + (from.y - moved.clientY)));
+    const done = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', done);
+      grip.removeEventListener('pointercancel', done);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', done);
+    grip.addEventListener('pointercancel', done);
+  });
+  // Each edge answers only its own axis, which is what a separator with an
+  // orientation promises. The corner takes no focus: it is the two edges at
+  // once, and there is nothing it can do that they cannot.
+  grip.addEventListener('keydown', (event) => {
+    const step = 2 * rootPx();
+    const by = axis === 'top'
+      ? { ArrowUp: [0, step], ArrowDown: [0, -step] }[event.key]
+      : { ArrowLeft: [step, 0], ArrowRight: [-step, 0] }[event.key];
+    if (!by) return;
+    event.preventDefault();
+    const box = $('widget-window').getBoundingClientRect();
+    remember(SAVED_WIDGET_SIZE,
+      widgetResize(box.width + by[0], box.height + by[1]));
+  });
+}
+
+// Reapplied on load, and re-clamped when the viewport changes: a size that fit
+// yesterday's window can cover today's chrome, and the preference is worth
+// keeping through that rather than forgetting.
+function widgetRestoreSize() {
+  const kept = saved(SAVED_WIDGET_SIZE);
+  if (kept && kept.w && kept.h) widgetResize(kept.w, kept.h);
+}
+widgetRestoreSize();
+window.addEventListener('resize', widgetRestoreSize);

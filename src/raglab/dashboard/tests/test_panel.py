@@ -266,6 +266,39 @@ CONVENTIONS = [
      "2.6rem is the launcher's own box, which has no ramp step"),
     ('panel.css (widget block)', None, '--step-',
      'the widget is a helper, not a pipeline stage, and must wear no step ink'),
+    ('panel.css (widget block)', 'background: var(--card)', None,
+     "a reply's bubble must name a colour. It named var(--slab), which is the "
+     'slab-serif font stack — an invalid background, so every reply the '
+     'helper had ever given rendered on no bubble at all'),
+    ('panel.css (widget block)', None, 'background: var(--slab)',
+     'and the font stack must not come back as a colour'),
+    ('index.html', 'class="widget-grip widget-grip-top"', None,
+     'the window grows from its top and left edges, because it is anchored '
+     'bottom-right — the handles have to exist on those two edges'),
+    ('index.html', 'role="separator"', None,
+     'the two straight handles take focus and answer the arrow keys, so a '
+     'reader without a mouse can still size the window'),
+    ('index.html', None, 'What you can ask',
+     'the empty state is built from the served fixture, not written into the '
+     'markup — a starter in two places is a starter that drifts'),
+    ('panel.js', None, 'Which ports do the lab',
+     'and not written into the script either: the starters are the message '
+     'sent to the model, which makes them model-facing text and a fixture'),
+    ('panel.js', 'data.starters', None,
+     'the starters ride the /api/widget response the model list already '
+     'ride, so the widget stays a sealed leaf with no new route'),
+    ('panel.js', 'widget-empty', None,
+     'the empty log offers four questions and clears them on the first '
+     'thing said'),
+    ('panel.js', 'lodestar:raglab-widget-size', None,
+     'an adjusted window is a preference, not a gesture, and survives a '
+     'reload under the same prefix as the settings and the last run'),
+    ('panel.js', 'setPointerCapture', None,
+     'a drag off a six-pixel handle must keep going — without capture the '
+     'resize stops the instant the cursor outruns the edge, which is at once'),
+    ('panel_server.py', "'starters': widget.STARTERS", None,
+     'the four questions are served from the widget package, whose fixture '
+     'they live in — a copy in the page would be text nothing pins'),
 
     # --- the chrome: one bar, one rail ------------------------------------
     # The header was ~250px of chrome carrying four step strips, six
@@ -495,6 +528,34 @@ def test_the_smallest_controls_clear_the_target_floor(panel_texts):
         "the widget's own header controls must clear the floor too — the "
         'scoped read is what stops an unrelated 24px elsewhere in the sheet '
         'from satisfying this')
+
+
+def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
+    # this is a convention test
+    """One chip built from the run on the Readings card, and nothing when there
+    is no run — never a chip that refers to nothing. It is deliberately the
+    *lab's* last run rather than the last conversation: widget memory is an
+    in-process checkpointer keyed to a page-scoped session id, so a reload
+    genuinely forgets, and a chip implying otherwise would be a panel lying
+    about what produced it."""
+    js = panel_texts['panel.js']
+    ask = js[js.index('function widgetRunAsk'):js.index('function widgetOffer')]
+    assert 'result.started_at' in ask, (
+        'the chip identifies the run by when it started, the same way the '
+        "leaderboard's `when` column does")
+    assert '.slice(0, 16)' in ask, (
+        'and to the same precision — seconds help nobody identify a run'
+    )
+    assert 'if (!when) return null' in ask, (
+        'a run with no start time gets no chip rather than a chip naming a '
+        'blank')
+    assert 'DECISION_KEYS' in ask, (
+        'the metric it names is one of the four that decide, so the chip and '
+        'a ranking are asking about the same number')
+    assert 'WIDGET_RUN_ASK = widgetRunAsk(result' in js, (
+        'renderResult is the one place that holds the run, so it is where the '
+        'chip is set — reading it back off the DOM later would be a second '
+        'source for the same fact')
 
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):

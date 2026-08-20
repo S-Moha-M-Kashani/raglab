@@ -413,11 +413,26 @@
   <div id="widget-config" class="widget-config" hidden>
     <label>model <select id="widget-model"></select></label>
   </div>
+  <!-- Empty until the first question, and then a conversation. What fills it
+       while it is empty is built by panel.js from the served starters, so the
+       four example questions are a fixture rather than markup. -->
   <div id="widget-log" class="widget-log"></div>
   <form id="widget-form" class="widget-form">
     <input id="widget-input" type="text" placeholder="Ask about this project…" autocomplete="off">
     <button id="widget-send" type="submit">Send</button>
   </form>
+  <!-- The two edges that grow, and their corner. The window is anchored
+       bottom-right, so gaining size is exactly what dragging the top and the
+       left outward looks like. Last in the DOM on purpose: the two focusable
+       ones then come after the input rather than in front of it, and where
+       they sit on screen is CSS's business, not document order's. -->
+  <div class="widget-grip widget-grip-corner" data-grip="corner" aria-hidden="true"></div>
+  <div class="widget-grip widget-grip-top" data-grip="top" role="separator"
+       aria-orientation="horizontal" tabindex="0"
+       aria-label="Resize the helper — up and down change its height"></div>
+  <div class="widget-grip widget-grip-left" data-grip="left" role="separator"
+       aria-orientation="vertical" tabindex="0"
+       aria-label="Resize the helper — left and right change its width"></div>
 </div>
 
 <script src="/archive_io.js"></script>

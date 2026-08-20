@@ -71,6 +71,14 @@ def test_every_prompt_the_model_reads_is_the_yaml_fixture():
     assert widget.SYSTEM_PROMPT == page['system'].strip()
     assert '{facts}' in page['cli_system']
     assert '{skills_index}' in page['cli_system']
+    # The empty log's starters are sent to the model verbatim, so they are
+    # model-facing text and belong on this page with the prompts either side
+    # of them — not in panel.js, where nothing would pin them.
+    assert widget.STARTERS == [line.strip() for line in page['starters']]
+    assert len(widget.STARTERS) == 4, (
+        'four starters: they exist to span what the helper can do, and a list '
+        'that grew is a menu the reader now has to read instead of a set of '
+        'examples they can take in at a glance')
     knowledge_page = yaml.safe_load(
         (widget.PROMPTS_DIR / 'widget_knowledge.yaml').read_text(encoding='utf-8'))
     assert widget.KNOWLEDGE_BASE == {key: text.strip()

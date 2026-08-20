@@ -755,11 +755,16 @@ def create_app() -> FastAPI:
 
     @app.get('/api/widget')
     def widget_options():
-        """The widget's own model list — served, because neither panel keeps
-        a model list of its own."""
+        """The widget's own model list and the four questions its empty log
+        offers — served, because neither panel keeps a model list of its own,
+        and because the starters are model-facing text, which in this project
+        is a fixture rather than a string in a page. They ride the response
+        that already exists: no new route, and no new import inside the
+        widget package, which is a sealed leaf."""
         return {'models': [{'value': value, 'label': label}
                            for value, (_, label) in widget.WIDGET_MODELS.items()],
-                'default': widget.DEFAULT_MODEL}
+                'default': widget.DEFAULT_MODEL,
+                'starters': widget.STARTERS}
 
     @app.post('/api/widget')
     def widget_chat(payload: dict):

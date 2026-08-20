@@ -124,8 +124,8 @@ body {
 }
 .context-scope:hover { border-color: var(--ink-soft); background: var(--card); }
 .context-label {
-  color: var(--ink-soft); font: 700 var(--t-2xs)/1.5 var(--sans);
-  text-transform: uppercase; letter-spacing: .1em;
+  color: var(--ink-soft); font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track);
 }
 .context-caret { color: var(--ink-soft); font-size: var(--t-2xs); }
 .status-pill .context-caret { color: inherit; }
@@ -278,7 +278,7 @@ main { max-width: var(--measure); margin: 0 auto;
 }
 .card-head h2 {
   margin: 0; font: 700 var(--t-xs)/1.4 var(--sans); text-transform: uppercase;
-  letter-spacing: .13em; color: var(--ink);
+  letter-spacing: var(--label-track); color: var(--ink);
 }
 .card[data-step] .card-head h2 { color: var(--step); }
 .card-head .num {
@@ -286,8 +286,8 @@ main { max-width: var(--measure); margin: 0 auto;
   border: 1px solid currentColor; border-radius: var(--radius-sm); padding: var(--s-px) var(--s-1);
 }
 .card-note { margin: var(--s-px) 0 var(--s-3); font-size: var(--t-xs); color: var(--ink-soft); }
-h3 { font: 700 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase;
-     letter-spacing: .12em; color: var(--ink-soft); margin: var(--s-4) 0 var(--s-2); }
+h3 { font: var(--label-font); text-transform: uppercase;
+     letter-spacing: var(--label-track); color: var(--ink-soft); margin: var(--s-4) 0 var(--s-2); }
 
 /* ── controls ────────────────────────────────────────────────────────────── */
 .field { margin-top: var(--s-2); }
@@ -295,7 +295,7 @@ h3 { font: 700 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase;
 .field-row > * { flex: 1; min-width: 0; margin-top: var(--s-2); }
 label {
   display: block; margin-bottom: var(--s-1); color: var(--ink-soft);
-  font: 600 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
+  font: 600 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase; letter-spacing: var(--label-track);
 }
 label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 select, input[type=number], input[type=text], input[type=password], textarea {
@@ -373,7 +373,7 @@ p.explain {
   margin-bottom: var(--s-3);
 }
 .step-tag {
-  font: 700 var(--t-2xs)/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
+  font: var(--label-font); text-transform: uppercase; letter-spacing: var(--label-track);
   color: var(--step);
 }
 /* The same tag used to head a group of knobs *inside* a card, where it needs a
@@ -397,7 +397,7 @@ p.explain {
   font-variant-numeric: tabular-nums;
 }
 .score > span { display: block; color: var(--ink-soft); font-size: var(--t-2xs);
-                text-transform: uppercase; letter-spacing: .07em; }
+                text-transform: uppercase; letter-spacing: var(--label-track); }
 .score[data-step] > span:first-child { color: var(--step); }
 .score .bar { height: 3px; background: var(--rule-soft); margin-top: var(--s-1); }
 .score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
@@ -575,8 +575,8 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
    is an example they will use. The text comes from the served fixture. */
 .widget-empty { display: flex; flex-direction: column; gap: var(--s-1); }
 .widget-empty > b {
-  font: 700 var(--t-2xs)/1.5 var(--sans);
-  text-transform: uppercase; letter-spacing: .09em; color: var(--ink-soft);
+  font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track); color: var(--ink-soft);
   margin-bottom: var(--s-px);
 }
 .widget-starter {

@@ -117,8 +117,8 @@ select { font: inherit; color: inherit; }
 .inspector-status-line .follow-state { margin-bottom: 0; }
 .archive-state {
   max-width: 100%;
-  font: 700 var(--t-2xs)/1.5 var(--sans);
-  letter-spacing: .08em;
+  font: var(--label-font);
+  letter-spacing: var(--label-track);
   text-transform: uppercase;
   color: var(--chassis-ink-soft);
   border: 1px solid currentColor;
@@ -157,8 +157,8 @@ select { font: inherit; color: inherit; }
    weight, so the bar doubles as a diagram of where you are in the pipeline. */
 .inspector-tabs { display: flex; gap: var(--s-5); }
 .inspector-tab {
-  font: 700 var(--t-2xs)/1.4 var(--sans);
-  letter-spacing: .13em;
+  font: var(--label-font);
+  letter-spacing: var(--label-track);
   text-transform: uppercase;
   background: transparent;
   border: 0;
@@ -280,7 +280,7 @@ select { font: inherit; color: inherit; }
 }
 .chunk-line > div:last-child { font-size: var(--t-base); }
 .chunk-no {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .13em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase; color: var(--ink-amber);
   margin-bottom: var(--s-px);
 }
@@ -293,7 +293,7 @@ select { font: inherit; color: inherit; }
   border: 1px solid var(--rule-soft); border-radius: var(--radius-sm); overflow: hidden;
 }
 .mode-toggle button {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .13em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase;
   background: var(--card); color: var(--ink-soft);
   border: 0; padding: var(--s-1) var(--s-3); cursor: pointer;
@@ -338,7 +338,7 @@ select { font: inherit; color: inherit; }
 }
 .q-legend-note { font-size: var(--t-xs); color: var(--ink-soft); }
 .q-chip {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .12em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase; padding: var(--s-px) var(--s-2);
   border: 1px solid currentColor; border-radius: var(--radius-sm);
 }
@@ -364,7 +364,7 @@ select { font: inherit; color: inherit; }
 .q-option-id { font-family: var(--mono); font-size: var(--t-xs); }
 .q-option-en { color: var(--ink); flex: 1; }
 .q-option-added {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .12em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase; color: var(--ink-green);
 }
 /* Everything needed to decide whether this question is worth adding, without
@@ -393,7 +393,7 @@ select { font: inherit; color: inherit; }
 .question-head .qh-en { font-size: var(--t-sm); color: var(--ink-soft); }
 /* Unscoped on purpose: the ground-truth cards use this label too. */
 .qh-label {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .13em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase; color: var(--ink-soft);
   margin: var(--s-2) 0 var(--s-px);
 }
@@ -446,7 +446,7 @@ select { font: inherit; color: inherit; }
    over the wrong end of its own column. */
 .retrieval-table th {
   text-align: center; color: var(--ink-soft);
-  font: 600 var(--t-2xs)/1.5 var(--sans); letter-spacing: .08em; text-transform: uppercase;
+  font: 600 var(--t-2xs)/1.5 var(--sans); letter-spacing: var(--label-track); text-transform: uppercase;
   padding: var(--s-1) var(--s-2); border-bottom: 1px solid var(--ink);
   white-space: nowrap;
 }
@@ -504,7 +504,7 @@ select { font: inherit; color: inherit; }
 .layer-badge {
   display: inline-block; margin-bottom: var(--s-1);
   font: 600 var(--t-2xs)/1.5 var(--mono);
-  letter-spacing: .04em; text-transform: uppercase;
+  letter-spacing: var(--label-track); text-transform: uppercase;
   color: var(--step-index);
   border: 1px solid currentColor; border-radius: var(--radius-sm);
   /* .3em, relative to this badge's own mono font-size: the spacing ramp is
@@ -561,7 +561,7 @@ select { font: inherit; color: inherit; }
 }
 .gen-answer { padding: var(--s-2) var(--s-3); border: 1px solid var(--rule-soft); }
 .gen-answer h4 {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .13em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 var(--s-1);
 }
@@ -587,7 +587,7 @@ select { font: inherit; color: inherit; }
   padding: var(--s-2) var(--s-3); margin-bottom: var(--s-3);
 }
 .gen-ragas h4 {
-  font: 700 var(--t-2xs)/1.5 var(--sans); letter-spacing: .13em;
+  font: var(--label-font); letter-spacing: var(--label-track);
   text-transform: uppercase; color: var(--ink-soft);
   margin: 0 0 var(--s-1);
 }
@@ -657,7 +657,7 @@ select { font: inherit; color: inherit; }
    never settled, and that reading is vertical. Agent ink, matching :9002. */
 .agent-ladder { border-left: 3px solid var(--step-agent); padding-left: var(--s-2); }
 .agent-ladder h4 { margin: var(--s-1) 0 var(--s-2); color: var(--step-agent); font-size: var(--t-sm);
-  letter-spacing: .04em; text-transform: uppercase; }
+  letter-spacing: var(--label-track); text-transform: uppercase; }
 .agent-ladder table { border-collapse: collapse; width: 100%; }
 .agent-ladder th { text-align: left; color: var(--step-agent); font-weight: 600; }
 .agent-ladder td, .agent-ladder th { padding: var(--s-px) var(--s-2) var(--s-px) 0;

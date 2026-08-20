@@ -187,8 +187,8 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
    one, which is every table on the lab and the leaderboard. */
 .data-table thead th {
   color: var(--ink);
-  font: 700 var(--t-2xs)/1.5 var(--sans);
-  text-transform: uppercase; letter-spacing: .07em;
+  font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track);
   text-align: right; white-space: nowrap;
   padding: var(--s-2) var(--s-3);
   border-bottom: 1px solid var(--rule);

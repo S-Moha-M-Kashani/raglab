@@ -279,6 +279,10 @@ CONVENTIONS = [
     ('tokens.css', '--rail-h:', None,
      'the footer rail height is a shared token for the same reason as '
      '--bar-h'),
+    ('panel.css', None, '1560px',
+     'the page measure is a token, not a number typed in five places — the '
+     'five copies are exactly how the panel and the Inspector came to '
+     'disagree about how wide a page is'),
 ]
 
 
@@ -296,6 +300,18 @@ def test_the_served_panel_keeps_its_conventions(
         assert must_contain in text, reason
     if must_not_contain is not None:
         assert must_not_contain not in text, reason
+
+
+def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
+    # this is a convention test
+    """The masthead, the chip row, the findings block, the spine and main each
+    set their own max-width. They are the same band and must read from the same
+    token, or one of them drifts the next time a band is added."""
+    css = panel_texts['panel.css']
+    assert 'max-width: var(--measure)' in css
+    assert css.count('max-width: var(--measure)') >= 5, (
+        'every band that centres on the page measure must name the token; '
+        f"found {css.count('max-width: var(--measure)')} of the 5 bands")
 
 
 def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):

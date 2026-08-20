@@ -39,7 +39,7 @@ body {
 }
 .chassis a { color: #fff; }
 .masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
-            max-width: 1560px; margin: 0 auto; }
+            max-width: var(--measure); margin: 0 auto; }
 h1 {
   font: 600 var(--t-xl)/1 var(--slab); letter-spacing: -.01em; margin: 0;
   color: #fff;
@@ -116,7 +116,7 @@ h1 .lab-mark {
 /* Capability chips: what this installation can actually do, before you spend an
    hour finding out. Green edge = ready, brick = not. */
 .chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem auto 0;
-         max-width: 1560px; }
+         max-width: var(--measure); }
 .chip {
   font: var(--t-2xs)/1.5 var(--mono); padding: .05rem .45rem; border-radius: var(--radius-sm);
   background: var(--chassis-soft); color: var(--chassis-ink-soft);
@@ -125,7 +125,7 @@ h1 .lab-mark {
 .chip.on { border-left-color: var(--good); color: var(--chassis-ink); }
 .chip.off { border-left-color: var(--alert); color: #e6b4ad; }
 
-.findings { max-width: 1560px; margin: .55rem auto 0; }
+.findings { max-width: var(--measure); margin: .55rem auto 0; }
 .findings > summary {
   cursor: pointer; color: var(--chassis-ink-soft); font-size: var(--t-xs);
   list-style: none;
@@ -145,7 +145,7 @@ h1 .lab-mark {
    whatever job is running, and the way to a stage's controls. On the chassis
    because it belongs to the machine, not to any one plate. */
 .spine { background: var(--chassis); padding: 0 1.4rem .7rem; }
-.spine-inner { max-width: 1560px; margin: 0 auto; }
+.spine-inner { max-width: var(--measure); margin: 0 auto; }
 .spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
 .spine-seg {
   appearance: none; border: 0; text-align: left; cursor: pointer;
@@ -174,7 +174,11 @@ h1 .lab-mark {
 .spine-caption .right { margin-left: auto; }
 
 /* ── the bench ───────────────────────────────────────────────────────────── */
-main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
+/* Vertical padding raised one step past Table B's --s-4 mapping for 1.2rem:
+   this band's breathing room is what the old header was stealing, so the
+   choice is deliberately up-scale rather than mapped. */
+main { max-width: var(--measure); margin: 0 auto;
+       padding: var(--s-5) var(--gutter); }
 .bench {
   display: grid; gap: 1rem;
   /* Four step cards, then the models column — pinned explicitly below rather

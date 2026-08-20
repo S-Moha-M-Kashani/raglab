@@ -36,6 +36,44 @@
   --slab: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+  /* A 2px-based spacing ramp. Every padding, margin and gap on both pages
+     picks from this — the two sheets carried ~29 hand-set values between them,
+     which is the real reason neither read as uncrowded. Border widths are not
+     spacing and are not on this ramp. */
+  --s-px: 0.125rem;
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  /* Eight type steps in one unit, replacing 38 literals in three units. The
+     base is 14px: at the old 13px the tables only fit because the type sat
+     under the readable floor, and a scale that preserves that is no scale. */
+  --t-2xs: 0.6875rem;
+  --t-xs: 0.75rem;
+  --t-sm: 0.8125rem;
+  --t-base: 0.875rem;
+  --t-md: 1rem;
+  --t-lg: 1.25rem;
+  --t-xl: 1.5rem;
+  --t-2xl: 2rem;
+  /* Two radii and two shapes. Six hand-set values collapse to these. */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+  /* One measure and one gutter for both surfaces. The panel wrote 1560px out
+     five times; the Inspector used 92rem, a different unit, and never centred
+     itself. */
+  --measure: 1560px;
+  --gutter: var(--s-4);
+  /* Chrome heights. Nothing reads these yet: the top bar and footer rail
+     arrive in the next phase, and the widget's anchor measures against the
+     rail. They live here so that phase touches no shared file. */
+  --bar-h: 3.5rem;
+  --rail-h: 1.75rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {

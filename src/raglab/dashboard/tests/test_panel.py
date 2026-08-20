@@ -42,6 +42,7 @@ def panel_texts(client):
     html = client.get('/').text
     css = client.get('/panel.css').text
     js = client.get('/panel.js').text
+    tokens = client.get('/tokens.css').text
 
     embed_label = re.search(r'<label>Embedding model.*?</label>', html, re.S)
     model_card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)
@@ -49,6 +50,10 @@ def panel_texts(client):
 
     return {
         'index.html': html,
+        # The shared scale, fetched over its own route because both pages link
+        # it before their own sheet — a disk read would be a claim about a copy
+        # nobody is served.
+        'tokens.css': tokens,
         'panel.css': css,
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
@@ -252,6 +257,28 @@ CONVENTIONS = [
      'the chosen model must travel with every message — scoped past the '
      "header comment so `embed_model:`, elsewhere in the file, cannot "
      'satisfy this by suffix collision'),
+    ('tokens.css', '--s-1: 0.25rem', None,
+     'the spacing ramp must ship in the shared sheet: both pages hand-set '
+     'every padding and margin today, which is why neither reads as '
+     'uncrowded'),
+    ('tokens.css', '--t-base: 0.875rem', None,
+     'the type scale must ship in the shared sheet, and its base is 14px — '
+     'the old 13px body put dense tables under the readable floor'),
+    ('tokens.css', '--radius-sm: 3px', None,
+     'the radius scale must ship in the shared sheet; six hand-set radii '
+     'across two sheets is drift, not design'),
+    ('tokens.css', '--measure: 1560px', None,
+     'the page measure must be named once — it was written out five times in '
+     'panel.css and disagreed with the Inspector'),
+    ('tokens.css', '--gutter:', None,
+     'the page gutter must be named once, so the two surfaces stop '
+     'disagreeing (1.4rem on the panel, 1.25rem on the Inspector)'),
+    ('tokens.css', '--bar-h:', None,
+     'the top bar height is a shared token because Phase 2 chrome and the '
+     "widget's anchor both measure against it"),
+    ('tokens.css', '--rail-h:', None,
+     'the footer rail height is a shared token for the same reason as '
+     '--bar-h'),
 ]
 
 

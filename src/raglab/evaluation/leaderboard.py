@@ -158,6 +158,47 @@ def verdict(found: Group) -> str:
     return best['label'] if lead > combined else 'tie'
 
 
+@dataclass
+class Board:
+    """Every experiment that touched one corpus, in one table.
+
+    Deliberately not a `Group`. `Group` is a comparability class — same
+    questions, same judge — and it is what a *sweep* ranks, which is why
+    `group()` and `verdict()` below are untouched. A `Board` mixes judges and
+    question sets on purpose, so it carries no `sample`, no `judge` and no
+    `verdict`: none of the three is a property of a mixed table, and all three
+    are per-row columns instead. It names no winner for the same reason."""
+    dataset: str
+    rows: list = field(default_factory=list)
+
+    @property
+    def n_experiments(self) -> int:
+        return len(self.rows)
+
+    @property
+    def newest(self) -> str:
+        """Timestamps are zero-padded, so lexical order is chronological."""
+        return max((r.get('started_at', '') for r in self.rows), default='')
+
+
+def by_dataset(rows: list[dict]) -> list[Board]:
+    """One Board per corpus, each ordered by decision score.
+
+    The order rows are served in *is* the ranking, and the shared sorter's
+    third click restores exactly it — so the ordering rule here is the same one
+    `group()` applies within a group: unjudged rows last, never as a zero."""
+    boards: dict[str, Board] = {}
+    for row in rows:
+        # No dataset predates the field and means the built-in diary, the only
+        # corpus that existed then — the same fallback `_key` applies.
+        dataset = row.get('dataset') or 'diary-fa'
+        boards.setdefault(dataset, Board(dataset)).rows.append(row)
+    for found in boards.values():
+        found.rows.sort(key=lambda r: (r.get('ragas_decision') is None,
+                                       -(r.get('ragas_decision') or 0.0)))
+    return sorted(boards.values(), key=lambda b: b.newest, reverse=True)
+
+
 def _cell(value, digits: int = 3) -> str:
     return '—' if value is None else f'{value:.{digits}f}'
 

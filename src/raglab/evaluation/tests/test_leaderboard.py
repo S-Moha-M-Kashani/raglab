@@ -304,3 +304,73 @@ def test_a_knob_set_to_none_is_absent_from_the_sentence():
         {'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                        'grader': 'none'}})
     assert fragments == [{'step': 'retrieval', 'text': 'hybrid-rrf'}]
+
+
+# --- the board: one table per dataset --------------------------------------
+# Deliberately NOT the comparability grouping above. `group()` is what a *sweep*
+# ranks by, and it stays. The board is a listing: every experiment that touched
+# one corpus, in one table, sorted by whatever column the reader clicks. It
+# names no winner, precisely because rows judged differently share it.
+
+def _board_row(run_id, dataset, decision, ids=('q1',), judge=None):
+    return {'run_id': run_id, 'experiment_id': run_id, 'dataset': dataset,
+            'label': run_id, 'ragas_decision': decision,
+            'ragas_decision_stderr': None, 'started_at': '2026-08-01 10:00:00',
+            'seconds': 60, 'n_questions': len(ids), 'config': {},
+            'judge': judge or {},
+            'selection': {'question_ids': list(ids), 'n': len(ids)}}
+
+
+def test_one_dataset_is_one_table_whatever_the_questions_or_the_judge():
+    # this is a unit test
+    """The board's whole point. `group()` would put these three in three
+    separate tables — different question sets, different judges. The board puts
+    every experiment that touched diary-fa in one, because that is the question
+    a reader actually asks of it."""
+    boards = leaderboard.by_dataset([
+        _board_row('a', 'diary-fa', 0.71, ('q1', 'q2'), {'model': 'sonnet'}),
+        _board_row('b', 'diary-fa', 0.68, ('q3',), {'model': 'gpt-4o'}),
+        _board_row('c', 'meetings-de', 0.55, ('q1',), {'model': 'sonnet'}),
+    ])
+    assert [(b.dataset, b.n_experiments) for b in boards] == [
+        ('diary-fa', 2), ('meetings-de', 1)]
+    assert [r['run_id'] for r in boards[0].rows] == ['a', 'b']
+
+
+def test_a_board_orders_by_decision_and_keeps_the_unjudged_rows_last():
+    # this is a unit test
+    """The served order is the ranking, and the sorter's third click restores
+    exactly it. A row that judged nothing sorts last rather than as a zero: a
+    fabricated 0.0 would read as a measured refusal."""
+    boards = leaderboard.by_dataset([
+        _board_row('low', 'diary-fa', 0.40),
+        _board_row('none', 'diary-fa', None),
+        _board_row('high', 'diary-fa', 0.90),
+    ])
+    assert [r['run_id'] for r in boards[0].rows] == ['high', 'low', 'none']
+
+
+def test_a_dataset_no_catalogue_describes_still_gets_a_table():
+    # this is a unit test
+    """Deleting a corpus fixture must not rewrite history. The board names the
+    dataset from the rows, so an experiment over a corpus that is gone keeps
+    its table under its raw id."""
+    boards = leaderboard.by_dataset([_board_row('a', 'deleted-corpus', 0.5)])
+    assert [b.dataset for b in boards] == ['deleted-corpus']
+
+
+def test_a_row_with_no_dataset_is_the_builtin_diary():
+    # this is a unit test
+    """No dataset predates the field and means the built-in diary — the only
+    corpus that existed then. The same fallback `_key` already applies."""
+    boards = leaderboard.by_dataset([_board_row('old', '', 0.5)])
+    assert [b.dataset for b in boards] == ['diary-fa']
+
+
+def test_boards_are_ordered_newest_experiment_first():
+    # this is a unit test
+    """Which corpus you were working on last is the one you want on top."""
+    old = _board_row('old', 'meetings-de', 0.5)
+    old['started_at'] = '2026-01-01 10:00:00'
+    boards = leaderboard.by_dataset([old, _board_row('new', 'diary-fa', 0.5)])
+    assert [b.dataset for b in boards] == ['diary-fa', 'meetings-de']

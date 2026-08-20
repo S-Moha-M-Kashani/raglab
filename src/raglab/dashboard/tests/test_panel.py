@@ -138,9 +138,10 @@ CONVENTIONS = [
      'the embed-model control must live in the one model column'),
     ('leaderboard.html', 'decision score', None,
      'the leaderboard must say which column chose the architecture'),
-    ('leaderboard.js', 'ragas_decision_stderr', None,
+    ('leaderboard.js', 'decision_stderr', None,
      'the leaderboard must show the deciding score with its error, never the '
-     'mean alone'),
+     'mean alone — a board row calls it `decision_stderr`, which is the name '
+     'the route serves'),
     ('panel.js', 'job.detail', None,
      'a judged local run spends hours in one stage, and the detail is the '
      'one thing that still moves'),
@@ -186,7 +187,7 @@ CONVENTIONS = [
     ('index.html', 'id="archive-status"', None,
      'the archive status must keep its render hook'),
     ('leaderboard.html', 'id="board"', None,
-     'the ranked leaderboard must stay on its own surface'),
+     'the board must stay on its own surface'),
     ('index.html', 'id="experiments"', None,
      'the ledger of every experiment must stay on the lab page — an index '
      'build has no decision score, so it never belonged in the ranking'),
@@ -200,13 +201,14 @@ CONVENTIONS = [
     ('panel.js', None, 'ragas_decision ▼',
      'the hard-coded sort arrow must not come back to the script either'),
     ('leaderboard.js', '/api/leaderboard', None,
-     'the leaderboard must read the grouped route, not re-derive its own '
-     'grouping from the raw run list — two groupings is how two surfaces come '
-     'to name different winners'),
-    ('leaderboard.js', 'group.ranked', None,
-     'a numbered row is a rank claim, so the page must honour the grouping '
-     "module's own answer about whether the sample was recorded rather than "
-     'counting rows from one'),
+     'the leaderboard must read the board route, not re-derive its own rows '
+     'from the raw run list — two derivations is how two surfaces come to '
+     'describe the same records differently'),
+    ('leaderboard.js', 'onApply', None,
+     'a numbered row is a claim about the order on screen, so `#` is written '
+     'from the displayed order after every reorder rather than served with the '
+     'row — a static rank travels with its row and reads 1, 3, 2 the moment '
+     'another column is sorted'),
     ('leaderboard.js', 'tabindex="0"', None,
      'the table must sit in a focusable scroll region, or there is no keyboard '
      'way to reach the right-hand side of it at all'),
@@ -923,6 +925,50 @@ def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
     body = client.get('/api/leaderboard').json()
     ids = {d['id'] for d in body['datasets']}
     assert 'diary-fa' in ids
+
+
+def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
+    # this is a convention test
+    """One table per dataset, its identity frozen left and its Inspector link
+    frozen right. The rank is computed from the displayed order, never served
+    with the row, because a static rank travels with its row and reads 1, 3, 2
+    the moment another column is sorted."""
+    js = panel_texts['leaderboard.js']
+    assert "'freeze-1'" in js and "'freeze-last'" in js
+    assert 'SortTable.make' in js, (
+        'the page loaded sorttable.js and never called it, so click-to-sort was '
+        'broken here while the lab page had it — this is the pin against that '
+        'coming back')
+    assert 'onApply' in js
+
+
+def test_the_board_colours_a_fragment_by_its_pipeline_step(panel_texts):
+    # this is a convention test
+    """Colour means pipeline step on both surfaces and is defined once. The
+    sentence reads its ink from `data-step`, which is how every other coloured
+    thing on these pages does it."""
+    assert 'data-step' in panel_texts['leaderboard.js']
+
+
+def test_the_board_offers_a_dataset_picker_naming_every_experiment(panel_texts):
+    # this is a convention test
+    """The picker is the surface for choosing which corpus is on screen, and
+    'every experiment' is one of its options rather than a second page — it is
+    the same population with no filter."""
+    js = panel_texts['leaderboard.js']
+    assert 'every experiment' in js
+    assert 'context-scope' in js or 'context-scope' in panel_texts['leaderboard.html']
+
+
+def test_the_board_names_no_winner(panel_texts):
+    # this is a convention test
+    """A board mixes judges and question sets, so no winner claim holds across
+    one of its tables. The claim itself still exists for the sweep."""
+    js = panel_texts['leaderboard.js']
+    for banned in ('Winner:', 'No winner', 'Not comparable'):
+        assert banned not in js, (
+            f'{banned!r} is a comparability claim, and the board is not a '
+            'comparability group')
 
 
 # --- the one dynamic, data-driven guard -------------------------------------

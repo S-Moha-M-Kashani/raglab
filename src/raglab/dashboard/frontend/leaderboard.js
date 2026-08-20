@@ -1,170 +1,247 @@
-// The leaderboard surface. Everything it renders comes from
-// `GET /api/leaderboard`, which serialises `evaluation.leaderboard` — the same
-// module `raglab-leaderboard` prints from. Nothing here re-derives a rank, a
-// tie or a winner: a page that recomputed them could name a different winner
-// than the command line from the same runs.
+// The leaderboard surface: one table per dataset, every experiment in it.
+//
+// Everything it renders comes from `GET /api/leaderboard`, which serialises
+// `evaluation.leaderboard` — the same module `raglab-leaderboard` prints from,
+// so this page and the command line cannot describe the same records
+// differently. Nothing here derives the pipeline sentence or a decision score:
+// a page that re-derived either could disagree with the file it came from.
+//
+// The board names no winner. It mixes question sets and judges by design, so
+// 'winner by more than the combined error' would compare numbers that never
+// met. That claim still exists — `leaderboard.verdict()` — for the sweep, whose
+// candidates share a question set and a judge by construction.
 
 const $ = (id) => document.getElementById(id);
 
-// Columns, in the order they are read. `when` is first because it is the row's
-// identity: every row already carried `started_at`, and the old board threw it
-// away and showed a 22-character run id instead — a date, a time and an index
-// fingerprint mashed together, readable as none of the three. The run id is
-// still how you open a run; it just is not a column any more.
+// '*' is every experiment: the table that used to sit on the lab page, which is
+// this same population with no filter — which is why it is an option in the
+// picker rather than a second surface.
+const EVERY = '*';
+
 const COLUMNS = [
-  { key: 'rank', label: '#', title: 'rank within this group' },
-  { key: 'when', label: 'when', text: true, title: 'when the run started' },
-  { key: 'label', label: 'candidate', text: true, title: 'the run label' },
+  { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
+    title: 'every step this experiment ran · hover or focus for all of it' },
+  { key: 'rank', label: '#', nosort: true, title: 'position in the current sort' },
+  { key: 'kind', label: 'kind', text: true, title: 'index, retrieve, run or query' },
+  { key: 'when', label: 'when', text: true, title: 'when it started' },
+  { key: 'label', label: 'label', text: true },
   { key: 'decision', label: 'decision', title: 'unweighted mean of the four judged metrics' },
   { key: 'spread', label: '±', title: 'standard error of the decision score' },
-  { key: 'faith', label: 'faith', title: 'faithfulness' },
-  { key: 'ansrel', label: 'ans rel', title: 'answer relevancy' },
-  { key: 'ctxprec', label: 'ctx prec', title: 'LLM context precision' },
-  { key: 'ctxrec', label: 'ctx recall', title: 'context recall' },
-  { key: 'chunker', label: 'chunker', text: true },
-  { key: 'embedder', label: 'embedder', text: true },
-  { key: 'retriever', label: 'retriever', text: true },
-  { key: 'reranker', label: 'reranker', text: true },
-  { key: 'questions', label: 'questions', title: 'how many questions were scored' },
-  { key: 'seconds', label: 'seconds', title: 'wall clock for the run' },
+  { key: 'faithfulness', label: 'faith', step: 'generation' },
+  { key: 'answer_relevancy', label: 'ans rel', step: 'generation' },
+  { key: 'llm_context_precision_with_reference', label: 'ctx prec', step: 'retrieval' },
+  { key: 'context_recall', label: 'ctx recall', step: 'retrieval' },
+  { key: 'judge', label: 'judge', text: true, step: 'generation',
+    title: 'which model graded — rows graded differently are not comparable' },
+  { key: 'questions', label: 'questions',
+    title: 'how many questions were scored' },
+  { key: 'dataset', label: 'dataset', text: true, everyOnly: true },
+  { key: 'provider', label: 'backend', text: true,
+    title: 'where the model calls went · fake is a rehearsal, not a measurement' },
+  { key: 'state', label: 'state', text: true },
+  { key: 'seconds', label: 'seconds', title: 'wall clock' },
+  { key: 'open', label: 'open', nosort: true, freeze: 'freeze-last',
+    title: 'read this experiment in the Inspector' },
 ];
 
 const fmt = (value, digits = 3) =>
   value === null || value === undefined ? '—' : Number(value).toFixed(digits);
 
 // `started_at` is already '%Y-%m-%d %H:%M:%S'. Seconds do not help anyone
-// comparing runs, so they are dropped rather than reformatted.
+// comparing experiments, so they are dropped rather than reformatted.
 const when = (row) => (row.started_at || '').slice(0, 16) || '—';
 
-function cell(row, key, rank) {
-  const ragas = row.ragas || {};
-  // The knobs live under `config`, not on the row: a run records the whole
-  // config it ran, and the leaderboard shows the four that a sweep moves.
-  const index = (row.config || {}).index || {};
-  const retrieval = (row.config || {}).retrieval || {};
-  switch (key) {
-    case 'rank': return rank;
-    case 'when': return when(row);
-    case 'label': return row.label || '';
-    case 'decision': return fmt(row.ragas_decision, 4);
-    case 'spread': return fmt(row.ragas_decision_stderr, 3);
-    case 'faith': return fmt(ragas.faithfulness);
-    case 'ansrel': return fmt(ragas.answer_relevancy);
-    // The `_with_reference` variant is the one the runs actually record; the
-    // bare name would read '—' on every row that has the metric.
-    case 'ctxprec': return fmt(ragas.llm_context_precision_with_reference);
-    case 'ctxrec': return fmt(ragas.context_recall);
-    case 'chunker':
-      return (index.chunker || '') + (index.contextual ? '+ctx' : '');
-    // The model, not just the kind: two `fastembed` rows can be two entirely
-    // different representations, and the row has to say which one it was.
-    case 'embedder':
-      return (index.embedder || '')
-        + (index.embed_model ? '·' + index.embed_model.split('/').pop() : '');
-    case 'retriever': return retrieval.retriever || '';
-    case 'reranker': return retrieval.reranker || '';
-    case 'questions': return row.n_questions ?? 0;
-    case 'seconds': return Math.round(row.seconds || 0);
-    default: return '';
-  }
-}
-
-// The verdict in the group's own words. The wording matches the markdown the
-// command line prints, because the two are the same claim about the same rows.
-const VERDICTS = {
-  tie: ['No winner', 'the lead is inside the combined error of the top two '
-        + 'rows, so these rows do not separate.'],
-  unranked: ['One judged row only', 'there is nothing to compare it against.'],
+const judgeOf = (row) => {
+  const judge = row.judge || {};
+  return judge.model ? `${judge.model} via ${judge.provider || '?'}` : '—';
 };
 
-function verdictLine(group) {
-  if (group.verdict === 'unknown' && !group.ranked) {
-    return ['Not comparable', 'these runs recorded how many questions they '
-            + 'scored but not which ones. Equal counts are not a shared '
-            + 'sample, so the order below is a listing, not a ranking.'];
+// The sentence, each fragment inked with its own step. `data-step` is how every
+// other coloured thing on these pages takes its ink, and the four inks are
+// defined once in tokens.css. Wrapped in `.clip`, which is what actually holds
+// the frozen column's width — a cell cannot.
+const sentence = (row) => '<span class="clip">' + ((row.pipeline || []).length
+  ? (row.pipeline || []).map((f) =>
+    `<span data-step="${escapeHtml(f.step)}" class="pipe-part">`
+    + `${escapeHtml(f.text)}</span>`).join('<span class="pipe-sep">·</span>')
+  : '<span class="muted">—</span>') + '</span>';
+
+function cell(row, key) {
+  const metrics = row.metrics || {};
+  switch (key) {
+    case 'pipeline': return sentence(row);
+    case 'rank': return '';                 // written by renumber(), below
+    case 'kind': return escapeHtml(row.kind || '—');
+    case 'when': return escapeHtml(when(row));
+    case 'label': return escapeHtml(row.label || '—');
+    case 'decision': return fmt(row.decision, 4);
+    case 'spread': return fmt(row.decision_stderr, 3);
+    case 'judge': return escapeHtml(judgeOf(row));
+    case 'questions': return row.n_questions ?? 0;
+    case 'dataset': return escapeHtml(row.dataset || '—');
+    // Marked rather than merely printed: on `fake` every LLM number on the row
+    // came from a stub that cannot fail, so the row is a rehearsal of the
+    // pipeline and not a measurement of it.
+    case 'provider': return row.provider === 'fake'
+      ? '<b>fake</b>' : escapeHtml(row.provider || '—');
+    case 'state': return row.state === 'done'
+      ? 'done'
+      : row.error
+        ? `<span class="failed"><b>${escapeHtml(row.state || '?')}</b>`
+          + `<button type="button" class="why" data-help="${escapeHtml(row.error)}"`
+          + ` aria-label="Why did this ${escapeHtml(row.state || 'fail')}?">!</button></span>`
+        : `<b>${escapeHtml(row.state || '—')}</b>`;
+    case 'seconds': return Math.round(row.seconds || 0);
+    case 'open': return `<a class="open-run" target="_blank" rel="noopener"`
+      + ` href="http://localhost:9003/?experiment=${encodeURIComponent(row.experiment_id)}"`
+      + ` aria-label="Read ${escapeHtml(row.experiment_id)} in the Inspector">↗</a>`;
+    // The four judged metrics, by their own keys, so a column cannot drift from
+    // the metric it names.
+    default: return fmt(metrics[key]);
   }
-  if (group.verdict === 'unknown') {
-    return ['No winner', 'these rows carry no measured error, so a lead cannot '
-            + 'be told from noise.'];
-  }
-  return VERDICTS[group.verdict]
-    || [`Winner: ${group.verdict}`, 'by more than the combined error of the '
-        + 'top two rows.'];
 }
 
-function renderGroup(group, index) {
-  const [call, why] = verdictLine(group);
-  const heading = `${group.dataset} · ${group.sample} · judged by ${group.judge}`;
-  const rows = group.rows.map((row, i) => {
-    // A numbered row is a rank claim. A row with no decision score, or a group
-    // whose sample was never recorded, gets no number rather than a misleading
-    // one — the same rule the module applies when it prints.
-    const rank = (row.ragas_decision !== null && row.ragas_decision !== undefined
-                  && group.ranked) ? String(i + 1) : '—';
-    const cells = COLUMNS.map((col, c) => {
-      const freeze = c === 0 ? ' freeze-1' : (c === 1 ? ' freeze-2' : '');
-      const kind = col.text ? ' text' : '';
-      return `<td class="${(kind + freeze).trim()}">${escapeHtml(String(cell(row, col.key, rank)))}</td>`;
-    }).join('');
-    return `<tr title="${escapeHtml(row.run_id || '')}">${cells}</tr>`;
-  }).join('');
+let CURRENT = '';        // the dataset in force, '' = the served default
 
-  const head = COLUMNS.map((col, c) => {
-    const freeze = c === 0 ? ' freeze-1' : (c === 1 ? ' freeze-2' : '');
-    const kind = col.text ? ' text' : '';
-    const tip = col.title ? ` title="${escapeHtml(col.title)}"` : '';
-    return `<th scope="col" class="${(kind + freeze).trim()}"${tip}>`
+const columnsFor = (dataset) =>
+  COLUMNS.filter((col) => !col.everyOnly || dataset === EVERY);
+
+// `#` is position in what you are looking at, so it is written from the
+// displayed order and rewritten after every reorder — including the third click
+// that restores the served order, where a stale numbering would be exactly as
+// wrong. This is what `onApply` is for.
+function renumber(rows, at) {
+  rows.forEach((tr, i) => {
+    const held = tr.cells[at];
+    if (held) held.textContent = String(i + 1);
+  });
+}
+
+function renderTable(dataset, rows) {
+  const columns = columnsFor(dataset);
+  const rankAt = columns.findIndex((col) => col.key === 'rank');
+
+  const head = columns.map((col) => {
+    const cls = [col.text ? 'text' : '', col.freeze || ''].filter(Boolean).join(' ');
+    return `<th scope="col"${cls ? ` class="${cls}"` : ''}`
+      + `${col.step ? ` data-step="${col.step}"` : ''}`
+      + `${col.nosort ? ' data-nosort' : ''}`
+      + `${col.title ? ` title="${escapeHtml(col.title)}"` : ''}>`
       + `${escapeHtml(col.label)}</th>`;
   }).join('');
 
-  return `
-    <section class="card">
-      <div class="card-head"><h2>${escapeHtml(group.dataset)}</h2>
-        <span class="section-meta right">${escapeHtml(group.sample)} · judged by ${escapeHtml(group.judge)}</span>
-      </div>
-      <p class="verdict"><b>${escapeHtml(call)}</b> — ${escapeHtml(why)}</p>
+  const body = rows.map((row) => columns.map((col) => {
+    const cls = [col.text ? 'text' : '', col.freeze || ''].filter(Boolean).join(' ');
+    return `<td${cls ? ` class="${cls}"` : ''}>${cell(row, col.key)}</td>`;
+  }).join('')).map((cells) => `<tr>${cells}</tr>`).join('');
+
+  return { html: `
       <div class="table-scroll" tabindex="0" role="region"
-           aria-label="${escapeHtml(heading)}">
+           aria-label="every experiment on ${escapeHtml(dataset === EVERY ? 'every dataset' : dataset)}">
         <table class="data-table">
-          <caption>${escapeHtml(heading)}</caption>
+          <caption>every experiment on ${escapeHtml(dataset === EVERY ? 'every dataset' : dataset)}</caption>
           <thead><tr>${head}</tr></thead>
-          <tbody>${rows}</tbody>
+          <tbody>${body}</tbody>
         </table>
-      </div>
-      <p class="table-hint">Ordered by <b>decision</b> — the unweighted mean of
-        faithfulness, answer relevancy, context precision and context recall.
-        Every other column is reported and none of them votes. Click into the
-        table and use the arrow keys, PageUp/PageDown, Home and End to read
-        across it; hover a row for its run id.</p>
-    </section>`;
+      </div>`, rankAt };
 }
 
-async function loadBoard() {
+// Which corpus is on screen. The same affordance the lab page uses for its
+// corpus scope, down to the classes and the native `popover` — the browser owns
+// show, hide, light-dismiss and Escape, so there is no second implementation of
+// one control across two pages and no positioning CSS nobody wrote.
+function renderPicker(dataset, datasets) {
+  const options = [...datasets.map((d) => ({ id: d.id, name: d.name || d.id })),
+    { id: EVERY, name: 'every experiment' }];
+  const shown = options.find((o) => o.id === dataset) || options[0];
+  return `
+    <div class="board-bar">
+      <button class="context-scope" id="pickScope" type="button"
+              popovertarget="pick-list">
+        <span class="context-label">Dataset</span>
+        <span>${escapeHtml(shown.name)}</span>
+        <span class="context-caret" aria-hidden="true">▾</span>
+      </button>
+      <ul class="context-detail" id="pick-list" popover
+          aria-label="Which dataset this board shows">
+        ${options.map((o) => `<li><button type="button" class="pick"
+             data-dataset="${escapeHtml(o.id)}"
+             ${o.id === shown.id ? 'aria-current="true"' : ''}
+             >${escapeHtml(o.name)}</button></li>`).join('')}
+      </ul>
+    </div>`;
+}
+
+async function loadBoard(dataset) {
   const box = $('board');
-  box.innerHTML = '<div class="card"><p class="prose">Reading the run '
-    + 'records…</p></div>';
+  box.innerHTML = '<div class="card"><p class="prose">Reading the records…</p></div>';
+  let body;
   try {
-    const res = await fetch('/api/leaderboard');
+    const res = await fetch('/api/leaderboard?dataset='
+                            + encodeURIComponent(dataset || ''));
     if (!res.ok) throw new Error(`the lab answered ${res.status}`);
-    const groups = (await res.json()).groups || [];
-    if (!groups.length) {
-      box.innerHTML = '<div class="card"><div class="card-head">'
-        + '<h2>No runs yet</h2></div><p class="prose">Nothing has been '
-        + 'evaluated on this machine. Open the <a href="/">Laboratory</a>, '
-        + 'pick a dataset and press <b>Run evaluation</b>; the run lands in '
-        + '<code>.runs/</code> and appears here.</p></div>';
-      return;
-    }
-    box.innerHTML = groups.map(renderGroup).join('');
+    body = await res.json();
   } catch (e) {
-    // A failing read says so. The old board caught nothing, so a failed fetch
-    // left an empty div and no way to tell "no runs" from "the lab is down".
+    // A failing read says so, rather than looking like an empty lab.
     box.innerHTML = '<div class="card"><div class="card-head">'
       + '<h2>Could not read the leaderboard</h2></div>'
-      + `<p class="prose">${escapeHtml(e.message)}. The lab on :9002 serves `
-      + 'this page and the run records behind it, so if it stopped, this is '
-      + 'what that looks like.</p></div>';
+      + `<p class="prose">${escapeHtml(e.message)}. The lab on :9002 serves this `
+      + 'page and the records behind it, so if it stopped, this is what that '
+      + 'looks like.</p></div>';
+    return;
   }
+  CURRENT = body.dataset || '';
+  const { html, rankAt } = renderTable(CURRENT, body.rows || []);
+  box.innerHTML = `
+    <section class="card">
+      <div class="card-head"><h2>${escapeHtml(CURRENT === EVERY ? 'Every experiment' : CURRENT)}</h2>
+        <span class="section-meta right">${(body.rows || []).length} recorded</span>
+      </div>
+      ${renderPicker(CURRENT, body.datasets || [])}
+      ${(body.rows || []).length ? html : '<p class="prose">Nothing recorded for '
+        + 'this dataset yet. Open the <a href="/">Laboratory</a>, pick it and '
+        + 'press <b>Run evaluation</b>.</p>'}
+      <p class="table-hint">Click any column heading to sort by it, again to
+        reverse, a third time for the order it was served in. <b>#</b> is the
+        position in whatever you are looking at. This table names no winner:
+        rows graded by different judges over different question sets share it,
+        so <b>judge</b> and <b>questions</b> are columns you compare on.</p>
+    </section>`;
+  const table = box.querySelector('table');
+  if (table) {
+    SortTable.make(table, { onApply: (rows) => renumber(rows, rankAt) });
+  }
+  wirePicker();
 }
 
-loadBoard();
+function wirePicker() {
+  const list = $('pick-list');
+  if (!list) return;
+  // Only the choosing. Opening and closing belong to the browser: the button
+  // carries `popovertarget`, which is what buys light-dismiss and Escape.
+  list.addEventListener('click', (event) => {
+    const pick = event.target.closest('.pick');
+    if (!pick) return;
+    const chosen = pick.dataset.dataset;
+    // In the URL, so a view is linkable and survives a reload.
+    const url = new URL(window.location.href);
+    url.searchParams.set('dataset', chosen);
+    window.history.replaceState({}, '', url);
+    loadBoard(chosen);
+  });
+}
+
+// Why a row is not `done` is the reason that row is degraded, so it goes through
+// the same '!' the lab page uses rather than a `title` — a reason published to a
+// mouse and to nothing else is a reason half the readers never get. Delegated at
+// the document because the whole board is rebuilt on every pick.
+document.addEventListener('click', (event) => {
+  const mark = event.target.closest('.why');
+  if (!mark) return;
+  const open = mark.parentElement.nextElementSibling;
+  if (open && open.classList.contains('explain')) { open.remove(); return; }
+  mark.parentElement.insertAdjacentHTML('afterend',
+    `<p class="explain">${escapeHtml(mark.dataset.help || '')}</p>`);
+});
+
+loadBoard(new URLSearchParams(window.location.search).get('dataset') || '');

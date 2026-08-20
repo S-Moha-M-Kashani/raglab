@@ -11,6 +11,43 @@ from raglab.configuration.lab_config import RUNS_DIR
 from raglab.evaluation.run_evaluation import list_runs
 
 
+# The board's leftmost column: one fragment per pipeline step that actually ran,
+# each inked with that step's colour by whatever renders it. Assembled here, not
+# in the page, for the same reason `as_dict` exists — two surfaces that each
+# derived the sentence could describe one row two ways.
+#
+# A step that did not run is absent, not '—'. An index build's sentence is its
+# index fragment and nothing else; three em-dashes beside it would draw a row
+# that reads as a failed evaluation rather than a finished build.
+def pipeline_fragments(config: dict) -> list[dict]:
+    index = config.get('index') or {}
+    retrieval = config.get('retrieval') or {}
+    generation = config.get('generation') or {}
+    agent = config.get('agent') or {}
+
+    # The vendor prefix is identical on every row and costs the width the
+    # sentence needs; the model name after it is the part that differs.
+    model = (index.get('embed_model') or '').split('/')[-1]
+    parts = {
+        'index': [(index.get('chunker') or '')
+                  + ('+ctx' if index.get('contextual') else ''),
+                  index.get('hierarchy') or '',
+                  index.get('embedder') or '', model],
+        'retrieval': [retrieval.get('retriever') or '',
+                      retrieval.get('reranker') or '',
+                      retrieval.get('grader') or ''],
+        'generation': [generation.get('answerer') or ''],
+        # 'off' on nearly every row would spend the sentence saying nothing.
+        'agent': [agent.get('scope') or ''],
+    }
+    out = []
+    for step in ('index', 'retrieval', 'generation', 'agent'):
+        text = '·'.join(p for p in parts[step] if p and p != 'none')
+        if text:
+            out.append({'step': step, 'text': text})
+    return out
+
+
 @dataclass
 class Group:
     """Rows that are comparable to one another, and nothing else."""

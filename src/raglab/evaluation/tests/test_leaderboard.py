@@ -235,3 +235,72 @@ def test_the_run_list_carries_the_two_fields_comparability_needs(tmp_path,
     found, = leaderboard.group([row])
     assert found.question_ids == ('q1', 'q2')
     assert found.judge_model == 'gemma4:e2b'
+
+
+# --- the pipeline sentence -------------------------------------------------
+
+def test_the_pipeline_sentence_names_one_fragment_per_step_that_ran():
+    # this is a unit test
+    """The board's leftmost column is one sentence per row, and each fragment
+    is inked with the step it belongs to. Assembled here rather than in the
+    page, for the reason `as_dict` exists: two surfaces that each derived the
+    sentence could describe one row two ways."""
+    config = {
+        'index': {'chunker': 'fixed-overlap', 'contextual': True,
+                  'hierarchy': 'leiden', 'embedder': 'sentence-transformers',
+                  'embed_model': 'intfloat/multilingual-e5-small'},
+        'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
+                      'grader': 'llm'},
+        'generation': {'answerer': 'llm'},
+        'agent': {'scope': ''},
+    }
+    assert leaderboard.pipeline_fragments(config) == [
+        {'step': 'index',
+         'text': 'fixed-overlap+ctx·leiden·sentence-transformers·multilingual-e5-small'},
+        {'step': 'retrieval', 'text': 'hybrid-rrf·lexical·llm'},
+        {'step': 'generation', 'text': 'llm'},
+    ]
+
+
+def test_a_step_that_did_not_run_is_absent_from_the_sentence():
+    # this is a unit test
+    """An index build's sentence is its index fragment and nothing else. Padding
+    it with em-dashes for the three stages that never ran would draw a row that
+    looks like a failed evaluation instead of a successful build."""
+    fragments = leaderboard.pipeline_fragments(
+        {'index': {'chunker': 'session', 'embedder': 'token-hash'}})
+    assert fragments == [{'step': 'index', 'text': 'session·token-hash'}]
+    assert leaderboard.pipeline_fragments({}) == []
+
+
+def test_the_sentence_keeps_the_embedding_model_and_drops_its_vendor():
+    # this is a unit test
+    """Two `fastembed` rows can be two entirely different representations, so
+    the model has to be on the row — but the vendor prefix is the same on every
+    row and costs the width the sentence needs."""
+    fragments = leaderboard.pipeline_fragments(
+        {'index': {'chunker': 'session', 'embedder': 'fastembed',
+                   'embed_model': 'BAAI/bge-small-en-v1.5'}})
+    assert fragments[0]['text'] == 'session·fastembed·bge-small-en-v1.5'
+
+
+def test_a_scope_that_is_off_writes_no_agent_fragment():
+    # this is a unit test
+    """The agent is off by default and off is the common case; a plum fragment
+    reading 'off' on every row would spend the sentence's width saying nothing."""
+    base = {'index': {'chunker': 'session'}, 'agent': {'scope': ''}}
+    assert [f['step'] for f in leaderboard.pipeline_fragments(base)] == ['index']
+    lit = {'index': {'chunker': 'session'}, 'agent': {'scope': 'full'}}
+    assert leaderboard.pipeline_fragments(lit)[-1] == {'step': 'agent',
+                                                      'text': 'full'}
+
+
+def test_a_knob_set_to_none_is_absent_from_the_sentence():
+    # this is a unit test
+    """`grader` and `reranker` both default to the literal 'none' in
+    lab_config, and a fragment reading 'rrf·none·none' spends the sentence's
+    width saying which stages did nothing."""
+    fragments = leaderboard.pipeline_fragments(
+        {'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
+                       'grader': 'none'}})
+    assert fragments == [{'step': 'retrieval', 'text': 'hybrid-rrf'}]

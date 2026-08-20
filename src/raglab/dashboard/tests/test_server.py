@@ -228,6 +228,87 @@ def test_evaluations_lists_and_fetches_the_same_resource(client):
     assert client.get('/api/evaluations/no-such-run').status_code == 404
 
 
+def test_an_experiment_resolves_from_the_run_file_when_the_ledger_has_none(client):
+    # this is an integration test
+    """The leaderboard is a union of two records — the ledger, and the run
+    files in `.runs/` — because the ledger is written in `Jobs.run` and every
+    evaluation that finished before it existed has a file and no row. Its
+    per-row link resolves an experiment by id, so this route has to read the
+    same union: answered from the ledger alone it failed on precisely the rows
+    worth opening, since the older evaluations are the ones carrying a score.
+
+    The projection is checked field by field against the ledger's own column
+    list, so a run-file experiment and a ledger experiment are the same shape
+    to every reader of this route."""
+    import json
+
+    from raglab.evaluation import run_evaluation as evaluate
+    from raglab.evaluation import service_experiment_ledger as ledger
+
+    run_id = '20260101-000000-runonly'
+    payload = {
+        'run_id': run_id, 'label': 'older than the ledger',
+        'started_at': '2026-01-01 00:00:00', 'seconds': 12.5,
+        'dataset': 'smoke-mini',
+        'config': {'provider': 'fake',
+                   'index': {'chunker': 'session', 'embedder': 'token-hash'},
+                   'retrieval': {'retriever': 'bm25', 'reranker': 'none',
+                                 'grader': 'none'},
+                   'generation': {'answerer': 'llm'}},
+        'summary': {'n_questions': 2},
+        'ragas': {'decision': 0.5, 'decision_spread': {'stderr': 0.1}},
+        'rows': [{'id': 'q-1', 'answer': 'an answer'}],
+        'selection': {'n': 2},
+    }
+    evaluate.RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    (evaluate.RUNS_DIR / f'{run_id}.json').write_text(json.dumps(payload),
+                                                      encoding='utf-8')
+    try:
+        assert ledger.experiment(run_id) is None, 'the ledger must not know it'
+        found = client.get(f'/api/experiments/{run_id}')
+        assert found.status_code == 200, found.text
+        body = found.json()
+        assert set(body) == set(ledger.COLUMNS) | {'detail'}
+        assert body['experiment_id'] == run_id
+        assert body['kind'] == 'run' and body['state'] == 'done'
+        assert body['dataset'] == 'smoke-mini' and body['n_questions'] == 2
+        assert body['retriever'] == 'bm25' and body['answerer'] == 'llm'
+        assert body['decision'] == 0.5 and body['decision_stderr'] == 0.1
+        # The rows travel; the traces, chunk text and summaries never reached
+        # a run file, so the payload must not pretend to carry them.
+        assert body['detail']['rows'] == payload['rows']
+        for absent in ('traces', 'chunks_by_session', 'summaries'):
+            assert absent not in body['detail']
+        # And an id in neither record is still a 404, not an empty experiment.
+        assert client.get('/api/experiments/in-neither-record').status_code == 404
+    finally:
+        (evaluate.RUNS_DIR / f'{run_id}.json').unlink()
+
+
+def test_a_run_that_judged_nothing_reports_no_decision_rather_than_zero(client):
+    # this is an integration test
+    """`decision` is NULL, never 0.0, on every experiment that judged nothing —
+    the ledger's own column says so in a comment. The run-file projection has
+    to keep the same rule, or a run with ragas off resolves as a measured
+    refusal and sorts below rows that were actually scored."""
+    import json
+
+    from raglab.evaluation import run_evaluation as evaluate
+
+    run_id = '20260101-000001-nojudge'
+    evaluate.RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    (evaluate.RUNS_DIR / f'{run_id}.json').write_text(
+        json.dumps({'run_id': run_id, 'summary': {}, 'ragas': {}}),
+        encoding='utf-8')
+    try:
+        body = client.get(f'/api/experiments/{run_id}').json()
+        assert body['decision'] is None
+        assert body['decision_stderr'] is None
+        assert body['n_questions'] == 0
+    finally:
+        (evaluate.RUNS_DIR / f'{run_id}.json').unlink()
+
+
 def test_the_run_and_runs_collision_is_gone(client):
     # this is an integration test
     """The old singular/plural split meant two unrelated things at one

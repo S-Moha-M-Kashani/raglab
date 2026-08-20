@@ -866,11 +866,16 @@ function setArchiveState(runId, label = 'Imported archive') {
   const state = document.getElementById('archive-state');
   const button = document.getElementById('archive-return-live');
   const readOnly = runId !== null;
-  // A record the lab could not produce leaves the page on live and says why
-  // here, so this line stays up in that one case — the follow loop calls this
-  // every couple of seconds and would otherwise wipe the reason immediately.
+  // A record the page could not produce leaves it on live and says why here,
+  // so this line stays up in that one case — the follow loop calls this every
+  // couple of seconds and would otherwise wipe the reason immediately.
   state.hidden = !readOnly && !recordProblem;
-  button.hidden = !readOnly;
+  // And the control stays with it, because a stated failure a reader cannot
+  // dismiss is a banner and a stale `?experiment=` in the URL with no way out
+  // of either. It says what it does in each case: leaving a record is a return
+  // to live, while a record that never loaded was never left.
+  button.hidden = !readOnly && !recordProblem;
+  button.textContent = readOnly ? 'Return to live' : 'Dismiss';
   document.getElementById('build-chunks').disabled = readOnly;
   document.getElementById('add-question').disabled = readOnly;
   if (readOnly) state.textContent = `${label} · read-only · ${runId}`;
@@ -960,10 +965,11 @@ async function leaveArchiveMode() {
 }
 
 document.getElementById('archive-return-live').addEventListener('click', async () => {
-  // One control, two read-only modes. Only an imported archive is something the
-  // *lab* is holding open, so only that one has anything to clear over there —
-  // a recorded experiment was never more than this page reading a ledger row.
-  if (activeExperimentId !== null) {
+  // One control, three states. Only an imported archive is something the *lab*
+  // is holding open, so only that one has anything to clear over there — a
+  // recorded experiment was never more than this page reading a record, and a
+  // record that failed to load leaves only a message and a URL to clear.
+  if (activeExperimentId !== null || recordProblem) {
     await leaveRecordMode();
     return;
   }
@@ -1055,6 +1061,10 @@ async function renderRecordedExperiment(record) {
     // A corpus this installation no longer has is a stated gap, not an empty
     // question list: the rows below still came from one.
     GT.clear();
+    // And its direction is unstated, not the live corpus's: `auto` is the
+    // honest reading for text whose language nothing here can report, and is
+    // what an archive written without one falls through to as well.
+    setCorpusDir('');
     document.getElementById('view-groundtruth').innerHTML =
       '<p class="empty-note">This experiment ran against '
       + `<b>${escapeHtml(record.dataset || 'the built-in corpus')}</b>, which `
@@ -1063,14 +1073,27 @@ async function renderRecordedExperiment(record) {
       + 'compare against.</p>';
   }
 
-  const traces = detail.traces || [];
+  // `traces` on an evaluation, `questions` on a retrieval: two names for one
+  // shape, normalised here the way `/api/follow` normalises the live pair.
+  const traces = detail.traces || detail.questions || [];
   const rows = detail.rows || [];
   renderQuestionTables(traces);
   if (!traces.length) {
-    document.getElementById('retrieval-questions').innerHTML =
-      '<p class="empty-note">This experiment recorded no per-question '
-      + 'retrieval — an index build measures no questions, so there are no '
-      + 'candidate tables to read here.</p>';
+    // Two different reasons a record has no candidate tables, and they must not
+    // be told in one sentence. An experiment that answered questions ran a
+    // retrieval and it was simply never written down — chunk text, traces and
+    // summaries do not reach a run file — while an index build measured no
+    // questions at all. Saying the second where the first is true would be a
+    // view lying about why it is empty.
+    document.getElementById('retrieval-questions').innerHTML = rows.length
+      ? '<p class="empty-note">The per-question retrieval of this experiment '
+        + 'was <b>not recorded</b> — its answers and scores were written to a '
+        + 'run file, and candidate rankings never travel there. The answers '
+        + 'themselves are under Generation; what was retrieved to write them '
+        + 'is not recoverable from this record.</p>'
+      : '<p class="empty-note">This experiment recorded no per-question '
+        + 'retrieval — an index build measures no questions, so there are no '
+        + 'candidate tables to read here.</p>';
   }
   if (rows.length) {
     // Keyed by question id, and handed over only because these ranks and these
@@ -1091,9 +1114,10 @@ async function renderRecordedExperiment(record) {
   // All four, so no view is left describing the live pipeline beside recorded
   // rows. After `showRecordedChunks`, which is why the chunks note carries its
   // own sentence about the rebuild rather than leaning on this line.
+  const shown = formatConfig(recordedStages(record));
   for (const id of ['chunks-active-config', 'retrieval-active-config',
                     'retrieval-set-config', 'generation-active-config']) {
-    document.getElementById(id).textContent = formatConfig(config);
+    document.getElementById(id).textContent = shown;
   }
   // The one-off query view follows a live job; a ledger row holds no such
   // thing, and last tick's candidates under this id would belong to neither.
@@ -1103,7 +1127,18 @@ async function renderRecordedExperiment(record) {
                   `Recorded experiment (${record.kind || 'kind unrecorded'})`);
 }
 
-// The one tab a record cannot fill. A ledger row keeps no chunk text by design
+// Only the stages this experiment actually ran. A build stores a whole config
+// — retrieval and generation defaults included — and no part of a build reads
+// them; the record's own columns are blank there for that reason, so printing
+// `bm25 k=3 · grader=none` under a build would have this page and the board
+// telling two stories about one experiment.
+function recordedStages(record) {
+  const config = (record.detail || {}).config || {};
+  if (record.kind !== 'index') return config;
+  return { index: config.index };
+}
+
+// The one tab a record cannot fill. A record keeps no chunk text by design
 // — the text belongs to the index a config produces, and copying it per row
 // would put the corpus in the ledger — so this says so and offers the rebuild
 // rather than taking it: a rebuild is today's index, and today's chunks shown
@@ -1112,7 +1147,7 @@ function showRecordedChunks(record) {
   const detail = record.detail || {};
   const body = document.getElementById('chunks-body');
   body.innerHTML = '<p class="empty-note">The chunk text of this experiment was '
-    + '<b>not recorded</b> — a ledger row keeps the config that produces an '
+    + '<b>not recorded</b> — a record keeps the config that produces an '
     + 'index, never a copy of the corpus. A rebuild below is today\'s index '
     + 'under this experiment\'s config, which is not the same claim: the corpus '
     + 'or the chunker may have changed since it ran.</p>';
@@ -1141,6 +1176,11 @@ function showRecordedChunks(record) {
 }
 
 async function leaveRecordMode() {
+  // Which corpus to go back to: the one this page was following before a record
+  // pinned it, or — when nothing was ever pinned, because the record failed to
+  // load and only its message is being dismissed — the one already on screen.
+  const dataset = activeExperimentId !== null
+    ? liveDatasetBeforeArchive : FOLLOWED_DATASET;
   activeExperimentId = null;
   recordProblem = '';
   // The record's own note about its missing chunk text goes when the record
@@ -1157,7 +1197,7 @@ async function leaveRecordMode() {
   const url = new URL(window.location.href);
   url.searchParams.delete('experiment');
   history.replaceState(null, '', url);
-  await returnToLive(liveDatasetBeforeArchive);
+  await returnToLive(dataset);
 }
 
 async function renderFollow(body) {

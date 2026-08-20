@@ -616,8 +616,12 @@ def test_the_served_inspector_page_keeps_its_conventions(
 def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
     # this is a convention test
     source = INSPECTOR_JS.read_text()
+    # Bounded by the next function rather than by `renderFollow`, which is no
+    # longer the next thing in the file: the slice would otherwise span every
+    # line of the recorded-experiment mode, and a claim about one function
+    # would quietly become a claim about two hundred lines.
     function = source[source.index('async function followImportedArchive'):
-                      source.index('function renderFollow')]
+                      source.index('async function returnToLive')]
     assert 'if (archiveId === activeArchiveId) return;' in function
     assert 'const archive = await archiveRequest(' in function
     assert "'/api/imported-archives/' + encodeURIComponent(archiveId)" in function
@@ -661,10 +665,81 @@ def test_returning_to_live_from_a_record_forgets_it_in_both_places(
     # this is a convention test
     """Two things pin the page to a record: the variable and the URL it was
     opened with. Clearing only the variable leaves a page whose next reload
-    silently pins itself again, which is not what "return to live" asked for."""
+    silently pins itself again, which is not what "return to live" asked for.
+
+    Read out of `leaveRecordMode` rather than out of the whole file: the
+    file-wide version of this test passed on the *declaration* of
+    `activeExperimentId`, so half of it could not fail."""
     js = inspector_texts['inspector.js']
-    assert "searchParams.delete('experiment')" in js
-    assert 'activeExperimentId = null' in js
+    leaving = js[js.index('async function leaveRecordMode'):
+                 js.index('async function renderFollow')]
+    assert "searchParams.delete('experiment')" in leaving
+    assert 'activeExperimentId = null' in leaving
+    # And the one control that does it has to be reachable from the failure
+    # state too, or a record that never loaded leaves a banner and a stale
+    # parameter with nothing to dismiss either.
+    assert 'activeExperimentId !== null || recordProblem' in js
+
+
+def test_a_record_that_cannot_be_read_still_leaves_a_populated_page(
+        inspector_texts):
+    # this is a convention test
+    """A deep link claims its loading id synchronously, so the page's own boot
+    fetch of the live fixture is turned away — and the follow loop reloads only
+    on a corpus *change*, which `'' -> ''` is not. Without an explicit reload on
+    the failure path the ground-truth tab stayed empty on every unresolvable
+    id, which is how this was found in a browser rather than here."""
+    js = inspector_texts['inspector.js']
+    following = js[js.index('async function followRecordedExperiment'):
+                   js.index('async function renderRecordedExperiment')]
+    assert 'recordLoadingId = null' in following, (
+        'the loading claim must be released before anything asks for the live '
+        'fixture, or the guard that reads it turns that request away too')
+    assert 'await loadGroundTruth(' in following, (
+        'the failure path must ask for the live fixture itself — nothing else '
+        'is going to')
+
+
+def test_a_record_says_which_of_two_reasons_its_retrieval_is_empty(
+        inspector_texts):
+    # this is a convention test
+    """An evaluation resolved from its run file has answers and no candidate
+    rankings, because rankings never travel there; an index build measured no
+    questions at all. One sentence for both would tell the reader the wrong one
+    half the time."""
+    js = inspector_texts['inspector.js']
+    render = js[js.index('async function renderRecordedExperiment'):
+                js.index('function recordedStages')]
+    assert 'The per-question retrieval of this experiment' in render
+    assert 'an index build measures no questions' in render
+    # And a retrieval experiment keeps its rows under a different key than an
+    # evaluation does, the way the live route already normalises the pair.
+    assert 'detail.traces || detail.questions' in render
+
+
+def test_a_records_config_line_names_only_the_stages_it_ran(inspector_texts):
+    # this is a convention test
+    """A build's stored config carries a whole pipeline — retrieval and
+    generation defaults no part of a build reads — while the board's row for the
+    same id shows its index stages and nothing else. Printing the rest here
+    made two surfaces tell two stories about one experiment."""
+    js = inspector_texts['inspector.js']
+    stages = js[js.index('function recordedStages'):
+                js.index('function showRecordedChunks')]
+    assert "record.kind !== 'index'" in stages
+    assert 'return { index: config.index };' in stages
+
+
+def test_a_record_whose_corpus_is_gone_claims_no_direction(inspector_texts):
+    # this is a convention test
+    """The rule the archive path already keeps: `auto` when the language is
+    unstated. A corpus this installation cannot load leaves the page unable to
+    report one, and rendering it in whatever direction the *live* corpus reads
+    is a claim about text nothing here has seen."""
+    js = inspector_texts['inspector.js']
+    render = js[js.index('async function renderRecordedExperiment'):
+                js.index('function recordedStages')]
+    assert "setCorpusDir('')" in render
 
 
 def test_the_chunks_build_has_one_request_path(inspector_texts):

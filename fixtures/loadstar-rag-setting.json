@@ -1,0 +1,77 @@
+{
+  "format": "raglab-experiment",
+  "version": 1,
+  "settings": {
+    "config": {
+      "index": {
+        "dataset": "",
+        "chunker": "fixed-overlap",
+        "chunk_chars": 500,
+        "overlap": 100,
+        "contextual": false,
+        "embedder": "sentence-transformers",
+        "embed_model": "",
+        "hierarchy": "",
+        "graph_source": "hybrid",
+        "graph_knn": 8,
+        "granularity": 1.0,
+        "hierarchy_levels": 1,
+        "min_group": 3,
+        "summarizer": "centroid"
+      },
+      "retrieval": {
+        "retriever": "hybrid-rrf",
+        "k": 8,
+        "candidates": 40,
+        "rrf_k": 60,
+        "time_filter": true,
+        "multi_query": true,
+        "hyde": false,
+        "expansion_model": "",
+        "mmr_lambda": 1.0,
+        "reranker": "lexical",
+        "rerank_depth": 20,
+        "reranker_model": "",
+        "recency_half_life_days": 180.0,
+        "agentic_weights": [
+          1.0,
+          0.3,
+          0.2
+        ],
+        "grader": "llm",
+        "grade_threshold": 0.4,
+        "grader_model": "",
+        "max_context_chars": 6000,
+        "summary_scope": "mixed",
+        "summary_boost": 1.0,
+        "summary_levels": ""
+      },
+      "generation": {
+        "answerer": "llm",
+        "model": "",
+        "key_facts_judge": false,
+        "judge_model": "",
+        "ragas_model": ""
+      },
+      "agent": {
+        "scope": "",
+        "max_hops": 3,
+        "rewrite": true,
+        "evidence_threshold": 0.5,
+        "max_revisions": 1,
+        "critic": "grounded",
+        "max_llm_calls": 12,
+        "plan_model": "",
+        "critic_model": ""
+      },
+      "label": "the shipped assistant (snapshot 2026-08-11)"
+    },
+    "ui": {
+      "mode": "",
+      "ragas_mode": "offline",
+      "limit": 0,
+      "ragas_limit": 0,
+      "types": []
+    }
+  }
+}

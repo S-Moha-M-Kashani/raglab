@@ -652,6 +652,7 @@ def create_app() -> FastAPI:
             found = datasets.import_dataset(payload)
         except ValueError as error:
             raise HTTPException(400, str(error))
+        registry.invalidate_dataset(found.id)
         return found.as_dict()
 
     @app.post('/api/credentials')

@@ -210,6 +210,22 @@ class IndexRegistry:
             self._indexes[key].stats.reused = True
         return self._indexes[key]
 
+    def invalidate_dataset(self, dataset: str) -> int:
+        """Forget cached indexes for a replaced dataset id.
+
+        Build fingerprints intentionally identify a dataset by id, not by its
+        machine-local file. Re-importing that id is therefore the one boundary
+        that must evict matching process-memory indexes explicitly. Replacing
+        the mapping rather than dropping each index leaves any already-running
+        job's private reference intact while every later request rebuilds.
+        """
+        stale = [key for key, index in self._indexes.items()
+                 if index.cfg.dataset == dataset]
+        if stale:
+            self._indexes = {key: index for key, index in self._indexes.items()
+                             if key not in stale}
+        return len(stale)
+
     def known(self) -> list[dict]:
         return [{'fingerprint': key, 'collection': ix.stats.collection,
                  'chunks': ix.stats.chunks,

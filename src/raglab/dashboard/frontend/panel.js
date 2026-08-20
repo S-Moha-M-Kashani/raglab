@@ -292,7 +292,7 @@ function decorateExplainers() {
     if (!btn) return;
     const open = btn.parentElement.nextElementSibling;
     if (open && open.classList.contains('explain')) { open.remove(); return; }
-    const text = (OPTIONS.help || {})[btn.dataset.topic] || '';
+    const text = btn.dataset.help || (OPTIONS.help || {})[btn.dataset.topic] || '';
     btn.parentElement.insertAdjacentHTML('afterend',
       `<p class="explain">${escapeHtml(text)}</p>`);
   });
@@ -578,6 +578,7 @@ async function boot() {
   fillModels();
   fillModes();
   applyDefaults(startingConfig(o.defaults));
+  keepUnshown(startingConfig(o.defaults));
   applyDependencies();
   describeDataset();
   decorateExplainers();
@@ -911,12 +912,14 @@ $('stopPoll').onclick = () => { boot(); };
 // about a metric is written twice, so no number on this page can end up with a
 // name its definition does not carry.
 const measures = () => OPTIONS.metrics || [];
-const measureOf = (key) => measures().find((m) => m.key === key)
+const measureOf = (key, catalogue = measures()) => catalogue.find((m) => m.key === key)
   || { key, label: key, short: '', step: '' };
-const measureWhy = (key) => {
+const measureWhy = (key, catalogue = measures()) => {
+  const metric = measureOf(key, catalogue);
   const topic = `metric.${key}`;
   return `<button type="button" class="why" data-topic="${escapeHtml(topic)}" `
-    + `aria-label="What is ${escapeHtml(measureOf(key).label)}?">!</button>`;
+    + `data-help="${escapeHtml(metric.help || '')}" `
+    + `aria-label="What is ${escapeHtml(metric.label)}?">!</button>`;
 };
 
 // --- portable experiment exchange -----------------------------------------
@@ -1155,7 +1158,8 @@ async function importArchiveFile(file) {
       });
       if (imported.evaluation) {
         renderResult(imported.evaluation.result,
-          { remember: false, imported: true });
+          { remember: false, imported: true,
+            metric_catalogue: imported.evaluation.metric_catalogue });
         savedArchive = await api('/api/imported-archives', imported);
       } else {
         await api('/api/imported-archives/active', undefined, 'DELETE');
@@ -1223,6 +1227,7 @@ $('archive-export').onclick = () => {
 
 function renderResult(result, options = {}) {
   const safe = (value) => escapeHtml(String(value ?? ''));
+  const metricCatalogue = options.metric_catalogue || measures();
   // Remembered here rather than at each caller: a run that finished, a
   // leaderboard click and a ledger click are three ways to be looking at the same
   // experiment, and all three should still be there after a refresh.
@@ -1236,14 +1241,14 @@ function renderResult(result, options = {}) {
     (result.index.reused ? ' reused' : '')
     + (options.imported ? ' · imported · read-only' : '');
   $('notes').innerHTML = (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
-  $('scores').innerHTML = measures()
-    .filter((m) => s[m.key] !== null && s[m.key] !== undefined)
+  $('scores').innerHTML = metricCatalogue.filter((m) =>
+    s[m.key] !== null && s[m.key] !== undefined)
     .map((m) => {
       const v = s[m.key];
       const isRate = m.key !== 'latency_ms';
       const bar = isRate ? `<div class="bar"><i style="width:${Math.max(0, Math.min(1, v)) * 100}%"></i></div>` : '';
       return `<div class="score"${m.step ? ` data-step="${m.step}"` : ''}>
-        <span>${escapeHtml(m.label)}${measureWhy(m.key)}</span>
+        <span>${escapeHtml(m.label)}${measureWhy(m.key, metricCatalogue)}</span>
         <b>${isRate ? safe(fmt(v)) : safe(Math.round(v))}</b>
         <span class="muted">${escapeHtml(m.short)}</span>${bar}</div>`;
     }).join('');
@@ -1262,8 +1267,8 @@ function renderResult(result, options = {}) {
     // parent, and a <p> placed directly after a <td> would be hoisted out of the
     // table by the parser.
     ? table(['metric', 'score'], Object.entries(metrics).map(([k, v]) =>
-      [`<span class="measure">${escapeHtml(measureOf(k).label)}`
-       + `${measureWhy(k)}</span>`, safe(fmt(v))])) +
+      [`<span class="measure">${escapeHtml(measureOf(k, metricCatalogue).label)}`
+       + `${measureWhy(k, metricCatalogue)}</span>`, safe(fmt(v))])) +
       `<div class="muted" style="font-size:.7rem">mode ${escapeHtml(r.mode || '')} · ${safe(r.n_samples)} samples · ${safe(r.skipped)} skipped</div>` +
       (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('')
     : `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
@@ -1378,6 +1383,7 @@ async function loadBoard() {
 // ranked: a build or a retrieval measures nothing, so numbering these rows
 // would claim an ordering the work does not support.
 async function loadExperiments(throwOnError = false) {
+  const safe = (value) => escapeHtml(String(value ?? ''));
   let rows = [];
   try {
     rows = (await api('/api/experiments')).experiments;
@@ -1398,33 +1404,44 @@ async function loadExperiments(throwOnError = false) {
       + 'something, and it lands here</div>';
     return;
   }
-  renderTable('experiments',
+  const host = renderTable('experiments',
     ['when', 'kind', 'id', 'label', 'backend', 'chunker', 'embedder',
       'retriever', 'reranker', 'grader', 'answerer', 'n', 'decision', 'state', 's'],
     rows.map((r) => [
-      r.started_at,
-      `<span class="pill">${escapeHtml(r.kind)}</span>`,
-      `<a href="#" onclick="showExperiment('${escapeHtml(r.experiment_id)}');return false">`
-        + `${escapeHtml(r.experiment_id)}</a>`,
-      escapeHtml(r.label || ''),
+      safe(r.started_at),
+      `<span class="pill">${safe(r.kind)}</span>`,
+      safe(r.experiment_id),
+      safe(r.label || ''),
       // Marked rather than merely printed: on `fake` every LLM number on the
       // row came from a stub that cannot fail.
       r.provider === 'fake'
         ? '<b title="a stub answered and judged every call: these numbers measure '
           + 'nothing">fake</b>'
-        : escapeHtml(r.provider || '—'),
-      escapeHtml(r.chunker || '—'), escapeHtml(r.embedder || '—'),
-      escapeHtml(r.retriever || '—'), escapeHtml(r.reranker || '—'),
-      escapeHtml(r.grader || '—'), escapeHtml(r.answerer || '—'),
-      r.n_questions || '—',
+        : safe(r.provider || '—'),
+      safe(r.chunker || '—'), safe(r.embedder || '—'),
+      safe(r.retriever || '—'), safe(r.reranker || '—'),
+      safe(r.grader || '—'), safe(r.answerer || '—'),
+      safe(r.n_questions || '—'),
       // Blank, never 0, when nothing was judged — the leaderboard's own rule.
-      r.decision == null ? '—' : `<b>${fmt(r.decision)}</b>`
+      r.decision == null ? '—' : `<b>${safe(fmt(r.decision))}</b>`
         + (r.decision_stderr != null
-          ? ` <span class="stderr">± ${fmt(r.decision_stderr)}</span>` : ''),
+          ? ` <span class="stderr">± ${safe(fmt(r.decision_stderr))}</span>` : ''),
       r.state === 'done' ? 'done'
-        : `<b title="${escapeHtml(r.error || '')}">${escapeHtml(r.state)}</b>`,
-      Math.round(r.seconds),
+        : `<b title="${safe(r.error || '')}">${safe(r.state)}</b>`,
+      safe(Math.round(r.seconds)),
     ]));
+  const tableRows = host.querySelectorAll('tbody tr');
+  rows.forEach((r, index) => {
+    const cell = tableRows[index].children[2];
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = String(r.experiment_id ?? '');
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      window.showExperiment(r.experiment_id);
+    });
+    cell.replaceChildren(link);
+  });
 }
 
 // The whole stored payload for one experiment — config, per-question rows,

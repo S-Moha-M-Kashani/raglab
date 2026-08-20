@@ -20,9 +20,6 @@
   <div class="masthead">
     <h1><span class="lab-mark">RL</span>RAG Lab</h1>
     <span class="pill" id="corpus"></span>
-    <!-- Fills every control from /api/options → production; belongs to the
-         whole page, not any one card. Settings only — the run buttons are on
-         the cards below. -->
     <div class="chassis-right">
       <button class="ghost" id="app-settings" type="button"
         popovertarget="app-settings-panel">Settings</button>
@@ -43,9 +40,16 @@
           <div id="keyState" class="muted"></div>
         </div>
       </div>
-      <button class="ghost" id="use-production"
-        title="Fill every setting with the architecture the Assistant ships: chunking, embedder, retrieval, reranking, the relevance gate and the answerer. Nothing runs until you press a run button.">Load the shipped settings</button>
-      <span id="productionNote"></span>
+      <div class="archive-exchange" aria-label="Experiment archive exchange">
+        <div class="archive-actions">
+          <label class="archive-button" id="archive-import" for="archive-file"
+                 role="button" tabindex="0">Import JSON</label>
+          <button class="ghost" id="archive-export" type="button">Export experiment</button>
+          <input id="archive-file" class="hidden" type="file"
+                 accept="application/json,.json">
+        </div>
+        <span id="archive-status" class="archive-status" aria-live="polite"></span>
+      </div>
     </div>
   </div>
   <div class="chips" id="caps"></div>
@@ -404,6 +408,7 @@
   </form>
 </div>
 
+<script src="/archive_io.js"></script>
 <script src="/panel.js"></script>
 </body>
 </html>

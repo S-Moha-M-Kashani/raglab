@@ -42,7 +42,6 @@ from raglab.configuration.lab_config import (
     GRADERS,
     GRAPH_SOURCES,
     HIERARCHIES,
-    PRODUCTION_CONFIG,
     RERANKERS,
     RETRIEVERS,
     ROOT,
@@ -137,9 +136,6 @@ def _config_defaults() -> dict:
         # knobs for the same stated reason.
         'dependencies': DEPENDENCIES,
         'defaults': LabConfig().to_dict(),
-        # The shipped Assistant's own settings, for the panel's preset —
-        # served rather than copied into the frontend, which would drift.
-        'production': PRODUCTION_CONFIG,
     }
 
 
@@ -376,6 +372,12 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'panel.js',
                             media_type='application/javascript')
 
+    @app.get('/archive_io.js')
+    def archive_io_js():
+        """The versioned archive codec, loaded before the Panel integration."""
+        return FileResponse(STATIC / 'archive_io.js',
+                            media_type='application/javascript')
+
     @app.get('/api/options')
     def options():
         """Everything the panel needs to render itself, including what is actually installed."""
@@ -429,11 +431,21 @@ def create_app() -> FastAPI:
         run_settings = settings_for_provider(settings_now(),
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
+        # Resolve every identity-bearing input once, before the job starts.
+        # The transient archive evidence below must describe the exact corpus,
+        # truth and model mapping this request used even if files or settings
+        # change while the worker is running.
+        run_corpus, run_truth = datasets.load(cfg.index.dataset)
+        run_execution = {
+            'provider': run_settings.provider,
+            'models': models.resolve(cfg, run_settings).as_dict(),
+        }
+        metric_catalogue = explain.measures()
 
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             result = evaluate.run_eval(
-                registry, questions_for(cfg), cfg, run_settings,
+                registry, run_truth, cfg, run_settings,
                 types=payload.get('types') or None,
                 difficulty=payload.get('difficulty') or None,
                 limit=payload.get('limit') or None,
@@ -449,7 +461,21 @@ def create_app() -> FastAPI:
             return result.as_dict() | {
                 'traces': result.traces,
                 'chunks_by_session': result.chunks_by_session,
-                'summaries': result.summaries}
+                'summaries': result.summaries,
+                'archive_evidence': {
+                    'execution': run_execution,
+                    'metric_catalogue': metric_catalogue,
+                    'inspector': {
+                        'dataset': {
+                            'id': cfg.index.dataset or datasets.BUILTIN,
+                            'corpus': run_corpus,
+                            'ground_truth': run_truth,
+                        },
+                        'chunks_by_session': result.chunks_by_session,
+                        'summaries': result.summaries,
+                        'traces': result.traces,
+                    },
+                }}
 
         return _accepted(jobs.start('run', work, config=_with_backend(cfg, run_settings)))
 

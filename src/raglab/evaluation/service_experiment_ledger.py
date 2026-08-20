@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS experiments (
 
 # What never goes into `detail`: a new result shape carrying chunk text should
 # be stripped by being added here, not by every caller remembering to.
-HEAVY = ('chunks_by_session',)
+HEAVY = ('chunks_by_session', 'archive_evidence')
 
 
 def db_path(env: dict | None = None) -> Path:

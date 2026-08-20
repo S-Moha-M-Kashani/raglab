@@ -69,8 +69,33 @@ h1 .lab-mark {
 .settings-popover button.ghost:hover {
   background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
 }
-#productionNote { font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft);
-                  align-self: center; max-width: 40ch; }
+.archive-exchange {
+  display: flex; align-items: center; gap: .55rem; min-width: 0;
+  padding-left: .65rem; border-left: 1px solid #35424f;
+}
+.archive-actions { display: flex; flex-wrap: nowrap; gap: .4rem; }
+.archive-button {
+  display: inline-block; margin: 0; padding: .42rem .85rem;
+  color: var(--chassis-ink); border: 1px solid #35424f; border-radius: 3px;
+  font: 600 .78rem/1.4 var(--sans); text-transform: none;
+  letter-spacing: 0; cursor: pointer; white-space: nowrap;
+}
+.archive-button:hover { background: var(--chassis-soft); color: #fff; }
+.archive-status {
+  max-width: 52ch; color: var(--chassis-ink-soft);
+  font: .7rem/1.45 var(--mono); overflow-wrap: anywhere;
+}
+.archive-status.success { color: var(--chassis-ink); }
+/* Chassis-local caution ink — never a step token: the masthead is a helper,
+   not a pipeline stage, and step colour is reserved for the four cards. */
+.archive-status.warning { color: #d8c69b; }
+.archive-status.error { color: #e6b4ad; }
+@media (max-width: 720px) {
+  .chassis-right, .archive-exchange { width: 100%; margin-left: 0; }
+  .archive-exchange { align-items: flex-start; flex-wrap: wrap; padding: .55rem 0 0;
+                      border-left: 0; border-top: 1px solid #35424f; }
+  .archive-status { flex-basis: 100%; max-width: none; }
+}
 .settings-popover {
   inset: 3.4rem 1.4rem auto auto;
   width: min(25rem, calc(100vw - 2rem));

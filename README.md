@@ -59,8 +59,10 @@ complete by `test_conventions.py`.
 
 1. Start the panel (`uv run --extra local-embeddings raglab`) and open
    `http://localhost:9002`.
-2. Press **Load the shipped settings** — the measured preset, every knob
-   explained by the `!` beside it.
+2. Press **Import JSON** and pick `fixtures/loadstar-rag-setting.json` — the
+   measured preset as a settings-only archive: it restores every knob (each
+   explained by the `!` beside it) and nothing else — no database row, no
+   run, no job started.
 3. In the **Index** card press **Build**. The first build downloads the
    default embedding model (~2.2 GB); later builds with the same fingerprint
    are reused.
@@ -76,6 +78,14 @@ complete by `test_conventions.py`.
    `decision score ± spread` per run.
 6. Trace any single question in the Inspector on :9003 — which chunks were
    retrieved, which were gold, what the answer was graded.
+7. Press **Export experiment** to write the whole experiment to one JSON
+   archive. Until an evaluation has completed under the current settings the
+   file carries settings only; after one it also carries the result and the
+   Inspector evidence. A completed archive contains the corpus text, ground
+   truth, generated answers and traces — share it as carefully as the data
+   inside it. Importing a completed archive renders its results read-only and
+   lands it once in **Every experiment**; it never enters the ranked
+   leaderboard.
 
 The **✳ Ask** widget in the panel's corner answers questions about the lab
 itself — a tool-calling agent over the project's knowledge base and the

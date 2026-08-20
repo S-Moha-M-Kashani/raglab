@@ -991,12 +991,9 @@ def test_the_production_preset_is_a_declared_snapshot():
     assert LabConfig.from_dict(preset).validate() == []
 
 
-def test_the_panel_serves_the_production_preset_for_its_button(client):
+def test_options_do_not_offer_a_retired_production_preset(client):
     # this is an integration test
-    """Served rather than written into the frontend, for the reason the mode
-    dropdown is: a preset kept in a browser is a preset that will drift from
-    the brain it claims to mirror."""
-    assert client.get('/api/options').json()['production'] == config.PRODUCTION_CONFIG
+    assert 'production' not in client.get('/api/options').json()
 
 
 def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():

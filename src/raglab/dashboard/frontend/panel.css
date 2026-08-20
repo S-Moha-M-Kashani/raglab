@@ -86,7 +86,9 @@ h1 .lab-mark {
   font: .7rem/1.45 var(--mono); overflow-wrap: anywhere;
 }
 .archive-status.success { color: var(--chassis-ink); }
-.archive-status.warning { color: var(--step-index-lit); }
+/* Chassis-local caution ink — never a step token: the masthead is a helper,
+   not a pipeline stage, and step colour is reserved for the four cards. */
+.archive-status.warning { color: #d8c69b; }
 .archive-status.error { color: #e6b4ad; }
 @media (max-width: 720px) {
   .chassis-right, .archive-exchange { width: 100%; margin-left: 0; }

@@ -55,8 +55,11 @@ CREATE TABLE IF NOT EXISTS experiments (
 );
 """
 
-# What never goes into `detail`: a new result shape carrying chunk text should
-# be stripped by being added here, not by every caller remembering to.
+# What never goes into a *job* row's `detail`: a new result shape carrying
+# chunk text should be stripped by being added here, not by every caller
+# remembering to. The one deliberate exception is `insert_archive` below —
+# an imported archive is preserved verbatim, evidence included, because the
+# ledger is its only home (it has no job, no run file, no leaderboard row).
 HEAVY = ('chunks_by_session', 'archive_evidence')
 
 

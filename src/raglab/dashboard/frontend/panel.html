@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAG Lab</title>
+<!-- The stored theme, stamped before anything paints. lab.js owns the switch
+     and this owns only the first frame: run from there, at the foot of the
+     page, and a reader on Night gets a white flash on every navigation
+     between the three surfaces. Inline because a separate file is a request,
+     and the flash lasts exactly as long as that request. -->
+<script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
 <!-- Design tokens shared with the Inspector on :9003; before panel.css so its
      overrides still win. -->
 <link rel="stylesheet" href="/tokens.css">
@@ -24,40 +30,59 @@
 <header class="topbar">
   <div class="topbar-inner">
     <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
-    <!-- Three surfaces. The Inspector is a separate service on :9003, so these
-         are links rather than tabs pretending the click stays here. -->
+    <!-- Three surfaces, nearest first: the Inspector reads what this page just
+         produced, the Leaderboard ranks across every run there has ever been.
+         The Inspector is a separate service on :9003, so these are links
+         rather than tabs pretending the click stays here — but the port is not
+         shown, because it is not what anybody is choosing between. -->
     <nav class="topnav" aria-label="Surfaces">
       <a href="/" aria-current="page">Laboratory</a>
+      <a href="http://localhost:9003/">Inspector</a>
       <a href="/leaderboard">Leaderboard</a>
-      <a href="http://localhost:9003/">Inspector <span class="port">:9003</span></a>
     </nav>
+    <!-- One button. What used to be three loose controls here — Settings,
+         Import, Export — are all about this installation rather than about the
+         experiment on screen, so they are three groups behind one disc. -->
     <div class="topbar-actions">
-      <button class="ghost" id="app-settings" type="button"
-        popovertarget="app-settings-panel">Settings</button>
+      <button class="settings-button" id="app-settings" type="button"
+        popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
       <div class="settings-popover" id="app-settings-panel" popover
-           aria-label="OpenRouter settings">
+           aria-label="Settings">
         <div class="settings-head">
-          <b>OpenRouter</b>
-          <span>Session settings</span>
+          <b>Settings</b>
+          <span>This installation</span>
         </div>
-        <div class="field" id="keyField">
-          <label for="openrouter_key">API key <span class="muted">· held until the lab restarts</span></label>
-          <input type="password" id="openrouter_key" placeholder="sk-or-…"
-                 autocomplete="off" spellcheck="false" aria-describedby="keyState">
-          <div class="actions">
-            <button class="ghost" id="save-key" type="button">Save key</button>
-            <button class="ghost" id="clear-key" type="button">Clear</button>
+        <div class="settings-group">
+          <h3 id="theme-control-label">Theme</h3>
+          <!-- Filled by lab.js, which owns the three choices and the stored
+               one, so the panel and the Inspector cannot offer different sets. -->
+          <div class="theme-control" id="theme-control"
+               aria-labelledby="theme-control-label"></div>
+        </div>
+        <div class="settings-group">
+          <h3>OpenRouter</h3>
+          <div class="field" id="keyField">
+            <label for="openrouter_key">API key <span class="muted">· held until the lab restarts</span></label>
+            <input type="password" id="openrouter_key" placeholder="sk-or-…"
+                   autocomplete="off" spellcheck="false" aria-describedby="keyState">
+            <div class="actions">
+              <button class="ghost" id="save-key" type="button">Save key</button>
+              <button class="ghost" id="clear-key" type="button">Clear</button>
+            </div>
+            <div id="keyState" class="muted"></div>
           </div>
-          <div id="keyState" class="muted"></div>
         </div>
-      </div>
-      <div class="archive-exchange" aria-label="Experiment archive exchange">
-        <div class="archive-actions">
-          <label class="archive-button" id="archive-import" for="archive-file"
-                 role="button" tabindex="0">Import JSON</label>
-          <button class="ghost" id="archive-export" type="button">Export experiment</button>
-          <input id="archive-file" class="hidden" type="file"
-                 accept="application/json,.json">
+        <div class="settings-group">
+          <h3>Experiment archive</h3>
+          <div class="archive-exchange" aria-label="Experiment archive exchange">
+            <div class="archive-actions">
+              <label class="archive-button" id="archive-import" for="archive-file"
+                     role="button" tabindex="0">Import JSON</label>
+              <button class="ghost" id="archive-export" type="button">Export experiment</button>
+              <input id="archive-file" class="hidden" type="file"
+                     accept="application/json,.json">
+            </div>
+          </div>
         </div>
       </div>
     </div>

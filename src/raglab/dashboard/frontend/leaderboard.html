@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAG Lab · Leaderboard</title>
+<!-- The stored theme, stamped before anything paints. See panel.html. -->
+<script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/chrome.css">
 <link rel="stylesheet" href="/panel.css">
@@ -19,9 +21,25 @@
     <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
     <nav class="topnav" aria-label="Surfaces">
       <a href="/">Laboratory</a>
+      <a href="http://localhost:9003/">Inspector</a>
       <a href="/leaderboard" aria-current="page">Leaderboard</a>
-      <a href="http://localhost:9003/">Inspector <span class="port">:9003</span></a>
     </nav>
+    <div class="topbar-actions">
+      <button class="settings-button" id="app-settings" type="button"
+        popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
+      <div class="settings-popover" id="app-settings-panel" popover
+           aria-label="Settings">
+        <div class="settings-head">
+          <b>Settings</b>
+          <span>This installation</span>
+        </div>
+        <div class="settings-group">
+          <h3 id="theme-control-label">Theme</h3>
+          <div class="theme-control" id="theme-control"
+               aria-labelledby="theme-control-label"></div>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="chrome-progress"><i></i></div>
 </header>

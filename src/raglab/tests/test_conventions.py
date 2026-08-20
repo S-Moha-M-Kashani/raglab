@@ -114,6 +114,11 @@ SPACING_OFF_RAMP = [
     ('inspector.css', 'gap: var(--s-1) 1.3rem',
      'the column gap between metric badges, which lands between --s-4 and '
      '--s-5 — and note the row gap beside it is on the ramp'),
+    ('chrome.css', 'margin-left: -1px',
+     'the theme segments pulling onto each other so neighbours share one edge '
+     'instead of drawing two — it is the negative of a border width, which the '
+     'ramp explicitly does not cover, and it must track that width rather than '
+     'a spacing step'),
 ]
 
 

@@ -7,6 +7,7 @@ Smoke set (`fixtures/corpus_groundtruth_datasets/smoke-mini.json`, 5 sessions, 6
 questions) with `token-hash` (no model download) and the conftest-pinned
 `fake` provider, so this stays fast."""
 import json
+import threading
 
 from raglab.configuration import explainer_assembly as explain
 from raglab.corpora import dataset_import_contract as datasets
@@ -59,6 +60,100 @@ def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
     assert archived_text == 'replacement archive evidence'
     assert 'replacement archive evidence' in indexed_text
     assert result['index']['reused'] is False
+
+
+def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
+        client, monkeypatch, tmp_path):
+    monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
+    monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')
+    datasets.forget()
+
+    def payload(question_id, text):
+        return {
+            'dataset': {'id': 'archive-race-id', 'name': 'Archive race',
+                        'language': 'en'},
+            'sessions': [{'session_id': 's1', 'date': '2026-08-19',
+                          'messages': [{'role': 'user', 'content': text}]}],
+            'questions': [{'id': question_id, 'type': 'single-hop',
+                           'difficulty': 'easy', 'answerable': True,
+                           'question': 'What was recorded?', 'answer': text,
+                           'evidence': [{'session_id': 's1',
+                                         'message_indices': [0], 'quote': text}]}],
+        }
+
+    original = payload('old-question', 'old evaluation evidence')
+    replacement = payload('replacement-question', 'replacement evaluation evidence')
+    assert client.post('/api/datasets', json=original).status_code == 200
+    index = {'dataset': 'archive-race-id', 'chunker': 'session',
+             'embedder': 'token-hash'}
+    entered_index = threading.Event()
+    release_index = threading.Event()
+    entered_import = threading.Event()
+    release_import = threading.Event()
+    replacement_done = threading.Event()
+    replacement_response = {}
+
+    from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
+
+    original_get = IndexRegistry.get
+
+    def paused_get(self, cfg, *args, **kwargs):
+        if cfg.dataset == 'archive-race-id' and not entered_index.is_set():
+            entered_index.set()
+            assert release_index.wait(2), 'test did not release evaluation index work'
+        return original_get(self, cfg, *args, **kwargs)
+
+    original_import = datasets.import_dataset
+
+    def paused_import(body):
+        entered_import.set()
+        assert release_import.wait(2), 'test did not release dataset replacement'
+        return original_import(body)
+
+    monkeypatch.setattr(IndexRegistry, 'get', paused_get)
+    monkeypatch.setattr(datasets, 'import_dataset', paused_import)
+
+    started = client.post('/api/evaluations', json={
+        'index': index, 'retrieval': {'k': 1, 'reranker': 'none', 'grader': 'none'},
+        'generation': {'answerer': 'extractive'}, 'ragas_mode': 'off', 'limit': 1})
+    assert started.status_code == 202, started.text
+    assert entered_index.wait(1), 'evaluation never acquired its dataset index'
+
+    def replace_dataset():
+        try:
+            replacement_response['response'] = client.post('/api/datasets',
+                                                             json=replacement)
+        finally:
+            replacement_done.set()
+
+    thread = threading.Thread(target=replace_dataset)
+    thread.start()
+    try:
+        assert not entered_import.wait(0.2), (
+            'replacement entered dataset import while evaluation still owned '
+            'its evidence snapshot and index acquisition')
+        release_index.set()
+        evaluated = _finished(client, started.json()['job_id'])
+        assert evaluated['state'] == 'done', evaluated.get('error')
+        assert entered_import.wait(1), 'replacement did not proceed after evaluation'
+        release_import.set()
+        thread.join(2)
+        assert not thread.is_alive(), 'replacement request did not finish'
+    finally:
+        release_index.set()
+        release_import.set()
+        thread.join(2)
+
+    assert replacement_done.is_set()
+    assert replacement_response['response'].status_code == 200
+    rebuilt = client.post('/api/indexes', json={'index': index})
+    assert rebuilt.status_code == 202, rebuilt.text
+    rebuilt_job = _finished(client, rebuilt.json()['job_id'])
+    assert rebuilt_job['state'] == 'done', rebuilt_job.get('error')
+    assert rebuilt_job['result']['reused'] is False
+    assert 'replacement evaluation evidence' in \
+        rebuilt_job['result']['chunks_by_session'][0]['chunks'][0]['text']
 
 
 def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):

@@ -876,6 +876,39 @@ def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client, monkeypatch,
     assert body['total'] >= 4
 
 
+# --- the leaderboard's one table per dataset --------------------------------
+
+def test_the_leaderboard_route_filters_to_one_dataset(client):
+    # this is an integration test
+    """The picker is a filter on one population, not a switch between two
+    surfaces — so the route takes the dataset and answers with one board."""
+    body = client.get('/api/leaderboard?dataset=diary-fa').json()
+    assert body['dataset'] == 'diary-fa'
+    assert isinstance(body['rows'], list)
+    assert all(r['dataset'] == 'diary-fa' for r in body['rows'])
+
+
+def test_the_leaderboard_route_offers_every_experiment_unfiltered(client):
+    # this is an integration test
+    """`*` is every experiment — the table that used to live on the lab page.
+    It is the same population with no filter, which is why it is an option in
+    the same picker rather than a second surface."""
+    body = client.get('/api/leaderboard?dataset=*').json()
+    assert body['dataset'] == '*'
+    datasets = {r['dataset'] for r in body['rows']}
+    assert len(datasets) != 1 or not body['rows'], (
+        'the unfiltered view must not be filtered')
+
+
+def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
+    # this is an integration test
+    """The picker's options travel with the board, so the page makes one
+    request rather than joining two."""
+    body = client.get('/api/leaderboard').json()
+    ids = {d['id'] for d in body['datasets']}
+    assert 'diary-fa' in ids
+
+
 # --- the one dynamic, data-driven guard -------------------------------------
 
 def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it(client):

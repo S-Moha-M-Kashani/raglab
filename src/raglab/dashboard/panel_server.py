@@ -575,17 +575,27 @@ def create_app() -> FastAPI:
                 'total': evaluate.count_runs()}
 
     @app.get('/api/leaderboard')
-    def leaderboard_groups(limit: int = 500):
-        """The grouped ranking: one table per (dataset, question set, judge).
+    def leaderboard_board(dataset: str = '', limit: int = 500):
+        """One board per dataset: every experiment that touched one corpus.
 
-        The grouping, the tie rule and the refusal to number a row whose sample
-        was never recorded all come from `evaluation.leaderboard`, the same
-        module `raglab-leaderboard` prints from — so the page and the command
-        line cannot name different winners from the same `.runs/`. This route is
+        `dataset=''` is the built-in default, `dataset='*'` is every experiment
+        — the table that used to sit on the lab page, which is the same
+        population with no filter and so an option in the same picker rather
+        than a second surface.
+
+        The grouping and the row shape come from `evaluation.leaderboard`, the
+        same module `raglab-leaderboard` prints from, so the page and the
+        command line cannot describe the same records differently. This route is
         why that module lives in `evaluation/` rather than among the terminal
         tools no route reaches."""
-        return {'groups': [leaderboard.as_dict(g)
-                           for g in leaderboard.build(limit)]}
+        boards = leaderboard.build_board(limit)
+        wanted = dataset or datasets.BUILTIN
+        rows = ([row for board in boards for row in board.rows]
+                if dataset == '*' else
+                next((b.rows for b in boards if b.dataset == wanted), []))
+        return {'dataset': dataset or wanted,
+                'datasets': [found.as_dict() for found in datasets.catalogue()],
+                'rows': rows}
 
     @app.get('/api/experiments')
     def experiments(limit: int = 200):

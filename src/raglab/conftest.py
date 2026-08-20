@@ -64,6 +64,55 @@ def _radius_literals(css: str) -> list[str]:
     return _RADIUS_LITERAL.findall(css)
 
 
+# Every CSS length unit and the percentage, shared by the spacing and tracking
+# detectors below. Kept wide on purpose: the type-size guard shipped matching
+# `rem|px|em` alone and went blind to every other unit, which is exactly the
+# hand-set value these guards exist to catch.
+_LENGTH = (r'(?:%|(?:rem|px|em|vw|vh|vmin|vmax|pt|pc|in|cm|mm|ex|ch|q)\b)')
+
+# A hand-spelled margin, padding or gap, in every form the property can take:
+# the shorthand (`margin:`), the four physical longhands (`margin-top:` and
+# siblings), the logical longhands (`margin-block-start:`, `margin-inline:`),
+# and the three gaps including the legacy `grid-gap` spellings. A signed value
+# counts — `margin-top: -2px` is a hand-set value like any other. `0` does not:
+# it carries no unit, so there is no step it could have come from.
+_SPACING_PROPERTY = r'(?:(?:margin|padding)(?:-[a-z]+)*|(?:grid-)?(?:row-|column-)?gap)'
+_SPACING_LITERAL = re.compile(
+    _SPACING_PROPERTY + r':[^;{}]*?(?<![\w.])-?[0-9]*\.?[0-9]+' + _LENGTH)
+
+# A hand-spelled positive letter-spacing. Positive only: loosening small
+# uppercase text is one decision, made twenty times at eight different values
+# until `--label-track` named it, while the three negative values tighten three
+# specific dense elements and share no recipe to drift from.
+_TRACK_LITERAL = re.compile(r'letter-spacing:\s*[0-9]*\.?[0-9]+' + _LENGTH)
+
+# CSS comments, blanked before either detector runs. A comment that explains why
+# a literal is a literal must not itself read as one — the alternative is a guard
+# that fires on its own documentation, which is a guard nobody will keep.
+_CSS_COMMENT = re.compile(r'/\*.*?\*/', re.S)
+
+
+def _declarations_only(css: str) -> str:
+    """The sheet with its comments blanked, newlines preserved so a line number
+    computed from the result still points at the real line."""
+    return _CSS_COMMENT.sub(lambda m: '\n' * m.group(0).count('\n'), css)
+
+
+def _spacing_literals(css: str) -> list[str]:
+    """Every place a stylesheet still spells a margin, padding or gap out by
+    hand. The two sheets carried ~29 hand-set values between them, which is the
+    real reason neither read as uncrowded; the ramp is only a ramp while this
+    comes back to a list the guard has a reason for, entry by entry."""
+    return _SPACING_LITERAL.findall(_declarations_only(css))
+
+
+def _track_literals(css: str) -> list[str]:
+    """Every place a stylesheet still spells the tracking of a small uppercase
+    label out by hand. There were eight values across three sheets for one
+    decision, all twenty sites uppercase, none of them chosen."""
+    return _TRACK_LITERAL.findall(_declarations_only(css))
+
+
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 # The local backend's own settings, read by the service tests (which check

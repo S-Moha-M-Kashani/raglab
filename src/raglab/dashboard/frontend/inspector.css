@@ -562,6 +562,9 @@ select { font: inherit; color: inherit; }
 .evidence-mark {
   background: var(--evidence); color: var(--evidence-ink);
   box-shadow: 0 2px 0 var(--evidence-rule);
+  /* .12em, relative to the marked text's own size: this wash sits inline inside
+     a chunk whose type size is not the page root's, so a rem-based ramp step
+     would grow or shrink against the words it is meant to hug — left literal. */
   padding: 0 .12em;
 }
 .no-evidence {

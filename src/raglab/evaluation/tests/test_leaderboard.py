@@ -1,5 +1,7 @@
-"""The leaderboard, and what it refuses to rank together — grouping by
-question set and judge before ranking anything."""
+"""The leaderboard: `group()`/`verdict()`, what a sweep refuses to rank
+together (grouping by question set and judge before ranking anything); and
+the board — every experiment that touched one corpus, in one flat table,
+ranking nothing at all."""
 import json
 
 import pytest
@@ -165,9 +167,10 @@ def test_a_group_that_cannot_be_ranked_reports_unknown(build_rows):
     shared sample). Or the rows recorded a sample but no error, and `± 0` on
     the oldest rows would present them as the most precise. Both must read as
     'unknown' rather than manufacturing a decision. `leaderboard.markdown` no
-    longer renders a per-group verdict line at all — that prose now lives in
-    the sweep's own `ranking_verdict` — so what stays checkable here is the
-    verdict computation itself."""
+    longer renders a per-group verdict line for either reason — that
+    rendering retired along with per-group markdown, not moved anywhere in
+    particular — so what stays checkable here is the verdict computation
+    itself."""
     found, = leaderboard.group(build_rows())
     assert leaderboard.verdict(found) == 'unknown'
 
@@ -298,9 +301,11 @@ def test_a_scope_that_is_off_writes_no_agent_fragment():
 
 def test_a_knob_set_to_none_is_absent_from_the_sentence():
     # this is a unit test
-    """`grader` and `reranker` both default to the literal 'none' in
-    lab_config, and a fragment reading 'rrf·none·none' spends the sentence's
-    width saying which stages did nothing."""
+    """`grader` defaults to the literal 'none' in lab_config (`reranker`
+    defaults to 'lexical' — this test passes 'none' for it explicitly, to
+    prove the same filter catches both), and a fragment reading
+    'rrf·none·none' would spend the sentence's width saying which stages did
+    nothing."""
     fragments = leaderboard.pipeline_fragments(
         {'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                        'grader': 'none'}})
@@ -492,6 +497,48 @@ def test_every_row_carries_its_pipeline_sentence(tmp_path, monkeypatch):
         {'step': 'index', 'text': 'session·token-hash'}]
 
 
+def test_a_ledger_only_index_build_still_gets_a_pipeline_sentence(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """`ledger.experiments()` returns flat columns — `chunker`, `embedder` —
+    never a nested config; only a run file carries one, and an index build
+    never writes a run file. Without reshaping the flat columns back into a
+    config, this row's leftmost column would be blank for exactly the rows
+    the board exists to show."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-1', 'kind': 'index',
+                   'config': {'index': {'chunker': 'session',
+                                        'dataset': 'smoke-mini',
+                                        'embedder': 'token-hash'}},
+                   'seconds': 3, 'result': {}}, 'done', path=db)
+    assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
+        {'step': 'index', 'text': 'session·token-hash'}]
+
+
+def test_a_ledger_only_retrieval_gets_its_retrieval_fragment(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """Same gap, for a retrieval job: no run file ever covers one, so the
+    retrieval fragment has to come from the ledger's own flat
+    retriever/reranker/grader columns rather than a nested config nobody
+    wrote down."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-2', 'kind': 'retrieve',
+                   'config': {'index': {'chunker': 'session',
+                                        'embedder': 'token-hash'},
+                              'retrieval': {'retriever': 'hybrid-rrf',
+                                           'reranker': 'lexical',
+                                           'grader': 'none'}},
+                   'seconds': 2, 'result': {}}, 'done', path=db)
+    assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
+        {'step': 'index', 'text': 'session·token-hash'},
+        {'step': 'retrieval', 'text': 'hybrid-rrf·lexical'}]
+
+
 # --- the serialised shape and the command line ------------------------------
 
 def test_the_board_serialises_to_one_shape_for_the_page_and_the_command():
@@ -511,15 +558,26 @@ def test_the_markdown_prints_one_table_per_dataset_and_names_no_winner():
     """The board names no winner: rows judged differently share it, so a
     'winner by more than the combined error' claim would compare numbers that
     never met. `verdict()` still says it — for a sweep, whose candidates are
-    genuinely comparable — but not here."""
-    text = leaderboard.markdown(leaderboard.by_dataset([
+    genuinely comparable — but not here.
+
+    The ban is checked case-insensitively and only inside the tables
+    themselves — a case-sensitive check would let a lowercase '**winner: a**'
+    row straight through, which is not a guard at all — while the disclaimer
+    paragraph above the tables is allowed to use the plain word in explaining
+    why, and that disclaimer is asserted present rather than merely assumed."""
+    boards = leaderboard.by_dataset([
         _board_row('a', 'diary-fa', 0.71, judge={'model': 'sonnet'}),
         _board_row('b', 'meetings-de', 0.55, judge={'model': 'gpt-4o'}),
-    ]))
+    ])
+    text = leaderboard.markdown(boards)
     assert '## diary-fa' in text and '## meetings-de' in text
-    for banned in ('Winner', 'No winner', 'tie', 'Not comparable'):
-        assert banned not in text, (
-            f'the board must not print {banned!r}: it mixes judges and question '
+    lowered = text.lower()
+    assert 'nothing here names a winner' in lowered
+    assert 'are columns you compare on' in lowered
+    tables = text.split('## diary-fa', 1)[1].lower()
+    for banned in ('winner', 'tie', 'not comparable'):
+        assert banned not in tables, (
+            f'no table may print {banned!r}: a board mixes judges and question '
             'sets, so no claim of that kind holds across one of its tables')
 
 

@@ -352,6 +352,41 @@ def test_unavailable_completed_dataset_is_view_only_but_settings_only_fails():
                for control in ('build', 'retrieve-selected', 'run'))
 
 
+def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
+    source = PANEL_JS.read_text()
+    boot = source[source.index('async function boot()'):
+                  source.index('async function refreshOptions()')]
+    retained = 'keepUnshown(startingConfig(o.defaults));'
+    assert retained in boot
+    assert boot.index(retained) > boot.index('applyDefaults(startingConfig(o.defaults));')
+    assert source.index(retained) < min(
+        source.index("$('run').onclick"), source.index('function archiveSettings'),
+        source.index('function snapshotDashboard'), source.index('function exportArchive'))
+
+
+def test_every_experiment_rows_escape_strings_and_bind_detail_clicks():
+    source = PANEL_JS.read_text()
+    rows = source[source.index('async function loadExperiments'):
+                  source.index('// The whole stored payload for one experiment')]
+    assert 'const safe = (value) => escapeHtml(String(value ?? \'\'));' in rows
+    assert 'safe(r.started_at)' in rows
+    assert 'safe(r.experiment_id)' in rows
+    assert 'onclick=' not in rows
+    assert "document.createElement('a')" in rows
+    assert "addEventListener('click'" in rows
+
+
+def test_imported_results_render_their_archived_metric_catalogue():
+    source = PANEL_JS.read_text()
+    exchange = source[source.index('async function importArchiveFile'):
+                      source.index('function renderResult')]
+    assert 'metric_catalogue: imported.evaluation.metric_catalogue' in exchange
+    render = source[source.index('function renderResult'):
+                    source.index('function table')]
+    assert 'const metricCatalogue = options.metric_catalogue || measures();' in render
+    assert 'metricCatalogue.filter(' in render
+
+
 # --- sortable columns and the shared token sheet ---------------------------
 
 def test_both_lab_pages_share_one_column_sorter(client):

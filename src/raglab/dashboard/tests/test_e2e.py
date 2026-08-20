@@ -9,11 +9,56 @@ questions) with `token-hash` (no model download) and the conftest-pinned
 import json
 
 from raglab.configuration import explainer_assembly as explain
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.llm_backends import model_role_catalogue as models
 from raglab.agents.extra_tools import leaderboard
 
 from raglab.conftest import SMOKE_INDEX, _finished
+
+
+def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
+        client, monkeypatch, tmp_path):
+    monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'runs')
+    datasets.forget()
+
+    def payload(question_id, text):
+        return {
+            'dataset': {'id': 'archive-same-id', 'name': 'Archive replacement',
+                        'language': 'en'},
+            'sessions': [{'session_id': 's1', 'date': '2026-08-19',
+                          'messages': [{'role': 'user', 'content': text}]}],
+            'questions': [{'id': question_id, 'type': 'single-hop',
+                           'difficulty': 'easy', 'answerable': True,
+                           'question': 'What was recorded?', 'answer': text,
+                           'evidence': [{'session_id': 's1',
+                                         'message_indices': [0], 'quote': text}]}],
+        }
+
+    old = payload('old-question', 'old indexed evidence')
+    assert client.post('/api/datasets', json=old).status_code == 200
+    index = {'dataset': 'archive-same-id', 'chunker': 'session',
+             'embedder': 'token-hash'}
+    built = client.post('/api/indexes', json={'index': index})
+    assert built.status_code == 202, built.text
+    assert _finished(client, built.json()['job_id'])['state'] == 'done'
+
+    replacement = payload('replacement-question', 'replacement archive evidence')
+    assert client.post('/api/datasets', json=replacement).status_code == 200
+    started = client.post('/api/evaluations', json={
+        'index': index, 'retrieval': {'k': 1, 'reranker': 'none', 'grader': 'none'},
+        'generation': {'answerer': 'extractive'}, 'ragas_mode': 'off', 'limit': 1})
+    assert started.status_code == 202, started.text
+    job = _finished(client, started.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
+    result = job['result']
+    evidence = result['archive_evidence']['inspector']['dataset']
+    archived_text = evidence['corpus']['sessions'][0]['messages'][0]['content']
+    indexed_text = result['chunks_by_session'][0]['chunks'][0]['text']
+    assert archived_text == 'replacement archive evidence'
+    assert 'replacement archive evidence' in indexed_text
+    assert result['index']['reused'] is False
 
 
 def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):

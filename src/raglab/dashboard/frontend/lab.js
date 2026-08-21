@@ -111,3 +111,58 @@ function placeReveal(cell, selector) {
   reveal.style.left = `${Math.max(gap,
     Math.min(box.left, window.innerWidth - reveal.offsetWidth - gap))}px`;
 }
+
+
+// --- A second scrollbar, above the table -----------------------------------
+// A wide table is scrolled with the bar under it, which on a long table is off
+// the bottom of the screen: to move the columns you scroll the page down, drag,
+// then scroll back up to read what moved. So the region gets a second bar above
+// it, which is the same control — one holds a spacer as wide as the table has to
+// scroll, and the two carry each other's `scrollLeft`.
+//
+// Hidden from assistive tech, deliberately: it is a duplicate handle on a region
+// that is already reachable, announced and keyboard-scrollable in its own right,
+// and a second entry in the tab order buys nothing but a stop that says nothing.
+function mountScrollRail(region) {
+  if (!region || region.previousElementSibling
+      && region.previousElementSibling.classList.contains('scroll-rail')) return;
+  const rail = document.createElement('div');
+  rail.className = 'scroll-rail';
+  rail.setAttribute('aria-hidden', 'true');
+  const spacer = document.createElement('i');
+  rail.appendChild(spacer);
+  region.parentNode.insertBefore(rail, region);
+
+  // The width the region can scroll, not the width of anything on screen: this
+  // is what makes the two bars the same length and the same drag.
+  const measure = () => {
+    spacer.style.width = `${region.scrollWidth}px`;
+    // A table that fits needs no bar at all, on either side of it.
+    rail.hidden = region.scrollWidth <= region.clientWidth;
+  };
+
+  // One flag for both directions. Setting `scrollLeft` fires `scroll`, so
+  // without it each bar would answer the other's answer.
+  let syncing = false;
+  const follow = (from, to) => () => {
+    if (syncing) return;
+    syncing = true;
+    to.scrollLeft = from.scrollLeft;
+    // Cleared after the event this assignment queues has been dispatched.
+    requestAnimationFrame(() => { syncing = false; });
+  };
+  rail.addEventListener('scroll', follow(rail, region));
+  region.addEventListener('scroll', follow(region, rail));
+
+  // The table's width changes without the window's: a filter hides rows, the
+  // pipeline column's content decides its own width, fonts arrive late.
+  if (typeof ResizeObserver === 'function') {
+    const watch = new ResizeObserver(measure);
+    watch.observe(region);
+    const table = region.querySelector('table');
+    if (table) watch.observe(table);
+  }
+  window.addEventListener('resize', measure);
+  measure();
+  return measure;
+}

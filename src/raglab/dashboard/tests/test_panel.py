@@ -213,6 +213,13 @@ CONVENTIONS = [
      'the rank column must not come back: position in the current sort is what '
      'the sort itself says, and a column that has to be rewritten after every '
      'reorder to stay true is a column saying nothing the order does not'),
+    ('chrome.css', '.scroll-rail', None,
+     'a wide table needs the second scrollbar above it — on a long table the '
+     'one below the rows is off the bottom of the screen, so moving the columns '
+     'means scrolling away from what you were reading'),
+    ('lab.js', 'mountScrollRail', None,
+     'the rail is built once, in the script both surfaces load, rather than in '
+     'the one page that mounts it today'),
     ('leaderboard.js', 'tabindex="0"', None,
      'the table must sit in a focusable scroll region, or there is no keyboard '
      'way to reach the right-hand side of it at all'),

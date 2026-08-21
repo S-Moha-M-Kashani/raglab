@@ -386,6 +386,26 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 }
 .table-scroll::-webkit-scrollbar-track { background: var(--plate); }
 
+/* ── the second scrollbar, above the table ─────────────────────────────────
+   The same handle on the same region, at the top edge of it: on a long table the
+   bar below the rows is off the bottom of the screen, so moving the columns
+   means scrolling the page away from the rows you were reading. Built by
+   `mountScrollRail` in lab.js, which sizes the spacer to what the region can
+   scroll and carries `scrollLeft` between the two.
+   Height, not `max-height`: the bar is the whole element, and a bar that
+   collapsed to its content's height would be a bar of no height. */
+.scroll-rail {
+  overflow-x: auto; overflow-y: hidden;
+  height: 12px; margin-bottom: var(--s-1);
+  scrollbar-width: thin;
+}
+.scroll-rail > i { display: block; height: 1px; }
+.scroll-rail::-webkit-scrollbar { height: 10px; }
+.scroll-rail::-webkit-scrollbar-thumb {
+  background: var(--rule); border-radius: var(--radius-pill);
+}
+.scroll-rail::-webkit-scrollbar-track { background: var(--plate); }
+
 .table-hint { font: var(--t-2xs)/1.5 var(--mono); color: var(--ink-soft);
               margin: var(--s-1) 0 var(--s-3); }
 

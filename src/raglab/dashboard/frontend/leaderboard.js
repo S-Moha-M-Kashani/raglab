@@ -287,7 +287,10 @@ async function loadBoard(dataset) {
         <b>questions</b> are columns you compare on.</p>
     </section>`;
   const table = box.querySelector('table');
-  if (table) SortTable.make(table);
+  if (table) {
+    SortTable.make(table);
+    mountScrollRail(box.querySelector('.table-scroll'));
+  }
   wirePicker();
 }
 

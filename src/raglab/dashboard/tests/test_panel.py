@@ -193,11 +193,6 @@ CONVENTIONS = [
      'the archive status must keep its render hook'),
     ('leaderboard.html', 'id="board"', None,
      'the board must stay on its own surface'),
-    ('index.html', 'id="experiments"', None,
-     'the ledger of every experiment must stay on the lab page — an index '
-     'build has no decision score, so it never belonged in the ranking'),
-    ('panel.js', '/api/experiments', None,
-     'the experiments list must be read from the ledger route'),
     ('index.html', 'sorttable.js', None,
      'the panel must load the shared column sorter'),
     ('index.html', None, 'ragas_decision ▼',
@@ -413,7 +408,7 @@ CONVENTIONS = [
     ('panel.js', None, 'title="${safe(r.error',
      'why a run failed is the reason the row is degraded, and a title '
      'attribute publishes it to a mouse and to nothing else'),
-    ('panel.js', 'class="failed"', None,
+    ('leaderboard.js', 'class="failed"', None,
      'the failed state and the mark that opens its reason travel together, '
      'wrapped — an explainer inserted directly after a <td> is hoisted out '
      'of the table by the parser'),
@@ -469,12 +464,12 @@ def test_the_served_panel_keeps_its_conventions(
 
 def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
     # this is a convention test
-    """Five tables on this page — the four readings breakdowns and the
-    experiment ledger — and until now three of them were built by hand. Two of
-    those three took the sortable styling from the stylesheet and none of the
-    listeners, so they looked sortable and were inert. One builder, wearing the
-    shared region from chrome.css, is what makes a table added later sortable
-    and scrollable by having been rendered rather than by someone remembering."""
+    """Four tables on this page — the readings breakdowns — and until now
+    three of them were built by hand. Two of those three took the sortable
+    styling from the stylesheet and none of the listeners, so they looked
+    sortable and were inert. One builder, wearing the shared region from
+    chrome.css, is what makes a table added later sortable and scrollable by
+    having been rendered rather than by someone remembering."""
     js = panel_texts['panel.js']
     assert js.count('<table') == 1, (
         'there must be exactly one place a table is built; found '
@@ -483,7 +478,7 @@ def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
         'the region must be focusable and labelled, or there is no keyboard '
         'way to reach the right-hand side of a fifteen-column table')
     assert '<table class="data-table">' in js
-    for host in ('byType', 'ragas', 'extras', 'rows', 'experiments'):
+    for host in ('byType', 'ragas', 'extras', 'rows'):
         assert f"renderTable('{host}'" in js, (
             f'#{host} must be written through renderTable, which wires the '
             'column sorter after insertion — building it with innerHTML is '
@@ -807,17 +802,26 @@ def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
         source.index('function snapshotDashboard'), source.index('function exportArchive'))
 
 
-def test_every_experiment_rows_escape_strings_and_bind_detail_clicks():
+def test_the_lab_page_no_longer_holds_the_experiment_ledger(panel_texts):
     # this is a convention test
-    source = PANEL_JS.read_text()
-    rows = source[source.index('async function loadExperiments'):
-                  source.index('// The whole stored payload for one experiment')]
-    assert 'const safe = (value) => escapeHtml(String(value ?? \'\'));' in rows
-    assert 'safe(r.started_at)' in rows
-    assert 'safe(r.experiment_id)' in rows
-    assert 'onclick=' not in rows
-    assert "document.createElement('a')" in rows
-    assert "addEventListener('click'" in rows
+    """It moved to the leaderboard, which is the surface for cross-run reading —
+    the lab page is for setting up one run. Pinned as an absence so the move
+    cannot half-happen and leave two tables of the same rows drifting apart."""
+    html, js = panel_texts['index.html'], panel_texts['panel.js']
+    assert 'Every experiment' not in html
+    assert 'id="experiments"' not in html
+    assert 'id="experimentDetail"' not in html
+    assert 'loadExperiments' not in js
+    assert 'showExperiment' not in js
+
+
+def test_an_imported_archive_says_where_it_landed(panel_texts):
+    # this is a convention test
+    """The import used to say 'saved in Every experiment; leaderboard
+    unchanged'. Both halves are now wrong: that table is gone, and the board
+    reads the ledger, so the leaderboard *is* changed."""
+    js = panel_texts['panel.js']
+    assert 'leaderboard unchanged' not in js.lower()
 
 
 def test_imported_results_render_their_archived_metric_catalogue():

@@ -629,6 +629,33 @@ def test_every_model_shares_one_memory():
     assert memory.saver() is saver
 
 
+def test_two_builds_share_one_checkpointer_across_models_and_a_reset(monkeypatch):
+    # this is a unit test
+    """The deleted precursor to this test asserted the opposite of the
+    contract this task establishes — that two builds got two different
+    `.checkpointer` objects, so `reset()` (which runs on every credential
+    change) forgot the conversation along with the client. This test builds
+    two real agents offline, across two different models and across a
+    `reset()` in between, and checks they hold the *identical* checkpointer
+    object `conversation_memory.saver()` returns — not two `SqliteSaver`
+    instances that merely point at the same file. A fake key is enough:
+    `_build_agent` opens no socket, `ChatOpenAI(...)` is only constructed
+    here, never called."""
+    pytest.importorskip('langgraph')
+    from raglab.agents.widget import conversation_memory as memory
+    widget.reset()
+    for name in widget.REQUIRED_ENV:
+        monkeypatch.setenv(name, 'test-value')
+    first = widget._build_agent('openai/gpt-5-nano').checkpointer
+    widget.reset()
+    second = widget._build_agent('openai/gpt-5-mini').checkpointer
+    widget.reset()
+    assert first is second is memory.saver(), (
+        'every build must share the one process-wide checkpointer, across '
+        'models and across reset() — a fresh one per build is the bug this '
+        'task removes')
+
+
 def test_ask_threads_the_thread_into_the_agent():
     # this is a unit test
     """`ask` takes a `thread` and hands it to the graph as the thread id: two

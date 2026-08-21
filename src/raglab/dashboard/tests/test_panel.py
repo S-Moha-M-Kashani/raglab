@@ -16,19 +16,6 @@ from raglab.conftest import RAGLAB_DIR, _font_size_literals, _radius_literals
 PANEL_JS = RAGLAB_DIR / 'dashboard' / 'frontend' / 'panel.js'
 
 
-def _scope(text: str, anchor: str) -> str:
-    """Slice `text` from `anchor` onward, or hand back `''` if the anchor
-    itself is gone. A plain `text[text.index(anchor):]` raises `ValueError`
-    out of fixture setup the moment the anchor disappears — which would
-    error every row in CONVENTIONS at once, table-wide, with a message that
-    names neither the widget nor which row cares. Returning `''` instead
-    lets each row that reads this scope fail on its own, by its own
-    must_contain/must_not_contain and its own reason string — a removed
-    widget fails the widget rows by name, not the whole table opaquely."""
-    i = text.find(anchor)
-    return text[i:] if i >= 0 else ''
-
-
 # --- the served panel's conventions, as one table ---------------------------
 
 @pytest.fixture(scope='module')
@@ -84,8 +71,15 @@ def panel_texts(client):
         # / function name rather than the bare word "widget" — both files
         # carry a header *comment* naming the widget first, and a check that
         # started scanning there would still pass with the feature gutted.
-        'panel.css (widget block)': _scope(css, '.widget-launch'),
-        'panel.js (widget block)': _scope(js, 'widgetSay'),
+        'widget.css': client.get('/widget.css').text,
+        'widget.js': client.get('/widget.js').text,
+        # The widget's rules and its script are whole files now, served from
+        # the root to every surface, so the slice that used to carve them out
+        # of panel.* is simply the file. The two key names stay: what the rows
+        # below claim about the widget did not change when it moved, and
+        # renaming fifteen rows would hide that in the diff.
+        'panel.css (widget block)': client.get('/widget.css').text,
+        'panel.js (widget block)': client.get('/widget.js').text,
         # The shared script, over its own route for the same reason as
         # tokens.css and chrome.css: all three surfaces link it, so what it
         # holds is a claim about every surface rather than about this one.
@@ -255,27 +249,31 @@ CONVENTIONS = [
     ('panel.js', 'restoreLastRun', None,
      'the remembered run must be re-read by id from the service, or a run '
      'file deleted between two visits would render a stale copy'),
-    ('index.html', 'id="widget-launch"', None,
+    # The launcher and the window are the two elements widget.js creates rather
+    # than writes as markup, so their ids are pinned in the form the file
+    # actually spells them. The claim is the one the markup rows make: the id is
+    # the hook, and it must not drift.
+    ('widget.js', "launcher.id = 'widget-launch'", None,
      'the widget launcher button must keep a stable id for its script hook'),
-    ('index.html', 'id="widget-window"', None,
+    ('widget.js', "win.id = 'widget-window'", None,
      'the widget window must keep a stable id — the launcher toggles it by id'),
-    ('index.html', 'id="widget-log"', None,
+    ('widget.js', 'id="widget-log"', None,
      'the widget must have somewhere to render the conversation'),
-    ('index.html', 'id="widget-input"', None,
+    ('widget.js', 'id="widget-input"', None,
      'the widget must have a text field to type a question into'),
-    ('index.html', 'id="widget-send"', None,
+    ('widget.js', 'id="widget-send"', None,
      'the widget must have a button that submits the question'),
-    ('index.html', 'id="widget-settings"', None,
+    ('widget.js', 'id="widget-settings"', None,
      'the gear that reveals the model row must keep a stable id'),
-    ('index.html', 'id="widget-config"', None,
+    ('widget.js', 'id="widget-config"', None,
      'the row the gear reveals must keep a stable id'),
-    ('index.html', 'id="widget-model"', None,
+    ('widget.js', 'id="widget-model"', None,
      'the served model list needs somewhere to render into'),
-    ('index.html', 'id="widget-close"', None,
-     'the close button must keep a stable id — panel.js binds it directly, '
+    ('widget.js', 'id="widget-close"', None,
+     'the close button must keep a stable id — widget.js binds it directly, '
      'and a missing id throws at script load and takes the whole panel down'),
-    ('index.html', 'id="widget-form"', None,
-     'the form must keep a stable id — panel.js binds its submit handler '
+    ('widget.js', 'id="widget-form"', None,
+     'the form must keep a stable id — widget.js binds its submit handler '
      'directly, and a missing id throws at script load and takes the whole '
      'panel down'),
     ('panel.css (widget block)', 'position: fixed', None,
@@ -304,28 +302,28 @@ CONVENTIONS = [
      'helper had ever given rendered on no bubble at all'),
     ('panel.css (widget block)', None, 'background: var(--slab)',
      'and the font stack must not come back as a colour'),
-    ('index.html', 'class="widget-grip widget-grip-top"', None,
+    ('widget.js', 'class="widget-grip widget-grip-top"', None,
      'the window grows from its top and left edges, because it is anchored '
      'bottom-right — the handles have to exist on those two edges'),
-    ('index.html', 'role="separator"', None,
+    ('widget.js', 'role="separator"', None,
      'the two straight handles take focus and answer the arrow keys, so a '
      'reader without a mouse can still size the window'),
     ('index.html', None, 'What you can ask',
      'the empty state is built from the served fixture, not written into the '
      'markup — a starter in two places is a starter that drifts'),
-    ('panel.js', None, 'Which ports do the lab',
+    ('widget.js', None, 'Which ports do the lab',
      'and not written into the script either: the starters are the message '
      'sent to the model, which makes them model-facing text and a fixture'),
-    ('panel.js', 'data.starters', None,
+    ('widget.js', 'data.starters', None,
      'the starters ride the /api/widget response the model list already '
      'ride, so the widget stays a sealed leaf with no new route'),
-    ('panel.js', 'widget-empty', None,
+    ('widget.js', 'widget-empty', None,
      'the empty log offers four questions and clears them on the first '
      'thing said'),
-    ('panel.js', 'lodestar:raglab-widget-size', None,
+    ('widget.js', 'lodestar:raglab-widget-size', None,
      'an adjusted window is a preference, not a gesture, and survives a '
      'reload under the same prefix as the settings and the last run'),
-    ('panel.js', 'setPointerCapture', None,
+    ('widget.js', 'setPointerCapture', None,
      'a drag off a six-pixel handle must keep going — without capture the '
      'resize stops the instant the cursor outruns the edge, which is at once'),
     ('panel_server.py', "'starters': widget.STARTERS", None,
@@ -375,14 +373,14 @@ CONVENTIONS = [
      'separate spine track is gone'),
     ('panel.js', None, '.spine-seg',
      'nothing may still be reaching for the retired step strips'),
-    ('panel.css', '.widget-window[hidden] { display: none; }', None,
+    ('widget.css', '.widget-window[hidden] { display: none; }', None,
      "a rule setting `display` beats the browser's own `[hidden] { display: "
      'none }` — found live: the window stayed visible because nothing said '
      'so explicitly. Checked against the exact rule so a bare `[hidden]` '
      'selector with no `display: none` cannot satisfy it'),
-    ('panel.css', '.widget-config[hidden] { display: none; }', None,
+    ('widget.css', '.widget-config[hidden] { display: none; }', None,
      'same fix, for the model row the gear toggles'),
-    ('panel.js', "api('/api/widget'", None,
+    ('widget.js', "api('/api/widget'", None,
      "the widget's script must actually call its route — checked against "
      'the call site itself, not the bare string `/api/widget`, which also '
      "names the route in this block's own header comment"),
@@ -695,7 +693,9 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
     genuinely forgets, and a chip implying otherwise would be a panel lying
     about what produced it."""
     js = panel_texts['panel.js']
-    ask = js[js.index('function widgetRunAsk'):js.index('function widgetOffer')]
+    # The helper itself is widget.js now; what stays on the Laboratory is this
+    # one function, at the foot of the file, because it reads a *run*.
+    ask = js[js.index('function widgetRunAsk'):]
     assert 'result.started_at' in ask, (
         'the chip identifies the run by when it started, the same way the '
         "leaderboard's `when` column does")
@@ -708,10 +708,11 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
     assert 'DECISION_KEYS' in ask, (
         'the metric it names is one of the four that decide, so the chip and '
         'a ranking are asking about the same number')
-    assert 'WIDGET_RUN_ASK = widgetRunAsk(result' in js, (
+    assert 'Widget.offer(widgetRunAsk(result' in js, (
         'renderResult is the one place that holds the run, so it is where the '
-        'chip is set — reading it back off the DOM later would be a second '
-        'source for the same fact')
+        'chip is built — reading it back off the DOM later would be a second '
+        'source for the same fact — and it is handed to the helper through '
+        '`Widget.offer`, which is the whole of what a page may say to it')
 
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
@@ -736,8 +737,11 @@ def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
     """22 hand-set sizes in three units is why the panel read as cramped. Each
     must name a --t-* step instead, so a size is a decision recorded once
     rather than a number typed at the point of use. The Inspector's half of
-    this claim lives in test_inspector.py."""
-    assert _font_size_literals(panel_texts['panel.css']) == []
+    this claim lives in test_inspector.py; the widget's sheet is read here
+    beside the panel's, because it left panel.css and the guard has to follow
+    it or the rules it holds stop being checked at all."""
+    for sheet in ('panel.css', 'widget.css'):
+        assert _font_size_literals(panel_texts[sheet]) == [], sheet
 
 
 def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
@@ -778,8 +782,10 @@ def test_the_panel_rounds_every_corner_from_the_shared_scale(panel_texts):
     # this is a convention test
     """2px, 3px, 4px, 5px, 6px, 999px and 50% all appeared as literal radii.
     Each must name a --radius-* token, shorthand corners included, so the two
-    pages cannot round the same kind of thing differently."""
-    assert _radius_literals(panel_texts['panel.css']) == []
+    pages cannot round the same kind of thing differently. The widget's sheet
+    is read here for the same reason the type guard reads it."""
+    for sheet in ('panel.css', 'widget.css'):
+        assert _radius_literals(panel_texts[sheet]) == [], sheet
 
 
 def test_radius_literals_catches_shorthand_and_ignores_the_named_tokens():
@@ -1282,6 +1288,23 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it(client
             assert provider in hint[0], provider
 
 
+def test_the_widget_is_two_shared_files_every_surface_can_load(client):
+    # this is an integration test
+    """The widget is a helper any surface gains by loading it, not a feature of
+    one page. Its rules and its script are served from the root like tokens.css
+    and lab.js, so there is one definition rather than three copies."""
+    css = client.get('/widget.css')
+    js = client.get('/widget.js')
+    assert css.status_code == 200
+    assert css.headers['content-type'].startswith('text/css')
+    assert js.status_code == 200
+    assert js.headers['content-type'].startswith('application/javascript')
+    assert '.widget-launch' in css.text
+    assert 'widgetSay' in js.text
+    assert '.widget-launch' not in client.get('/panel.css').text, (
+        'the widget rules must live in one sheet, not two')
+
+
 def test_the_widget_sends_one_session_id_per_page(panel_texts):
     # this is a convention test
     """The widget's memory is a browser page's: the client mints one id when
@@ -1428,7 +1451,7 @@ def test_the_night_palette_is_written_once_and_read_twice(panel_texts):
         'on Auto, or only for readers who picked Night, never for both')
 
 
-@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css'))
+@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css', 'widget.css'))
 def test_no_dark_block_outranks_an_explicit_choice(panel_texts, sheet):
     # this is a convention test
     """Every `prefers-color-scheme: dark` block on either surface has to carry

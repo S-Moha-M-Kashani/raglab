@@ -399,6 +399,19 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'lab.js',
                             media_type='application/javascript')
 
+    @app.get('/widget.css')
+    def widget_css():
+        """The widget's own rules, served to all three surfaces — the helper is
+        not the Laboratory's, so its sheet is not panel.css."""
+        return FileResponse(STATIC / 'widget.css', media_type='text/css')
+
+    @app.get('/widget.js')
+    def widget_js():
+        """The widget itself. One file, three pages: it builds its own markup,
+        so a surface gains the helper by loading this and nothing else."""
+        return FileResponse(STATIC / 'widget.js',
+                            media_type='application/javascript')
+
     @app.get('/leaderboard')
     def leaderboard_page():
         """The cross-run surface: what earlier runs said, kept off the lab page where the knobs live."""

@@ -62,7 +62,8 @@ def test_every_step_of_the_shared_scale_has_a_user():
     later". If a step is worth having, something reads it now; if nothing does,
     the decision it records is a guess."""
     sheets = '\n'.join((_SHEETS / name).read_text(encoding='utf-8') for name in
-                       ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'))
+                       ('tokens.css', 'chrome.css', 'panel.css',
+                        'inspector.css', 'widget.css'))
     tokens = (_SHEETS / 'tokens.css').read_text(encoding='utf-8')
     declared = dict.fromkeys(re.findall(r'^\s*(--[a-z0-9-]+):', tokens, re.M))
     scale = [t for t in declared
@@ -91,7 +92,8 @@ SPACING_OFF_RAMP = [
     ('panel.css', 'padding: 0 0 5rem',
      'clearance under the whole page for the fixed widget launcher, which is '
      'taller than the ramp\'s top step — a bigger step invented for one use is '
-     'a step with one user'),
+     'a step with one user. It stays keyed to panel.css because it is a rule '
+     'on the page: the launcher\'s own rules live in widget.css'),
     ('panel.css', 'padding-bottom: 2px',
      'the gap between a link and the rule underlining it, which is a border '
      'offset rather than spacing between things'),
@@ -139,7 +141,7 @@ def test_every_spacing_value_comes_off_the_ramp_or_is_named_here():
     allowed = sorted((f, d) for f, d, _ in SPACING_OFF_RAMP)
     found = sorted((name, hit)
                    for name in ('tokens.css', 'chrome.css', 'panel.css',
-                                'inspector.css')
+                                'inspector.css', 'widget.css')
                    for hit in _spacing_literals(
                        (_SHEETS / name).read_text(encoding='utf-8')))
     assert found == allowed, (
@@ -160,7 +162,8 @@ def test_every_letter_spacing_value_comes_from_the_label_recipe():
     spacing there is no value here that has a reason to be off it: the three
     negative values are outside this guard by construction, since tightening
     three specific dense elements is not this recipe drifting."""
-    for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'):
+    for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css',
+                 'widget.css'):
         css = (_SHEETS / name).read_text(encoding='utf-8')
         assert _track_literals(css) == [], (
             f'{name} spells its own tracking: {_track_literals(css)}. Read '

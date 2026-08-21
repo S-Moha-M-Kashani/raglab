@@ -1262,7 +1262,7 @@ async function openHandedExperiment(experimentId) {
     // the click and the read. Said, and not one knob touched: settings half
     // applied under a notice that never arrived is the only outcome worse than
     // nothing happening.
-    widgetNote(`Could not read experiment ${experimentId} from the lab `
+    Widget.note(`Could not read experiment ${experimentId} from the lab `
       + `(${error.message}). No knob was changed.`);
     return;
   }
@@ -1287,7 +1287,7 @@ async function openHandedExperiment(experimentId) {
     setArchiveStatus('Readings belong to the previous settings; export will '
       + 'contain settings only.', 'warning');
   }
-  widgetNote(ExperimentHandoff.notice(record, out));
+  Widget.note(ExperimentHandoff.notice(record, out));
 }
 
 window.addEventListener('storage', (event) => {
@@ -1386,11 +1386,11 @@ function renderResult(result, options = {}) {
       .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]),
     { label: 'Scores by difficulty', text: [0] });
 
-  // The run on screen becomes a question the helper can be asked about it. Set
+  // The run on screen becomes a question the helper can be asked about it. Built
   // here rather than read out of the DOM later, because this is the one place
-  // that holds the run itself.
-  WIDGET_RUN_ASK = widgetRunAsk(result, metricCatalogue);
-  widgetOffer();
+  // that holds the run itself, and handed over rather than written into the
+  // widget: `Widget.offer` is the whole of what a page may say to the helper.
+  Widget.offer(widgetRunAsk(result, metricCatalogue));
 
   renderTable('rows',
     ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
@@ -1460,37 +1460,13 @@ window.showRun = async (runId) => {
 
 boot();
 
-// --- the LLM widget: one module behind /api/widget, a window in the corner --
-// Replies are model output rendered into the page, so they pass through the
-// shared escapeHtml like every other untrusted string.
-
-function widgetSay(kind, text) {
-  const log = $('widget-log');
-  // The empty state goes on the first thing said, not on the first reply: a
-  // panel of examples sitting above your own question reads as a menu you
-  // failed to use. A `note` is not a turn in the conversation — it is the lab
-  // saying what it just did, and it can arrive at a widget the reader has never
-  // opened — so it lands under the examples instead of clearing them.
-  const offer = log.querySelector('.widget-empty');
-  if (offer && kind !== 'note') offer.remove();
-  log.insertAdjacentHTML('beforeend',
-    `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
-  log.scrollTop = log.scrollHeight;
-}
-
-// --- what you can ask -------------------------------------------------------
-// The four examples come from the served fixture (fixtures/prompts/widget.yaml,
-// through the /api/widget response the model list already rides), because
-// clicking one sends that exact string to the model and model-facing text is a
-// fixture in this project.
-let WIDGET_STARTERS = [];
-
-// A question about the run currently on the Readings card, or null when there
-// is none. Deliberately the *lab's* last run and not the last conversation:
-// widget memory is an in-process checkpointer keyed to a page-scoped session
-// id, so a reload genuinely forgets, and a chip claiming otherwise would be a
-// panel lying about what produced it.
-let WIDGET_RUN_ASK = null;
+// --- the one question the Laboratory asks on the helper's behalf -----------
+// The widget itself is widget.js, on every surface. This much stays here
+// because it reads a *run*: the Readings card is the one place that holds the
+// result, so the chip is built where the result already is rather than read
+// back off the DOM — and neither the Inspector nor the board has a run of its
+// own to offer. It reaches the helper the same way any page does, through
+// `Widget.offer`.
 
 // The four judged metrics, in the order the leaderboard reads them, so the chip
 // names the same thing a ranking would.
@@ -1512,202 +1488,3 @@ function widgetRunAsk(result, catalogue) {
   return `Why did the run from ${when} score ${fmt(metrics[key])} on `
     + `${measureOf(key, catalogue).label.toLowerCase()}?`;
 }
-
-// Rendered only while the log is empty. Called again when a run lands, so a
-// widget left open and untouched picks up the chip for the run just finished.
-function widgetOffer() {
-  const log = $('widget-log');
-  // A note is not a conversation, so a log holding only notes is still a log
-  // nobody has asked anything in — and the reader whose widget was opened *by*
-  // a note is exactly the reader who has not seen the examples yet.
-  if (log.querySelector('.widget-msg:not(.note)')) return;
-  if (!WIDGET_STARTERS.length && !WIDGET_RUN_ASK) return;
-  const chip = (text, extra = '') =>
-    `<button type="button" class="widget-starter${extra}">${escapeHtml(text)}</button>`;
-  const standing = log.querySelector('.widget-empty');
-  if (standing) standing.remove();
-  // Inserted rather than assigned over the log, which would take any note with
-  // it — the offer is rebuilt whenever a run lands, and by then a note may
-  // already be sitting there.
-  log.insertAdjacentHTML('afterbegin',
-    '<div class="widget-empty"><b>What you can ask</b>'
-    + WIDGET_STARTERS.map((text) => chip(text)).join('')
-    + (WIDGET_RUN_ASK ? chip(WIDGET_RUN_ASK, ' widget-starter-run') : '')
-    + '</div>');
-}
-
-// A line the lab wrote, in the widget's log — which is where a reader finds it
-// on whichever surface the widget is on. Never `bot`: the model did not say
-// this, and a page borrowing the model's voice for its own statements is the
-// same lie a row telling you the wrong model produced it would be, one seam
-// earlier. A closed widget is opened, because a notice nobody can see is not a
-// notice; focus is deliberately left alone, since the click that caused this
-// happened on another surface and the caret is somewhere the reader put it.
-function widgetNote(text) {
-  const win = $('widget-window');
-  if (win.hidden) {
-    win.hidden = false;
-    widgetLoadOptions();
-  }
-  widgetSay('note', text);
-}
-
-// Delegated, because the offer is rebuilt whenever a run lands.
-$('widget-log').addEventListener('click', (event) => {
-  const starter = event.target.closest('.widget-starter');
-  if (!starter) return;
-  widgetAsk(starter.textContent);
-});
-
-// One conversation per page: the id is minted when the script loads and sent
-// with every ask, so a follow-up lands in the same thread and a reloaded page
-// starts clean — nothing persisted, nothing shared between tabs.
-const widgetSession = crypto.randomUUID();
-
-async function widgetAsk(message) {
-  widgetSay('you', message);
-  $('widget-send').disabled = true;
-  try {
-    const data = await api('/api/widget',
-      { message, model: $('widget-model').value, session: widgetSession });
-    widgetSay('bot', data.reply);
-    // The token account, when the backend reported one — an unreported
-    // account renders nothing rather than a made-up zero.
-    if (data.input_tokens != null) {
-      widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
-    }
-  } catch (error) {
-    widgetSay('err', error.message);
-  } finally {
-    $('widget-send').disabled = false;
-    $('widget-input').focus();
-  }
-}
-
-// The model list and the starters are served, not kept here — fetched once, on
-// the first open.
-let widgetOptionsLoaded = false;
-async function widgetLoadOptions() {
-  if (widgetOptionsLoaded) return;
-  try {
-    const data = await api('/api/widget');
-    $('widget-model').innerHTML = data.models.map((m) =>
-      `<option value="${escapeHtml(m.value)}"${m.value === data.default ? ' selected' : ''}>`
-      + `${escapeHtml(m.label)}</option>`).join('');
-    WIDGET_STARTERS = data.starters || [];
-    widgetOptionsLoaded = true;
-    widgetOffer();
-  } catch (error) {
-    widgetSay('err', error.message);
-  }
-}
-
-$('widget-launch').addEventListener('click', () => {
-  const win = $('widget-window');
-  win.hidden = !win.hidden;
-  if (!win.hidden) { widgetLoadOptions(); $('widget-input').focus(); }
-});
-
-$('widget-settings').addEventListener('click', () => {
-  const row = $('widget-config');
-  row.hidden = !row.hidden;
-});
-
-$('widget-close').addEventListener('click', () => { $('widget-window').hidden = true; });
-
-$('widget-form').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const message = $('widget-input').value.trim();
-  if (!message) return;
-  $('widget-input').value = '';
-  widgetAsk(message);
-});
-
-// --- resizing from the top and the left -------------------------------------
-// The window is anchored bottom-right, so growing it means gaining width and
-// height while the anchor holds — which is what dragging those two edges
-// outward looks like. The size is a preference, not a gesture, so it is
-// remembered under the same `lodestar:` prefix as the settings and the last run.
-const SAVED_WIDGET_SIZE = 'lodestar:raglab-widget-size';
-
-const rootPx = () =>
-  parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-
-// Clamped so the window can neither collapse to a strip nor cover the chrome:
-// the bar and the rail are both fixed, and a helper sitting on top of them
-// would hide what is running to say something about it.
-function widgetLimits() {
-  const rem = rootPx();
-  const style = getComputedStyle(document.documentElement);
-  const px = (name) => {
-    const value = style.getPropertyValue(name).trim();
-    return value.endsWith('rem') ? parseFloat(value) * rem : parseFloat(value) || 0;
-  };
-  return {
-    minW: 18 * rem, minH: 14 * rem,
-    maxW: window.innerWidth - 2 * rem,
-    maxH: window.innerHeight - px('--bar-h') - px('--rail-h') - 2 * rem,
-  };
-}
-
-function widgetResize(width, height) {
-  const win = $('widget-window');
-  const limit = widgetLimits();
-  const size = {
-    w: Math.round(Math.max(limit.minW, Math.min(width, limit.maxW))),
-    h: Math.round(Math.max(limit.minH, Math.min(height, limit.maxH))),
-  };
-  win.style.width = `${size.w}px`;
-  win.style.height = `${size.h}px`;
-  // The class is what lets the log take the slack; see panel.css.
-  win.classList.add('widget-sized');
-  return size;
-}
-
-for (const grip of document.querySelectorAll('.widget-grip')) {
-  const axis = grip.dataset.grip;
-  // Pointer capture, so a drag that leaves a six-pixel handle keeps going —
-  // without it the resize stops the moment the cursor outruns the edge, which
-  // it does immediately.
-  grip.addEventListener('pointerdown', (event) => {
-    const box = $('widget-window').getBoundingClientRect();
-    const from = { x: event.clientX, y: event.clientY, w: box.width, h: box.height };
-    grip.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    const move = (moved) => remember(SAVED_WIDGET_SIZE, widgetResize(
-      axis === 'top' ? from.w : from.w + (from.x - moved.clientX),
-      axis === 'left' ? from.h : from.h + (from.y - moved.clientY)));
-    const done = () => {
-      grip.removeEventListener('pointermove', move);
-      grip.removeEventListener('pointerup', done);
-      grip.removeEventListener('pointercancel', done);
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', done);
-    grip.addEventListener('pointercancel', done);
-  });
-  // Each edge answers only its own axis, which is what a separator with an
-  // orientation promises. The corner takes no focus: it is the two edges at
-  // once, and there is nothing it can do that they cannot.
-  grip.addEventListener('keydown', (event) => {
-    const step = 2 * rootPx();
-    const by = axis === 'top'
-      ? { ArrowUp: [0, step], ArrowDown: [0, -step] }[event.key]
-      : { ArrowLeft: [step, 0], ArrowRight: [-step, 0] }[event.key];
-    if (!by) return;
-    event.preventDefault();
-    const box = $('widget-window').getBoundingClientRect();
-    remember(SAVED_WIDGET_SIZE,
-      widgetResize(box.width + by[0], box.height + by[1]));
-  });
-}
-
-// Reapplied on load, and re-clamped when the viewport changes: a size that fit
-// yesterday's window can cover today's chrome, and the preference is worth
-// keeping through that rather than forgetting.
-function widgetRestoreSize() {
-  const kept = saved(SAVED_WIDGET_SIZE);
-  if (kept && kept.w && kept.h) widgetResize(kept.w, kept.h);
-}
-widgetRestoreSize();
-window.addEventListener('resize', widgetRestoreSize);

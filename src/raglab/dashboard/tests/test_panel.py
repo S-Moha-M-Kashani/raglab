@@ -1338,7 +1338,7 @@ def test_the_night_palette_is_written_once_and_read_twice(panel_texts):
     explicit choice, and through the media query, for a reader on Auto whose
     machine is dark. CSS gives no way to put one declaration block behind both
     selectors, so the obvious spelling duplicates the whole palette, and the
-    two copies then drift the way `--step-agent` already drifted between the
+    two copies then drift the way a step ink already drifted between the
     panel and the Inspector. Instead the values live once, on bare `:root`, as
     `--night-*`; the two selectors only assign them. This pins that: every
     Night value appears exactly once in the sheet, and both selectors read

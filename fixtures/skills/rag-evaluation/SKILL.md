@@ -123,8 +123,8 @@ completes, and no field on the row contradicts the label.
   full set of confident numbers from a pipeline that measured nothing. Record the
   resolved backend on every row, and refuse to start a sweep on it.
 - **A neutral score clearing its own threshold** — an unreachable grader
-  returning 0.5 against a 0.4 bar makes the gate a no-op. See
-  `adaptive-corrective-rag`.
+  returning 0.5 against a 0.4 bar makes the gate a no-op. Read an unparsable
+  verdict in the direction that costs work, never the one that passes.
 - **A silent fallback** — a reranker that cannot load and passes the pre-rerank
   order through, still labelled as reranked.
 - **A degenerate judge** — see above.

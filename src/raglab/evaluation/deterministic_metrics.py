@@ -169,25 +169,6 @@ MEASURES = (
             'because nothing retrieved it and a hierarchy scoring flat because it '
             'did not help are different findings, and no other field on the row '
             'tells them apart. Zero here means the second reading is unavailable.'),
-    Measure('n_hops', 'Agent hops', 'retrievals per question', 'agent',
-            'mean count of retrievals the agent performed',
-            'metrics.score_question' + NO_MODEL,
-            'How many times the loop went back for evidence. 1 means the agent '
-            'settled for its first look — the fixed pipeline plus a verdict — and '
-            'the cap means it never found what it was asked to find. This is the '
-            'first thing to read on an agent row, because a scope that always '
-            'hops once and a scope that always hits the cap are two different '
-            'pipelines wearing the same label, and the deciding metrics cannot '
-            'tell them apart.'),
-    Measure('n_agent_calls', 'Agent calls', 'model calls per question', 'agent',
-            'mean count of model calls made inside the loop',
-            'metrics.score_question' + NO_MODEL,
-            'What the loop cost, per question, on top of everything the fixed '
-            'pipeline already spends. This is the number that decides whether a '
-            'win is affordable: a judged sweep multiplies it by thirty questions '
-            'and four candidates, and an agent that buys 0.01 of decision score '
-            'for four extra calls per question is a finding about the price of '
-            'the mechanism rather than a recommendation.'),
     Measure('n_expanded', 'Drilled down', 'members reached through a summary',
             'retrieval',
             'mean count of contexts expanded from a retrieved summary',
@@ -339,15 +320,6 @@ def score_question(question: dict, outcome, k: int) -> dict:
         # Unanswerable is correctly handled by either abstention or a corrected
         # premise (adversarial); the answerer sets `abstained` for both.
         row['abstained_correctly'] = float(outcome.abstained)
-    if outcome.diagnostics.get('agent_scope'):
-        # Named on the row rather than inferred from config, same reason as
-        # n_summaries: `agent_stop` is the only field saying why the loop stopped.
-        row |= {'n_hops': outcome.diagnostics.get('agent_hops', 0),
-                'n_agent_calls': outcome.diagnostics.get('agent_calls', 0),
-                'agent_stop': outcome.diagnostics.get('agent_stop', ''),
-                'agent_scope': outcome.diagnostics['agent_scope']}
-        if outcome.diagnostics.get('agent_error'):
-            row['agent_error'] = outcome.diagnostics['agent_error']
     if outcome.diagnostics.get('answer_error'):
         # `pipeline._llm_answer` swallows every failure into the canonical
         # refusal; this is the only field saying the model was never reached.
@@ -374,7 +346,7 @@ AGGREGATED = ('recall', 'precision', 'mrr', 'ndcg', 'hit', 'quote_recall',
               'latest_state_hit', 'false_abstention', 'abstained_correctly',
               'answer_similarity', 'answer_token_f1', 'key_fact_coverage',
               'latency_ms', 'n_contexts', 'n_summaries', 'n_expanded',
-              'context_chars', 'n_hops', 'n_agent_calls')
+              'context_chars')
 
 
 def aggregate(rows: list[dict]) -> dict:

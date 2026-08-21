@@ -1,7 +1,7 @@
 /* Shares its token system with the panel on :9002, in tokens.css, linked
  * before this file so these rules still win — a colour meaning a pipeline
  * step (`/api/options` → steps) must not be invented separately on either
- * page. `--ink-amber/green/blue/plum` alias the step tokens rather than
+ * page. `--ink-amber/green/blue` alias the step tokens rather than
  * holding values of their own, so there is one place a step's colour is set.
  * Only this page's own tokens are declared here. */
 :root {
@@ -20,7 +20,6 @@
   --ink-amber: var(--step-index);        /* index */
   --ink-green: var(--step-retrieval);    /* retrieval */
   --ink-blue: var(--step-generation);    /* generation */
-  --ink-plum: var(--step-agent);         /* agent */
 
   /* Ground truth's verdict at chunk granularity: paper for relevant, a shade
      back for not — has to survive a glance, not just close reading. */
@@ -36,10 +35,10 @@
      — and for the same reason: a media query and an attribute selector cannot
      share a block, so the alternative is two copies that drift.
 
-     `--step-agent` used to be re-lit here and nowhere else, on the grounds
-     that the panel had never re-lit it. That was a bug being preserved as a
-     convention: the panel does ink things with plum, and on the old dark
-     theme they came out near-black on a near-black plate. All four steps are
+     A step ink used to be re-lit here and nowhere else, on the grounds that
+     the panel had never re-lit it. That was a bug being preserved as a
+     convention: the panel does ink things with every step, and on the old
+     dark theme they came out near-black on a near-black plate. Every step is
      re-lit together in tokens.css now, so this page keeps no private answer
      to a question both pages ask.
 
@@ -692,15 +691,3 @@ select { font: inherit; color: inherit; }
   .chunk-reveal { animation: reveal .12s ease-out; }
   @keyframes reveal { from { opacity: 0; transform: translateY(-2px); } }
 }
-
-/* A table, not a paragraph: the same node appearing three times is a loop that
-   never settled, and that reading is vertical. Agent ink, matching :9002. */
-.agent-ladder { border-left: 3px solid var(--step-agent); padding-left: var(--s-2); }
-.agent-ladder h4 { margin: var(--s-1) 0 var(--s-2); color: var(--step-agent); font-size: var(--t-sm);
-  letter-spacing: var(--label-track); text-transform: uppercase; }
-.agent-ladder table { border-collapse: collapse; width: 100%; }
-.agent-ladder th { text-align: left; color: var(--step-agent); font-weight: 600; }
-.agent-ladder td, .agent-ladder th { padding: var(--s-px) var(--s-2) var(--s-px) 0;
-  border-bottom: 1px solid var(--rule); vertical-align: top; }
-.agent-ladder td.node { color: var(--step-agent); font-weight: 600; }
-.agent-ladder td.detail { color: var(--ink-soft); }

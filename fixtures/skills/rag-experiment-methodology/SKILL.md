@@ -126,8 +126,8 @@ one-knob-per-candidate rule, `decision_spread()`'s per-question error,
 `judgescreen` run before the leaderboard, `datasets.validate()` refusing rather
 than repairing, balanced sampling with remainder rules, and the Inspector's
 per-step rank trace — which is the failure taxonomy's classes 1–3 made
-readable. The stated stop reasons (`agent_stop`, `answer_error`,
-`GradeUnavailable`) are class 6 kept out of the quality signal.
+readable. The stated stop reasons (`answer_error`, `GradeUnavailable`) are
+class 6 kept out of the quality signal.
 
 **The honest gap: the lab has no held-out test set.** `SWEEP_LIMIT`'s 30
 balanced questions are both the selection set and the report set — the

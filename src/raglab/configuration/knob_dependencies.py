@@ -10,9 +10,7 @@ from raglab.configuration.option_vocabularies import (
     LEVELLED_HIERARCHIES,
     HIERARCHIES,
     RERANKERS,
-    GRADERS,
-    SCOPES,
-    CRITICS)
+    GRADERS)
 
 
 # Which controls are live, served here rather than duplicated per panel so the
@@ -94,38 +92,6 @@ DEPENDENCIES = {
     'generation.judge_model': {
         'field': 'generation.key_facts_judge', 'on_true': True,
         'reason': 'the key-facts judge is off'},
-    # Greyed out per *scope*, except `critic_model`, which gates on the critic —
-    # resolved transitively by `dependency_state`, so turning the critic off
-    # also greys the model it would have used.
-    'agent.max_hops': {
-        'field': 'agent.scope', 'on': ['retrieve', 'full'],
-        'reason': 'this scope does not own retrieval, so it takes exactly one '
-                  'hop'},
-    'agent.rewrite': {
-        'field': 'agent.scope', 'on': ['retrieve', 'full'],
-        'reason': 'only a scope that hops has a query to rewrite between hops'},
-    'agent.evidence_threshold': {
-        'field': 'agent.scope', 'on': ['retrieve', 'full'],
-        'reason': 'nothing asks whether the evidence is sufficient — retrieval '
-                  'runs once'},
-    'agent.max_revisions': {
-        'field': 'agent.scope', 'on': ['generate', 'full'],
-        'reason': 'this scope does not own generation, so the answerer writes '
-                  'once'},
-    'agent.critic': {
-        'field': 'agent.scope', 'on': ['generate', 'full'],
-        'reason': 'this scope does not own generation, so there is no draft to '
-                  'critique'},
-    'agent.max_llm_calls': {
-        'field': 'agent.scope', 'on': [s for s in SCOPES if s],
-        'reason': 'no agent is running, so there is no loop to put a ceiling on'},
-    'agent.plan_model': {
-        'field': 'agent.scope', 'on': ['retrieve', 'full'],
-        'reason': 'planning, rewriting and the sufficiency verdict all belong '
-                  'to the retrieval loop'},
-    'agent.critic_model': {
-        'field': 'agent.critic', 'on': [c for c in CRITICS if c != 'none'],
-        'reason': 'the critic is off, so nothing reads a critic model'},
 }
 
 

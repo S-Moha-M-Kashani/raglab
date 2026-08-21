@@ -90,8 +90,8 @@ Sighted and triaged, not adopted. Grouped by what they attack:
   hypergraph evidence), **Graph-O1**, **ConRAG** (consensus multi-view
   retrieval), **GraphSearch** (agentic deep search over graph RAG).
 - **Deciding when/what to retrieve** — **Bidirectional RAG**, **A-RAG**,
-  **SURE-RAG**, **QuCo-RAG**, predictive prefetching; the adaptive-routing
-  benchmarks (`adaptive-corrective-rag` carries the numbers).
+  **SURE-RAG**, **QuCo-RAG**, predictive prefetching, and the adaptive-routing
+  benchmarks.
 - **Cheap graph construction** — **LinearRAG**, **LiteSemRAG**, token
   co-occurrence graphs, **TagRAG**: the race to keep GraphRAG's accuracy and
   delete its LLM calls (`hierarchical-graph-rag` covers the established end).

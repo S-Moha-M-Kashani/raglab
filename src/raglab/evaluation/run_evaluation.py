@@ -8,10 +8,9 @@ import json
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from raglab.agents import agentic_rag
 from raglab.corpora import diary_corpus_loader as corpus
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components.indexing import embedding_backends as embedding
@@ -360,22 +359,9 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     rows = []
     for i, question in enumerate(questions):
         check_cancelled()
-        if agentic_rag.owns_retrieval(cfg.agent.scope):
-            # Narrowed to the retrieval half of the scope and the answerer
-            # forced off: this route retrieves and stops, and the drafting half
-            # of `full` is an answering stage.
-            trace = {}
-            _outcome = agentic_rag.run(
-                index,
-                replace(cfg, agent=replace(cfg.agent, scope='retrieve'),
-                        generation=replace(cfg.generation, answerer='none')),
-                question['question_fa'],
-                question.get('query_date', query_date), llm=llm, models=roles,
-                trace=trace)
-        else:
-            _outcome, trace = pipeline.retrieve_traced(
-                index, cfg.retrieval, question['question_fa'],
-                question.get('query_date', query_date), llm=llm, models=roles)
+        _outcome, trace = pipeline.retrieve_traced(
+            index, cfg.retrieval, question['question_fa'],
+            question.get('query_date', query_date), llm=llm, models=roles)
         rows.append(_gold_trace_row(question, trace, index, norm_chunks))
         report('retrieving', 0.4 + 0.6 * (i + 1) / len(questions),
                _question_note(i + 1, questions, question['difficulty']))
@@ -396,14 +382,12 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
 
 def _assemble_notes(index, cfg: LabConfig, settings: LabSettings) -> list[str]:
     """The row's free-text notes: the index's own build notes, which model ran
-    which stage (so two leaderboard rows are comparable), the agent scope if
-    one ran, the embedder's language coverage, and — only when it would
+    which stage (so two leaderboard rows are comparable), the embedder's
+    language coverage, and — only when it would
     otherwise go unsaid — that an LLM stage fell back to the offline fake
     provider and so measured nothing."""
     notes = list(index.stats.notes)
     notes.append(models.note_for(cfg, settings))
-    if cfg.agent.scope:
-        notes.append(agentic_rag.note_for(cfg.agent))
     notes.append(embedding.language_note(
         cfg.index.embedder,
         embedding.resolve_model(cfg.index.embedder, settings,
@@ -500,14 +484,7 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
         recorded = None
         asked = question['question_fa']
         when = question.get('query_date', query_date)
-        if cfg.agent.scope:
-            # The agent answers as well as retrieves — under `retrieve` it calls
-            # `pipeline.answer` itself — so `pipeline.answer` must not run again
-            # below, or the row would describe neither call.
-            tr = {} if trace else None
-            outcome = agentic_rag.run(index, cfg, asked, when, llm=llm,
-                                      models=roles, trace=tr)
-        elif trace:
+        if trace:
             outcome, tr = pipeline.retrieve_traced(
                 index, cfg.retrieval, asked, when, llm=llm, models=roles)
         else:
@@ -516,9 +493,8 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
         if trace:
             recorded = _gold_trace_row(question, tr, index, norm_chunks)
         check_cancelled()
-        if not cfg.agent.scope:
-            outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
-                                      models=roles)
+        outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
+                                  models=roles)
         check_cancelled()
         row = metrics.score_question(question, outcome, cfg.retrieval.k)
         if (cfg.generation.key_facts_judge and outcome.answer

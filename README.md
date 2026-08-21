@@ -27,8 +27,7 @@ The extra is required because the default embedder is a sentence-transformers
 checkpoint. Without it the service starts fine and then fails on the first
 index build. The ~2.2 GB model downloads on first index build, not at boot.
 
-Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
-`leiden` hierarchy grouping.
+Add `--extra graph-index` for the `leiden` hierarchy grouping.
 
 | Command | What it does |
 | --- | --- |

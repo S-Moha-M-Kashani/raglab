@@ -501,14 +501,14 @@ def test_the_registries_line_up():
     of these drifting puts a control, a colour or a number somewhere nothing
     explains it."""
     assert [step.key for step in config.STEPS] == ['index', 'retrieval',
-                                                   'generation', 'agent']
+                                                   'generation']
     # Two names on purpose: the long one titles a panel, the short one tags a
     # group of models inside another panel, where a whole sentence would not fit.
     assert all(step.label and step.short and step.note for step in config.STEPS)
     assert [step.short for step in config.STEPS] == ['Index', 'Retrieval',
-                                                     'Generation', 'Agent']
+                                                     'Generation']
     # A step is a config group with a colour, so the two lists cannot drift: a
-    # fourth group would otherwise render in a panel nobody colours.
+    # new group would otherwise render in a panel nobody colours.
     steps = {step.key for step in config.STEPS}
     assert steps == {group for group, _ in explain.GROUPS}
 

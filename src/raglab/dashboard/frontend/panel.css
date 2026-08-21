@@ -20,13 +20,11 @@
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
 [data-step="generation"] { --step: var(--step-generation); }
-[data-step="agent"] { --step: var(--step-agent); }
 /* An ink tuned for porcelain reads too dark on the chassis, so every step on a
    dark band takes its lifted variant. The bar and the rail are dark bands. */
 .topbar [data-step="index"], .statusrail [data-step="index"] { --step: var(--step-index-lit); }
 .topbar [data-step="retrieval"], .statusrail [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
 .topbar [data-step="generation"], .statusrail [data-step="generation"] { --step: var(--step-generation-lit); }
-.topbar [data-step="agent"], .statusrail [data-step="agent"] { --step: var(--step-agent-lit); }
 
 * { box-sizing: border-box; }
 body {

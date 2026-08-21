@@ -54,6 +54,13 @@ dependencies = [
   # trace at all, and no measured stage may phone a tracing service to explain
   # itself when `.runs/` and the ledger are what account for a run.
   "langgraph>=1.2,<2",
+  # The widget's conversation memory is durable: one SqliteSaver over
+  # databases/widget.db, so a reader's chat survives a restart the way the
+  # ledger does and the in-memory index does not. A separate distribution from
+  # langgraph itself, and declared for the same reason langchain is declared
+  # beside langchain-core — an import that works by accident is one dependency
+  # resolution away from not.
+  "langgraph-checkpoint-sqlite>=2.0",
 ]
 
 [project.optional-dependencies]

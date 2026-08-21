@@ -269,6 +269,23 @@ def _the_experiment_ledger_is_never_the_real_one(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True, scope='session')
+def _the_widget_conversations_are_never_the_real_ones(tmp_path_factory):
+    """No test may write into `databases/widget.db` — the widget's memory is
+    durable now, so a test that asks it anything would otherwise deposit turns
+    in the developer's own conversation history. An env var rather than a
+    patched attribute, for the reason the ledger's fixture gives: `db_path()`
+    resolves it per call, so this needs no import of the module it guards."""
+    saved = os.environ.get('RAGLAB_WIDGET_DB')
+    os.environ['RAGLAB_WIDGET_DB'] = str(
+        tmp_path_factory.mktemp('raglab-widget') / 'widget.db')
+    yield
+    if saved is None:
+        os.environ.pop('RAGLAB_WIDGET_DB', None)
+    else:
+        os.environ['RAGLAB_WIDGET_DB'] = saved
+
+
+@pytest.fixture(autouse=True, scope='session')
 def _runs_dir_is_never_the_real_one(tmp_path_factory):
     """No test may write into the lab's real `.runs/` — `evaluate.run_eval`
     ends in `save_run`, so any test that evaluates anything would otherwise

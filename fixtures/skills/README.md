@@ -25,8 +25,6 @@ onto the knobs that already exist here.
 | [`reranking-late-interaction`](reranking-late-interaction/SKILL.md) | Recall is fine but the top 5 are wrong. What re-scores them? |
 | [`hierarchical-graph-rag`](hierarchical-graph-rag/SKILL.md) | What do you retrieve for a question no single chunk answers? |
 | [`query-transformation`](query-transformation/SKILL.md) | The query and the corpus are written in different registers. Rewrite which one? |
-| [`adaptive-corrective-rag`](adaptive-corrective-rag/SKILL.md) | Should this query even be retrieved for, and what happens when the evidence is bad? |
-| [`agentic-rag`](agentic-rag/SKILL.md) | When is a loop around retrieval worth *n* model calls per question? |
 | [`multilingual-rag`](multilingual-rag/SKILL.md) | Which components fail silently outside English? |
 | [`rag-evaluation`](rag-evaluation/SKILL.md) | How do you know any of the above helped? |
 | [`rag-use-case-architectures`](rag-use-case-architectures/SKILL.md) | Which architecture is the educated first guess for this use case? |

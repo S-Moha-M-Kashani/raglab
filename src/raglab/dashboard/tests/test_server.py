@@ -93,7 +93,7 @@ def test_options_describe_the_corpus_the_knobs_and_the_metrics(client):
     # --- steps/colour map: which step a control belongs to is a fact about
     # the pipeline, served with everything else — the panel cannot invent it.
     assert [step['key'] for step in body['steps']] == ['index', 'retrieval',
-                                                        'generation', 'agent']
+                                                        'generation']
     assert all(step['label'] and step['short'] and step['note']
                for step in body['steps'])
     step_keys = {step['key'] for step in body['steps']}
@@ -119,7 +119,7 @@ def test_options_offer_models_embedders_and_datasets_per_backend(client):
     # --- a model role for every LLM-backed stage, every one fully labelled.
     roles = {role['key']: role for role in body['model_roles']}
     assert set(roles) == {'expand', 'rerank', 'grade', 'answer',
-                          'judge', 'ragas', 'plan', 'critic'}
+                          'judge', 'ragas'}
     assert all(role['help'] and role['label'] and role['field']
                for role in roles.values())
     ids = [m['id'] for m in body['models']]

@@ -164,21 +164,6 @@ ROLES = (
               'factual correctness. Separate from the answerer on purpose: a '
               'model grading its own output is not evidence.',
               'RAGAS = judged'),
-    ModelRole('plan', 'Agent planner', 'agent.plan_model',
-              'Runs the retrieval loop\'s three thinking steps: what evidence '
-              'would answer this, is what we found sufficient, and what should '
-              'the next query be. It is asked once per hop, so a slow model here '
-              'multiplies by max_hops on every question — the same arithmetic '
-              'that makes the reranker\'s choice matter.',
-              'the agent scope owns retrieval'),
-    ModelRole('critic', 'Agent critic', 'agent.critic_model',
-              'Reads a draft answer against the contexts it was written from and '
-              'says whether every claim is supported — and, under "both", '
-              'whether the draft answers the question at all. This is the stage '
-              'that can catch what faithfulness would later punish, so a weak '
-              'model here approves exactly the answers a strong judge will mark '
-              'down.',
-              'the agent scope owns generation and the critic is on'),
 )
 
 ROLE_HELP = {f'model.{role.key}': role.help for role in ROLES}
@@ -194,8 +179,6 @@ class Roles:
     answer: str = ''
     judge: str = ''
     ragas: str = ''
-    plan: str = ''
-    critic: str = ''
 
     def as_dict(self) -> dict:
         return {f.name: getattr(self, f.name) for f in fields(self)}

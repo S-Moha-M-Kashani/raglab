@@ -51,34 +51,6 @@ const SUMMARY_SCOPE_HELP = {
 
 // A grouping whose library is missing is offered as NA and refused by the
 // service if picked — never quietly served by a different partition.
-// One line per scope, naming the stage it owns; the four read as a 2x2.
-const SCOPE_HELP = {
-  '': 'the fixed pipeline (default)',
-  'retrieve': 'retrieval only · plan, retrieve, judge the evidence, rewrite, again',
-  'generate': 'generation only · draft, critique it, revise — retrieval held fixed',
-  'full': 'both · and the one edge neither has: a bad critique can re-retrieve',
-};
-
-const CRITIC_HELP = {
-  'grounded': 'is every claim supported by the retrieved text?',
-  'both': 'that, plus: does the draft answer the question?',
-  'none': 'ship the first draft — the control',
-};
-
-// An agent scope this installation cannot run is offered as NA and refused by
-// the service if picked, never quietly served by the fixed pipeline.
-function fillScopes() {
-  const support = OPTIONS.agent_support || {};
-  $('scope').innerHTML = (OPTIONS.scopes || []).map((v) => {
-    const state = support[v];
-    const na = (state && state.available === false)
-      ? ` — NA, needs \`${state.install}\`` : '';
-    const help = SCOPE_HELP[v] ? ' — ' + SCOPE_HELP[v] : '';
-    return `<option value="${escapeHtml(v)}"${na ? ' disabled' : ''}>`
-      + `${escapeHtml(v || 'off')}${escapeHtml(help)}${escapeHtml(na)}</option>`;
-  }).join('');
-}
-
 function fillHierarchies() {
   const support = OPTIONS.hierarchy_support || {};
   $('hierarchy').innerHTML = (OPTIONS.hierarchies || []).map((v) => {
@@ -324,7 +296,7 @@ async function api(path, body, method = body ? 'POST' : 'GET') {
 // Config fields this panel has no control for (`rrf_k`, `agentic_weights`,
 // `max_context_chars`) — carried through so applying a preset that sets them
 // can't silently drop them to the lab's own defaults. A real control always wins.
-let UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
+let UNSHOWN = { index: {}, retrieval: {}, generation: {} };
 let CURRENT_ARCHIVE = null;
 let ARCHIVE_VIEW_ONLY = false;
 let ARCHIVE_EVENTS_BOUND = false;
@@ -332,8 +304,8 @@ let ARCHIVE_EVENTS_BOUND = false;
 // Remember the parts of a config the controls cannot express, having applied it.
 function keepUnshown(applied) {
   const shown = readShownConfig();
-  UNSHOWN = { index: {}, retrieval: {}, generation: {}, agent: {} };
-  for (const group of ['index', 'retrieval', 'generation', 'agent']) {
+  UNSHOWN = { index: {}, retrieval: {}, generation: {} };
+  for (const group of ['index', 'retrieval', 'generation']) {
     for (const [key, value] of Object.entries(applied[group] || {})) {
       if (!(key in shown[group])) UNSHOWN[group][key] = value;
     }
@@ -368,13 +340,6 @@ function readShownConfig() {
     generation: {
       answerer: $('answerer').value, key_facts_judge: $('key_facts_judge').checked,
     },
-    agent: {
-      scope: $('scope').value, max_hops: +$('max_hops').value,
-      rewrite: $('rewrite').checked,
-      evidence_threshold: +$('evidence_threshold').value,
-      max_revisions: +$('max_revisions').value, critic: $('critic').value,
-      max_llm_calls: +$('max_llm_calls').value,
-    },
   };
   // Each role writes into the config group whose stage uses it, so the index
   // fingerprint keeps describing exactly what was stored.
@@ -389,7 +354,7 @@ function readConfig() {
   const cfg = readShownConfig();
   // Under the controls, never over them: a value you can see and change is
   // always the one that runs.
-  for (const group of ['index', 'retrieval', 'generation', 'agent']) {
+  for (const group of ['index', 'retrieval', 'generation']) {
     cfg[group] = Object.assign({}, UNSHOWN[group], cfg[group]);
   }
   return cfg;
@@ -489,14 +454,6 @@ function applyDefaults(d) {
   $('grade_threshold').value = d.retrieval.grade_threshold;
   $('answerer').value = d.generation.answerer;
   $('key_facts_judge').checked = d.generation.key_facts_judge;
-  const a = d.agent || {};
-  $('scope').value = a.scope || '';
-  $('max_hops').value = a.max_hops;
-  $('rewrite').checked = !!a.rewrite;
-  $('evidence_threshold').value = a.evidence_threshold;
-  $('max_revisions').value = a.max_revisions;
-  $('critic').value = a.critic;
-  $('max_llm_calls').value = a.max_llm_calls;
   for (const select of document.querySelectorAll('.rag-model')) {
     const [group, field] = select.dataset.field.split('.');
     select.value = (d[group] || {})[field] || '';
@@ -574,8 +531,6 @@ async function boot() {
   fill($('reranker'), o.rerankers);
   fill($('grader'), o.graders);
   fill($('answerer'), o.answerers);
-  fillScopes();
-  fill($('critic'), o.critics, CRITIC_HELP);
   checkboxes($('types'), o.question_types, []);
   document.addEventListener('change', applyDependencies);
   fillModels();
@@ -961,8 +916,6 @@ function validateAgainstPanelOptions(imported) {
     ['retrieval.grader', OPTIONS.graders],
     ['retrieval.summary_scope', OPTIONS.summary_scopes],
     ['generation.answerer', OPTIONS.answerers],
-    ['agent.scope', OPTIONS.scopes],
-    ['agent.critic', OPTIONS.critics],
   ];
   for (const [path, values] of choices) {
     const value = configValue(config, path);
@@ -1009,10 +962,6 @@ function validateAgainstPanelOptions(imported) {
     ['mmr_lambda', 'retrieval.mmr_lambda'],
     ['grade_threshold', 'retrieval.grade_threshold'],
     ['summary_boost', 'retrieval.summary_boost'],
-    ['max_hops', 'agent.max_hops'],
-    ['evidence_threshold', 'agent.evidence_threshold'],
-    ['max_revisions', 'agent.max_revisions'],
-    ['max_llm_calls', 'agent.max_llm_calls'],
     ['limit', 'ui.limit'], ['ragas_limit', 'ui.ragas_limit'],
   ];
   for (const [id, path] of numericControls) {

@@ -12,7 +12,7 @@ const ArchiveIO = (() => {
     'commitment', 'entity', 'pattern', 'habit', 'abstention', 'adversarial',
   ]);
   const DIFFICULTIES = Object.freeze(['easy', 'medium', 'hard']);
-  const STAGES = Object.freeze(['index', 'retrieval', 'generation', 'agent', 'overall']);
+  const STAGES = Object.freeze(['index', 'retrieval', 'generation', 'overall']);
   const UNSAFE_METRIC_KEYS = Object.freeze(['__proto__', 'prototype', 'constructor']);
   const RESULT_KEYS = Object.freeze([
     'run_id', 'label', 'config', 'dataset', 'index', 'summary', 'rows',
@@ -38,11 +38,6 @@ const ArchiveIO = (() => {
       answerer: 'extractive', model: '', key_facts_judge: false,
       judge_model: '', ragas_model: '',
     },
-    agent: {
-      scope: '', max_hops: 3, rewrite: true, evidence_threshold: 0.5,
-      max_revisions: 1, critic: 'grounded', max_llm_calls: 12,
-      plan_model: '', critic_model: '',
-    },
     label: '',
   });
   const VOCABULARIES = Object.freeze({
@@ -56,15 +51,12 @@ const ArchiveIO = (() => {
     'retrieval.grader': ['none', 'lexical', 'llm'],
     'retrieval.summary_scope': ['mixed', 'leaves', 'summaries', 'drill-down'],
     'generation.answerer': ['extractive', 'none', 'llm'],
-    'agent.scope': ['', 'retrieve', 'generate', 'full'],
-    'agent.critic': ['grounded', 'both', 'none'],
   });
   const MODEL_FIELDS = Object.freeze([
     ['index', 'embed_model'],
     ['retrieval', 'expansion_model'], ['retrieval', 'reranker_model'],
     ['retrieval', 'grader_model'], ['generation', 'model'],
     ['generation', 'judge_model'], ['generation', 'ragas_model'],
-    ['agent', 'plan_model'], ['agent', 'critic_model'],
   ]);
 
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -183,15 +175,6 @@ const ArchiveIO = (() => {
       integer(config.index.min_group, 'settings.config.index.min_group', 2);
       if (['hybrid', 'knn'].includes(config.index.graph_source)) {
         integer(config.index.graph_knn, 'settings.config.index.graph_knn', 1);
-      }
-    }
-    if (config.agent.scope) {
-      integer(config.agent.max_hops, 'settings.config.agent.max_hops', 1);
-      integer(config.agent.max_revisions, 'settings.config.agent.max_revisions', 0);
-      integer(config.agent.max_llm_calls, 'settings.config.agent.max_llm_calls', 1);
-      if (['generate', 'full'].includes(config.agent.scope)
-          && config.generation.answerer !== 'llm') {
-        fail('settings.config.agent.scope: generation ownership requires answerer llm');
       }
     }
   };
@@ -338,7 +321,7 @@ const ArchiveIO = (() => {
   const stageResults = (result, metricCatalogue) => {
     const groups = {
       retrieval: { metrics: {} }, generation: { metrics: {} },
-      agent: { metrics: {} }, overall: { metrics: {} },
+      overall: { metrics: {} },
     };
     groups.index = { statistics: copy(result.index), metrics: {} };
     const steps = Object.create(null);

@@ -32,11 +32,6 @@ const CONFIG = {
     answerer: 'extractive', model: 'answer-model', key_facts_judge: false,
     judge_model: '', ragas_model: '',
   },
-  agent: {
-    scope: '', max_hops: 3, rewrite: true, evidence_threshold: 0.5,
-    max_revisions: 1, critic: 'grounded', max_llm_calls: 12,
-    plan_model: 'plan-model', critic_model: 'critic-model',
-  },
 };
 const UI = { mode: '', ragas_mode: 'offline', limit: 1, ragas_limit: 0,
   types: ['single-hop'] };
@@ -99,7 +94,7 @@ test('settings capture keeps hidden config, every model role, and all UI control
   });
   assert.deepEqual(plain(value.settings.config), plain(CONFIG));
   assert.equal(value.settings.config.retrieval.expansion_model, 'expand-model');
-  assert.equal(value.settings.config.agent.critic_model, 'critic-model');
+  assert.equal(value.settings.config.generation.model, 'answer-model');
   assert.deepEqual(plain(value.settings.ui), {
     mode: 'openrouter', ragas_mode: 'llm', limit: 7, ragas_limit: 3,
     types: ['multi-hop', 'single-hop'],

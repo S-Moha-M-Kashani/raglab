@@ -1,4 +1,4 @@
-"""Lab settings and the IndexConfig/RetrievalConfig/GenerationConfig/AgentConfig objects driving the pipeline.
+"""Lab settings and the IndexConfig/RetrievalConfig/GenerationConfig objects driving the pipeline.
 
 Only IndexConfig enters the index fingerprint; the other three sweep for free
 against a build already made. There is deliberately no vector-storage setting
@@ -27,7 +27,7 @@ from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKER
                       GRAPH_HIERARCHIES, CLUSTER_HIERARCHIES,
                       LEVELLED_HIERARCHIES, TUNED_HIERARCHIES, GRAPH_SOURCES,
                       KNN_SOURCES, SUMMARIZERS, RETRIEVERS, SUMMARY_SCOPES,
-                      RERANKERS, GRADERS, ANSWERERS, SCOPES, CRITICS,
+                      RERANKERS, GRADERS, ANSWERERS,
                       DIFFICULTIES, BALANCES)
 
 # Re-exported: DEPENDENCIES lives in knob_dependencies.py, which now reads the
@@ -58,10 +58,6 @@ STEPS = (
     Step('generation', 'Generation', 'Generation & scoring',
          'Turns the retrieved contexts into a Farsi answer, refuses when the '
          'diary is silent, and grades what it wrote.'),
-    Step('agent', 'Agent', 'Agent — the loop around the stages',
-         'Off by default. Hands one stage above to a bounded LangGraph loop that '
-         'can look again: retrieval, generation, or both. It changes no knob '
-         'above it — it runs them repeatedly and decides when to stop.'),
 )
 
 
@@ -187,31 +183,10 @@ class GenerationConfig:
 
 
 @dataclass(frozen=True)
-class AgentConfig:
-    """Which stage a bounded loop owns, and how far it may go.
-
-    Nothing here is an index field, so all four scopes sweep free against a
-    single build. Every loop is bounded twice: `max_hops`/`max_revisions` bound
-    its shape, `max_llm_calls` bounds its cost; whichever cap ends a run is
-    named in `agent_stop` on the row.
-    """
-    scope: str = ''                  # '' | retrieve | generate | full
-    max_hops: int = 3                # retrieval loops; retrieve/full
-    rewrite: bool = True             # rewrite the query between hops
-    evidence_threshold: float = 0.5  # the sufficiency verdict a hop must clear
-    max_revisions: int = 1           # generation retries; generate/full
-    critic: str = 'grounded'         # grounded | both | none
-    max_llm_calls: int = 12          # the cost ceiling, per question
-    plan_model: str = ''             # '' = LabSettings.llm_model
-    critic_model: str = ''
-
-
-@dataclass(frozen=True)
 class LabConfig:
     index: IndexConfig = field(default_factory=IndexConfig)
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
     generation: GenerationConfig = field(default_factory=GenerationConfig)
-    agent: AgentConfig = field(default_factory=AgentConfig)
     label: str = ''
 
     @classmethod
@@ -223,15 +198,12 @@ class LabConfig:
         index = pick(IndexConfig, data.get('index'))
         retrieval = pick(RetrievalConfig, data.get('retrieval'))
         generation = pick(GenerationConfig, data.get('generation'))
-        agent = pick(AgentConfig, data.get('agent'))
         return cls(index=index.normalized(), retrieval=retrieval.normalized(),
-                   generation=generation, agent=agent,
-                   label=data.get('label', ''))
+                   generation=generation, label=data.get('label', ''))
 
     def to_dict(self) -> dict:
         return {'index': asdict(self.index), 'retrieval': asdict(self.retrieval),
-                'generation': asdict(self.generation),
-                'agent': asdict(self.agent), 'label': self.label}
+                'generation': asdict(self.generation), 'label': self.label}
 
     def validate(self) -> list[str]:
         """Returns every problem found; raises nothing."""
@@ -245,9 +217,7 @@ class LabConfig:
                   (self.retrieval.retriever, RETRIEVERS, 'retriever'),
                   (self.retrieval.reranker, RERANKERS, 'reranker'),
                   (self.retrieval.grader, GRADERS, 'grader'),
-                  (self.generation.answerer, ANSWERERS, 'answerer'),
-                  (self.agent.scope, SCOPES, 'agent scope'),
-                  (self.agent.critic, CRITICS, 'agent critic'))
+                  (self.generation.answerer, ANSWERERS, 'answerer'))
         for value, allowed, name in checks:
             if value not in allowed:
                 bad.append(f'unknown {name}: {value!r} (expected one of '
@@ -270,31 +240,6 @@ class LabConfig:
                 bad.append('min_group must be >= 2 — a group of one is a chunk')
             if self.index.graph_knn < 1 and self.index.graph_source in KNN_SOURCES:
                 bad.append('graph_knn must be >= 1')
-        # A scope this installation cannot run is refused, never silently
-        # served by the fixed pipeline.
-        if self.agent.scope in SCOPES and self.agent.scope:
-            from ..agents.agentic_rag import AGENT_EXTRA, agent_available
-            if not agent_available():
-                bad.append(
-                    f'agent scope {self.agent.scope!r} needs a package this '
-                    f'installation does not have: install it with {AGENT_EXTRA}. It '
-                    f'is refused rather than run without the agent.')
-            # Under `extractive` there is no LLM draft to critique or revise —
-            # refused rather than silently promoting the answerer.
-            elif (self.agent.scope in ('generate', 'full')
-                    and self.generation.answerer != 'llm'):
-                bad.append(
-                    f'agent scope {self.agent.scope!r} owns generation, so the '
-                    f'answerer must be llm (it is '
-                    f'{self.generation.answerer!r}): the agent drafts, '
-                    f'critiques and revises with a model')
-            if self.agent.max_hops < 1:
-                bad.append('agent max_hops must be >= 1 — a scope that owns '
-                           'retrieval still retrieves once')
-            if self.agent.max_revisions < 0:
-                bad.append('agent max_revisions must be >= 0')
-            if self.agent.max_llm_calls < 1:
-                bad.append('agent max_llm_calls must be >= 1')
         # A model belongs to exactly one backend; a mismatch is a validation
         # error rather than a silent fall back to the backend's own default.
         wanted = self.index.embed_model

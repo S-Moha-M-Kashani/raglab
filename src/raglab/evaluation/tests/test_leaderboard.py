@@ -258,7 +258,6 @@ def test_the_pipeline_sentence_names_one_fragment_per_step_that_ran():
         'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
                       'grader': 'llm'},
         'generation': {'answerer': 'llm'},
-        'agent': {'scope': ''},
     }
     assert leaderboard.pipeline_fragments(config) == [
         {'step': 'index',
@@ -287,14 +286,13 @@ def test_every_fragment_carries_a_short_form_beside_its_own_text():
         'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'cross-encoder',
                       'grader': 'lexical'},
         'generation': {'answerer': 'extractive'},
-        'agent': {'scope': 'retrieve'},
     }
     assert [f['short'] for f in leaderboard.pipeline_fragments(config)] == [
-        'sem-drift·louv·FE·MiniLM-L12', 'rrf·CE·lex', 'extr', 'retr']
+        'sem-drift·louv·FE·MiniLM-L12', 'rrf·CE·lex', 'extr']
     # Nothing is lost: the same call still says all of it.
     assert [f['text'] for f in leaderboard.pipeline_fragments(config)] == [
         'semantic-drift·louvain·fastembed·paraphrase-multilingual-MiniLM-L12-v2',
-        'hybrid-rrf·cross-encoder·lexical', 'extractive', 'retrieve']
+        'hybrid-rrf·cross-encoder·lexical', 'extractive']
 
 
 def test_a_short_form_drops_a_model_family_and_version_but_never_its_size():
@@ -335,18 +333,6 @@ def test_the_sentence_keeps_the_embedding_model_and_drops_its_vendor():
                    'embed_model': 'BAAI/bge-small-en-v1.5'}})
     assert fragments[0]['text'] == 'session·fastembed·bge-small-en-v1.5'
     assert fragments[0]['short'] == 'sess·FE·bge-small-en'
-
-
-def test_a_scope_that_is_off_writes_no_agent_fragment():
-    # this is a unit test
-    """The agent is off by default and off is the common case; a plum fragment
-    reading 'off' on every row would spend the sentence's width saying nothing."""
-    base = {'index': {'chunker': 'session'}, 'agent': {'scope': ''}}
-    assert [f['step'] for f in leaderboard.pipeline_fragments(base)] == ['index']
-    lit = {'index': {'chunker': 'session'}, 'agent': {'scope': 'full'}}
-    assert leaderboard.pipeline_fragments(lit)[-1] == {'step': 'agent',
-                                                      'text': 'full',
-                                                      'short': 'full'}
 
 
 def test_a_knob_set_to_none_is_absent_from_the_sentence():
@@ -725,7 +711,7 @@ def test_the_markdown_says_a_job_did_not_finish_and_why():
     rows = [_board_row('done-1', 'diary-fa', 0.71),
             dict(_board_row('gone-1', 'diary-fa', None), state='cancelled'),
             dict(_board_row('bad-1', 'diary-fa', None), state='error',
-                 error='NameError: name | agent | is not defined')]
+                 error='NameError: name | cfg | is not defined')]
     text = leaderboard.markdown(leaderboard.by_dataset(rows))
     # Split on unescaped pipes only, which is what a markdown reader does — and
     # is the whole point of escaping them: an unescaped pipe inside a reason

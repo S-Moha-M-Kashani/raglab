@@ -195,7 +195,7 @@ function settingsReveal(row) {
   // it here, not infer it from the knob list below. The knobs are still the
   // longer answer — they hold what the sentence never names.
   const said = sentenceText(row);
-  const blocks = ['index', 'retrieval', 'generation', 'agent']
+  const blocks = ['index', 'retrieval', 'generation']
     .filter((step) => config[step] && Object.keys(config[step]).length)
     .map((step) => `<div class="reveal-step" data-step="${step}">`
       + `<b>${step}</b>`

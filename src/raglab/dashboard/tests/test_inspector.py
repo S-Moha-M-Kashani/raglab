@@ -619,11 +619,6 @@ INSPECTOR_CONVENTIONS = [
      "the down state's red was the one colour on this page typed as a literal, "
      'so it was the one colour that could not follow the theme — it reads '
      '--alert now, which Night re-lights along with everything else'),
-    ('inspector.css', None, '--step-agent: var(--step-agent-lit)',
-     'plum is re-lit for Night in the shared sheet with the other three, so '
-     'this page keeps no private answer to a question both pages ask — the '
-     'panel had gone without the re-light entirely, which on Night put a '
-     'near-black plum on a near-black plate'),
     ('inspector.html', 'id="theme-control"', None,
      'the Inspector offers the same three choices the lab does: a reader who '
      'set Night on :9002 and found Day on :9003 would be right to call that '
@@ -934,19 +929,6 @@ def test_the_inspector_tables_sit_in_the_shared_scroll_region(inspector_texts):
         "page's retrieval table keeps its own centred columns and its own "
         'row backgrounds, which carry the gold verdict and so cannot also be '
         'a stripe')
-
-
-def test_the_agent_ladder_is_wired_to_the_shared_sorter(inspector_texts):
-    # this is a convention test
-    """The ladder was the one table on either surface built by a path that
-    never reached `SortTable.make`. Both questions a reader brings to a loop
-    trace are column questions — sort by node and a node visited three times
-    collects itself; sort by hop and you see what each hop cost — and the third
-    click puts back the order it was served in, which for this table is the
-    sequence itself."""
-    js = inspector_texts['inspector.js']
-    ladder = js[js.index('function agentLadder'):js.index('function questionBlock')]
-    assert 'SortTable.make(' in ladder
 
 
 # --- following the lab (:9002) ----------------------------------------------

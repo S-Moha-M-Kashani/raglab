@@ -95,12 +95,10 @@ How to tell the near-neighbours apart:
 - hybrid-retrieval-fusion merges two first-stage ranked lists;
   reranking-late-interaction re-scores one shortlist afterwards. Fusion is
   about recall, reranking about the order of the top few.
-- query-transformation rewrites the query once, before retrieval;
-  agentic-rag loops — retrieve, judge the evidence, rewrite, retry — with
-  caps and stop reasons. One price paid always versus a larger price paid
-  conditionally.
-- adaptive-corrective-rag decides per query (route it, gate its evidence);
-  agentic-rag iterates within a query. A router is not a loop.
+- query-transformation rewrites the query before retrieval runs, so it
+  changes what is asked; hybrid-retrieval-fusion and
+  reranking-late-interaction change how that question is searched and
+  ordered. Asking better and looking better are different faults.
 - hierarchical-graph-rag is index-time structure for questions no single
   chunk answers; it changes what exists to retrieve, not how retrieval runs.
 - multilingual-rag is the failure modes of non-English corpora — encoders,

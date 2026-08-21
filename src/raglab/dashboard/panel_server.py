@@ -16,7 +16,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from raglab.agents import agentic_rag
 from raglab.llm_backends import openrouter_key_memory as credentials
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components.indexing import embedding_backends as embedding
@@ -36,7 +35,6 @@ from raglab.configuration.lab_config import (
     ANSWERERS,
     BALANCES,
     CHUNKERS,
-    CRITICS,
     DEPENDENCIES,
     DIFFICULTIES,
     EMBEDDERS,
@@ -47,7 +45,6 @@ from raglab.configuration.lab_config import (
     RETRIEVERS,
     ROOT,
     RUNS_DIR,
-    SCOPES,
     STEPS,
     SUMMARIZERS,
     SUMMARY_SCOPES,
@@ -110,14 +107,6 @@ def _hierarchy_options() -> dict:
         # Verified by import, never guessed, so NA keeps meaning one thing:
         # this installation cannot load it.
         'hierarchy_support': hierarchy.available(),
-    }
-
-
-def _agent_options() -> dict:
-    return {
-        'scopes': list(SCOPES),
-        'critics': list(CRITICS),
-        'agent_support': agentic_rag.available(),
     }
 
 
@@ -488,7 +477,7 @@ def create_app() -> FastAPI:
     def options():
         """Everything the panel needs to render itself, including what is actually installed."""
         live = settings_now()
-        return (_catalogue_vocab() | _hierarchy_options() | _agent_options()
+        return (_catalogue_vocab() | _hierarchy_options()
                 | _question_vocab() | _config_defaults() | _step_list()
                 | _model_catalogues(live) | _metric_help()
                 | _corpus_summary(diary, ground_truth) | _capabilities(live)
@@ -751,22 +740,13 @@ def create_app() -> FastAPI:
                 roles = models.resolve(cfg, run_settings)
                 report('retrieving', 0.75, question[:80])
                 # Traced rather than plain `retrieve`, for the per-step ranks
-                # the Inspector's table needs. Same agent branch `run_eval`
-                # takes, so the fast and slow paths cannot disagree about what
-                # a config does.
-                if cfg.agent.scope:
-                    trace = {}
-                    outcome = agentic_rag.run(
-                        index, cfg, question, query_date,
-                        llm=llm, models=roles, trace=trace)
-                    report('answering', 0.9)
-                else:
-                    outcome, trace = pipeline.retrieve_traced(
-                        index, cfg.retrieval, question, query_date,
-                        llm=llm, models=roles)
-                    report('answering', 0.9)
-                    outcome = pipeline.answer(
-                        outcome, cfg.generation, llm=llm, models=roles)
+                # the Inspector's table needs.
+                outcome, trace = pipeline.retrieve_traced(
+                    index, cfg.retrieval, question, query_date,
+                    llm=llm, models=roles)
+                report('answering', 0.9)
+                outcome = pipeline.answer(
+                    outcome, cfg.generation, llm=llm, models=roles)
                 # Exact match only, never fuzzy: everything else stays plainly
                 # ungraded rather than guessed at.
                 gt_question = next((q for q in asked['questions']
@@ -854,7 +834,7 @@ def create_app() -> FastAPI:
 
     @app.post('/api/widget')
     def widget_chat(payload: dict):
-        """The corner widget's endpoint: a question in, the agent's reply
+        """The corner widget's endpoint: a question in, the widget's reply
         out. Synchronous, not a job — a chat turn is a request, not a run.
         An unknown model raises ValueError, answered as a 400 naming it."""
         message = (payload.get('message') or '').strip()

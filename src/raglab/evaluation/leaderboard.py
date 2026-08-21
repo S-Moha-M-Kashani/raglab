@@ -53,8 +53,6 @@ SHORT_PARTS = {
     'agentic': 'agt',
     # answerers
     'extractive': 'extr',
-    # agent scopes
-    'retrieve': 'retr', 'generate': 'gen',
 }
 
 # What every offered embedding model's name ends with, and none of what a reader
@@ -88,7 +86,6 @@ def pipeline_fragments(config: dict) -> list[dict]:
     index = config.get('index') or {}
     retrieval = config.get('retrieval') or {}
     generation = config.get('generation') or {}
-    agent = config.get('agent') or {}
 
     # The vendor prefix is identical on every row and costs the width the
     # sentence needs; the model name after it is the part that differs.
@@ -102,11 +99,9 @@ def pipeline_fragments(config: dict) -> list[dict]:
                       retrieval.get('reranker') or '',
                       retrieval.get('grader') or ''],
         'generation': [generation.get('answerer') or ''],
-        # 'off' on nearly every row would spend the sentence saying nothing.
-        'agent': [agent.get('scope') or ''],
     }
     out = []
-    for step in ('index', 'retrieval', 'generation', 'agent'):
+    for step in ('index', 'retrieval', 'generation'):
         said = [p for p in parts[step] if p and p != 'none']
         if said:
             out.append({'step': step, 'text': '·'.join(said),
@@ -326,9 +321,9 @@ def _metrics(run: dict) -> dict:
 # ledger-only row (every index build, every retrieval, every imported
 # archive — nothing a run file ever covers) still needs a pipeline sentence,
 # so this reshapes the flat columns into the nesting `pipeline_fragments`
-# reads. The ledger has no `contextual`, no `hierarchy`, no `embed_model` and
-# no agent scope, so a ledger-only sentence is necessarily shorter than a
-# run-file one — that is correct and nothing here guesses to fill the gap.
+# reads. The ledger has no `contextual`, no `hierarchy` and no `embed_model`,
+# so a ledger-only sentence is necessarily shorter than a run-file one — that
+# is correct and nothing here guesses to fill the gap.
 #
 # Second of three projections between a nested config and the flat columns a row
 # has, and the inverse of the first: `ledger.row_for` writes a job's config into

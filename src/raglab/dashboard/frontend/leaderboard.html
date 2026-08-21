@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Lab · Leaderboard</title>
+<!-- The stored theme, stamped before anything paints. See panel.html. -->
+<script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/chrome.css">
+<link rel="stylesheet" href="/panel.css">
+<script src="/sorttable.js"></script>
+<script src="/lab.js"></script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to the readings</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
+    <nav class="topnav" aria-label="Surfaces">
+      <a href="/">Laboratory</a>
+      <a href="http://localhost:9003/">Inspector</a>
+      <a href="/leaderboard" aria-current="page">Leaderboard</a>
+    </nav>
+    <div class="topbar-actions">
+      <button class="settings-button" id="app-settings" type="button"
+        popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
+      <div class="settings-popover" id="app-settings-panel" popover
+           aria-label="Settings">
+        <div class="settings-head">
+          <b>Settings</b>
+          <span>This installation</span>
+        </div>
+        <div class="settings-group">
+          <h3 id="theme-control-label">Theme</h3>
+          <div class="theme-control" id="theme-control"
+               aria-labelledby="theme-control-label"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="chrome-progress"><i></i></div>
+</header>
+
+<main id="main">
+<div class="stack">
+
+  <section class="card">
+    <div class="card-head"><h2>Leaderboard</h2></div>
+    <p class="prose">
+      <b>One table per dataset.</b> Every experiment that touched one corpus —
+      index builds, retrievals and evaluations alike — in one table, ordered by
+      decision score and sortable by any column. No winner is named: rows graded
+      by different judges over different question sets share a table, so
+      <code>judge</code> and <code>questions</code> are columns you compare on
+      rather than a promise that two rows are comparable. That stricter claim
+      still exists where it holds — a sweep moves one knob with its models fixed,
+      so <code>raglab-sweep</code> still names a winner and still refuses to when
+      the lead is inside the combined error.</p>
+  </section>
+
+  <!-- Filled by leaderboard.js from /api/leaderboard. -->
+  <div id="board"></div>
+
+  <!-- Moved off the lab page's header, where it was a 1200-character essay in
+       the top chrome. It is cross-run reading, which is what this surface is
+       for. The date is part of the claim: these numbers were measured on one
+       fixture on one day and are not re-measured by anything. -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Notes from earlier runs</h2>
+      <span class="section-meta right">measured on this fixture, 2026-07-29 · re-run to confirm</span>
+    </div>
+    <ul class="findings-list">
+      <li><b>The embedder decides everything else.</b> The brain's old default
+        (<code>ascii-hash</code>) scores 0.014 session recall — its tokeniser is
+        <code>[a-z0-9]+</code>, so Farsi embeds to the zero vector. Unicode character
+        n-grams take it to 0.386; a multilingual transformer to 0.612.</li>
+      <li><b>Hybrid BM25 + dense with RRF is the biggest retrieval win</b> (0.386 →
+        0.546 recall; single-hop 0.57 → 0.85). Lexical finds the rare literal, dense
+        finds the paraphrase.</li>
+      <li><b>Semantic chunking pays in quote recall, not session recall</b> — better
+        boundaries change what is <i>inside</i> the chunk (quote recall 0.471 → 0.489,
+        precision 0.191 → 0.243, pattern questions 0.11 → 0.26).</li>
+      <li><b>Only an LLM gate can abstain honestly.</b> The lexical gate needs a 0.6
+        threshold to refuse 6 of 8 unanswerable questions, and there it wrongly refuses
+        52% of answerable ones. The LLM gate at 0.4 refuses 5 of 8 with 3% false
+        refusals, and <i>improves</i> precision 0.34 → 0.59 and MRR 0.70 → 0.77.</li>
+      <li><b>Offline RAGAS context metrics are length-sensitive</b> (whole-string
+        similarity): they fell by half when chunks got longer even as quote recall rose.
+        Compare them only within similar chunk sizes; the judged metrics on the same
+        retrieval read 0.65 context recall against their 0.30.</li>
+    </ul>
+  </section>
+
+</div>
+</main>
+
+<script src="/leaderboard.js"></script>
+</body>
+</html>

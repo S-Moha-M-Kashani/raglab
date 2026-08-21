@@ -190,6 +190,9 @@ function describeDataset() {
   if (!found) return;
   const period = found.period && found.period.from
     ? `${found.period.from} → ${found.period.to} · ` : '';
+  // The name stays on screen because it changes what every number below means;
+  // the census sits in the popover, because nobody reads a stats strip twice.
+  $('corpusName').textContent = found.id || $('dataset').value;
   $('corpus').textContent =
     `${found.sessions} sessions · ${found.messages} messages · ${period}`
     + `${found.questions} questions`
@@ -262,8 +265,6 @@ function titleSteps() {
     const head = $('head-' + step.key), note = $('note-' + step.key);
     if (head) head.textContent = step.label;
     if (note) note.textContent = step.note;
-    const seg = document.querySelector(`.spine-seg[data-step="${step.key}"] b`);
-    if (seg) seg.textContent = step.short;
   }
 }
 
@@ -433,7 +434,9 @@ function applyDependencies() {
     const holder = el.closest('div') || el.parentElement;
     if (!holder) continue;
     holder.classList.toggle('rag-field-off', !enabled);
-    holder.title = enabled ? '' : 'Disabled because ' + reason;
+    // No `title` here. The same sentence is written into the visible note
+    // below, so the tooltip was a second copy reachable only by hovering —
+    // and a reason worth giving is worth giving on the page.
     let note = holder.querySelector('.rag-when-dep');
     if (!enabled) {
       if (!note) {
@@ -607,8 +610,6 @@ async function boot() {
   renderCapabilities();
 
   renderIndexes(o.indexes);
-  loadBoard();
-  loadExperiments();
   restoreLastRun();
 }
 
@@ -653,9 +654,25 @@ function renderCapabilities() {
     `<span class="chip">index in memory · runs → ${escapeHtml(caps.storage.runs || '')}`
       + ` · experiments → ${escapeHtml(caps.storage.experiments || '')}</span>`,
   ].join('');
+  renderStatusPill(caps);
   if (caps.ragas.notes.length) {
     $('notes').innerHTML = caps.ragas.notes.map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
   }
+}
+
+// One indicator taking the worst of the checks, because six permanently-green
+// badges is how the header got crowded and constant green stops being read. The
+// count is in the label, so the meaning never rests on the dot's colour alone —
+// and the popover still lists every check, so nothing became unreachable.
+function renderStatusPill(caps) {
+  const checks = [caps.fastembed, caps.cross_encoder, caps.llm,
+                  caps.ragas.installed, caps.ragas.llm_ready];
+  const missing = checks.filter((ok) => !ok).length;
+  const pill = $('statusPill');
+  pill.classList.toggle('warn', missing > 0);
+  $('statusPillText').textContent = missing
+    ? `${missing} of ${checks.length} not ready`
+    : 'all systems ready';
 }
 
 // Three states, and they differ in what you can do about them. A key from the
@@ -698,11 +715,9 @@ $('clear-key').onclick = async () => {
   await refreshOptions();
 };
 
-// Each spine segment scrolls to the controls it names.
-for (const seg of document.querySelectorAll('.spine-seg')) {
-  seg.onclick = () => $(seg.dataset.target)
-    .scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
+// The four step strips that used to scroll to a stage's controls are gone; the
+// cards they pointed at are one scroll away and carry the same step ink and the
+// same served titles, so the strips were chrome duplicating content.
 
 // Which step a stage belongs to, read off the stage the service reports rather
 // than guessed from the job kind. An unknown stage lights nothing, since a
@@ -715,16 +730,12 @@ const STAGE_STEP = {
 
 function renderSpine(job) {
   const step = job ? STAGE_STEP[job.stage] || '' : '';
-  const track = $('spineTrack');
+  const track = $('chromeProgress');
   const caption = $('spineCaption');
   track.dataset.step = step;
   caption.dataset.step = step;
   track.firstElementChild.style.width =
     ((job ? job.progress : 0) * 100).toFixed(1) + '%';
-  for (const seg of document.querySelectorAll('.spine-seg')) {
-    if (seg.dataset.step === step) seg.setAttribute('aria-current', 'step');
-    else seg.removeAttribute('aria-current');
-  }
   if (!job) { caption.innerHTML = '<span>nothing running</span>'; return; }
   // The detail ("question 16/30 · hard", "judge call 137 of ~420") is the part
   // that distinguishes a slow stage from a stuck one, and on a local judge one
@@ -783,10 +794,6 @@ async function poll(jobId, onDone) {
     if (job.state === 'running' || job.state === 'cancelling') { setTimeout(tick, 700); return; }
     $('cancel').disabled = true;
     delete $('cancel').dataset.jobId;
-    // Every job that stops running is a row in the ledger — including the ones
-    // that failed or were cancelled, which are the rows you most want to find
-    // later. Refreshed here, once, rather than per success path.
-    loadExperiments();
     if (job.ledger_error) {
       // The experiment survived; only its record failed. Said out loud, because
       // a table quietly missing the run you just watched is worse than an error.
@@ -857,7 +864,6 @@ $('run').onclick = async () => {
           'Readings belong to the previous settings; export will contain settings only.',
           'warning');
       }
-      loadBoard();
     });
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
@@ -1119,16 +1125,22 @@ function restoreDashboard(before) {
   }
   $('archive-status').textContent = before.statusText;
   $('archive-status').className = before.statusClass;
+  $('archive-status').hidden = !before.statusText;
 }
 
+// The banner under the bar, not a permanent strip inside it: a caution that is
+// true only sometimes reads as decoration within a day, so it is hidden whenever
+// it has nothing to say.
 function setArchiveStatus(message, tone = '') {
-  $('archive-status').textContent = message;
-  $('archive-status').className = `archive-status${tone ? ' ' + tone : ''}`;
+  const box = $('archive-status');
+  box.textContent = message;
+  box.className = `banner archive-status${tone ? ' ' + tone : ''}`;
+  box.hidden = !message;
 }
 
 function databaseMessage(disposition) {
   return disposition === 'created'
-    ? 'Imported archive saved in Every experiment; leaderboard unchanged.'
+    ? 'Imported archive recorded. It appears on the leaderboard under its dataset.'
     : 'Database already contained this id; existing record unchanged. '
       + 'Inspector preview shows the selected file.';
 }
@@ -1177,9 +1189,6 @@ async function importArchiveFile(file) {
         message += ' Dataset unavailable here; completed evidence is view-only.';
       }
       setArchiveStatus(message, ARCHIVE_VIEW_ONLY ? 'warning' : 'success');
-      loadExperiments(true).catch((error) => setArchiveStatus(
-        `${databaseMessage(savedArchive.database)}; list refresh failed: ${error.message}`,
-        'warning'));
     } else {
       setArchiveStatus('Settings imported; no evaluation was run.', 'success');
     }
@@ -1269,215 +1278,103 @@ function renderResult(result, options = {}) {
     ['type', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
     Object.entries(t).map(([name, row]) => [safe(name), safe(row.n), safe(fmt(row.recall)),
       safe(fmt(row.quote_recall)), safe(fmt(row.ndcg)), safe(fmt(row.hit)),
-      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]));
+      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]),
+    { label: 'Scores by question type', text: [0] });
 
   const r = result.ragas || {};
   const metrics = r.metrics || {};
-  $('ragas').innerHTML = Object.keys(metrics).length
-    // Wrapped in a span on purpose: the explainer is inserted after the button's
-    // parent, and a <p> placed directly after a <td> would be hoisted out of the
-    // table by the parser.
-    ? table(['metric', 'score'], Object.entries(metrics).map(([k, v]) =>
-      [`<span class="measure">${escapeHtml(measureOf(k, metricCatalogue).label)}`
-       + `${measureWhy(k, metricCatalogue)}</span>`, safe(fmt(v))])) +
-      `<div class="muted" style="font-size:.7rem">mode ${escapeHtml(r.mode || '')} · ${safe(r.n_samples)} samples · ${safe(r.skipped)} skipped</div>` +
-      (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('')
-    : `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
+  if (Object.keys(metrics).length) {
+    // renderTable, not innerHTML: this table and the difficulty one below were
+    // the two built by hand, so they took the sortable styling from the
+    // stylesheet and none of the listeners — headers with a pointer cursor and
+    // an arrow that did nothing when clicked.
+    renderTable('ragas', ['metric', 'score'],
+      // Wrapped in a span on purpose: the explainer is inserted after the
+      // button's parent, and a <p> placed directly after a <td> would be
+      // hoisted out of the table by the parser.
+      Object.entries(metrics).map(([k, v]) =>
+        [`<span class="measure">${escapeHtml(measureOf(k, metricCatalogue).label)}`
+         + `${measureWhy(k, metricCatalogue)}</span>`, safe(fmt(v))]),
+      { label: 'RAGAS judged metrics',
+        text: [0],
+        after: `<div class="table-hint">mode ${escapeHtml(r.mode || '')} · ${safe(r.n_samples)} samples · ${safe(r.skipped)} skipped</div>`
+          + (r.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('') });
+  } else {
+    $('ragas').innerHTML =
+      `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
+  }
 
-  $('extras').innerHTML =
-    table(['difficulty', 'n', 'recall'], Object.entries(result.summary.by_difficulty)
-      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]));
+  renderTable('extras', ['difficulty', 'n', 'recall'],
+    Object.entries(result.summary.by_difficulty)
+      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]),
+    { label: 'Scores by difficulty', text: [0] });
+
+  // The run on screen becomes a question the helper can be asked about it. Set
+  // here rather than read out of the DOM later, because this is the one place
+  // that holds the run itself.
+  WIDGET_RUN_ASK = widgetRunAsk(result, metricCatalogue);
+  widgetOffer();
 
   renderTable('rows',
     ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
     result.rows.map((row) => [safe(row.id), safe(row.type), safe(row.difficulty),
       safe(fmt(row.recall, 2)), safe(fmt(row.quote_recall, 2)), safe(fmt(row.ndcg, 2)),
       safe(row.n_contexts), row.abstained ? 'yes' : '',
-      safe(Math.round(row.latency_ms))]));
+      safe(Math.round(row.latency_ms))]),
+    { label: 'Every question, one row each', text: [0, 1, 2] });
 }
 
-function table(head, rows) {
-  return `<table><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>` +
-    rows.map((r) => `<tr>${r.map((c) => `<td>${c === null || c === undefined ? '—' : c}</td>`).join('')}</tr>`).join('') +
-    '</tbody></table>';
+// One table inside the shared scroll region (chrome.css), which both surfaces
+// use so a wide table behaves the same on either port: the region takes focus
+// and scrolls by keyboard, and its bounded height is what gives the sticky
+// header something to stick against. The old markup gave each host
+// `overflow-x: auto` and nothing else — which makes the host a scroll container
+// on *both* axes with no height limit, so `top: 0` resolved against a box that
+// never scrolled and the column names left the screen on a fifty-row ledger.
+//
+// `options.text` names the columns that hold words rather than figures.
+// `.data-table` reads numbers right and identifiers left, so a prose column
+// left unnamed would sit ragged-right against its own heading. `options.label`
+// names the region and the table for a screen reader; it is not shown, because
+// every one of these tables already carries the same words in a heading
+// directly above it.
+function table(head, rows, options = {}) {
+  const prose = new Set(options.text || []);
+  const kind = (at) => (prose.has(at) ? ' class="text"' : '');
+  const label = escapeHtml(options.label || '');
+  return `<div class="table-scroll" tabindex="0" role="region" aria-label="${label}">`
+    + `<table class="data-table"><caption>${label}</caption><thead><tr>`
+    + head.map((h, at) => `<th scope="col"${kind(at)}>${h}</th>`).join('')
+    + '</tr></thead><tbody>'
+    + rows.map((r) => `<tr>${r.map((c, at) => `<td${kind(at)}>${c === null || c === undefined ? '—' : c}</td>`).join('')}</tr>`).join('')
+    + '</tbody></table></div>';
 }
 
 // Write a table into an element and make its columns sortable. Every table on
 // this page goes through here, so a table added later is sortable by having been
 // rendered rather than by someone remembering to wire it — and the wiring
-// happens after insertion, because it needs the real rows.
-function renderTable(id, head, rows) {
+// happens after insertion, because it needs the real rows. `options.after` is
+// markup that belongs under the table but outside its scroll region: a footnote
+// dragged sideways with the data is a footnote nobody finds.
+function renderTable(id, head, rows, options = {}) {
   const host = typeof id === 'string' ? $(id) : id;
-  host.innerHTML = table(head, rows);
+  host.innerHTML = table(head, rows, options) + (options.after || '');
   SortTable.make(host.querySelector('table'));
   return host;
 }
 
-// How many runs the leaderboard asks for. Stated rather than left to the
-// service's default, and reported beside the table, so a truncated board says so.
-const BOARD_LIMIT = 200;
-
-async function loadBoard() {
-  const { runs, total } = await api('/api/evaluations?limit=' + BOARD_LIMIT);
-  // Two different reasons the table can be shorter than the directory: a limit
-  // hides runs that exist, while a file that will not parse as a run is not a
-  // run — and must not be reported as one truncated away.
-  $('boardMeta').textContent = total > runs.length
-    ? (runs.length >= BOARD_LIMIT
-      ? `newest ${runs.length} of ${total} run files`
-      : `${runs.length} of ${total} files in .runs/ are readable runs`)
-    : `${runs.length} run${runs.length === 1 ? '' : 's'}`;
-  if (!runs.length) { $('board').innerHTML = '<div class="muted">no runs yet</div>'; return; }
-  // Ranked by the RAGAS decision score, because that is the number the
-  // architecture is chosen by. Rows it could not be measured on — offline runs,
-  // runs recorded before the score existed — sort to the bottom rather than
-  // being dropped: an unranked run is still a measurement.
-  const ranked = runs.slice().sort((a, b) => {
-    const x = a.ragas_decision, y = b.ragas_decision;
-    if (x === y || (x == null && y == null)) return 0;
-    if (x == null) return 1;
-    if (y == null) return -1;
-    return y - x;
-  });
-  // One table per dataset, never one ranking across them — a decision score is
-  // a mean over one corpus's questions, and comparing across corpora would call
-  // a different question a result. `leaderboard.py` groups the same way.
-  const byDataset = new Map();
-  for (const r of ranked) {
-    const key = r.dataset || 'diary-fa';
-    if (!byDataset.has(key)) byDataset.set(key, []);
-    byDataset.get(key).push(r);
-  }
-  const head = ['run', 'label', 'chunker', 'embedder', 'retriever', 'reranker',
-      // No arrow on the header: an indicator that cannot move becomes a lie the
-      // moment you sort by another column. Which column the ranking is on is
-      // stated in prose under the heading, where it stays true.
-      'n', 'ragas_decision', 'faith', 'ans rel', 'ctx prec', 'ctx recall',
-      'headline', 'recall', 'quote', 'nDCG', 'abstain', 's'];
-  const cells = (rows) => rows.map((r) => {
-      const i = r.config.index, q = r.config.retrieval, s = r.summary.overall || {};
-      const g = r.ragas || {};
-      return [`<a href="#" onclick="showRun('${r.run_id}');return false">${r.run_id}</a>`,
-        escapeHtml(r.label), i.chunker + (i.contextual ? '+ctx' : ''),
-        // The model, not just the kind: two "fastembed" rows can be two entirely
-        // different representations, and the row has to say which one it was.
-        i.embedder + (i.embed_model ? '·' + i.embed_model.split('/').pop() : ''),
-        q.retriever, q.reranker, r.n_questions,
-        // The deciding score first, then its four constituents, so a row can be
-        // checked rather than trusted.
-        // With its standard error, where there is one. Candidates in a sweep can
-        // sit inside each other's error bars, and a bare mean cannot say so.
-        `<b>${fmt(r.ragas_decision)}</b>` + (r.ragas_decision_stderr != null
-          ? ` <span class="stderr">± ${fmt(r.ragas_decision_stderr)}</span>` : ''),
-        fmt(g.faithfulness), fmt(g.answer_relevancy),
-        fmt(g.llm_context_precision_with_reference), fmt(g.context_recall),
-        fmt(s.headline), fmt(s.recall), fmt(s.quote_recall), fmt(s.ndcg),
-        fmt(s.abstained_correctly),
-        Math.round(r.seconds)];
-    });
-  $('board').innerHTML = '';
-  for (const [dataset, rows] of byDataset) {
-    const known = (OPTIONS.datasets || []).find((d) => d.id === dataset);
-    const section = document.createElement('div');
-    section.className = 'board-group';
-    section.innerHTML =
-      `<h3>${escapeHtml(known ? known.name : dataset)} `
-      + `<span class="muted">· ${rows.length} run${rows.length === 1 ? '' : 's'}`
-      + `${known ? ' · ' + escapeHtml(known.language || '') : ''}</span></h3>`
-      + table(head, cells(rows));
-    $('board').appendChild(section);
-    SortTable.make(section.querySelector('table'));
-  }
-}
-
-// Every experiment this lab has finished, from raglab.db. Deliberately not
-// ranked: a build or a retrieval measures nothing, so numbering these rows
-// would claim an ordering the work does not support.
-async function loadExperiments(throwOnError = false) {
-  const safe = (value) => escapeHtml(String(value ?? ''));
-  let rows = [];
-  try {
-    rows = (await api('/api/experiments')).experiments;
-  } catch (e) {
-    $('experiments').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`;
-    if (throwOnError) throw e;
-    return;
-  }
-  const kinds = {};
-  for (const r of rows) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
-  $('experimentsMeta').textContent = rows.length
-    ? `${rows.length} recorded · ` + Object.entries(kinds)
-      .map(([kind, n]) => `${n} ${kind}`).join(', ')
-    : '';
-  if (!rows.length) {
-    $('experiments').innerHTML =
-      '<div class="muted">nothing recorded yet — build an index or run '
-      + 'something, and it lands here</div>';
-    return;
-  }
-  const host = renderTable('experiments',
-    ['when', 'kind', 'id', 'label', 'backend', 'chunker', 'embedder',
-      'retriever', 'reranker', 'grader', 'answerer', 'n', 'decision', 'state', 's'],
-    rows.map((r) => [
-      safe(r.started_at),
-      `<span class="pill">${safe(r.kind)}</span>`,
-      safe(r.experiment_id),
-      safe(r.label || ''),
-      // Marked rather than merely printed: on `fake` every LLM number on the
-      // row came from a stub that cannot fail.
-      r.provider === 'fake'
-        ? '<b title="a stub answered and judged every call: these numbers measure '
-          + 'nothing">fake</b>'
-        : safe(r.provider || '—'),
-      safe(r.chunker || '—'), safe(r.embedder || '—'),
-      safe(r.retriever || '—'), safe(r.reranker || '—'),
-      safe(r.grader || '—'), safe(r.answerer || '—'),
-      safe(r.n_questions || '—'),
-      // Blank, never 0, when nothing was judged — the leaderboard's own rule.
-      r.decision == null ? '—' : `<b>${safe(fmt(r.decision))}</b>`
-        + (r.decision_stderr != null
-          ? ` <span class="stderr">± ${safe(fmt(r.decision_stderr))}</span>` : ''),
-      r.state === 'done' ? 'done'
-        : `<b title="${safe(r.error || '')}">${safe(r.state)}</b>`,
-      safe(Math.round(r.seconds)),
-    ]));
-  const tableRows = host.querySelectorAll('tbody tr');
-  rows.forEach((r, index) => {
-    const cell = tableRows[index].children[2];
-    const link = document.createElement('a');
-    link.href = '#';
-    link.textContent = String(r.experiment_id ?? '');
-    link.addEventListener('click', (event) => {
-      event.preventDefault();
-      window.showExperiment(r.experiment_id);
-    });
-    cell.replaceChildren(link);
-  });
-}
-
-// The whole stored payload for one experiment — config, per-question rows,
-// traced ranks. Chunk text is deliberately not in there: it belongs to the
-// index fingerprint, and rebuilding reproduces it exactly.
-window.showExperiment = async (id) => {
-  const box = $('experimentDetail');
-  box.innerHTML = '<div class="muted">reading the ledger…</div>';
-  try {
-    const found = await api('/api/experiments/' + encodeURIComponent(id));
-    box.innerHTML = `<details style="margin-top:.7rem">`
-      + `<summary>the stored detail · ${escapeHtml(found.kind)} · `
-      + `${escapeHtml(found.experiment_id)}`
-      + `${found.label ? ' · ' + escapeHtml(found.label) : ''}</summary>`
-      + `<pre>${escapeHtml(JSON.stringify(found.detail, null, 1))}</pre></details>`;
-    // An evaluation's stored detail is exactly what the readings card renders,
-    // so it renders there too, rather than only as JSON to read by hand.
-    if (found.kind === 'run' && found.detail && found.detail.summary) {
-      renderResult(found.detail);
-      $('resultCard').scrollIntoView({ behavior: 'smooth' });
-    }
-  } catch (e) {
-    box.innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`;
-  }
-};
+// The leaderboard moved to its own surface (/leaderboard), served from
+// `evaluation.leaderboard` — the same module `raglab-leaderboard` prints from.
+// The board that used to live here grouped by dataset only, so one table could
+// rank rows scored on different questions by different judges against each
+// other. Keeping a second, looser implementation beside the real one is how two
+// surfaces come to name different winners.
+//
+// The full experiment ledger this page used to render in its own card, with
+// its own loader and its own click-to-expand handler, moved with it: the
+// leaderboard's unfiltered "every experiment" view reads the same ledger rows
+// this page once rendered by hand, so reading across every run this
+// installation has finished has one home instead of two that could drift.
 
 window.showRun = async (runId) => {
   renderResult(await api('/api/evaluations/' + runId));
@@ -1492,10 +1389,71 @@ boot();
 
 function widgetSay(kind, text) {
   const log = $('widget-log');
+  // The empty state goes on the first thing said, not on the first reply: a
+  // panel of examples sitting above your own question reads as a menu you
+  // failed to use.
+  const offer = log.querySelector('.widget-empty');
+  if (offer) offer.remove();
   log.insertAdjacentHTML('beforeend',
     `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
   log.scrollTop = log.scrollHeight;
 }
+
+// --- what you can ask -------------------------------------------------------
+// The four examples come from the served fixture (fixtures/prompts/widget.yaml,
+// through the /api/widget response the model list already rides), because
+// clicking one sends that exact string to the model and model-facing text is a
+// fixture in this project.
+let WIDGET_STARTERS = [];
+
+// A question about the run currently on the Readings card, or null when there
+// is none. Deliberately the *lab's* last run and not the last conversation:
+// widget memory is an in-process checkpointer keyed to a page-scoped session
+// id, so a reload genuinely forgets, and a chip claiming otherwise would be a
+// panel lying about what produced it.
+let WIDGET_RUN_ASK = null;
+
+// The four judged metrics, in the order the leaderboard reads them, so the chip
+// names the same thing a ranking would.
+const DECISION_KEYS = ['faithfulness', 'answer_relevancy',
+                       'llm_context_precision_with_reference', 'context_recall'];
+
+function widgetRunAsk(result, catalogue) {
+  // Same slice the leaderboard's `when` column takes: seconds do not help
+  // anyone identifying a run.
+  const when = String(result.started_at || '').slice(0, 16);
+  if (!when) return null;
+  const metrics = (result.ragas || {}).metrics || {};
+  const key = DECISION_KEYS.find((k) => metrics[k] !== null && metrics[k] !== undefined);
+  if (!key) {
+    // No judged metric means no decision score, and why there is none is the
+    // question worth asking about that run.
+    return `The run from ${when} has no decision score — what is missing?`;
+  }
+  return `Why did the run from ${when} score ${fmt(metrics[key])} on `
+    + `${measureOf(key, catalogue).label.toLowerCase()}?`;
+}
+
+// Rendered only while the log is empty. Called again when a run lands, so a
+// widget left open and untouched picks up the chip for the run just finished.
+function widgetOffer() {
+  const log = $('widget-log');
+  if (log.querySelector('.widget-msg')) return;
+  if (!WIDGET_STARTERS.length && !WIDGET_RUN_ASK) return;
+  const chip = (text, extra = '') =>
+    `<button type="button" class="widget-starter${extra}">${escapeHtml(text)}</button>`;
+  log.innerHTML = '<div class="widget-empty"><b>What you can ask</b>'
+    + WIDGET_STARTERS.map((text) => chip(text)).join('')
+    + (WIDGET_RUN_ASK ? chip(WIDGET_RUN_ASK, ' widget-starter-run') : '')
+    + '</div>';
+}
+
+// Delegated, because the offer is rebuilt whenever a run lands.
+$('widget-log').addEventListener('click', (event) => {
+  const starter = event.target.closest('.widget-starter');
+  if (!starter) return;
+  widgetAsk(starter.textContent);
+});
 
 // One conversation per page: the id is minted when the script loads and sent
 // with every ask, so a follow-up lands in the same thread and a reloaded page
@@ -1522,16 +1480,19 @@ async function widgetAsk(message) {
   }
 }
 
-// The model list is served, not kept here — fetched once, on the first open.
-let widgetModelsLoaded = false;
-async function widgetLoadModels() {
-  if (widgetModelsLoaded) return;
+// The model list and the starters are served, not kept here — fetched once, on
+// the first open.
+let widgetOptionsLoaded = false;
+async function widgetLoadOptions() {
+  if (widgetOptionsLoaded) return;
   try {
     const data = await api('/api/widget');
     $('widget-model').innerHTML = data.models.map((m) =>
       `<option value="${escapeHtml(m.value)}"${m.value === data.default ? ' selected' : ''}>`
       + `${escapeHtml(m.label)}</option>`).join('');
-    widgetModelsLoaded = true;
+    WIDGET_STARTERS = data.starters || [];
+    widgetOptionsLoaded = true;
+    widgetOffer();
   } catch (error) {
     widgetSay('err', error.message);
   }
@@ -1540,7 +1501,7 @@ async function widgetLoadModels() {
 $('widget-launch').addEventListener('click', () => {
   const win = $('widget-window');
   win.hidden = !win.hidden;
-  if (!win.hidden) { widgetLoadModels(); $('widget-input').focus(); }
+  if (!win.hidden) { widgetLoadOptions(); $('widget-input').focus(); }
 });
 
 $('widget-settings').addEventListener('click', () => {
@@ -1557,3 +1518,92 @@ $('widget-form').addEventListener('submit', (event) => {
   $('widget-input').value = '';
   widgetAsk(message);
 });
+
+// --- resizing from the top and the left -------------------------------------
+// The window is anchored bottom-right, so growing it means gaining width and
+// height while the anchor holds — which is what dragging those two edges
+// outward looks like. The size is a preference, not a gesture, so it is
+// remembered under the same `lodestar:` prefix as the settings and the last run.
+const SAVED_WIDGET_SIZE = 'lodestar:raglab-widget-size';
+
+const rootPx = () =>
+  parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+
+// Clamped so the window can neither collapse to a strip nor cover the chrome:
+// the bar and the rail are both fixed, and a helper sitting on top of them
+// would hide what is running to say something about it.
+function widgetLimits() {
+  const rem = rootPx();
+  const style = getComputedStyle(document.documentElement);
+  const px = (name) => {
+    const value = style.getPropertyValue(name).trim();
+    return value.endsWith('rem') ? parseFloat(value) * rem : parseFloat(value) || 0;
+  };
+  return {
+    minW: 18 * rem, minH: 14 * rem,
+    maxW: window.innerWidth - 2 * rem,
+    maxH: window.innerHeight - px('--bar-h') - px('--rail-h') - 2 * rem,
+  };
+}
+
+function widgetResize(width, height) {
+  const win = $('widget-window');
+  const limit = widgetLimits();
+  const size = {
+    w: Math.round(Math.max(limit.minW, Math.min(width, limit.maxW))),
+    h: Math.round(Math.max(limit.minH, Math.min(height, limit.maxH))),
+  };
+  win.style.width = `${size.w}px`;
+  win.style.height = `${size.h}px`;
+  // The class is what lets the log take the slack; see panel.css.
+  win.classList.add('widget-sized');
+  return size;
+}
+
+for (const grip of document.querySelectorAll('.widget-grip')) {
+  const axis = grip.dataset.grip;
+  // Pointer capture, so a drag that leaves a six-pixel handle keeps going —
+  // without it the resize stops the moment the cursor outruns the edge, which
+  // it does immediately.
+  grip.addEventListener('pointerdown', (event) => {
+    const box = $('widget-window').getBoundingClientRect();
+    const from = { x: event.clientX, y: event.clientY, w: box.width, h: box.height };
+    grip.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    const move = (moved) => remember(SAVED_WIDGET_SIZE, widgetResize(
+      axis === 'top' ? from.w : from.w + (from.x - moved.clientX),
+      axis === 'left' ? from.h : from.h + (from.y - moved.clientY)));
+    const done = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', done);
+      grip.removeEventListener('pointercancel', done);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', done);
+    grip.addEventListener('pointercancel', done);
+  });
+  // Each edge answers only its own axis, which is what a separator with an
+  // orientation promises. The corner takes no focus: it is the two edges at
+  // once, and there is nothing it can do that they cannot.
+  grip.addEventListener('keydown', (event) => {
+    const step = 2 * rootPx();
+    const by = axis === 'top'
+      ? { ArrowUp: [0, step], ArrowDown: [0, -step] }[event.key]
+      : { ArrowLeft: [step, 0], ArrowRight: [-step, 0] }[event.key];
+    if (!by) return;
+    event.preventDefault();
+    const box = $('widget-window').getBoundingClientRect();
+    remember(SAVED_WIDGET_SIZE,
+      widgetResize(box.width + by[0], box.height + by[1]));
+  });
+}
+
+// Reapplied on load, and re-clamped when the viewport changes: a size that fit
+// yesterday's window can cover today's chrome, and the preference is worth
+// keeping through that rather than forgetting.
+function widgetRestoreSize() {
+  const kept = saved(SAVED_WIDGET_SIZE);
+  if (kept && kept.w && kept.h) widgetResize(kept.w, kept.h);
+}
+widgetRestoreSize();
+window.addEventListener('resize', widgetRestoreSize);

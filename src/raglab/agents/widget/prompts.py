@@ -3,9 +3,9 @@
 Model-facing text is data, not code (the skills-folder and bilingual-pairs
 rule): every prompt lives under fixtures/prompts/, so editing what the model
 reads is editing a fixture. Three pages: `widget.yaml` (the two system
-prompts), `widget_tools.yaml` (one description per tool, bound in tools.py),
-and `widget_knowledge.yaml` (the facts search_knowledge_base serves and the
-CLI system prompt inlines).
+prompts and the empty log's four starters), `widget_tools.yaml` (one
+description per tool, bound in tools.py), and `widget_knowledge.yaml` (the
+facts search_knowledge_base serves and the CLI system prompt inlines).
 """
 from raglab.configuration.env_settings import ROOT
 
@@ -25,6 +25,10 @@ _PROMPTS = _prompts('widget')
 _TOOL_PROMPTS = _prompts('widget_tools')
 
 SYSTEM_PROMPT = _PROMPTS['system'].strip()
+
+# The four questions the empty log offers. Model-facing text like the prompts
+# either side of it: clicking one sends exactly this string.
+STARTERS: list = [line.strip() for line in _PROMPTS['starters']]
 
 # The project facts the widget answers from. A dict rather than the raw page
 # so a caller iterates key -> text exactly as the old in-code table read.

@@ -1,6 +1,7 @@
 """Suite-wide guards, autouse so no test has to remember them, plus the
 fixtures and settings shared across more than one test file."""
 import os
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -14,6 +15,103 @@ from raglab.configuration.lab_config import IndexConfig, LabSettings
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
 RAGLAB_DIR = Path(raglab.__file__).resolve().parent
+
+# A length or percentage in a font-size declaration, e.g. ".72rem", "12.5px",
+# "90%", "1.2vw" or "11pt" — or a computed `calc(...)` value — but not a
+# var() reference and not a bare 0. Shared by test_panel.py and
+# test_inspector.py, both of which check their sheet's type scale against
+# the same claim, so the pattern is named once here rather than twice. The
+# unit alternation stays wide on purpose: `rem|px|em` alone missed every
+# other CSS length unit and every percentage, which is exactly the kind of
+# hand-set size this guard exists to catch.
+_SIZE_UNIT = r'(?:rem|px|em|vw|vh|vmin|vmax|pt|pc|in|cm|mm|ex|ch)'
+_SIZE_LITERAL = re.compile(
+    r'font-size:\s*(?:calc\(|[0-9]*\.?[0-9]+(?:%|' + _SIZE_UNIT + r'\b))')
+# The shorthand carries the size after any weight/style keywords and before
+# an optional `/line-height`: `font: 600 1.32rem/1 var(--slab)` as much as
+# `font: .72rem var(--mono)`, which has no line-height and so no slash — a
+# form the guard must not go blind to just because it comes without one.
+_FONT_SHORTHAND_LITERAL = re.compile(
+    r'font:\s*(?:[a-z0-9]+\s+)*?(?:calc\(|[0-9]*\.?[0-9]+(?:%|' + _SIZE_UNIT + r'\b))')
+
+
+def _font_size_literals(css: str) -> list[str]:
+    """Every place a stylesheet still spells a type size out by hand, in both
+    the longhand and the shorthand form. The type scale is only a scale while
+    this comes back empty: one literal is a value nobody chose from the ramp,
+    and two are the drift starting again."""
+    return (_SIZE_LITERAL.findall(css)
+            + _FONT_SHORTHAND_LITERAL.findall(css))
+
+
+# A hand-spelled corner radius, longhand or shorthand alike — but not a
+# var() reference. Shared by test_panel.py and test_inspector.py, both of
+# which check their sheet's radius scale against the same claim, so the
+# pattern is named once here rather than twice. `border(?:-[a-z]+)*-radius:`
+# matches the shorthand (`border-radius:`), the four physical corner
+# longhands (`border-top-left-radius:` and siblings) and the logical corner
+# longhands (`border-start-start-radius:` and siblings) alike — pinning only
+# the shorthand missed every one of those other forms.
+_RADIUS_LITERAL = re.compile(
+    r'border(?:-[a-z]+)*-radius:[^;]*?(?<![-\w])[0-9]*\.?[0-9]+(?:rem|px|%)')
+
+
+def _radius_literals(css: str) -> list[str]:
+    """Every hand-spelled corner radius. Two sheets carried six different
+    values between them with nothing choosing among them; a corner is either
+    the small one or the large one, and that decision belongs in the shared
+    sheet."""
+    return _RADIUS_LITERAL.findall(css)
+
+
+# Every CSS length unit and the percentage, shared by the spacing and tracking
+# detectors below. Kept wide on purpose: the type-size guard shipped matching
+# `rem|px|em` alone and went blind to every other unit, which is exactly the
+# hand-set value these guards exist to catch.
+_LENGTH = (r'(?:%|(?:rem|px|em|vw|vh|vmin|vmax|pt|pc|in|cm|mm|ex|ch|q)\b)')
+
+# A hand-spelled margin, padding or gap, in every form the property can take:
+# the shorthand (`margin:`), the four physical longhands (`margin-top:` and
+# siblings), the logical longhands (`margin-block-start:`, `margin-inline:`),
+# and the three gaps including the legacy `grid-gap` spellings. A signed value
+# counts — `margin-top: -2px` is a hand-set value like any other. `0` does not:
+# it carries no unit, so there is no step it could have come from.
+_SPACING_PROPERTY = r'(?:(?:margin|padding)(?:-[a-z]+)*|(?:grid-)?(?:row-|column-)?gap)'
+_SPACING_LITERAL = re.compile(
+    _SPACING_PROPERTY + r':[^;{}]*?(?<![\w.])-?[0-9]*\.?[0-9]+' + _LENGTH)
+
+# A hand-spelled positive letter-spacing. Positive only: loosening small
+# uppercase text is one decision, made twenty times at eight different values
+# until `--label-track` named it, while the three negative values tighten three
+# specific dense elements and share no recipe to drift from.
+_TRACK_LITERAL = re.compile(r'letter-spacing:\s*[0-9]*\.?[0-9]+' + _LENGTH)
+
+# CSS comments, blanked before either detector runs. A comment that explains why
+# a literal is a literal must not itself read as one — the alternative is a guard
+# that fires on its own documentation, which is a guard nobody will keep.
+_CSS_COMMENT = re.compile(r'/\*.*?\*/', re.S)
+
+
+def _declarations_only(css: str) -> str:
+    """The sheet with its comments blanked, newlines preserved so a line number
+    computed from the result still points at the real line."""
+    return _CSS_COMMENT.sub(lambda m: '\n' * m.group(0).count('\n'), css)
+
+
+def _spacing_literals(css: str) -> list[str]:
+    """Every place a stylesheet still spells a margin, padding or gap out by
+    hand. The two sheets carried ~29 hand-set values between them, which is the
+    real reason neither read as uncrowded; the ramp is only a ramp while this
+    comes back to a list the guard has a reason for, entry by entry."""
+    return _SPACING_LITERAL.findall(_declarations_only(css))
+
+
+def _track_literals(css: str) -> list[str]:
+    """Every place a stylesheet still spells the tracking of a small uppercase
+    label out by hand. There were eight values across three sheets for one
+    decision, all twenty sites uppercase, none of them chosen."""
+    return _TRACK_LITERAL.findall(_declarations_only(css))
+
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
@@ -179,9 +277,14 @@ def _runs_dir_is_never_the_real_one(tmp_path_factory):
     `config.RUNS_DIR` is left pointing at the real path on purpose: it is what
     the invariant test compares against."""
     from raglab.evaluation import run_evaluation as evaluate
+    from raglab.evaluation import leaderboard
     from raglab.agents.extra_tools import sweep
     runs = tmp_path_factory.mktemp('raglab-runs')
-    saved = {module: module.RUNS_DIR for module in (evaluate, sweep)}
+    # `leaderboard` joined this tuple when a dashboard route started calling
+    # `build()`: reading the developer's real `.runs/` in a test is the same
+    # breach as writing to it, and the route makes that reachable from a
+    # request rather than only from the command line.
+    saved = {module: module.RUNS_DIR for module in (evaluate, sweep, leaderboard)}
     for module in saved:
         module.RUNS_DIR = runs
     yield

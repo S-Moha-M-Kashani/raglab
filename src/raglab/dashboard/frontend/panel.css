@@ -10,21 +10,32 @@
 :root {
   --alert-wash: #fdf4f2;
   --good: oklch(0.49 0.11 168);
-  --shadow: 0 1px 2px rgba(16, 22, 32, .05), 0 10px 24px -18px rgba(16, 22, 32, .5);
+  /* The ink of a knob this pipeline would ignore: recessed from --ink-soft,
+     still legible. It exists because the alternative — group `opacity` on the
+     field — takes the field's own explanation down with it, and a child
+     cannot climb back out of an ancestor's opacity. Page-local: the Inspector
+     has no knobs to disable. */
+  --ink-off: #8b98a6;
 }
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
 [data-step="generation"] { --step: var(--step-generation); }
 [data-step="agent"] { --step: var(--step-agent); }
-.chassis [data-step="index"], .spine [data-step="index"] { --step: var(--step-index-lit); }
-.chassis [data-step="retrieval"], .spine [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
-.chassis [data-step="generation"], .spine [data-step="generation"] { --step: var(--step-generation-lit); }
-.chassis [data-step="agent"], .spine [data-step="agent"] { --step: var(--step-agent-lit); }
+/* An ink tuned for porcelain reads too dark on the chassis, so every step on a
+   dark band takes its lifted variant. The bar and the rail are dark bands. */
+.topbar [data-step="index"], .statusrail [data-step="index"] { --step: var(--step-index-lit); }
+.topbar [data-step="retrieval"], .statusrail [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
+.topbar [data-step="generation"], .statusrail [data-step="generation"] { --step: var(--step-generation-lit); }
+.topbar [data-step="agent"], .statusrail [data-step="agent"] { --step: var(--step-agent-lit); }
 
 * { box-sizing: border-box; }
 body {
-  margin: 0; padding: 0 0 5rem; background: var(--plate); color: var(--ink);
-  font: 13px/1.55 var(--sans);
+  margin: 0;
+  /* 5rem: clearance for the fixed widget-launch button. The spacing ramp
+     tops out at --s-7 (3rem), so this value sits above every step on it —
+     left literal rather than inventing a bigger step for one use. */
+  padding: 0 0 5rem; background: var(--plate); color: var(--ink);
+  font: var(--t-base)/1.55 var(--sans);
   -webkit-font-smoothing: antialiased;
 }
 :focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }
@@ -32,151 +43,176 @@ body {
   * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
 
-/* ── the chassis ─────────────────────────────────────────────────────────── */
-.chassis {
-  background: var(--chassis); color: var(--chassis-ink);
-  padding: 1rem 1.4rem .6rem;
-}
-.chassis a { color: #fff; }
-.masthead { display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem 1rem;
-            max-width: 1560px; margin: 0 auto; }
-h1 {
-  font: 600 1.32rem/1 var(--slab); letter-spacing: -.01em; margin: 0;
-  color: #fff;
-}
-h1 .lab-mark {
-  /* The lab's own initial, set as a plate on the chassis. One ornament. */
-  display: inline-block; margin-right: .5rem; padding: .18rem .42rem;
-  background: var(--step-index); color: var(--chassis);
-  font: 700 .82rem/1 var(--mono); vertical-align: .18em; border-radius: 2px;
-}
-#corpus {
-  font: .74rem/1.4 var(--mono); color: var(--chassis-ink-soft);
-  letter-spacing: -.01em;
-}
-.chassis-right { margin-left: auto; display: flex; align-items: center; gap: .9rem; }
+/* ── the bar's panel-local details ───────────────────────────────────────────
+   The bar itself, the switcher and the progress line are in chrome.css, shared
+   with the Inspector. What stays here is only what this page adds to it: the
+   ghost buttons that must re-light on a dark band, and the archive exchange. */
+#corpus { color: var(--ink); letter-spacing: -.01em; }
 /* A door to another service, so it looks like a link and not like one of this
    panel's own run buttons. */
 .lab-link {
   align-self: center; color: var(--step-generation); text-decoration: none;
-  font: 600 .76rem/1 var(--sans);
+  font: 600 var(--t-xs)/1 var(--sans);
   border-bottom: 1px solid var(--step-generation); padding-bottom: 2px;
 }
 .lab-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
-.chassis button.ghost { color: var(--chassis-ink); border-color: #35424f; }
-.chassis button.ghost:hover { background: var(--chassis-soft); color: #fff; }
+/* The ghost buttons all sit inside the Settings popover now, which stands on
+   the plate rather than on the chassis — so they take the page's ink, not the
+   bar's. The `.topbar button.ghost` pair that used to light them for the dark
+   band is gone with the buttons that needed it; nothing in the bar is a ghost
+   any more, only the disc. */
 .settings-popover button.ghost { color: var(--ink); border-color: var(--rule); }
 .settings-popover button.ghost:hover {
   background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
 }
-.archive-exchange {
-  display: flex; align-items: center; gap: .55rem; min-width: 0;
-  padding-left: .65rem; border-left: 1px solid #35424f;
-}
-.archive-actions { display: flex; flex-wrap: nowrap; gap: .4rem; }
+/* Import and Export moved into the popover with everything else about this
+   installation. The rule that separated them from Settings in the bar went
+   with the move: inside the popover the group heading above them does that
+   job, and a second divider two lines under the first reads as a mistake. */
+.archive-exchange { display: flex; align-items: center; min-width: 0; }
+.archive-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+/* A <label> standing in for a button, because the control it fronts is a file
+   input — so it has to be drawn to match `button.ghost` beside it rather than
+   inherit anything from it. */
 .archive-button {
-  display: inline-block; margin: 0; padding: .42rem .85rem;
-  color: var(--chassis-ink); border: 1px solid #35424f; border-radius: 3px;
-  font: 600 .78rem/1.4 var(--sans); text-transform: none;
+  display: inline-block; margin: 0; padding: var(--s-2) var(--s-3);
+  color: var(--ink); background: transparent;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  font: 600 var(--t-sm)/1.4 var(--sans); text-transform: none;
   letter-spacing: 0; cursor: pointer; white-space: nowrap;
 }
-.archive-button:hover { background: var(--chassis-soft); color: #fff; }
-.archive-status {
-  max-width: 52ch; color: var(--chassis-ink-soft);
-  font: .7rem/1.45 var(--mono); overflow-wrap: anywhere;
+.archive-button:hover { background: var(--rule-soft); border-color: var(--ink-soft); }
+/* The archive message now reports from the banner under the bar, which carries
+   its own tone inks — the caution colour is never a step token, because the
+   exchange is a helper and step colour is reserved for the four cards. */
+.archive-status { overflow-wrap: anywhere; }
+/* The popover itself, its heading and its groups moved to chrome.css when the
+   Inspector gained the same button. What stays here is only what this page
+   puts inside it — the key field's ghost buttons and their row. */
+.settings-popover .actions { margin-top: var(--s-2); }
+
+/* ── the context bar ─────────────────────────────────────────────────────────
+   Which corpus the controls below measure against. The name is always on
+   screen because it changes what every number on the page means; the census
+   (sessions, messages, period, question count) is one click away, because a
+   stats strip is not something anyone reads twice an hour.
+
+   The rules themselves are in chrome.css now: the leaderboard picks its dataset
+   with the same scope button and the same popover, and that is one affordance
+   asking one question on two surfaces rather than two that happen to look
+   alike. What stays here is only the one place this page reuses the caret
+   inside a control chrome.css does not know about. */
+.status-pill .context-caret { color: inherit; }
+
+/* ── the conditional banner ──────────────────────────────────────────────────
+   The archive warning, which is true only sometimes and so is not chrome. It
+   sits under the bar rather than inside it, and `hidden` when it has nothing
+   to say — a permanent caution reads as decoration within a day. */
+.banner {
+  max-width: var(--measure); margin: var(--s-2) auto 0;
+  padding: var(--s-2) var(--s-3);
+  border-left: 3px solid var(--ink-soft); background: var(--card);
+  font: var(--t-xs)/1.5 var(--mono); color: var(--ink-soft);
 }
-.archive-status.success { color: var(--chassis-ink); }
-/* Chassis-local caution ink — never a step token: the masthead is a helper,
-   not a pipeline stage, and step colour is reserved for the four cards. */
-.archive-status.warning { color: #d8c69b; }
-.archive-status.error { color: #e6b4ad; }
-@media (max-width: 720px) {
-  .chassis-right, .archive-exchange { width: 100%; margin-left: 0; }
-  .archive-exchange { align-items: flex-start; flex-wrap: wrap; padding: .55rem 0 0;
-                      border-left: 0; border-top: 1px solid #35424f; }
-  .archive-status { flex-basis: 100%; max-width: none; }
+.banner[hidden] { display: none; }
+.banner.success { border-left-color: var(--good); color: var(--ink); }
+.banner.warning { border-left-color: #b08b3a; color: var(--ink); }
+.banner.error { border-left-color: var(--alert); color: var(--ink); }
+
+/* ── the status rail ─────────────────────────────────────────────────────────
+   The editor idiom: workspace status left, contextual facts right, few items,
+   background colour reserved for real trouble. Fixed, --rail-h tall. It stays
+   in panel.css rather than the shared chrome sheet because it reports lab
+   state the Inspector does not hold, and it reads --good, a panel-local ink. */
+.statusrail {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
+  background: var(--chassis); color: var(--chassis-ink-soft);
+  border-top: 1px solid #35424f;
 }
-.settings-popover {
-  inset: 3.4rem 1.4rem auto auto;
-  width: min(25rem, calc(100vw - 2rem));
-  margin: 0; padding: .8rem;
+.statusrail-inner {
+  max-width: var(--measure); margin: 0 auto;
+  padding: 0 var(--gutter); min-height: var(--rail-h);
+  display: flex; align-items: center; gap: var(--s-3);
+}
+.statusrail .spine-caption { flex: 1 1 auto; min-width: 0; margin-top: 0; }
+.status-pill {
+  appearance: none; border: 0; cursor: pointer; flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  background: transparent; color: var(--chassis-ink-soft);
+  font: var(--t-2xs)/1 var(--mono);
+  padding: var(--s-1) var(--s-2); border-radius: var(--radius-pill);
+}
+.status-pill:hover { background: var(--chassis-soft); color: #fff; }
+/* One indicator, taking the worst of the six checks — six always-green badges
+   is how the header got crowded, and constant green stops being read. The
+   count is in the label, so the meaning never rests on colour alone. */
+.status-dot {
+  width: 7px; height: 7px; border-radius: var(--radius-circle);
+  /* Lifted, on both themes: this dot sits on the rail, and the rail is the
+     chassis whichever theme is on. The unlifted inks are tuned for porcelain,
+     which this has never been. */
+  background: var(--good-lit); flex: 0 0 auto;
+}
+.status-pill.warn .status-dot { background: var(--alert-lit); }
+.status-pill.warn { color: #e6b4ad; }
+.status-popover {
+  inset: auto var(--gutter) calc(var(--rail-h) + var(--s-1)) auto;
+  margin: 0; padding: var(--s-3);
+  width: min(38rem, calc(100vw - 2rem));
   color: var(--ink); background: var(--plate);
-  border: 1px solid var(--rule); border-radius: 6px;
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
   box-shadow: var(--shadow);
 }
-.settings-popover::backdrop { background: rgba(16, 22, 32, .18); }
-.settings-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: .65rem; padding-bottom: .45rem;
-  border-bottom: 1px solid var(--rule);
-}
-.settings-head span { color: var(--ink-soft); font: .72rem/1.4 var(--mono); }
-.settings-popover .actions { margin-top: .55rem; }
+.status-popover::backdrop { background: rgba(16, 22, 32, .18); }
+/* Inside the popover the chips sit on porcelain, not on the chassis. */
+.status-popover .chip { background: var(--card); color: var(--ink-soft); }
+.status-popover .chip.on { color: var(--ink); }
 
 /* Capability chips: what this installation can actually do, before you spend an
    hour finding out. Green edge = ready, brick = not. */
-.chips { display: flex; flex-wrap: wrap; gap: .3rem; margin: .55rem auto 0;
-         max-width: 1560px; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: 0;
+         max-width: var(--measure); }
 .chip {
-  font: .68rem/1.5 var(--mono); padding: .05rem .45rem; border-radius: 2px;
+  font: var(--t-2xs)/1.5 var(--mono);
+  /* .05rem: a sub-pixel nudge for the pill shape's vertical padding; no
+     ramp step sits below 2px (--s-px), so this stays literal. */
+  padding: .05rem var(--s-2); border-radius: var(--radius-sm);
   background: var(--chassis-soft); color: var(--chassis-ink-soft);
   border-left: 2px solid transparent;
 }
 .chip.on { border-left-color: var(--good); color: var(--chassis-ink); }
 .chip.off { border-left-color: var(--alert); color: #e6b4ad; }
 
-.findings { max-width: 1560px; margin: .55rem auto 0; }
-.findings > summary {
-  cursor: pointer; color: var(--chassis-ink-soft); font-size: .74rem;
-  list-style: none;
-}
-.findings > summary::before { content: "▸ "; }
-.findings[open] > summary::before { content: "▾ "; }
-.findings > summary:hover { color: #fff; }
-.findings ul { margin: .5rem 0 .3rem; padding-left: 1.1rem; columns: 2; column-gap: 2rem; }
-.findings li { font-size: .74rem; line-height: 1.5; color: var(--chassis-ink-soft);
-               margin-bottom: .35rem; break-inside: avoid; }
-.findings b { color: var(--chassis-ink); }
-.findings code { font: .72rem var(--mono); color: #fff; }
-@media (max-width: 900px) { .findings ul { columns: 1; } }
+/* The earlier-run notes, on the leaderboard surface where cross-run reading
+   belongs rather than in the lab page's top chrome. Two columns on a wide
+   window, one when there is no room for two. */
+.findings-list { margin: 0; padding-left: var(--s-4); columns: 2; column-gap: var(--s-6); }
+.findings-list li { font-size: var(--t-xs); line-height: 1.6; color: var(--ink-soft);
+                    margin-bottom: var(--s-2); break-inside: avoid; }
+.findings-list b { color: var(--ink); }
+.findings-list code { font: var(--t-xs) var(--mono); color: var(--ink); }
+@media (max-width: 900px) { .findings-list { columns: 1; } }
 
-/* ── the spine ───────────────────────────────────────────────────────────────
-   One element doing three jobs: legend for the three inks, progress bar for
-   whatever job is running, and the way to a stage's controls. On the chassis
-   because it belongs to the machine, not to any one plate. */
-.spine { background: var(--chassis); padding: 0 1.4rem .7rem; }
-.spine-inner { max-width: 1560px; margin: 0 auto; }
-.spine-segs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
-.spine-seg {
-  appearance: none; border: 0; text-align: left; cursor: pointer;
-  background: var(--chassis-soft); color: var(--chassis-ink-soft);
-  padding: .3rem .55rem .26rem; border-top: 3px solid var(--step);
-  font: inherit; opacity: .7; transition: opacity .15s, background .15s;
-  display: flex; align-items: baseline; gap: .5rem;
-}
-.spine-seg:hover, .spine-seg[aria-current="step"] { opacity: 1; background: #222e3c; }
-.spine-seg b {
-  color: var(--step); font: 700 .66rem/1.6 var(--sans);
-  text-transform: uppercase; letter-spacing: .14em;
-}
-/* The note lives on the card, where the controls it describes are. Here it is a
-   hint, so the spine stays one line high whether or not anything is running. */
-.spine-seg span { font-size: .68rem; line-height: 1.6; overflow: hidden;
-                  text-overflow: ellipsis; white-space: nowrap; }
-.spine-track { height: 4px; background: var(--chassis-soft); margin-top: 2px; }
-.spine-track i { display: block; height: 4px; background: var(--step, var(--chassis-ink-soft));
-                 width: 0; transition: width .25s linear; }
+/* What is running, reported from the status rail. The four labelled segments
+   and the separate track are gone: the bar's bottom edge carries the progress
+   and the step ink, and this line carries the words. */
 .spine-caption {
-  display: flex; gap: .6rem; align-items: baseline; margin-top: .4rem;
-  font: .72rem/1.5 var(--mono); color: var(--chassis-ink-soft); min-height: 1.1rem;
+  display: flex; gap: var(--s-3); align-items: center;
+  font: var(--t-2xs)/1 var(--mono); color: var(--chassis-ink-soft);
+  min-width: 0; overflow: hidden; white-space: nowrap;
 }
 .spine-caption b { color: var(--step, #fff); font-weight: 600; }
 .spine-caption .right { margin-left: auto; }
 
 /* ── the bench ───────────────────────────────────────────────────────────── */
-main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
+/* Vertical padding is --s-5, one step above the ramp's exact match for the
+   old 1.2rem value (--s-4): this band's breathing room is what the old
+   header was stealing, so the choice is deliberately up-scale rather than a
+   literal unit-for-unit swap. */
+main { max-width: var(--measure); margin: 0 auto;
+       padding: var(--s-5) var(--gutter); }
 .bench {
-  display: grid; gap: 1rem;
+  display: grid; gap: var(--s-4);
   /* Four step cards, then the models column — pinned explicitly below rather
      than left to auto-placement, which would wrap the models card onto a
      second row instead of keeping it in the one right-hand column. */
@@ -190,11 +226,16 @@ main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
 @media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
 @media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
-.stack { display: grid; gap: 1rem; margin-top: 1rem; }
+/* `minmax(0, 1fr)`, not the implicit `auto` track: an auto track sizes to its
+   content's max-content width, so a wide table stretched the column past the
+   viewport and the PAGE scrolled sideways — no `min-width: 0` on the card can
+   prevent that, because the track itself is what grew. */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr);
+         gap: var(--s-4); margin-top: var(--s-4); }
 
 .card {
-  background: var(--card); border: 1px solid var(--rule); border-radius: 5px;
-  box-shadow: var(--shadow); padding: .1rem .9rem 1rem;
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-md);
+  box-shadow: var(--shadow); padding: var(--s-px) var(--s-3) var(--s-4);
   /* min-width:0, else a grid item defaults to min-width:auto and grows to its
      widest child (the leaderboard), so the page scrolls sideways instead of
      just that one table. */
@@ -202,249 +243,400 @@ main { max-width: 1560px; margin: 0 auto; padding: 1.2rem 1.4rem; }
 }
 .card[data-step] { border-top: 3px solid var(--step); }
 .card-head {
-  display: flex; align-items: baseline; gap: .5rem; margin: .85rem 0 .2rem;
+  display: flex; align-items: baseline; gap: var(--s-2); margin: var(--s-3) 0 var(--s-1);
 }
 .card-head h2 {
-  margin: 0; font: 700 .72rem/1.4 var(--sans); text-transform: uppercase;
-  letter-spacing: .13em; color: var(--ink);
+  margin: 0; font: 700 var(--t-xs)/1.4 var(--sans); text-transform: uppercase;
+  letter-spacing: var(--label-track); color: var(--ink);
 }
 .card[data-step] .card-head h2 { color: var(--step); }
 .card-head .num {
-  font: 700 .7rem/1 var(--mono); color: var(--step, var(--ink-soft));
-  border: 1px solid currentColor; border-radius: 2px; padding: .12rem .28rem;
+  font: 700 var(--t-xs)/1 var(--mono); color: var(--step, var(--ink-soft));
+  border: 1px solid currentColor; border-radius: var(--radius-sm); padding: var(--s-px) var(--s-1);
 }
-.card-note { margin: .1rem 0 .7rem; font-size: .74rem; color: var(--ink-soft); }
-h3 { font: 700 .68rem/1.4 var(--sans); text-transform: uppercase;
-     letter-spacing: .12em; color: var(--ink-soft); margin: 1rem 0 .4rem; }
+.card-note { margin: var(--s-px) 0 var(--s-3); font-size: var(--t-xs); color: var(--ink-soft); }
+h3 { font: var(--label-font); text-transform: uppercase;
+     letter-spacing: var(--label-track); color: var(--ink-soft); margin: var(--s-4) 0 var(--s-2); }
 
 /* ── controls ────────────────────────────────────────────────────────────── */
-.field { margin-top: .6rem; }
-.field-row { display: flex; gap: .6rem; }
-.field-row > * { flex: 1; min-width: 0; margin-top: .6rem; }
+.field { margin-top: var(--s-2); }
+.field-row { display: flex; gap: var(--s-2); }
+.field-row > * { flex: 1; min-width: 0; margin-top: var(--s-2); }
 label {
-  display: block; margin-bottom: .18rem; color: var(--ink-soft);
-  font: 600 .67rem/1.4 var(--sans); text-transform: uppercase; letter-spacing: .09em;
+  display: block; margin-bottom: var(--s-1); color: var(--ink-soft);
+  font: 600 var(--t-2xs)/1.4 var(--sans); text-transform: uppercase; letter-spacing: var(--label-track);
 }
 label .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 select, input[type=number], input[type=text], input[type=password], textarea {
-  width: 100%; font: 13px/1.4 var(--sans); padding: .34rem .4rem; color: var(--ink);
-  background: var(--card); border: 1px solid var(--rule); border-radius: 3px;
+  width: 100%; font: var(--t-base)/1.4 var(--sans); padding: var(--s-1) var(--s-2); color: var(--ink);
+  background: var(--card); border: 1px solid var(--rule); border-radius: var(--radius-sm);
 }
-input[type=number], input[type=password] { font-family: var(--mono); font-size: 12.5px; }
+input[type=number], input[type=password] { font-family: var(--mono); font-size: var(--t-sm); }
 select:hover, input:hover { border-color: var(--ink-soft); }
 textarea { min-height: 3.2rem; resize: vertical; }
-.switches { display: flex; flex-wrap: wrap; gap: .1rem .9rem; margin-top: .55rem; }
+/* Row-gap raised deliberately, not mapped: the old .1rem's exact ramp match
+   is --s-px (2px), but that gap is why the checkbox grid clumps into an
+   unreadable block once it wraps — raised one step to --s-2. Column-gap
+   maps normally: the old .9rem is --s-3. */
+.switches { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); margin-top: var(--s-2); }
 .switches label {
-  display: flex; align-items: center; gap: .35rem; margin: 0; font-weight: 400;
-  text-transform: none; letter-spacing: 0; font-size: .78rem; color: var(--ink);
+  display: flex; align-items: center; gap: var(--s-1); margin: 0; font-weight: 400;
+  text-transform: none; letter-spacing: 0; font-size: var(--t-sm); color: var(--ink);
 }
 input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
-.actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .9rem; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+/* A primary button is a filled chip, and what fills it is the one thing that
+   genuinely differs between the themes: on Day the chassis, near-black against
+   porcelain; on Night the chassis would vanish into the card, so the fill
+   becomes the generation ink and the text becomes the chassis. Written as
+   three tokens rather than as a second set of rules under a media query —
+   which is what this was, and it meant every later button rule had to be
+   thought about twice. The tokens make `button.step-action`'s own dark-mode
+   override unnecessary too: it takes the same ink as every other button. */
 button {
-  font: 600 .78rem/1.4 var(--sans); padding: .42rem .85rem; cursor: pointer;
-  color: #fff; background: var(--chassis); border: 1px solid var(--chassis);
-  border-radius: 3px;
+  font: 600 var(--t-sm)/1.4 var(--sans); padding: var(--s-2) var(--s-3); cursor: pointer;
+  color: var(--button-ink); background: var(--button-face);
+  border: 1px solid var(--button-face);
+  border-radius: var(--radius-sm);
 }
-button:hover { background: var(--chassis-soft); }
+button:hover { background: var(--button-face-hover); border-color: var(--button-face-hover); }
 button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
-button.ghost:hover { background: var(--plate); border-color: var(--ink-soft); }
+/* One rule-step off the card, which is a step down on Day and a step up on
+   Night — `--rule-soft` already means exactly that on both themes, so the
+   hover needs no fork. It used to read `--plate`, whose Night value is darker
+   than the card, so hovering a ghost button there pushed it backwards. */
+button.ghost:hover { background: var(--rule-soft); border-color: var(--ink-soft); }
 button.step-action { background: var(--step); border-color: var(--step); }
-button.step-action:hover { filter: brightness(1.12); }
+button.step-action:hover { filter: brightness(1.12); border-color: var(--step); }
 button:disabled { opacity: .4; cursor: default; }
 
 /* A knob the current pipeline would ignore: dimmed and locked, but its reason
    stays at full contrast, because that sentence is the only part still worth
    reading. The control keeps its box so nothing below it shifts when a dropdown
-   changes. */
-.rag-field-off { opacity: 0.5; }
-.rag-field-off .rag-when-dep {
-  opacity: 1; display: block; font-style: italic; font-size: .7rem;
-  color: var(--ink-soft); margin-top: .2rem;
-}
-.rag-field-off input, .rag-field-off select { cursor: not-allowed; }
+   changes.
 
-button.why {
-  font: 700 .6rem/1 var(--mono); padding: .12rem .3rem; margin-left: .3rem;
-  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
-  border-radius: 999px; vertical-align: middle;
+   The dimming is colour on the fields, not `opacity` on the group. It used to
+   be group opacity with `opacity: 1` on the note — which does nothing: opacity
+   composites the whole subtree, so a child cannot climb back out of it. The one
+   sentence explaining *why* the knob is locked rendered at half of an already
+   soft ink, about 2:1 against the card, exactly contradicting the comment
+   above it. */
+.rag-field-off > label, .rag-field-off > label .muted { color: var(--ink-off); }
+.rag-field-off input, .rag-field-off select, .rag-field-off textarea {
+  color: var(--ink-off); background: var(--plate);
+  border-color: var(--rule-soft); cursor: not-allowed;
 }
-button.why:hover { color: var(--card); background: var(--step, var(--chassis));
-                   border-color: var(--step, var(--chassis)); }
-/* pre-wrap because one explainer — the import control's — is a JSON shape, and
+.rag-field-off button.why { color: var(--ink-off); border-color: var(--rule-soft); }
+.rag-field-off .rag-when-dep {
+  display: block; font-style: italic; font-size: var(--t-xs);
+  color: var(--ink-soft); margin-top: var(--s-1);
+}
+
+/* The '!' mark itself — its box, its 24×24 target and its hover — is in
+   chrome.css, shared with the Inspector, which draws the same one. What is
+   page-local is only where the sentence it opens lands, which is here: after
+   the whole field, because a <p> placed straight after a <td> gets hoisted out
+   of the table by the parser.
+
+   pre-wrap because one explainer — the import control's — is a JSON shape, and
    a shape flattened into a paragraph is prose about nesting rather than the
    nesting. Every other text in the registry is a single line with no leading
    space, so they render exactly as they did. */
 p.explain {
-  margin: .3rem 0 .1rem; font-size: .73rem; line-height: 1.5; color: var(--ink-soft);
-  border-left: 2px solid var(--step, var(--rule)); padding-left: .55rem;
-  background: var(--plate); padding: .35rem .55rem; border-radius: 0 3px 3px 0;
+  margin: var(--s-1) 0 var(--s-px); font-size: var(--t-xs); line-height: 1.5; color: var(--ink-soft);
+  border-left: 2px solid var(--step, var(--rule)); padding-left: var(--s-2);
+  background: var(--plate); padding: var(--s-1) var(--s-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
 /* ── the model rail ──────────────────────────────────────────────────────── */
 .rag-models .step {
-  border-left: 3px solid var(--step); padding: .1rem 0 .4rem .55rem;
-  margin-bottom: .7rem;
+  border-left: 3px solid var(--step); padding: var(--s-px) 0 var(--s-2) var(--s-2);
+  margin-bottom: var(--s-3);
 }
 .step-tag {
-  font: 700 .62rem/1.6 var(--sans); text-transform: uppercase; letter-spacing: .14em;
+  font: var(--label-font); text-transform: uppercase; letter-spacing: var(--label-track);
   color: var(--step);
 }
 /* The same tag used to head a group of knobs *inside* a card, where it needs a
    rule above it to say where one group of controls ends and the next begins —
    a card with two subjects and no divider reads as one long list. */
 .group-tag {
-  margin: 1.1rem 0 .5rem; padding-top: .7rem;
+  margin: var(--s-4) 0 var(--s-2); padding-top: var(--s-3);
   border-top: 1px solid var(--rule-soft);
 }
 
 /* ── readings ────────────────────────────────────────────────────────────── */
-.scores { display: grid; gap: .55rem;
+.scores { display: grid; gap: var(--s-2);
           grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); }
 .score {
   border: 1px solid var(--rule-soft); border-left: 3px solid var(--rule);
-  border-radius: 3px; padding: .45rem .6rem; background: var(--card);
+  border-radius: var(--radius-sm); padding: var(--s-2); background: var(--card);
 }
 .score[data-step] { border-left-color: var(--step); }
 .score b {
-  display: block; font: 400 1.5rem/1.15 var(--mono); letter-spacing: -.03em;
+  display: block; font: 400 var(--t-xl)/1.15 var(--mono); letter-spacing: -.03em;
   font-variant-numeric: tabular-nums;
 }
-.score > span { display: block; color: var(--ink-soft); font-size: .67rem;
-                text-transform: uppercase; letter-spacing: .07em; }
+.score > span { display: block; color: var(--ink-soft); font-size: var(--t-2xs);
+                text-transform: uppercase; letter-spacing: var(--label-track); }
 .score[data-step] > span:first-child { color: var(--step); }
-.score .bar { height: 3px; background: var(--rule-soft); margin-top: .35rem; }
+.score .bar { height: 3px; background: var(--rule-soft); margin-top: var(--s-1); }
 .score .bar i { display: block; height: 3px; background: var(--step, var(--ink-soft)); }
-.score .muted { text-transform: none; letter-spacing: 0; font-size: .68rem; }
+.score .muted { text-transform: none; letter-spacing: 0; font-size: var(--t-2xs); }
 
-table { border-collapse: collapse; width: 100%; font: 12.5px/1.45 var(--mono);
-        font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: .26rem .45rem;
-         border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
-th {
-  color: var(--ink-soft); font: 600 .66rem/1.5 var(--sans); text-transform: uppercase;
-  letter-spacing: .07em; border-bottom: 1px solid var(--rule); position: sticky;
-  top: 0; background: var(--card);
+/* ── the breakdowns under a run ─────────────────────────────────
+   Three tables, and deliberately not the control bench's grid: that one pins a
+   300px models column at the right end, and with no models card to put there
+   the column stayed empty — 300px of blank card, while the three tables crowded
+   into what was left and the RAGAS table, squeezed hardest, pushed its own
+   scores out of sight. By-question-type is the widest of the three and gets
+   twice the share; nothing is reserved for a card that is not here. */
+.breakdown {
+  display: grid; gap: var(--s-4); margin-top: var(--s-4); align-items: start;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
 }
-th[data-step] { color: var(--step); }
-tbody tr:hover { background: var(--plate); }
-td a { color: var(--step-generation); text-decoration: none; }
-td a:hover { text-decoration: underline; }
-/* A sortable header looks pressable and says which way it is pointing. The
-   glyph is a pseudo-element so it never lands in the cell's text — the e2e
-   suite reads these headers as strings. */
-th.sort-col { cursor: pointer; user-select: none; }
-th.sort-col:hover { color: var(--ink); }
-th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
-th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
-/* The two widest tables scroll inside themselves rather than dragging the whole
-   page sideways. The leaderboard is eighteen columns and the ledger fifteen, and
-   neither can honestly be narrowed: every column is a knob you compare rows on. */
-#board .board-group { overflow-x: auto; margin-bottom: 1.2rem; }
-#board .board-group h3 { margin-top: .2rem; }
-#experiments, #byType, #ragas, #extras, #rows { overflow-x: auto; }
-#rows { max-height: 26rem; overflow-y: auto; }
+@media (max-width: 1100px) { .breakdown { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+@media (max-width: 780px) { .breakdown { grid-template-columns: minmax(0, 1fr); } }
+.rowdump { margin-top: var(--s-3); }
+
+/* Every table on this page is built by one function (`table` in panel.js) and
+   wears the shared `.data-table` / `.table-scroll` component from chrome.css:
+   the collapse mode, the alignment rule, the striping, the sticky header, the
+   focusable scroll region and the sortable-header marks all live there, in the
+   file the Inspector loads too. What used to be here was a second, quietly
+   different answer to the same questions — right-aligned everything but the
+   first cell, so five prose columns on the ledger sat ragged-left, and a
+   sticky header whose container had no bounded height, so it was not sticky at
+   all. Only the per-metric explainer, which no other surface renders, stays. */
+/* A state that is not `done`, with the '!' that says why. `nowrap` on the cell
+   keeps the mark beside the word; the explainer it opens is a sibling paragraph
+   inside the same cell, wrapped by the rule below. */
+.failed { display: inline-flex; align-items: center; white-space: nowrap; }
+.failed b { color: var(--alert); }
+
+/* An explainer opened from a `!` inside a cell is a paragraph, and the cells
+   around it are `nowrap`. It sets its own wrapping (p.explain, below), and it
+   is bounded at both ends: without the max the column grows to the sentence's
+   full length and the table gains a metre of width, and without the min it
+   shrinks to a narrow column's width and a stack trace arrives one word per
+   line. The column widens to the min while the explainer is open and returns
+   when it closes, which is the reflow a reader asked for by clicking. */
+.data-table td .explain {
+  white-space: pre-wrap; min-width: 15rem; max-width: 22rem; text-align: left;
+}
+
+/* The leaderboard's verdict line is gone with the thing it stated: a board is
+   one table per dataset mixing judges and question sets, and 'winner by more
+   than the combined error' is a claim about a comparability group, which a
+   board is not. The claim still exists for the sweep, which prints it. */
 
 .muted { color: var(--ink-soft); }
 /* Attached to the score it qualifies, quieter but never dropped. */
-.stderr { font-size: .8em; font-weight: 400; color: var(--ink-soft);
+/* .8em, relative to the table's own font-size (var(--t-sm), 13px computed —
+   this renders inside a <td>): the 10.4px product's nearest scale step is
+   --t-2xs (11px). */
+.stderr { font-size: var(--t-2xs); font-weight: 400; color: var(--ink-soft);
           white-space: nowrap; }
 .note {
-  border-left: 3px solid var(--alert); padding: .35rem .6rem; font-size: .75rem;
-  background: var(--alert-wash); margin: .35rem 0; border-radius: 0 3px 3px 0;
+  border-left: 3px solid var(--alert); padding: var(--s-1) var(--s-2); font-size: var(--t-xs);
+  background: var(--alert-wash); margin: var(--s-1) 0; border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 .pill {
-  font: .66rem/1.6 var(--mono); padding: 0 .35rem; border: 1px solid var(--rule);
-  border-radius: 2px; color: var(--ink-soft);
+  font: var(--t-2xs)/1.6 var(--mono); padding: 0 var(--s-1); border: 1px solid var(--rule);
+  border-radius: var(--radius-sm); color: var(--ink-soft);
 }
-details summary { cursor: pointer; color: var(--ink-soft); font-size: .76rem; }
+details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs); }
 .right { margin-left: auto; }
 .hidden { display: none; }
 .fa { direction: rtl; text-align: right; font-family: "Vazirmatn", Tahoma, sans-serif; }
-.section-meta { font: .72rem/1.5 var(--mono); color: var(--ink-soft); }
-.prose { font-size: .75rem; line-height: 1.55; color: var(--ink-soft);
-         margin: .1rem 0 .7rem; max-width: 92ch; }
+.section-meta { font: var(--t-xs)/1.5 var(--mono); color: var(--ink-soft); }
+.prose { font-size: var(--t-xs); line-height: 1.55; color: var(--ink-soft);
+         margin: var(--s-px) 0 var(--s-3); max-width: 92ch; }
 .prose b { color: var(--ink); }
-.prose code { font: .72rem var(--mono); }
-#indexInfo, #retrieveInfo { margin-top: .6rem; font-size: .74rem; color: var(--ink-soft); }
-#datasetInfo, #importInfo { margin-top: .3rem; font-size: .72rem; line-height: 1.45; }
-#dataset-file { font-size: .74rem; padding: .25rem; }
-#experimentDetail pre, #jobBox pre {
-  white-space: pre-wrap; font: 11.5px/1.5 var(--mono); max-height: 30rem;
-  overflow: auto; background: var(--plate); padding: .5rem; border-radius: 3px;
+.prose code { font: var(--t-xs) var(--mono); }
+#indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
+#datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
+#dataset-file { font-size: var(--t-xs); padding: var(--s-1); }
+#jobBox pre {
+  white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;
+  overflow: auto; background: var(--plate); padding: var(--s-2); border-radius: var(--radius-sm);
 }
 
 /* Only the tokens move: every rule above is written in them, so there is no
    second stylesheet to keep in step with the Inspector's own dark theme.
-   The shared tokens' own dark values live in tokens.css; only the panel's
-   own tokens are redefined here. */
+   The shared palette's Night values live in tokens.css; the three below are
+   the panel's own, so they are named and assigned here in the same shape — the
+   values once, the two selectors assigning them. See the long note in
+   tokens.css for why the shape is what it is.
+
+   `--good-lit` is new and is a fix, not a theme: `.status-dot` sits on the
+   status rail, which is the chassis on both themes, and it was drawing a
+   0.49-lightness verdigris there — 2.6:1, a green dot you had to look for on
+   the one element whose whole job is to be seen from across the room. The
+   panel already had this exact pattern for step inks on dark bands a few rules
+   up; the dot simply never got it. */
+:root {
+  --night-alert-wash: #482e29;
+  --night-ink-off: #7a8694;
+  --night-button-face: var(--step-generation);
+  --night-button-face-hover: oklch(0.83 0.10 258);
+  --night-button-ink: var(--chassis);
+  --good-lit: oklch(0.75 0.11 168);
+  /* Day's own half of the button tokens, beside Night's so the pair is read
+     in one place rather than found in two. */
+  --button-face: var(--chassis);
+  --button-face-hover: var(--chassis-soft);
+  --button-ink: #fff;
+}
+:root[data-theme="night"] {
+  --alert-wash: var(--night-alert-wash);
+  --ink-off: var(--night-ink-off);
+  --good: var(--good-lit);
+  --button-face: var(--night-button-face);
+  --button-face-hover: var(--night-button-face-hover);
+  --button-ink: var(--night-button-ink);
+}
 @media (prefers-color-scheme: dark) {
-  :root {
-    --alert-wash: #2a1d1b;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  :root:not([data-theme="day"]) {
+    --alert-wash: var(--night-alert-wash);
+    --ink-off: var(--night-ink-off);
+    --good: var(--good-lit);
+    --button-face: var(--night-button-face);
+    --button-face-hover: var(--night-button-face-hover);
+    --button-ink: var(--night-button-ink);
   }
-  button { background: var(--step-generation); border-color: var(--step-generation);
-           color: var(--chassis); }
-  button:hover { filter: brightness(1.1); background: var(--step-generation); }
-  button.ghost { background: transparent; color: var(--ink); border-color: var(--rule); }
-  button.ghost:hover { background: var(--rule-soft); }
-  button.step-action { color: var(--chassis); }
 }
 
 /* --- the LLM widget: a corner helper, not a stage — chassis, no step ink --- */
 .widget-launch {
-  position: fixed; right: 1rem; bottom: 1rem; z-index: 40;
+  /* Measured off the status rail rather than the viewport floor: the rail is
+     fixed at the bottom, so a literal offset would put the launcher underneath
+     it. test_panel.py pins this anchor's exact string to guard against silent
+     deletion, so it changes deliberately with the rail and not by accident. */
+  position: fixed; right: var(--gutter); bottom: calc(var(--rail-h) + var(--s-2)); z-index: 40;
   background: var(--chassis); color: var(--chassis-ink);
-  border: 1px solid var(--rule); border-radius: 999px;
-  padding: 0.5rem 0.9rem; font: inherit; cursor: pointer;
+  border: 1px solid var(--rule); border-radius: var(--radius-pill);
+  padding: var(--s-2) var(--s-3); font: inherit; cursor: pointer;
   box-shadow: var(--shadow);
 }
 .widget-launch:hover { background: var(--chassis-soft); }
 .widget-window {
-  position: fixed; right: 1rem; bottom: 3.6rem; z-index: 41;
+  /* Stacked directly on the launcher, which is itself measured off the status
+     rail: the 2.6rem is the launcher's own box (its height plus its offset),
+     which has no matching ramp step. test_panel.py pins this anchor's exact
+     string, so it too changes deliberately with the rail. */
+  position: fixed; right: var(--gutter);
+  bottom: calc(var(--rail-h) + var(--s-2) + 2.6rem); z-index: 41;
   width: min(22rem, calc(100vw - 2rem));
   display: flex; flex-direction: column;
   background: var(--plate); border: 1px solid var(--rule);
-  border-radius: 6px; box-shadow: var(--shadow);
+  border-radius: var(--radius-md); box-shadow: var(--shadow);
 }
 .widget-window[hidden] { display: none; }
 .widget-head {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 0.4rem 0.7rem;
+  padding: var(--s-2) var(--s-3);
   background: var(--chassis); color: var(--chassis-ink);
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
 }
 .widget-close {
   background: none; border: none; color: var(--chassis-ink);
-  font-size: 1rem; cursor: pointer; padding: 0 0.2rem;
+  font-size: var(--t-md); cursor: pointer;
+  /* A real 24×24, not a pseudo-element one: there is room in the head bar, so
+     these take the size outright. They were about 14×19 — two controls side by
+     side in the corner of a floating window, which makes them the two on this
+     page most likely to be aimed at and missed. */
+  min-width: 24px; min-height: 24px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
 }
+.widget-close:hover { background: var(--chassis-soft); color: #fff; }
+/* A gap, so two adjacent 24px targets are two targets. */
+.widget-head-actions { display: flex; align-items: center; gap: var(--s-1); }
 .widget-config {
-  display: flex; align-items: center; gap: 0.4rem;
-  padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--rule);
-  font-size: 0.85em;
+  display: flex; align-items: center; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule);
+  /* 0.85em, relative to body's font-size (var(--t-base), 14px computed —
+     .widget-window is a direct child of body and sets none of its own): the
+     11.9px product's nearest scale step is --t-xs (12px). */
+  font-size: var(--t-xs);
 }
 /* `display: flex` above beats the browser's own [hidden] rule, so the gear's
    toggle needs this stated — same as .widget-window. */
 .widget-config[hidden] { display: none; }
-.widget-config label { display: flex; align-items: center; gap: 0.4rem; flex: 1; }
+.widget-config label { display: flex; align-items: center; gap: var(--s-2); flex: 1; }
 .widget-config select { flex: 1; min-width: 0; }
 .widget-log {
   min-height: 8rem; max-height: 40vh; overflow-y: auto;
-  padding: 0.6rem 0.7rem; display: flex; flex-direction: column; gap: 0.5rem;
+  padding: var(--s-2) var(--s-3); display: flex; flex-direction: column; gap: var(--s-2);
+}
+/* Once the window has a height of its own, the log takes the slack. Without
+   this the `max-height` above still caps it, so a window someone dragged twice
+   as tall would put all of the new room into blank space under the form. */
+.widget-window.widget-sized .widget-log {
+  max-height: none; flex: 1 1 auto; min-height: 0;
+}
+
+/* ── what you can ask ──────────────────────────────────────────────────────
+   Shown only while the log is empty, and gone from the first question on. Four
+   buttons rather than four sentences of prose: an example nobody has to retype
+   is an example they will use. The text comes from the served fixture. */
+.widget-empty { display: flex; flex-direction: column; gap: var(--s-1); }
+.widget-empty > b {
+  font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track); color: var(--ink-soft);
+  margin-bottom: var(--s-px);
+}
+.widget-starter {
+  text-align: left; background: var(--card); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
+  padding: var(--s-1) var(--s-2); font: var(--t-xs)/1.45 var(--sans);
+  cursor: pointer;
+}
+.widget-starter:hover { background: var(--plate); border-color: var(--ink-soft); }
+/* The run on the Readings card, phrased as a question about it. Marked apart
+   from the four examples on purpose: a returning reader must not mistake a
+   fact about their own last run for a sample of what to type. */
+.widget-starter.widget-starter-run {
+  border-style: dashed; border-color: var(--ink-soft); background: var(--plate);
 }
 .widget-msg {
-  max-width: 88%; padding: 0.35rem 0.55rem; border-radius: 5px;
+  max-width: 88%; padding: var(--s-1) var(--s-2); border-radius: var(--radius-md);
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .widget-msg.you { align-self: flex-end; background: var(--chassis); color: var(--chassis-ink); }
-.widget-msg.bot { align-self: flex-start; background: var(--slab); color: var(--ink); }
+/* var(--card), not var(--slab). --slab is the slab-serif font stack, so this
+   resolved to an invalid background and every reply the helper has ever given
+   rendered on no bubble at all — the same value the two rules either side of
+   this one were reaching for. */
+.widget-msg.bot { align-self: flex-start; background: var(--card); color: var(--ink); }
 .widget-msg.err { align-self: flex-start; background: var(--alert-wash); color: var(--alert); }
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
-                   font-size: 0.78rem; padding-top: 0; margin-top: -0.35rem; }
-.widget-form { display: flex; gap: 0.4rem; padding: 0.5rem 0.6rem; border-top: 1px solid var(--rule); }
+                   font-size: var(--t-sm); padding-top: 0; margin-top: calc(var(--s-1) * -1); }
+.widget-form { display: flex; gap: var(--s-2); padding: var(--s-2); border-top: 1px solid var(--rule); }
 .widget-form input { flex: 1; min-width: 0; }
 .widget-form button {
   background: var(--chassis); border: 1px solid var(--rule); color: var(--chassis-ink);
+}
+
+/* ── the two edges that grow ───────────────────────────────────────────────
+   The window is anchored bottom-right, so growing means gaining width and
+   height while the anchor holds. Overlaid on the window's own edges rather
+   than placed in its flow, so they cost the conversation no space. Six pixels
+   of edge and a twelve-pixel corner: under the 24px target floor the rest of
+   this page keeps, which is the right answer for a handle whose whole job is
+   to BE the edge — a 24px band would swallow the head bar's controls. The
+   keyboard route is the same handle with the arrow keys, which is why the two
+   straight edges take focus. */
+.widget-grip { position: absolute; z-index: 1; }
+/* Not a step ink: this is a helper, not a pipeline stage. */
+.widget-grip:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.widget-grip-top { top: 0; left: var(--s-2); right: var(--s-2); height: 6px; cursor: ns-resize; }
+.widget-grip-left { left: 0; top: var(--s-2); bottom: var(--s-2); width: 6px; cursor: ew-resize; }
+/* Above its two neighbours, so the corner wins where they overlap it — that is
+   the whole point of having a corner. */
+.widget-grip-corner {
+  top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; z-index: 2;
 }

@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.16.0"
+version = "0.18.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -83,7 +83,7 @@ raglab-inspector = "raglab.dashboard.cli.serve:inspector"
 raglab-lab = "raglab.dashboard.cli.lab:main"
 raglab-sweep = "raglab.agents.extra_tools.sweep:main"
 raglab-judgescreen = "raglab.agents.extra_tools.judgescreen:main"
-raglab-leaderboard = "raglab.agents.extra_tools.leaderboard:main"
+raglab-leaderboard = "raglab.evaluation.leaderboard:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]

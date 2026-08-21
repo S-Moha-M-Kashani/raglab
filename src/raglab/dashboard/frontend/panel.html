@@ -4,9 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RAG Lab</title>
+<!-- The stored theme, stamped before anything paints. lab.js owns the switch
+     and this owns only the first frame: run from there, at the foot of the
+     page, and a reader on Night gets a white flash on every navigation
+     between the three surfaces. Inline because a separate file is a request,
+     and the flash lasts exactly as long as that request. -->
+<script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
 <!-- Design tokens shared with the Inspector on :9003; before panel.css so its
      overrides still win. -->
 <link rel="stylesheet" href="/tokens.css">
+<!-- The bar and the surface switcher, shared with the Inspector; before
+     panel.css so the page can still override. -->
+<link rel="stylesheet" href="/chrome.css">
 <link rel="stylesheet" href="/panel.css">
 <!-- The column sorter, shared with the Inspector: one file, so clicking a
      header means the same thing on both pages. -->
@@ -16,90 +25,96 @@
 </head>
 <body>
 
-<header class="chassis">
-  <div class="masthead">
-    <h1><span class="lab-mark">RL</span>RAG Lab</h1>
-    <span class="pill" id="corpus"></span>
-    <div class="chassis-right">
-      <button class="ghost" id="app-settings" type="button"
-        popovertarget="app-settings-panel">Settings</button>
+<a class="skip-link" href="#main">Skip to the controls</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
+    <!-- Three surfaces, nearest first: the Inspector reads what this page just
+         produced, the Leaderboard ranks across every run there has ever been.
+         The Inspector is a separate service on :9003, so these are links
+         rather than tabs pretending the click stays here — but the port is not
+         shown, because it is not what anybody is choosing between. -->
+    <nav class="topnav" aria-label="Surfaces">
+      <a href="/" aria-current="page">Laboratory</a>
+      <a href="http://localhost:9003/">Inspector</a>
+      <a href="/leaderboard">Leaderboard</a>
+    </nav>
+    <!-- One button. What used to be three loose controls here — Settings,
+         Import, Export — are all about this installation rather than about the
+         experiment on screen, so they are three groups behind one disc. -->
+    <div class="topbar-actions">
+      <button class="settings-button" id="app-settings" type="button"
+        popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
       <div class="settings-popover" id="app-settings-panel" popover
-           aria-label="OpenRouter settings">
+           aria-label="Settings">
         <div class="settings-head">
-          <b>OpenRouter</b>
-          <span>Session settings</span>
+          <b>Settings</b>
+          <span>This installation</span>
         </div>
-        <div class="field" id="keyField">
-          <label for="openrouter_key">API key <span class="muted">· held until the lab restarts</span></label>
-          <input type="password" id="openrouter_key" placeholder="sk-or-…"
-                 autocomplete="off" spellcheck="false" aria-describedby="keyState">
-          <div class="actions">
-            <button class="ghost" id="save-key" type="button">Save key</button>
-            <button class="ghost" id="clear-key" type="button">Clear</button>
+        <div class="settings-group">
+          <h3 id="theme-control-label">Theme</h3>
+          <!-- Filled by lab.js, which owns the three choices and the stored
+               one, so the panel and the Inspector cannot offer different sets. -->
+          <div class="theme-control" id="theme-control"
+               aria-labelledby="theme-control-label"></div>
+        </div>
+        <div class="settings-group">
+          <h3>OpenRouter</h3>
+          <div class="field" id="keyField">
+            <label for="openrouter_key">API key <span class="muted">· held until the lab restarts</span></label>
+            <input type="password" id="openrouter_key" placeholder="sk-or-…"
+                   autocomplete="off" spellcheck="false" aria-describedby="keyState">
+            <div class="actions">
+              <button class="ghost" id="save-key" type="button">Save key</button>
+              <button class="ghost" id="clear-key" type="button">Clear</button>
+            </div>
+            <div id="keyState" class="muted"></div>
           </div>
-          <div id="keyState" class="muted"></div>
         </div>
-      </div>
-      <div class="archive-exchange" aria-label="Experiment archive exchange">
-        <div class="archive-actions">
-          <label class="archive-button" id="archive-import" for="archive-file"
-                 role="button" tabindex="0">Import JSON</label>
-          <button class="ghost" id="archive-export" type="button">Export experiment</button>
-          <input id="archive-file" class="hidden" type="file"
-                 accept="application/json,.json">
+        <div class="settings-group">
+          <h3>Experiment archive</h3>
+          <div class="archive-exchange" aria-label="Experiment archive exchange">
+            <div class="archive-actions">
+              <label class="archive-button" id="archive-import" for="archive-file"
+                     role="button" tabindex="0">Import JSON</label>
+              <button class="ghost" id="archive-export" type="button">Export experiment</button>
+              <input id="archive-file" class="hidden" type="file"
+                     accept="application/json,.json">
+            </div>
+          </div>
         </div>
-        <span id="archive-status" class="archive-status" aria-live="polite"></span>
       </div>
     </div>
   </div>
-  <div class="chips" id="caps"></div>
-  <details class="findings">
-    <summary>What the numbers said last time — measured on this fixture, 2026-07-29. Re-run to confirm.</summary>
-    <ul>
-      <li><b>The embedder decides everything else.</b> The brain's old default
-        (<code>ascii-hash</code>) scores 0.014 session recall — its tokeniser is
-        <code>[a-z0-9]+</code>, so Farsi embeds to the zero vector. Unicode character
-        n-grams take it to 0.386; a multilingual transformer to 0.612.</li>
-      <li><b>Hybrid BM25 + dense with RRF is the biggest retrieval win</b> (0.386 →
-        0.546 recall; single-hop 0.57 → 0.85). Lexical finds the rare literal, dense
-        finds the paraphrase.</li>
-      <li><b>Semantic chunking pays in quote recall, not session recall</b> — better
-        boundaries change what is <i>inside</i> the chunk (quote recall 0.471 → 0.489,
-        precision 0.191 → 0.243, pattern questions 0.11 → 0.26).</li>
-      <li><b>Only an LLM gate can abstain honestly.</b> The lexical gate needs a 0.6
-        threshold to refuse 6 of 8 unanswerable questions, and there it wrongly refuses
-        52% of answerable ones. The LLM gate at 0.4 refuses 5 of 8 with 3% false
-        refusals, and <i>improves</i> precision 0.34 → 0.59 and MRR 0.70 → 0.77.</li>
-      <li><b>Offline RAGAS context metrics are length-sensitive</b> (whole-string
-        similarity): they fell by half when chunks got longer even as quote recall rose.
-        Compare them only within similar chunk sizes; the judged metrics on the same
-        retrieval read 0.65 context recall against their 0.30.</li>
-    </ul>
-  </details>
+  <!-- All that remains of the four step strips. Their jobs were to say which
+       stage is running, how far along, and where its controls are; the first
+       two are this 3px line in no vertical space at all, and the third was
+       always a scroll away on cards that already carry the same step ink and
+       the same served titles. -->
+  <div class="chrome-progress" id="chromeProgress" data-step=""><i></i></div>
 </header>
 
-<!-- Three segments, in pipeline order: the legend for the inks, the progress of
-     whatever is running, and the way to each stage's controls. -->
-<div class="spine" id="spine">
-  <div class="spine-inner">
-    <div class="spine-segs" id="spineSegs">
-      <button class="spine-seg" type="button" data-step="index" data-target="card-index">
-        <b>Index</b><span>what gets stored</span></button>
-      <button class="spine-seg" type="button" data-step="retrieval" data-target="card-retrieval">
-        <b>Retrieval</b><span>what gets found</span></button>
-      <button class="spine-seg" type="button" data-step="generation" data-target="card-generation">
-        <b>Generation</b><span>what gets written</span></button>
-      <button class="spine-seg" type="button" data-step="agent" data-target="card-agent">
-        <b>Agent</b><span>what loops</span></button>
-      <!-- The long note stays on the card beside the controls it describes;
-           `titleSteps` fills the short hint here from the same served step. -->
-    </div>
-    <div class="spine-track" id="spineTrack"><i></i></div>
-    <div class="spine-caption" id="spineCaption"><span>nothing running</span></div>
+<!-- Shown only while it has something to say. A warning that is true only
+     sometimes is not permanent chrome. -->
+<div id="archive-status" class="banner archive-status" aria-live="polite" hidden></div>
+
+<!-- Page-level scope: which corpus these controls measure against. The name is
+     always visible because it changes what every number below means; the full
+     census sits one click away rather than as a permanent strip. -->
+<div class="context-bar">
+  <button class="context-scope" id="corpusScope" type="button"
+          popovertarget="corpus-detail">
+    <span class="context-label">Corpus</span>
+    <span id="corpusName">—</span>
+    <span class="context-caret" aria-hidden="true">▾</span>
+  </button>
+  <div class="context-detail" id="corpus-detail" popover aria-label="Corpus census">
+    <span id="corpus"></span>
   </div>
 </div>
 
-<main>
+<main id="main">
 <div class="bench">
 
   <section class="card" id="card-index" data-step="index">
@@ -157,7 +172,11 @@
       <button class="step-action" id="build">Build / reuse index</button>
       <button class="ghost" id="rebuild">Force rebuild</button>
     </div>
-    <div id="indexInfo"></div>
+    <!-- A build's result is an announcement, not a decoration: it is the
+         only place the collection name, the chunk count and any note about
+         the partition appear. Atomic because the whole line is replaced at
+         once and half of it read on its own says nothing. -->
+    <div id="indexInfo" aria-live="polite" aria-atomic="true"></div>
   </section>
 
   <section class="card" id="card-retrieval" data-step="retrieval">
@@ -212,7 +231,7 @@
       <button class="step-action" id="retrieve-selected"
         title="Retrieve for the questions selected in 3 · Generation. No answers, no judging, no run file.">Retrieve selected questions</button>
     </div>
-    <div id="retrieveInfo"></div>
+    <div id="retrieveInfo" aria-live="polite" aria-atomic="true"></div>
   </section>
 
   <section class="card" id="card-generation" data-step="generation">
@@ -336,7 +355,7 @@
 
 <div class="stack">
   <section class="card" id="resultCard">
-    <div class="card-head"><h2>Readings</h2><span class="section-meta right" id="resultMeta"></span></div>
+    <div class="card-head"><h2>Readings</h2><span class="section-meta right" id="resultMeta" aria-live="polite" aria-atomic="true"></span></div>
     <div id="notes"></div>
     <!-- An empty screen is an invitation to act, not a set of headings with
          nothing under them: until a run is on screen the breakdowns are hidden
@@ -346,45 +365,55 @@
       back on its own after a reload.</p>
     <div id="resultBody" hidden>
       <div class="scores" id="scores"></div>
-      <div class="bench" style="margin-top:1rem">
-        <div style="grid-column: span 2"><h3>By question type</h3><div id="byType"></div></div>
+      <div class="breakdown">
+        <div><h3>By question type</h3><div id="byType"></div></div>
         <div><h3>RAGAS</h3><div id="ragas"></div></div>
         <div><h3>By difficulty</h3><div id="extras"></div></div>
       </div>
-      <details style="margin-top:.9rem"><summary>Per-question rows</summary>
+      <details class="rowdump"><summary>Per-question rows</summary>
         <div id="rows"></div></details>
     </div>
   </section>
 
-  <section class="card">
-    <div class="card-head"><h2>Leaderboard</h2><span class="section-meta right" id="boardMeta"></span></div>
-    <p class="prose">
-      Ordered by <b>ragas_decision</b> — the unweighted mean of faithfulness,
-      answer relevancy, context precision and context recall. Every other column
-      is reported and none of them votes; runs that could not measure all four
-      are unranked and sort last. Click any header to sort by it instead, again
-      to reverse, a third time to come back to this order.
-      <b>One table per dataset</b>: a decision score is a mean over the
-      questions of one corpus, so rows are never ranked across corpora.</p>
-    <div id="board"></div>
-  </section>
+  <!-- The leaderboard used to be a second, simpler implementation right here:
+       it grouped by dataset only, so a table could rank rows scored on
+       different questions by different judges against each other. It is gone.
+       The real grouping lives on the Leaderboard surface, served from the same
+       module `raglab-leaderboard` prints from.
 
-  <!-- Beside the ranking, not inside it: an index build has no decision score,
-       so a numbered table it appeared in would claim a rank for work that
-       measured nothing. Rows come from raglab.db, so this survives a restart. -->
-  <section class="card">
-    <div class="card-head"><h2>Every experiment</h2><span class="section-meta right" id="experimentsMeta"></span></div>
-    <p class="prose">
-      One row per finished index build, retrieval and evaluation, newest first.
-      <b>Backend</b> is where the model calls actually went: <code>fake</code>
-      answers and judges without ever failing, so those rows are a rehearsal of
-      the pipeline and not a measurement of it. Click an id for the full stored
-      detail.</p>
-    <div id="experiments"></div>
-    <div id="experimentDetail"></div>
-  </section>
+       The full experiment ledger — every finished index build, retrieval and
+       evaluation, not just the judged ones a decision score can rank — used to
+       sit here too, in its own card. It moved to the leaderboard's unfiltered
+       "every experiment" view, which reads the same rows: the lab page is for
+       setting up one run, not for reading across every run this installation
+       has finished. -->
 </div>
 </main>
+
+<!-- ── the status rail ──────────────────────────────────────────────────────
+     What the header used to shout, reporting quietly from the foot of the
+     page: what is running on the left, what this installation can do on the
+     right. The six capability chips still render into #caps exactly as
+     before — they just live inside the pill's popover now, so "everything is
+     ready" is one green dot instead of six permanently-green badges. -->
+<footer class="statusrail">
+  <div class="statusrail-inner">
+    <div class="spine-caption" id="spineCaption" aria-live="polite"><span>nothing running</span></div>
+    <button class="status-pill" id="statusPill" type="button"
+            popovertarget="status-detail">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span id="statusPillText">checking…</span>
+      <span class="context-caret" aria-hidden="true">▴</span>
+    </button>
+    <div class="status-popover" id="status-detail" popover
+         aria-label="What this installation can do">
+      <div class="settings-head">
+        <b>This installation</b><span>Verified, not guessed</span>
+      </div>
+      <div class="chips" id="caps"></div>
+    </div>
+  </div>
+</footer>
 
 <!-- The LLM widget: a helper in the corner, not a pipeline stage — it wears
      the chassis and no step ink. One module (raglab/widget.py), one route
@@ -393,7 +422,7 @@
 <div id="widget-window" class="widget-window" hidden>
   <div class="widget-head">
     <span>Lab helper</span>
-    <span>
+    <span class="widget-head-actions">
       <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
       <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
     </span>
@@ -401,11 +430,26 @@
   <div id="widget-config" class="widget-config" hidden>
     <label>model <select id="widget-model"></select></label>
   </div>
+  <!-- Empty until the first question, and then a conversation. What fills it
+       while it is empty is built by panel.js from the served starters, so the
+       four example questions are a fixture rather than markup. -->
   <div id="widget-log" class="widget-log"></div>
   <form id="widget-form" class="widget-form">
     <input id="widget-input" type="text" placeholder="Ask about this project…" autocomplete="off">
     <button id="widget-send" type="submit">Send</button>
   </form>
+  <!-- The two edges that grow, and their corner. The window is anchored
+       bottom-right, so gaining size is exactly what dragging the top and the
+       left outward looks like. Last in the DOM on purpose: the two focusable
+       ones then come after the input rather than in front of it, and where
+       they sit on screen is CSS's business, not document order's. -->
+  <div class="widget-grip widget-grip-corner" data-grip="corner" aria-hidden="true"></div>
+  <div class="widget-grip widget-grip-top" data-grip="top" role="separator"
+       aria-orientation="horizontal" tabindex="0"
+       aria-label="Resize the helper — up and down change its height"></div>
+  <div class="widget-grip widget-grip-left" data-grip="left" role="separator"
+       aria-orientation="vertical" tabindex="0"
+       aria-label="Resize the helper — left and right change its width"></div>
 </div>
 
 <script src="/archive_io.js"></script>

@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from raglab.corpora import dataset_import_contract as datasets
-from raglab.agents.extra_tools import leaderboard
+from raglab.evaluation import leaderboard
 from raglab.configuration.lab_config import IndexConfig
 
 from raglab.conftest import _finished
@@ -356,7 +356,10 @@ def test_the_leaderboard_never_ranks_across_corpora():
     for found in groups:
         assert leaderboard.verdict(found) == 'unranked', (
             'one row per corpus cannot beat anything')
-    assert 'support-en' in leaderboard.markdown(groups)
+    # `leaderboard.markdown` now prints the flat, one-table-per-dataset board
+    # rather than these comparability groups; the same "never one table"
+    # claim holds there too.
+    assert 'support-en' in leaderboard.markdown(leaderboard.by_dataset(rows))
 
 
 def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
@@ -427,10 +430,24 @@ def test_the_panel_renders_the_json_shape_as_a_shape():
 
 def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     # this is a convention test
+    """Two corpora are never one measurement, so a ranking must never span
+    them. The panel used to enforce that itself, in the board it rendered; that
+    board is gone and the rule now lives one level deeper, in the grouping
+    module both the page and `raglab-leaderboard` read from — where it also got
+    stricter, since a group is now one dataset *and* one question set *and* one
+    judge. This checks the dataset is still offered here and that the rule is
+    still enforced there, rather than checking for markup that moved."""
     from raglab.dashboard.panel_server import STATIC
     html = (STATIC / 'panel.html').read_text(encoding='utf-8')
     js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'id="dataset"' in html and 'id="dataset-file"' in html
     assert '/api/datasets' in js
-    assert 'One table per dataset' in html
-    assert 'byDataset' in js, 'the leaderboard renders one table per corpus'
+    # The dataset is the coarsest part of the grouping key, so rows from two
+    # corpora cannot land in one table however else they agree.
+    rows = [{'dataset': 'diary-fa', 'label': 'a',
+             'selection': {'question_ids': ['q1']}, 'judge': {'model': 'm'}},
+            {'dataset': 'smoke-mini', 'label': 'b',
+             'selection': {'question_ids': ['q1']}, 'judge': {'model': 'm'}}]
+    assert len(leaderboard.group(rows)) == 2, (
+        'two corpora must never share a table, even on identical questions '
+        'with the same judge')

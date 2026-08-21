@@ -188,6 +188,16 @@ def create_inspector_app() -> FastAPI:
     jobs = Jobs()
     app = FastAPI(title='Lodestar RAG Lab Inspector')
 
+    @app.middleware('http')
+    async def never_serve_yesterdays_page(request, call_next):
+        """Same reason as the panel's: the frontend is read from disk per
+        request, so a browser reusing a page without asking turns an edit into
+        "nothing changed" — and a read-only window onto evidence must never show
+        yesterday's evidence."""
+        response = await call_next(request)
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.get('/')
     def page():
         return FileResponse(STATIC / 'inspector.html')
@@ -212,6 +222,11 @@ def create_inspector_app() -> FastAPI:
         """The design tokens shared with the panel, so a colour cannot drift apart on either page."""
         return FileResponse(STATIC / 'tokens.css', media_type='text/css')
 
+    @app.get('/chrome.css')
+    def chrome_css():
+        """The bar and surface switcher shared with the panel, so neither surface is a dead end."""
+        return FileResponse(STATIC / 'chrome.css', media_type='text/css')
+
     @app.get('/lab.js')
     def lab_js():
         """The utilities shared with the panel, so a name like escapeHtml has one behaviour, not two."""
@@ -231,8 +246,18 @@ def create_inspector_app() -> FastAPI:
     def groundtruth(dataset: str = ''):
         """The pairs for whichever corpus is being followed, asked for by name rather than assumed built-in."""
         asked = datasets.load(dataset)[1] if dataset else ground_truth
+        described = datasets.find(dataset)
         return {'meta': asked['meta'], 'questions': asked['questions'],
                 'dataset': dataset or datasets.BUILTIN,
+                # Which language the corpus is in, so the page can render its
+                # text in the direction that language reads. Said outright
+                # rather than left in `meta`: a ground-truth file's meta
+                # describes the question set, and no corpus carries a language
+                # there — the built-in diary keeps its own on the corpus half,
+                # and `_split` writes it only onto that half too. Empty for a
+                # dataset the catalogue cannot describe, which the page reads
+                # as "unknown" rather than as any particular direction.
+                'language': described.language if described else '',
                 'datasets': [found.as_dict() for found in datasets.catalogue()]}
 
     @app.get('/api/config')
@@ -359,6 +384,21 @@ def create_inspector_app() -> FastAPI:
         if found is None:
             raise HTTPException(
                 404, 'imported archive is unavailable from the lab')
+        return found
+
+    @app.get('/api/experiments/{experiment_id}')
+    def recorded_experiment(experiment_id: str):
+        """One recorded experiment, proxied from the lab.
+
+        Proxied rather than read from `raglab.db` directly: this service owns no
+        ledger, and a second reader that opened the file would be a second
+        thing to keep in step with a record whose whole value is being written
+        once. The same reason `/api/imported-archives/{id}` proxies."""
+        encoded_id = urllib.parse.quote(experiment_id, safe='')
+        found = _lab_get(f'/api/experiments/{encoded_id}')
+        if found is None:
+            raise HTTPException(
+                404, 'that experiment is unavailable from the lab')
         return found
 
     @app.delete('/api/imported-archives/active')

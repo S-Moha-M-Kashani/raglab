@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from raglab.conftest import _spacing_literals, _track_literals
 from raglab.configuration import lab_config as config
 from raglab.configuration import explainer_assembly as explain
 from raglab.dashboard import panel_server as lab_server
@@ -45,6 +46,173 @@ _SRC_FILES = [p for p in _PY_FILES
 
 with open(ROOT / 'pyproject.toml', 'rb') as _fh:
     _SCRIPTS = tomllib.load(_fh)['project']['scripts']
+
+# The served stylesheets. Read from disk rather than over a route because this
+# guard spans both surfaces at once — the routes belong to two different apps,
+# and the claim is about the shared scale rather than about either page.
+_SHEETS = SRC / 'raglab' / 'dashboard' / 'frontend'
+
+
+def test_every_step_of_the_shared_scale_has_a_user():
+    # this is a convention test
+    """A step nobody reads is exactly what tokens.css exists to remove. It
+    shipped with a --t-2xl (32px) reserved for a top bar that had not been built
+    yet; the bar was built, it wanted --t-md, and the step sat there unread —
+    which is how the last set of hand-set sizes started, one value kept "for
+    later". If a step is worth having, something reads it now; if nothing does,
+    the decision it records is a guess."""
+    sheets = '\n'.join((_SHEETS / name).read_text(encoding='utf-8') for name in
+                       ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'))
+    tokens = (_SHEETS / 'tokens.css').read_text(encoding='utf-8')
+    declared = dict.fromkeys(re.findall(r'^\s*(--[a-z0-9-]+):', tokens, re.M))
+    scale = [t for t in declared
+             if re.match(r'--(s-|t-|radius-)|--(measure|gutter|bar-h|rail-h)$', t)]
+    assert len(scale) > 15, (
+        f'the scale regex matched only {len(scale)} steps — tokens.css was '
+        'renamed or restructured and this guard is now passing vacuously')
+    unread = [t for t in scale if f'var({t})' not in sheets]
+    assert unread == [], (
+        f'these steps of the shared scale are read by nothing: {unread}. Use '
+        'them or delete them — a step kept for a future phase is a decision '
+        'nothing has tested')
+
+
+# (file, declaration, reason) — every margin, padding or gap on either surface
+# that is deliberately off the ramp, and why. The guard below asserts this list
+# is exactly what the sheets contain: a tenth entry fails it, and so does a
+# retired ninth, so the list cannot rot into a blanket permission.
+#
+# Four kinds of reason appear here, and no fifth is expected:
+#   - above the ramp: --s-7 (3rem) is its top step
+#   - below the ramp: --s-px (2px) is its bottom step
+#   - not a rem: a value meant to scale with one element's own type size
+#   - a visual weight rather than a step, like a border width
+SPACING_OFF_RAMP = [
+    ('panel.css', 'padding: 0 0 5rem',
+     'clearance under the whole page for the fixed widget launcher, which is '
+     'taller than the ramp\'s top step — a bigger step invented for one use is '
+     'a step with one user'),
+    ('panel.css', 'padding-bottom: 2px',
+     'the gap between a link and the rule underlining it, which is a border '
+     'offset rather than spacing between things'),
+    ('panel.css', 'padding: .05rem',
+     "a sub-pixel nudge for a chip's vertical padding; --s-px (2px) is the "
+     'ramp\'s bottom step and this sits under it'),
+    ('inspector.css', 'padding: .08rem',
+     'the same nudge for the archive pill, under the same bottom step'),
+    ('inspector.css', 'padding: .38rem',
+     "one button's vertical padding, tuned between --s-1 and --s-2 rather than "
+     'snapped to either'),
+    ('inspector.css', 'gap: 2px',
+     'the hairline seam between the ladder bars — a visual weight, like a '
+     'border width, not a distance between elements'),
+    ('inspector.css', 'padding: 0 .3em',
+     "em-relative to the layer badge's own mono size: the ramp is rem-based, so "
+     "a value meant to scale with one element's type falls outside it"),
+    ('inspector.css', 'padding: 0 .12em',
+     'the same, for the evidence wash that has to hug the words it marks'),
+    ('inspector.css', 'gap: var(--s-1) 1.3rem',
+     'the column gap between metric badges, which lands between --s-4 and '
+     '--s-5 — and note the row gap beside it is on the ramp'),
+    ('chrome.css', 'margin-left: -1px',
+     'the theme segments pulling onto each other so neighbours share one edge '
+     'instead of drawing two — it is the negative of a border width, which the '
+     'ramp explicitly does not cover, and it must track that width rather than '
+     'a spacing step'),
+]
+
+
+def test_every_spacing_value_comes_off_the_ramp_or_is_named_here():
+    # this is a convention test
+    """The scale added ~220 token uses for spacing and no way to notice the
+    220th-and-first hand-set value. The type ramp and the radius scale each got
+    a literal-detector; spacing did not, on the argument that no regex could
+    gate it without rejecting correct CSS. That argument was wrong: across four
+    sheets there are nine literals, every one of them a deliberate exception
+    with a reason, so what spacing needed was a named list — this one — and not
+    an impossibility proof.
+
+    Asserted as equality rather than containment, in both directions. A tenth
+    literal fails because nothing explains it; a retired ninth fails too,
+    because a list that keeps permitting what no longer exists stops describing
+    the sheets and starts excusing them."""
+    allowed = sorted((f, d) for f, d, _ in SPACING_OFF_RAMP)
+    found = sorted((name, hit)
+                   for name in ('tokens.css', 'chrome.css', 'panel.css',
+                                'inspector.css')
+                   for hit in _spacing_literals(
+                       (_SHEETS / name).read_text(encoding='utf-8')))
+    assert found == allowed, (
+        'the spacing ramp and this list disagree.\n'
+        f'  not on the ramp and not named here: {sorted(set(found) - set(allowed))}\n'
+        f'  named here but no longer in the sheets: {sorted(set(allowed) - set(found))}\n'
+        'Take the value off the ramp only for one of the four reasons the list '
+        'already carries, and write the reason beside the declaration too — a '
+        'reader of the stylesheet cannot see this file.')
+
+
+def test_every_letter_spacing_value_comes_from_the_label_recipe():
+    # this is a convention test
+    """One decision — how loose a small uppercase label is tracked — was made
+    twenty times at eight values between .04 and .14em, and every one of the
+    twenty sites is uppercase. `--label-track` is the answer; this is what stops
+    the twenty-first site from asking again. No exception list, because unlike
+    spacing there is no value here that has a reason to be off it: the three
+    negative values are outside this guard by construction, since tightening
+    three specific dense elements is not this recipe drifting."""
+    for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'):
+        css = (_SHEETS / name).read_text(encoding='utf-8')
+        assert _track_literals(css) == [], (
+            f'{name} spells its own tracking: {_track_literals(css)}. Read '
+            '--label-track instead — and if this label genuinely wants a '
+            'different looseness, that is a second recipe to name, not a '
+            'number to write here')
+
+
+def test_the_spacing_and_tracking_detectors_see_every_form():
+    # this is a convention test
+    """A regex that matches nothing passes a file-based assertion exactly like
+    a correct one does, and both literal-detectors before these shipped with
+    holes that had to be closed twice — a `font` shorthand with no line-height,
+    then four radius corner longhands and three unit families. So each helper is
+    fed strings it must catch and strings it must not, covering every form the
+    property takes."""
+    caught = [
+        'a { margin: 4px }', 'a { padding: 1.5rem }',
+        'a { margin-top: 4px }', 'a { padding-bottom: .5em }',
+        'a { margin-block: 4px }', 'a { padding-inline-start: 2rem }',
+        'a { margin-block-end: 1vh }', 'a { padding-inline: 3% }',
+        'a { gap: 2px }', 'a { row-gap: 1ch }', 'a { column-gap: 2ex }',
+        'a { grid-gap: 4px }', 'a { grid-row-gap: 4pt }',
+        'a { margin-top: -2px }',
+        'a { padding: var(--s-1) 1.3rem }',
+        'a { margin: 0 auto 2rem }',
+    ]
+    missed = [
+        'a { margin: 0 }', 'a { padding: 0 0 }', 'a { margin: 0 auto }',
+        'a { padding: var(--s-2) var(--s-3) }',
+        'a { gap: var(--s-1) }', 'a { margin-inline: var(--gutter) }',
+        # not spacing: a border width, a position inset, a shadow offset
+        'a { border-width: 2px }', 'a { top: 3rem }', 'a { left: -2px }',
+        'a { box-shadow: 0 1px 2px black }',
+        # a token whose own name carries digits and letters that look like units
+        'a { padding: var(--s-px) var(--t-2xs) }',
+        # its own documentation
+        '/* padding: .38rem is deliberate here */ a { padding: var(--s-1) }',
+    ]
+    for css in caught:
+        assert _spacing_literals(css) != [], css
+    for css in missed:
+        assert _spacing_literals(css) == [], css
+
+    for css in ('a { letter-spacing: .13em }', 'a { letter-spacing: 0.07em }',
+                'a { letter-spacing: 1px }', 'a { letter-spacing: .5ch }'):
+        assert _track_literals(css) != [], css
+    for css in ('a { letter-spacing: var(--label-track) }',
+                'a { letter-spacing: 0 }', 'a { letter-spacing: normal }',
+                'a { letter-spacing: -.01em }',
+                '/* letter-spacing: .13em was the eighth value */ a { color: red }'):
+        assert _track_literals(css) == [], css
 
 
 def test_the_tree_walk_finds_a_plausible_number_of_files():
@@ -310,3 +478,25 @@ def test_nothing_ships_without_an_explainer(gate):
     a bare number: a config field with no help text, and a key a run can
     report with nothing defining it."""
     assert getattr(explain, gate)() == []
+
+
+def test_the_leaderboard_rule_describes_the_code_that_exists():
+    # this is a convention test
+    """A rule the code disobeys is worse than either rule alone. The board was
+    deliberately flattened to one table per dataset — the owner's call about
+    their own instrument — so the document moves with it. The stricter claim is
+    not deleted: `group()`/`verdict()` still partition by question set and judge
+    and still refuse to name a winner inside the combined error, because that is
+    what a *sweep* ranks by and a sweep's candidates are comparable by
+    construction."""
+    text = (ROOT / 'CLAUDE.md').read_text(encoding='utf-8')
+    assert 'one table per dataset' in text.lower(), (
+        'the board is one table per dataset and the doc must say so')
+    assert 'verdict' in text.lower() or 'comparability' in text.lower(), (
+        'the sweep still groups before it ranks, and dropping that from the '
+        'doc would invite someone to delete the machinery it protects')
+
+    from raglab.evaluation import leaderboard
+    assert hasattr(leaderboard, 'verdict') and hasattr(leaderboard, 'group'), (
+        'the sweep imports both; flattening the board must not have cost them')
+    assert hasattr(leaderboard, 'by_dataset')

@@ -8,16 +8,43 @@ async function loadChosen() {
 const chosenReady = loadChosen();
 
 const views = ['groundtruth', 'chunks', 'retrieval', 'generation'];
+const tabOf = view => document.getElementById(`tab-${view}`);
+
+// Roving tabindex: a tablist is one stop in the page's tab order, not four, and
+// the selected tab is the one that stop lands on. Reached by four buttons that
+// only ever set `aria-selected`, which is inert without `role="tab"` — so a
+// screen reader was told which of the four views was showing by nothing at all,
+// and there was no way between them but Tab, Tab, Tab.
 function show(view) {
   for (const v of views) {
-    document.getElementById(`view-${v}`).hidden = v !== view;
-    const tab = document.getElementById(`tab-${v}`);
-    tab.setAttribute('aria-selected', String(v === view));
+    const on = v === view;
+    document.getElementById(`view-${v}`).hidden = !on;
+    const tab = tabOf(v);
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
   }
 }
-for (const v of views) {
-  document.getElementById(`tab-${v}`).addEventListener('click', () => show(v));
-}
+for (const v of views) tabOf(v).addEventListener('click', () => show(v));
+
+// The arrows walk the strip and switch as they go: all four panels are already
+// in the page, so there is nothing to fetch and nothing a reader would gain by
+// having to confirm the move. Home and End go to the ends. Same shape as the
+// question picker further down, which is the keyboard implementation this page
+// already had right.
+document.querySelector('.inspector-tabs').addEventListener('keydown', event => {
+  const at = views.findIndex(v => tabOf(v) === document.activeElement);
+  if (at < 0) return;
+  const next = {
+    ArrowRight: (at + 1) % views.length,
+    ArrowLeft: (at - 1 + views.length) % views.length,
+    Home: 0,
+    End: views.length - 1,
+  }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  show(views[next]);
+  tabOf(views[next]).focus();
+});
 show('groundtruth');
 
 async function pollJob(jobId) {
@@ -79,19 +106,19 @@ function whyText(key) {
 
 function whyMark(key) {
   const label = escapeHtml(measureOf(key).label || key);
-  return `<button type="button" class="inspector-why" data-why="${escapeHtml(key)}"`
+  return `<button type="button" class="why" data-why="${escapeHtml(key)}"`
     + ` aria-label="What is ${label}?">!</button>`;
 }
 
 // One listener for the page: the marks are re-rendered on every poll tick, and
 // a listener per button would leak one per render.
 document.addEventListener('click', event => {
-  const button = event.target.closest('.inspector-why');
+  const button = event.target.closest('button.why');
   if (!button) return;
   const open = button.nextElementSibling;
-  if (open && open.classList.contains('inspector-why-text')) { open.remove(); return; }
+  if (open && open.classList.contains('why-text')) { open.remove(); return; }
   const note = document.createElement('span');
-  note.className = 'inspector-why-text';
+  note.className = 'why-text';
   note.textContent = whyText(button.dataset.why) || 'no description for this one yet';
   button.after(note);
 });
@@ -112,8 +139,46 @@ const GT = new Map();
 // starts on so the tab has something in it before the first poll answers.
 let FOLLOWED_DATASET = '';
 
+// --- which direction the corpus reads ---
+// This page used to answer that with a hardcoded rtl written into fourteen template
+// strings and a Persian face pinned into four CSS rules, because the first
+// corpus was a Farsi diary. Four of the five bundled corpora are German or
+// English, and every one of them rendered right-to-left in Vazirmatn with its
+// chunk column against the wrong edge. The dataset has always known its
+// language; `/api/groundtruth` says so now, and this is the page asking.
+//
+// The scripts that run right to left, by language subtag. A list rather than a
+// script lookup because there is no way to ask the platform offline, and this
+// list is short and does not move.
+const RTL_LANGUAGES = new Set(['ar', 'arc', 'ckb', 'dv', 'fa', 'he', 'ku',
+                               'ps', 'sd', 'ug', 'ur', 'yi']);
+
+// `auto` until a corpus says otherwise — not `ltr`, and not the diary's `rtl`.
+// `auto` is a real answer: the browser takes each block's direction from its
+// own first strong character, which is the honest reading for text whose
+// language nothing has stated. An archive written without one lands here.
+let CORPUS_DIR = 'auto';
+
+function dirFor(language) {
+  const base = String(language || '').toLowerCase().split(/[-_]/)[0];
+  if (!base) return 'auto';
+  return RTL_LANGUAGES.has(base) ? 'rtl' : 'ltr';
+}
+
+// One fact, set in one place, read two ways: the attribute is what the
+// stylesheet reads to put the chunk column and its header against the right
+// edge (that is layout, and belongs to the page), while `CORPUS_DIR` goes onto
+// each block of corpus text as its own `dir` (that is the text's own property,
+// and is what bidi, the font stack, selection and a screen reader all need).
+function setCorpusDir(language) {
+  CORPUS_DIR = dirFor(language);
+  document.documentElement.dataset.corpusDir = CORPUS_DIR;
+}
+
 function renderGroundTruth(body) {
   FOLLOWED_DATASET = body.dataset || '';
+  // Before the first row is written, because every render below reads it.
+  setCorpusDir(body.language);
   const root = document.getElementById('view-groundtruth');
   GT.clear();
   root.innerHTML = '';
@@ -124,20 +189,20 @@ function renderGroundTruth(body) {
     // Label above its text, never beside it. A label set inline with a
     // right-aligned Farsi block ends up at the opposite edge of the row from the
     // thing it labels, with the width of the page in between.
-    const field = (label, text, rtl) => text
+    const field = (label, text, corpusText) => text
       ? `<div class="gt-field"><div class="qh-label">${label}</div>`
-        + `<div${rtl ? ' dir="rtl"' : ''}>${escapeHtml(text)}</div></div>` : '';
+        + `<div${corpusText ? ` dir="${CORPUS_DIR}"` : ''}>${escapeHtml(text)}</div></div>` : '';
     const quotes = (q.evidence || []).map(e => e.quote);
     row.innerHTML = `<div class="gt-head"><span class="q-id">${escapeHtml(q.id)}</span> `
       + `<span class="q-tally">${escapeHtml(q.type)} · ${escapeHtml(q.difficulty)}`
       + `${q.answerable ? '' : ' · unanswerable'}</span></div>`
-      + `<div class="gt-q" dir="rtl">${escapeHtml(q.question_fa)}</div>`
+      + `<div class="gt-q" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa)}</div>`
       + `<div class="gt-en">${escapeHtml(q.question_en || '')}</div>`
       + field('answer', q.answer_fa, true)
       + (quotes.length
          ? `<div class="gt-field"><div class="qh-label">evidence quoted from the diary</div>`
            + quotes.map(quote =>
-               `<div dir="rtl" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
+               `<div dir="${CORPUS_DIR}" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
            + `</div>` : '');
     root.appendChild(row);
   }
@@ -149,7 +214,11 @@ function renderGroundTruth(body) {
   if (!picker.hidden) renderPicker(pickerFilter.value);
 }
 
-async function loadGroundTruth(dataset) {
+// One named corpus's fixture, fetched and handed back unrendered. Split out
+// because a read-only mode pinned to a record has to fetch it too, and must not
+// be turned away by the guard below — that guard is there to stop a *live*
+// fetch landing after something recorded went on screen.
+async function fetchGroundTruth(dataset) {
   const requestedDataset = dataset || '';
   // Named on every request, never assumed, so this view can't show one corpus
   // while another view on the page shows a different one.
@@ -157,9 +226,16 @@ async function loadGroundTruth(dataset) {
                                + encodeURIComponent(requestedDataset));
   const body = await response.json().catch(() => ({ detail: response.statusText }));
   if (!response.ok) throw new Error(body.detail || response.statusText);
-  // A live fetch that began before archive mode must not land afterwards and
-  // replace the imported ground truth with a different corpus.
-  if (activeArchiveId !== null || archiveLoadingId !== null) return;
+  return body;
+}
+
+async function loadGroundTruth(dataset) {
+  const body = await fetchGroundTruth(dataset);
+  // A live fetch that began before a read-only mode must not land afterwards
+  // and replace what is pinned with a different corpus — either mode, since an
+  // imported archive and a recorded experiment both put one on screen.
+  if (activeArchiveId !== null || archiveLoadingId !== null
+      || activeExperimentId !== null || recordLoadingId !== null) return;
   renderGroundTruth(body);
 }
 loadGroundTruth('');
@@ -189,7 +265,7 @@ function renderChunkGroups(container, groups) {
       // The number is a Latin marker on its own line rather than a prefix inside
       // the Farsi string, where bidi puts it at whichever edge the run ends on.
       line.innerHTML = `<div class="chunk-no">chunk ${i + 1}</div>`
-        + `<div dir="rtl">${escapeHtml(c.text)}</div>`;
+        + `<div dir="${CORPUS_DIR}">${escapeHtml(c.text)}</div>`;
       det.appendChild(line);
     });
     container.appendChild(det);
@@ -199,12 +275,15 @@ function renderChunkGroups(container, groups) {
 // Each card leads with what its text cannot say — group, level, chunk count,
 // and session count. A group spanning several sessions carries no session id
 // at all, which is why the session count must be stated rather than shown.
-function renderSummaries(container, summaries) {
+function renderSummaries(container, summaries, absentNote) {
   container.innerHTML = '';
   if (!summaries.length) {
     // "No hierarchy" and "a hierarchy that found nothing" are different facts, and
-    // this view must not read as the second when it is the first.
-    container.innerHTML = '<p class="empty-note">This index is flat — no grouping was '
+    // this view must not read as the second when it is the first. A third fact —
+    // "nobody wrote this down" — belongs to a record that never reported any,
+    // and only the caller holding that record can tell it from a flat build.
+    container.innerHTML = absentNote
+      || '<p class="empty-note">This index is flat — no grouping was '
       + 'asked for, so there are no summaries to list. Pick a grouping under '
       + '"Summary hierarchy" on the lab to build some.</p>';
     return;
@@ -221,7 +300,7 @@ function renderSummaries(container, summaries) {
     const line = document.createElement('div');
     line.className = 'chunk-line';
     line.innerHTML = `<div class="chunk-no">summary</div>`
-      + `<div dir="rtl">${escapeHtml(s.text)}</div>`;
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(s.text)}</div>`;
     det.appendChild(line);
     // The members by id, so a summary can be traced back to the rows it stands
     // for — without them the card is an assertion the reader cannot check.
@@ -237,7 +316,14 @@ function renderSummaries(container, summaries) {
 
 // The two halves are held here rather than re-fetched, so switching costs nothing
 // and can never show one build's leaves beside another's summaries.
-const chunkView = { summaries: [] };
+const chunkView = { summaries: [], absentNote: '' };
+
+// One way in, so no caller can leave the previous source's note attached to
+// this one's rows: every assignment states what an empty list means here.
+function setChunkSummaries(summaries, absentNote = '') {
+  chunkView.summaries = summaries || [];
+  chunkView.absentNote = absentNote;
+}
 
 function showChunkMode(mode) {
   document.getElementById('chunks-body').hidden = mode !== 'chunks';
@@ -247,7 +333,7 @@ function showChunkMode(mode) {
   }
   if (mode === 'summaries') {
     renderSummaries(document.getElementById('summaries-body'),
-                    chunkView.summaries);
+                    chunkView.summaries, chunkView.absentNote);
   }
 }
 
@@ -255,28 +341,42 @@ for (const button of document.querySelectorAll('#chunks-mode button')) {
   button.addEventListener('click', () => showChunkMode(button.dataset.mode));
 }
 
-document.getElementById('build-chunks').addEventListener('click', async () => {
+// Build an index here and list what it chunked. Takes the config rather than
+// reading one, because two controls ask for this: the button beside the tab
+// builds under the config this page falls back to, and a recorded experiment's
+// Chunks tab offers a rebuild under the config that experiment recorded. One
+// request path, so the status line, the config line and the summaries toggle
+// cannot be updated by one caller and forgotten by the other.
+async function buildChunks(config) {
   const status = document.getElementById('chunks-status');
   try {
     status.textContent = 'building…';
     await chosenReady;
+    const asked = config || CHOSEN;
     const response = await fetch('/api/chunks',
       { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(CHOSEN) });
+        body: JSON.stringify(asked) });
     const result = await pollJob(await startedJob(response));
     // Both counts, because "167 chunks" over an index of 174 rows is the exact
     // statement that made seven summaries invisible.
     status.textContent = `${result.total} chunks · `
       + `${result.total_summaries || 0} summaries`;
-    document.getElementById('chunks-active-config').textContent = formatConfig(CHOSEN);
+    // The config line follows what was actually built: after a rebuild these
+    // are today's chunks, and the line must not go on describing a record.
+    document.getElementById('chunks-active-config').textContent = formatConfig(asked);
     renderChunkGroups(document.getElementById('chunks-body'), result.chunks_by_session);
-    chunkView.summaries = result.summaries || [];
+    setChunkSummaries(result.summaries);
     showChunkMode(document.getElementById('summaries-body').hidden
       ? 'chunks' : 'summaries');
   } catch (error) {
     status.textContent = error.message;
   }
-});
+}
+
+// `null`, not `CHOSEN`: the fallback config is still being fetched while this
+// listener is being attached, and the build reads it after awaiting that fetch.
+document.getElementById('build-chunks').addEventListener('click',
+  () => buildChunks(null));
 
 // --- Retrieval: shared render ---
 // One candidate per row, cloned from the page's own template so every table
@@ -320,15 +420,23 @@ function chunkCell(candidate) {
   // A summary row wears the index ink and names its group, so it reads as
   // build-written rather than mistaken for the diarist's own words.
   const badge = candidate.layer === 'summary'
-    ? `<span class="layer-badge" data-step="index" title="a summary this build `
-      + `wrote over ${candidate.members} chunks — not the diarist's own words">`
+    ? `<span class="layer-badge" data-step="index">`
       + `L${candidate.level} ${escapeHtml(candidate.group_id || '')} `
       + `· ${candidate.members}</span> ` : '';
+  // What the badge means, in the reveal rather than in a `title`. That this row
+  // is not the corpus's own words is the most important thing about it, and a
+  // mouse-hover tooltip is not a way to publish that — the reveal is where the
+  // row's full text already goes, and it opens to a keyboard as well.
+  const layerNote = candidate.layer === 'summary'
+    ? '<span class="no-evidence">a summary this build wrote over '
+      + `${candidate.members} chunk${candidate.members === 1 ? '' : 's'} `
+      + '— not the corpus\'s own words</span>' : '';
   return `<td class="chunk-cell" data-sort="${escapeHtml(preview.slice(0, 60))}">`
     + badge
-    + `<span class="chunk-preview" dir="rtl" tabindex="0">`
+    + `<span class="chunk-preview" dir="${CORPUS_DIR}" tabindex="0">`
     + `${escapeHtml(preview.slice(0, 60))}${preview.length > 60 ? '…' : ''}</span>`
-    + `<div class="chunk-reveal" dir="rtl">${highlighted(text, spans)}${footnote}</div></td>`;
+    + `<div class="chunk-reveal" dir="${CORPUS_DIR}">${highlighted(text, spans)}`
+    + `${footnote}${layerNote}</div></td>`;
 }
 
 // One bar per rank-producing step (dense, BM25, RRF fusion), height standing
@@ -352,15 +460,51 @@ function ladder(candidate, cap) {
     + `${cells}</span></td>`;
 }
 
-// A table inside its own scroller, so nine columns on a phone move the table
-// and never the page. The wrapper only scrolls at narrow widths (see the media
-// query) — on a wide screen it would clip the reveal hanging below a row.
-function scrollable(table) {
+// A table inside the scroll region both surfaces share (chrome.css): nine
+// columns move the table and never the page, the header stays put because the
+// region's height is bounded, and the region takes focus so the arrow keys,
+// PageUp/PageDown, Home and End reach the right-hand side of it. It used to
+// scroll only at narrow widths, because on a wide screen it clipped the reveal
+// hanging below a row; the reveal is fixed to the viewport now (`placeReveal`),
+// so the region can be real at every width.
+function scrollable(table, label) {
   const box = document.createElement('div');
   box.className = 'table-scroll';
+  box.tabIndex = 0;
+  box.setAttribute('role', 'region');
+  box.setAttribute('aria-label', label || 'retrieved candidates');
   box.appendChild(table);
   return box;
 }
+
+// Where an open reveal goes is `placeReveal`, in lab.js: the board on :9002
+// grew a reveal off a cell in the same bounded region, and the placement is the
+// same problem on both surfaces, so it is answered once in the file both pages
+// load rather than copied. The selector is passed because only the caller knows
+// which reveal its cell holds.
+
+// The cell whose reveal a pointer or a focus has opened. Hover opens on the
+// whole row (`.retrieval-row:hover .chunk-reveal`), so the event target is
+// usually some rank cell three columns away from the text it reveals.
+function revealCell(node) {
+  const row = node && node.closest && node.closest('.retrieval-row');
+  return row ? row.querySelector('.chunk-cell') : null;
+}
+
+// Delegated at the document, because every one of these tables is rebuilt each
+// time the lab finishes a job. The scroll listener is capturing: a wheel scroll
+// does not end a hover, so a reveal left where it opened would drift away from
+// the row that owns it.
+document.addEventListener('pointerover',
+  event => placeReveal(revealCell(event.target), '.chunk-reveal'));
+document.addEventListener('focusin',
+  event => placeReveal(revealCell(event.target), '.chunk-reveal'));
+document.addEventListener('scroll', () => {
+  for (const cell of document.querySelectorAll(
+    '.retrieval-row:hover .chunk-cell, .chunk-cell:focus-within')) {
+    placeReveal(cell, '.chunk-reveal');
+  }
+}, true);
 
 function retrievalTable(candidates) {
   const table = document.getElementById('retrieval-table-template')
@@ -397,7 +541,7 @@ function questionHead(questionId, fallbackFa) {
   const q = GT.get(questionId) || {};
   const facts = (q.key_facts || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
   return `<div class="question-head">`
-    + `<div class="qh-fa" dir="rtl">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
+    + `<div class="qh-fa" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
     + `<div class="qh-en">${escapeHtml(q.question_en || '')}</div>`
     + (facts ? `<div class="qh-label">what a right answer contains</div>`
              + `<ol class="qh-facts">${facts}</ol>` : '')
@@ -415,7 +559,8 @@ function questionSummary(id, type, difficulty, tally) {
 function renderRetrievalRows(candidates) {
   const host = document.getElementById('retrieval-body');
   host.innerHTML = '';
-  host.appendChild(scrollable(retrievalTable(candidates)));
+  host.appendChild(scrollable(retrievalTable(candidates),
+    'candidates for the one-off query'));
 }
 
 // One collapsible table per question, collapsed by default, shared by both the
@@ -436,6 +581,17 @@ function agentLadder(visits) {
         + `<td class="detail" dir="auto">${escapeHtml(v.detail || '')}</td></tr>`)
       .join('')
     + '</tbody></table>';
+  // Wired, like every other table on either surface. It was the one built by a
+  // path that never reached the sorter — and the two questions a reader brings
+  // to a loop trace are both column questions: sort by node and a node that
+  // appears three times collects itself, sort by hop and you see what each hop
+  // cost. The third click restores the order it was served in, which for this
+  // table is the sequence itself.
+  //
+  // Deliberately not inside a `.table-scroll`: four columns, one of which
+  // wraps, so it has nothing to overflow. A bounded, bordered region around a
+  // table that never scrolls is the component worn as costume.
+  SortTable.make(box.querySelector('table'));
   return box;
 }
 
@@ -456,7 +612,8 @@ function questionBlock(q) {
   // Above the candidate table, because the ladder is how the candidates came to
   // be: the table answers "what came back", the ladder answers "after what".
   if (visits.length) det.appendChild(agentLadder(visits));
-  det.appendChild(scrollable(retrievalTable(candidates)));
+  det.appendChild(scrollable(retrievalTable(candidates),
+    `candidates for ${q.question_id}`));
   return det;
 }
 
@@ -514,7 +671,7 @@ function renderPicker(filter) {
     option.tabIndex = -1;
     option.dataset.id = q.id;
     const quotes = (q.evidence || []).map(ev =>
-      `<div class="gt-quote" dir="rtl">${escapeHtml(ev.quote)}</div>`).join('');
+      `<div class="gt-quote" dir="${CORPUS_DIR}">${escapeHtml(ev.quote)}</div>`).join('');
     option.innerHTML =
       `<span class="q-option-id">${escapeHtml(q.id)}</span>`
       + `<span class="q-chip q-chip--${escapeHtml(q.difficulty || 'easy')}">`
@@ -524,9 +681,9 @@ function renderPicker(filter) {
       // The detail is in the DOM from the start rather than built on hover, so
       // it opens with no delay and reads the same to a screen reader.
       + `<div class="q-option-detail">`
-      + `<div dir="rtl" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
+      + `<div dir="${CORPUS_DIR}" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
       + `<div class="qh-label">expected answer</div>`
-      + `<div dir="rtl">${escapeHtml(q.answer_fa || '—')}</div>`
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(q.answer_fa || '—')}</div>`
       + (quotes ? `<div class="qh-label">evidence quoted from the diary</div>${quotes}` : '')
       + `</div>`;
     pickerList.appendChild(option);
@@ -650,10 +807,10 @@ function generationBlock(row, trace) {
     + questionHead(row.id, '')
     + '<div class="gen-answers">'
     + '<div class="gen-answer gen-answer--ideal"><h4>what the diary says</h4>'
-    + `<div dir="rtl">${escapeHtml(gt.answer_fa || '—')}</div></div>`
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(gt.answer_fa || '—')}</div></div>`
     + '<div class="gen-answer gen-answer--actual">'
     + `<h4>what this run wrote${row.abstained ? ' — it refused' : ''}</h4>`
-    + `<div dir="rtl">${escapeHtml(row.answer || '—')}</div></div>`
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(row.answer || '—')}</div></div>`
     + '</div>'
     + metricLine(row, GEN_METRICS);
   if (trace) {
@@ -677,29 +834,54 @@ function showLabDown(el) {
 }
 
 // One line in the header, so an empty view never leaves the reader guessing
-// whether nothing ran or nothing is listening.
+// whether nothing ran or nothing is listening. Two words and a dot: the line
+// used to spend itself on `body.lab_url`, which is the same address on every
+// installation that has ever run this page, and which the surface switcher
+// directly above already links to. What is actually being reported is one bit,
+// and one bit reads faster as a coloured dot than as a sentence to parse.
 function setFollowState(body) {
   const el = document.getElementById('follow-state');
   el.dataset.lab = body.lab;
-  el.textContent = body.lab === 'up'
-    ? `following the lab at ${body.lab_url}`
-    : `cannot reach the lab at ${body.lab_url}`;
+  el.textContent = body.lab === 'up' ? 'Laboratory on' : 'Laboratory disconnected';
 }
 
 let activeArchiveId = null;
 let archiveLoadingId = null;
 let liveDatasetBeforeArchive = '';
 
-function setArchiveState(runId) {
+// The other read-only mode: one row of the lab's ledger, opened from the board.
+// Declared beside the archive's own state because the two share this page's
+// read-only chrome and only one of them can be on screen.
+let activeExperimentId = null;
+let recordLoadingId = null;
+// Why a deep-linked record is *not* on screen, when that is the answer. Held
+// rather than written straight into the state line, because the page is still
+// following the lab in that case and the follow loop rewrites that line.
+let recordProblem = '';
+
+// `label` is what kind of recorded thing the page is pinned to, because there
+// are two — an imported archive and one row of the lab's ledger — and they are
+// read-only for different reasons. The chrome is deliberately the same: this
+// line and the control beside it already mean "you are pinned to something
+// recorded, and here is the way back", which is exactly both states.
+function setArchiveState(runId, label = 'Imported archive') {
   const state = document.getElementById('archive-state');
   const button = document.getElementById('archive-return-live');
   const readOnly = runId !== null;
-  state.hidden = !readOnly;
-  button.hidden = !readOnly;
+  // A record the page could not produce leaves it on live and says why here,
+  // so this line stays up in that one case — the follow loop calls this every
+  // couple of seconds and would otherwise wipe the reason immediately.
+  state.hidden = !readOnly && !recordProblem;
+  // And the control stays with it, because a stated failure a reader cannot
+  // dismiss is a banner and a stale `?experiment=` in the URL with no way out
+  // of either. It says what it does in each case: leaving a record is a return
+  // to live, while a record that never loaded was never left.
+  button.hidden = !readOnly && !recordProblem;
+  button.textContent = readOnly ? 'Return to live' : 'Dismiss';
   document.getElementById('build-chunks').disabled = readOnly;
   document.getElementById('add-question').disabled = readOnly;
-  if (readOnly) state.textContent = `Imported archive · read-only · ${runId}`;
-  else state.textContent = '';
+  if (readOnly) state.textContent = `${label} · read-only · ${runId}`;
+  else state.textContent = recordProblem;
 }
 
 function renderImportedArchive(archive) {
@@ -713,10 +895,17 @@ function renderImportedArchive(archive) {
   renderGroundTruth({ dataset: evidence.dataset.id,
                       meta: evidence.dataset.ground_truth.meta,
                       questions: evidence.dataset.ground_truth.questions,
+                      // The archive carries the corpus it was run against, and
+                      // the corpus half is where a language lives — so an
+                      // archive is read in its own direction rather than in
+                      // whatever the live corpus happened to be. An archive
+                      // written without one falls through to `auto`, which is
+                      // the honest answer for text whose language is unstated.
+                      language: ((evidence.dataset.corpus || {}).meta || {}).language,
                       datasets: [] });
   renderChunkGroups(document.getElementById('chunks-body'),
                     evidence.chunks_by_session);
-  chunkView.summaries = evidence.summaries;
+  setChunkSummaries(evidence.summaries);
   showChunkMode(document.getElementById('summaries-body').hidden
     ? 'chunks' : 'summaries');
   renderQuestionTables(evidence.traces);
@@ -753,9 +942,11 @@ async function followImportedArchive(archiveId) {
   }
 }
 
-async function leaveArchiveMode() {
-  const dataset = liveDatasetBeforeArchive;
-  activeArchiveId = null;
+// Back to following the lab, from whichever read-only mode was pinned: forget
+// every rendered job id so the next tick redraws all four views from live jobs
+// rather than deciding nothing changed. Shared by both modes because leaving
+// them is the same work — only what has to be un-pinned first differs.
+async function returnToLive(dataset) {
   FOLLOWED_CONFIG = null;
   followed.indexJobId = null;
   followed.queryJobId = null;
@@ -769,7 +960,21 @@ async function leaveArchiveMode() {
   followed.dataset = dataset;
 }
 
+async function leaveArchiveMode() {
+  const dataset = liveDatasetBeforeArchive;
+  activeArchiveId = null;
+  await returnToLive(dataset);
+}
+
 document.getElementById('archive-return-live').addEventListener('click', async () => {
+  // One control, three states. Only an imported archive is something the *lab*
+  // is holding open, so only that one has anything to clear over there — a
+  // recorded experiment was never more than this page reading a record, and a
+  // record that failed to load leaves only a message and a URL to clear.
+  if (activeExperimentId !== null || recordProblem) {
+    await leaveRecordMode();
+    return;
+  }
   const state = document.getElementById('archive-state');
   let cleared = false;
   try {
@@ -785,11 +990,344 @@ document.getElementById('archive-return-live').addEventListener('click', async (
   }
 });
 
+// --- a recorded experiment, opened from the board ---------------------------
+// The leaderboard's frozen right column links to `?experiment=<id>`. That is a
+// third state for this page — not live, not an imported archive, but one row of
+// the lab's ledger read back — and it wears archive mode's chrome deliberately:
+// the state line and the return-to-live control already mean "you are pinned to
+// something recorded, read-only, and here is the way back", which is exactly
+// this. A second read-only mode with its own controls would be two things doing
+// one job.
+
+async function followRecordedExperiment(experimentId) {
+  if (experimentId === activeExperimentId) return;
+  recordLoadingId = experimentId;
+  let record = null;
+  let failure = '';
+  try {
+    record = await archiveRequest('/api/experiments/'
+                                  + encodeURIComponent(experimentId));
+  } catch (error) {
+    failure = error.message;
+  } finally {
+    // Cleared before anything below asks for the live fixture, since the guard
+    // that holds a live fetch off while a record is in flight reads this.
+    recordLoadingId = null;
+  }
+  if (failure) {
+    // Left on live rather than pinned to nothing: a read-only view with no
+    // evidence in it reads as an experiment that recorded none. A row deleted
+    // from the ledger, a mistyped id and a lab that is down all land here.
+    recordProblem = `${experimentId} could not be read from the lab `
+      + `(${failure}) — showing live instead`;
+    setArchiveState(null);
+    // And the live fixture is asked for again: the page's own boot fetch was
+    // turned away while this record was in flight, and the follow loop reloads
+    // only on a corpus *change* — so the ground-truth tab would otherwise stay
+    // empty for want of a request nobody was going to make.
+    await loadGroundTruth(followed.dataset || '');
+    return;
+  }
+  recordProblem = '';
+  // Captured before anything is pinned, so returning to live goes back to the
+  // corpus this page was following rather than to the record's own.
+  if (activeArchiveId === null) liveDatasetBeforeArchive = FOLLOWED_DATASET;
+  // A record and an archive preview cannot both be on screen, and the deep link
+  // is the more recent request; dropping the id here is also what lets the
+  // follow loop re-enter archive mode once the reader goes back to live.
+  activeArchiveId = null;
+  activeExperimentId = experimentId;
+  await renderRecordedExperiment(record);
+}
+
+// Which of the ledger's shapes a record is, told from the two columns the row
+// already carries. It decides what each view can show and, where a view is
+// empty, why — and deciding that from how many rows the detail happened to hold
+// was one test doing five jobs: a cancelled run was told it had measured no
+// questions, a one-off query was told nothing was retrieved while its own
+// record held the trace and the answer, and an errored retrieval was handed an
+// index build's explanation.
+function recordShape(record) {
+  const detail = record.detail || {};
+  // An imported archive is preserved verbatim, so its detail is the archive
+  // payload and not a job's result: no `config`, no `rows`, no `traces`.
+  if (detail.format === 'raglab-experiment' && detail.evaluation) return 'archive';
+  // A job that stopped holds its config and nothing after it, whatever kind of
+  // job it was — so the reason every view is empty is the row's own state, not
+  // the shape of a result it never produced.
+  if ((record.state || 'done') !== 'done') return 'unfinished';
+  return record.kind || 'run';
+}
+
+// The state line: the kind, and the state as well when the state is the point.
+// A read-only view of a cancelled experiment that never says "cancelled" is a
+// row not carrying the reason it is degraded — the rule the board's own state
+// column keeps, said here in the one line this page has for it.
+function recordLabel(record) {
+  const kind = record.kind || 'kind unrecorded';
+  const state = record.state || '';
+  return `Recorded experiment (${state && state !== 'done'
+    ? `${kind} · ${state}` : kind})`;
+}
+
+// Why a stopped job has no evidence, said per view: the job stopped. The reason
+// the row recorded travels with it, because a page showing one experiment is
+// the only place a reader can read that reason at all.
+function unfinishedNote(record, missing) {
+  // The row's own word for the state, in a frame that stays grammatical
+  // whichever word it is — and the same word the board's state column prints,
+  // so the two surfaces are describing one record in one vocabulary.
+  return '<p class="empty-note">This experiment did not finish — the ledger '
+    + `records it as <b>${escapeHtml(record.state || 'unfinished')}</b> — so `
+    + `${missing}: a job that stopped recorded its config and nothing after it. `
+    + (record.error
+       ? `The reason it recorded — ${escapeHtml(record.error)}`
+       : 'It recorded no reason beyond the state itself.')
+    + '</p>';
+}
+
+// Three of the four tabs come off the record: the ledger strips only chunk
+// text, so the config, the per-question traces and the answered rows all
+// survive into it. What is missing is stated where it is missing, in the terms
+// of the shape this record actually is.
+async function renderRecordedExperiment(record) {
+  const detail = record.detail || {};
+  const shape = recordShape(record);
+  const config = detail.config || {};
+  FOLLOWED_CONFIG = config;
+  // Questions added by hand were run against the live corpus under the live
+  // config, so they are not evidence about this record.
+  ADDED.clear();
+  renderAdded();
+
+  // An archive's payload already has a renderer on this page — the one the
+  // archive control uses, which reads every field of it — so the record hands
+  // over rather than describing that shape a second way. Read as a job result
+  // it emptied all four tabs for a row whose decision score the board can show,
+  // and offered a rebuild that would have fallen back to the *live* config
+  // under a note promising this experiment's.
+  if (shape === 'archive') {
+    renderImportedArchive(detail);
+    setArchiveState(record.experiment_id, recordLabel(record));
+    return;
+  }
+
+  // The record names its own corpus, and a corpus is read in the direction its
+  // own language reads — so the fixture is fetched for *that* dataset rather
+  // than left showing whatever the lab happens to be working on.
+  try {
+    renderGroundTruth(await fetchGroundTruth(record.dataset || ''));
+  } catch (error) {
+    // A corpus this installation no longer has is a stated gap, not an empty
+    // question list: the rows below still came from one.
+    GT.clear();
+    // And its direction is unstated, not the live corpus's: `auto` is the
+    // honest reading for text whose language nothing here can report, and is
+    // what an archive written without one falls through to as well.
+    setCorpusDir('');
+    document.getElementById('view-groundtruth').innerHTML =
+      '<p class="empty-note">This experiment ran against '
+      + `<b>${escapeHtml(record.dataset || 'the built-in corpus')}</b>, which `
+      + `this installation cannot load (${escapeHtml(error.message)}). Its `
+      + 'questions below are named by id only, with no ideal answer to '
+      + 'compare against.</p>';
+  }
+
+  // `traces` on an evaluation, `questions` on a retrieval: two names for one
+  // shape, normalised here the way `/api/follow` normalises the live pair.
+  const traces = detail.traces || detail.questions || [];
+  const rows = detail.rows || [];
+  const questions = document.getElementById('retrieval-questions');
+  const generation = document.getElementById('generation-questions');
+  const answer = document.getElementById('retrieval-answer');
+  // The one-off query boxes follow a live job, and a ledger row is not one —
+  // so they are cleared for every shape but the one that actually recorded a
+  // single traced question, whose evidence goes in exactly here.
+  document.getElementById('retrieval-body').innerHTML = '';
+  answer.textContent = '';
+  document.getElementById('generation-ragas').innerHTML = '';
+  renderQuestionTables(shape === 'query' ? [] : traces);
+
+  if (shape === 'unfinished') {
+    questions.innerHTML = unfinishedNote(record, 'nothing was retrieved');
+    generation.innerHTML = unfinishedNote(record, 'no answer was written');
+  } else if (shape === 'query') {
+    // A one-off query is one question traced once — the single-question shape
+    // this page already draws for a live query, in the same two boxes, from the
+    // record's own trace and answer instead of from a job that is running. Read
+    // as an evaluation it was told nothing had been retrieved and nothing
+    // answered, while its record held both.
+    questions.innerHTML = '<p class="empty-note">This experiment is a one-off '
+      + '<b>query</b>: one question, traced once, with no selected question '
+      + 'set — so there is no per-question list here. Its candidates are in the '
+      + 'single table below, and the answer it wrote is under them.</p>';
+    renderRetrievalRows(((detail.trace || {}).candidates) || []);
+    // An answer is written in the corpus's language, so it reads in the
+    // corpus's direction — settled after the fixture above, never in markup.
+    answer.dir = CORPUS_DIR;
+    answer.textContent = detail.answer || '';
+    generation.innerHTML = '<p class="empty-note">A one-off query is not '
+      + 'judged: it writes no run file and no decision score, so there is '
+      + 'nothing scored to show here. Its question, its candidates and its '
+      + 'answer are on the Retrieval tab.'
+      + (detail.abstained
+         ? ' This query <b>abstained</b> — the pipeline declined to answer '
+           + 'from what it retrieved rather than answering anyway.' : '')
+      + '</p>';
+  } else {
+    if (!traces.length) {
+      // Two different reasons a build or an evaluation has no candidate tables,
+      // and they must not be told in one sentence. An experiment that answered
+      // questions ran a retrieval and it was simply never written down — chunk
+      // text, traces and summaries do not reach a run file — while an index
+      // build measured no questions at all.
+      questions.innerHTML = rows.length
+        ? '<p class="empty-note">The per-question retrieval of this experiment '
+          + 'was <b>not recorded</b> — its answers and scores were written to a '
+          + 'run file, and candidate rankings never travel there. The answers '
+          + 'themselves are under Generation; what was retrieved to write them '
+          + 'is not recoverable from this record.</p>'
+        : '<p class="empty-note">This experiment recorded no per-question '
+          + 'retrieval — an index build measures no questions, so there are no '
+          + 'candidate tables to read here.</p>';
+    }
+    if (rows.length) {
+      // Keyed by question id, and handed over only because these ranks and
+      // these answers are the same experiment's — the live path's own rule.
+      renderGeneration({ job_id: record.experiment_id, config: config,
+                         rows: rows, summary: detail.summary,
+                         ragas: detail.ragas },
+                       new Map(traces.map(row => [row.question_id, row.trace])));
+    } else {
+      // Each kind in its own terms. "A build or a retrieval" covered both in
+      // one sentence, which left the reader of either to work out which half
+      // was about the row in front of them.
+      generation.innerHTML = '<p class="empty-note">This experiment wrote no '
+        + 'answers — ' + ({
+          index: 'an index build chunks and embeds a corpus and stops there',
+          retrieve: 'a retrieval ranks candidates and stops there, and only an '
+            + 'evaluation goes on to generate',
+        }[record.kind] || 'only an evaluation generates')
+        + ', so there is nothing to show here and nothing was scored.</p>';
+    }
+  }
+  showRecordedChunks(record, shape);
+
+  // All four, so no view is left describing the live pipeline beside recorded
+  // rows. After `showRecordedChunks`, which is why the chunks note carries its
+  // own sentence about the rebuild rather than leaning on this line.
+  const shown = formatConfig(recordedStages(record));
+  for (const id of ['chunks-active-config', 'retrieval-active-config',
+                    'retrieval-set-config', 'generation-active-config']) {
+    document.getElementById(id).textContent = shown;
+  }
+  setArchiveState(record.experiment_id, recordLabel(record));
+}
+
+// Only the stages this experiment actually ran. A build stores a whole config
+// — retrieval and generation defaults included — and no part of a build reads
+// them; the record's own columns are blank there for that reason, so printing
+// `bm25 k=3 · grader=none` under a build would have this page and the board
+// telling two stories about one experiment.
+function recordedStages(record) {
+  const config = (record.detail || {}).config || {};
+  if (record.kind !== 'index') return config;
+  return { index: config.index };
+}
+
+// The one tab a record cannot fill. A record keeps no chunk text by design
+// — the text belongs to the index a config produces, and copying it per row
+// would put the corpus in the ledger — so this says so and offers the rebuild
+// rather than taking it: a rebuild is today's index, and today's chunks shown
+// under an old experiment's id would be a row lying about what produced it.
+function showRecordedChunks(record, shape) {
+  const detail = record.detail || {};
+  const config = detail.config;
+  // Offered only where the record actually named one. `buildChunks(null)` falls
+  // back to the live config on purpose, for the button beside the tab that has
+  // no other config to use — and taking that fallback here would rebuild under
+  // a config this experiment never ran, under a note promising this
+  // experiment's, which is the one substitution this tab exists to refuse.
+  const rebuildable = !!(config && Object.keys(config).length);
+  const body = document.getElementById('chunks-body');
+  body.innerHTML = (shape === 'unfinished'
+    ? unfinishedNote(record, 'no chunk text was recorded')
+    : '<p class="empty-note">The chunk text of this experiment was <b>not '
+      + 'recorded</b> — a record keeps the config that produces an index, never '
+      + 'a copy of the corpus.</p>')
+    + (rebuildable
+       ? '<p class="empty-note">A rebuild below is today\'s index under this '
+         + 'experiment\'s recorded config, which is not the same claim: the '
+         + 'corpus or the chunker may have changed since it ran.</p>'
+       : '<p class="empty-note">Its config was not recorded either, so there '
+         + 'is nothing here to rebuild it from.</p>');
+  if (rebuildable) {
+    const rebuild = document.createElement('button');
+    rebuild.type = 'button';
+    rebuild.id = 'rebuild-recorded-chunks';
+    rebuild.textContent = 'Rebuild from this config';
+    // The one request path, the same the button beside the tab uses — so the
+    // status line, the config line and the summaries toggle all follow.
+    rebuild.addEventListener('click', () => buildChunks(config));
+    // In the page's own control row rather than loose in the view: a bare
+    // <button> here inherits the page's light ink onto the browser's own light
+    // chassis, and the label all but disappears.
+    const row = document.createElement('div');
+    row.className = 'inspector-controls';
+    row.appendChild(rebuild);
+    body.appendChild(row);
+  }
+  // Summaries are the toggle's other half and a record does keep those: they
+  // are text a build wrote, not the corpus's own. A record that reported none
+  // at all is a third state, and says so rather than claiming a flat index.
+  setChunkSummaries(detail.summaries,
+    Array.isArray(detail.summaries) ? '' :
+      '<p class="empty-note">This experiment recorded no summaries either way '
+      + '— whether its index was flat or grouped is not in the row.</p>');
+  showChunkMode('chunks');
+}
+
+async function leaveRecordMode() {
+  // Which corpus to go back to: the one this page was following before a record
+  // pinned it, or — when nothing was ever pinned, because the record failed to
+  // load and only its message is being dismissed — the one already on screen.
+  const dataset = activeExperimentId !== null
+    ? liveDatasetBeforeArchive : FOLLOWED_DATASET;
+  activeExperimentId = null;
+  recordProblem = '';
+  // The record's own note about its missing chunk text goes when the record
+  // does — but only if it is still what the view holds. A rebuild the reader
+  // asked for replaced it with chunks that are genuinely on screen, and those
+  // are not this mode's to throw away.
+  if (document.getElementById('rebuild-recorded-chunks')) {
+    document.getElementById('chunks-body').innerHTML = '';
+    setChunkSummaries([]);
+  }
+  // Off the URL as well as out of the variable: a page still carrying
+  // `?experiment=` would pin itself again on the next reload, which is not what
+  // pressing "return to live" asked for.
+  const url = new URL(window.location.href);
+  url.searchParams.delete('experiment');
+  history.replaceState(null, '', url);
+  await returnToLive(dataset);
+}
+
 async function renderFollow(body) {
   // Before the early-returning archive branch: a page opened while an archive
   // is already active must still say whether the lab is reachable.
   setFollowState(body);
-  if (body.archive_id) {
+  // A pinned record outranks both the lab's live jobs and its archive preview:
+  // the reader followed a link to that experiment, not to whatever is running
+  // now. Below `setFollowState` for the same reason the archive branch is.
+  if (activeExperimentId !== null || recordLoadingId !== null) return;
+  // A stated failure to read a deep-linked experiment holds this page on live
+  // too. An archive the lab happens to be holding open is not an answer to the
+  // link the reader followed, and letting it in overwrote the message with an
+  // unrelated one — leaving the reader on an archive they never asked for, told
+  // nothing, with a "Return to live" that routed to the record's own exit and
+  // so never cleared the lab's archive. Dismissing the message clears
+  // `recordProblem`, and the next tick enters archive mode properly.
+  if (body.archive_id && !recordProblem) {
     await followImportedArchive(body.archive_id);
     return;
   }
@@ -861,6 +1399,10 @@ async function renderFollow(body) {
   } else {
     setCfg.textContent = 'Press Retrieve on the lab, or run an evaluation, to '
       + 'get one table per selected question.';
+    // Emptied as well, the way the generation view next door is: a lab with no
+    // retrieval to show must not leave the tables of whatever was pinned before
+    // sitting under a line that says there is nothing to show.
+    document.getElementById('retrieval-questions').innerHTML = '';
   }
 
   if (body.index) {
@@ -882,7 +1424,7 @@ async function renderFollow(body) {
             + `${summaries.length === 1 ? 'y' : 'ies'}` : '')
         + `, from ${source} — ${formatConfig(body.index.config)}`;
       renderChunkGroups(document.getElementById('chunks-body'), groups);
-      chunkView.summaries = summaries;
+      setChunkSummaries(summaries);
       // Redraw whichever half is on screen, so a new run does not leave the
       // previous build's summaries showing under this build's config line.
       showChunkMode(document.getElementById('summaries-body').hidden
@@ -897,11 +1439,24 @@ async function renderFollow(body) {
       followed.queryJobId = body.query.job_id;
       retrievalCfg.textContent = formatConfig(body.query.config);
       renderRetrievalRows(body.query.trace.candidates);
-      document.getElementById('retrieval-answer').textContent = body.query.answer || '';
+      // An answer is written in the corpus's language, so it reads in the
+      // corpus's direction. The box used to carry a fixed right-to-left in the
+      // markup, which is a claim markup cannot make: it is settled at page load
+      // and the corpus is not.
+      const answer = document.getElementById('retrieval-answer');
+      answer.dir = CORPUS_DIR;
+      answer.textContent = body.query.answer || '';
     }
   } else {
-    retrievalCfg.textContent = 'Ask one question from the query box on the lab '
-      + 'to trace it here.';
+    // This used to send the reader to a control on the lab that has not
+    // existed for a while, which is worse than saying nothing: they go
+    // looking. The view follows a one-off query job, which only the lab's own
+    // route still starts — so it says that, and points at the control on this
+    // page that traces a question the same way.
+    retrievalCfg.textContent = 'No one-off query traced. The lab starts one '
+      + 'through POST /api/queries; every question of its last retrieval or '
+      + 'evaluation is listed above, and Add a question traces any other one '
+      + 'under the same config.';
   }
 }
 
@@ -916,3 +1471,12 @@ async function pollFollow() {
   }
 }
 pollFollow();
+
+// A deep link wins over live: someone who followed the board's `↗` asked for
+// that experiment, not for whatever the lab is doing now. Started here rather
+// than earlier so it is set up before the first follow tick can render — the
+// loading id is claimed synchronously, which is what keeps the boot fetch of
+// the live fixture from landing on top of the record.
+const deepLinkedExperiment =
+  new URLSearchParams(window.location.search).get('experiment');
+if (deepLinkedExperiment) followRecordedExperiment(deepLinkedExperiment);

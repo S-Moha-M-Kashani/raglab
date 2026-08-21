@@ -209,11 +209,10 @@ CONVENTIONS = [
      'the leaderboard must read the board route, not re-derive its own rows '
      'from the raw run list — two derivations is how two surfaces come to '
      'describe the same records differently'),
-    ('leaderboard.js', 'onApply', None,
-     'a numbered row is a claim about the order on screen, so `#` is written '
-     'from the displayed order after every reorder rather than served with the '
-     'row — a static rank travels with its row and reads 1, 3, 2 the moment '
-     'another column is sorted'),
+    ('leaderboard.js', None, "label: '#'",
+     'the rank column must not come back: position in the current sort is what '
+     'the sort itself says, and a column that has to be rewritten after every '
+     'reorder to stay true is a column saying nothing the order does not'),
     ('leaderboard.js', 'tabindex="0"', None,
      'the table must sit in a focusable scroll region, or there is no keyboard '
      'way to reach the right-hand side of it at all'),
@@ -994,16 +993,13 @@ def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
     # this is a convention test
     """One table per dataset, its identity frozen left and its Inspector link
-    frozen right. The rank is computed from the displayed order, never served
-    with the row, because a static rank travels with its row and reads 1, 3, 2
-    the moment another column is sorted."""
+    frozen right, sortable by any column."""
     js = panel_texts['leaderboard.js']
     assert "'freeze-1'" in js and "'freeze-last'" in js
     assert 'SortTable.make' in js, (
         'the page loaded sorttable.js and never called it, so click-to-sort was '
         'broken here while the lab page had it — this is the pin against that '
         'coming back')
-    assert 'onApply' in js
 
 
 def test_the_context_popover_says_where_it_opens(panel_texts):

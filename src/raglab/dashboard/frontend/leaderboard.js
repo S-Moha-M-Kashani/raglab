@@ -26,7 +26,6 @@ const COLUMNS = [
   // are in the hint prose under the table, in the page's own text.
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
     title: 'every step this experiment ran · hover or focus for all of it' },
-  { key: 'rank', label: '#', nosort: true, title: 'position in the current sort' },
   // The deciding score, its error and the four metrics it is the mean of come
   // straight after the identity: they are the only columns that decide anything,
   // and a wide frozen sentence is exactly what would push them off the screen.
@@ -83,7 +82,6 @@ function cell(row, key) {
   const metrics = row.metrics || {};
   switch (key) {
     case 'pipeline': return sentence(row);
-    case 'rank': return '';                 // written by renumber(), below
     case 'kind': return escapeHtml(row.kind || '—');
     case 'when': return escapeHtml(when(row));
     case 'label': return escapeHtml(row.label || '—');
@@ -126,20 +124,8 @@ const corpusName = (dataset) => (dataset === EVERY
 const columnsFor = (dataset) =>
   COLUMNS.filter((col) => !col.everyOnly || dataset === EVERY);
 
-// `#` is position in what you are looking at, so it is written from the
-// displayed order and rewritten after every reorder — including the third click
-// that restores the served order, where a stale numbering would be exactly as
-// wrong. This is what `onApply` is for.
-function renumber(rows, at) {
-  rows.forEach((tr, i) => {
-    const held = tr.cells[at];
-    if (held) held.textContent = String(i + 1);
-  });
-}
-
 function renderTable(dataset, rows) {
   const columns = columnsFor(dataset);
-  const rankAt = columns.findIndex((col) => col.key === 'rank');
 
   const head = columns.map((col) => {
     const cls = [col.text ? 'text' : '', col.freeze || ''].filter(Boolean).join(' ');
@@ -173,7 +159,7 @@ function renderTable(dataset, rows) {
   // a caption and a region name are read aloud, so the id here would give the
   // screen reader the internal name and the eye the human one.
   const named = `every experiment on ${escapeHtml(corpusName(dataset))}`;
-  return { html: `
+  return `
       <div class="table-scroll" tabindex="0" role="region"
            aria-label="${named}">
         <table class="data-table">
@@ -181,7 +167,7 @@ function renderTable(dataset, rows) {
           <thead><tr>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
-      </div>`, rankAt };
+      </div>`;
 }
 
 // The whole recorded config, grouped by step and inked by step, so it reads as
@@ -265,7 +251,7 @@ async function loadBoard(dataset) {
   }
   CURRENT = body.dataset || '';
   CATALOGUE = body.datasets || [];
-  const { html, rankAt } = renderTable(CURRENT, body.rows || []);
+  const html = renderTable(CURRENT, body.rows || []);
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
@@ -277,8 +263,8 @@ async function loadBoard(dataset) {
         + 'this dataset yet. Open the <a href="/">Laboratory</a>, pick it and '
         + 'press <b>Run evaluation</b>.</p>'}
       <p class="table-hint">Click any column heading to sort by it, again to
-        reverse, a third time for the order it was served in. <b>#</b> is the
-        position in whatever you are looking at. The <b>pipeline</b> cell is
+        reverse, a third time for the order it was served in. The
+        <b>pipeline</b> cell is
         clipped to the column's width — hover it or give it focus and the whole
         recorded config opens beside it. <b>backend</b> is where the model calls
         actually went: <code>fake</code> answers and judges without ever
@@ -288,9 +274,7 @@ async function loadBoard(dataset) {
         <b>questions</b> are columns you compare on.</p>
     </section>`;
   const table = box.querySelector('table');
-  if (table) {
-    SortTable.make(table, { onApply: (rows) => renumber(rows, rankAt) });
-  }
+  if (table) SortTable.make(table);
   wirePicker();
 }
 

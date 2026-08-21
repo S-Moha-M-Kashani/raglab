@@ -625,6 +625,20 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
    this one were reaching for. */
 .widget-msg.bot { align-self: flex-start; background: var(--card); color: var(--ink); }
 .widget-msg.err { align-self: flex-start; background: var(--alert-wash); color: var(--alert); }
+/* A line the lab wrote about itself — which experiment's settings it just took
+   from the board, and any knob it could not set here. Neither the reader's
+   bubble nor the model's, and drawn so: the full width, and a rule down its
+   leading edge, so a reader scanning the log can tell the conversation from the
+   lab reporting on its own state. No step ink — the widget is a helper, not a
+   stage — and the rule takes --ink-soft, which is the one quiet ink that stays
+   legible against the plate on both themes, so this needs no dark block of its
+   own. */
+.widget-msg.note {
+  align-self: stretch; max-width: 100%; background: var(--plate);
+  color: var(--ink); font-size: var(--t-sm);
+  border-inline-start: 3px solid var(--ink-soft);
+  border-start-start-radius: 0; border-end-start-radius: 0;
+}
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
                    font-size: var(--t-sm); padding-top: 0; margin-top: calc(var(--s-1) * -1); }

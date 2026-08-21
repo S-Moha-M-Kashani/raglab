@@ -427,6 +427,12 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'archive_io.js',
                             media_type='application/javascript')
 
+    @app.get('/experiment_handoff.js')
+    def experiment_handoff_js():
+        """The board-to-Laboratory handoff, loaded by both pages: the board writes the slot, the panel decides which recorded knobs this installation can serve."""
+        return FileResponse(STATIC / 'experiment_handoff.js',
+                            media_type='application/javascript')
+
     @app.get('/api/options')
     def options():
         """Everything the panel needs to render itself, including what is actually installed."""

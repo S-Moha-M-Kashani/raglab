@@ -500,3 +500,70 @@ def test_the_leaderboard_rule_describes_the_code_that_exists():
     assert hasattr(leaderboard, 'verdict') and hasattr(leaderboard, 'group'), (
         'the sweep imports both; flattening the board must not have cost them')
     assert hasattr(leaderboard, 'by_dataset')
+
+
+# --- Two guards over prose. A tracked file that misstates the corpus size or
+# names a path that moved is the same defect as a row that lies about what
+# produced it: the reader believes it, and nothing else notices. Both have a
+# mechanism — a folder added, a package moved — which is why they are pinned
+# and the `npm run raglab` fossil next door was only deleted. ---
+
+_SKILLS = ROOT / 'fixtures' / 'skills'
+
+_NUMBER_WORDS = {'eight': 8, 'nine': 9, 'ten': 10, 'eleven': 11, 'twelve': 12,
+                 'thirteen': 13, 'fourteen': 14, 'fifteen': 15, 'sixteen': 16}
+
+
+def test_the_skills_readme_counts_the_skills_that_are_on_disk():
+    # this is a convention test
+    """The corpus grows by adding a folder, so the count in its README goes
+    stale without anything failing, and that count is load-bearing: the
+    widget's own tool description quotes the size to justify listing every
+    skill in one call. The loader is already held to the folders that exist
+    (`test_skills.py`); this holds the prose to them."""
+    on_disk = sum(1 for p in _SKILLS.iterdir() if (p / 'SKILL.md').exists())
+    readme = (_SKILLS / 'README.md').read_text(encoding='utf-8')
+    counted = re.findall(
+        r'\b([A-Za-z]+)\s+(?:skills?|SKILL\.md|descriptions?)\b', readme)
+    wrong = {word for word in counted
+             if word.lower() in _NUMBER_WORDS
+             and _NUMBER_WORDS[word.lower()] != on_disk}
+    assert not wrong, f'{sorted(wrong)} counts a corpus that holds {on_disk}'
+
+
+# A path is a promise the reader can check in one command, so a wrong one is
+# caught by nobody until they check. URLs and `VAR=value` assignments are
+# stripped first: a model slug (`jinaai/jina-reranker-v2-base-multilingual`)
+# and a base URL both look like paths and are neither.
+_PATHY = re.compile(r"""
+    `([^`\n]*/[^`\n]*)`                      # anything backticked with a slash
+  | (?<![\w./-])([\w.-]+(?:/[\w.-]+)*/)(?![\w.-])   # a bare directory: slash last
+                                             #   (so a model slug, openai/gpt-5-nano,
+                                             #   is not read as a directory)
+  | (?<![\w./-])([\w-]+\.(?:py|json|md|db))  # or a bare file with a known suffix
+""", re.VERBOSE)
+
+
+def test_every_path_env_example_names_is_a_path_that_exists():
+    # this is a convention test
+    """The template already round-trips its *variables* against the code
+    (above). Its prose names paths too — where the corpora live, which test
+    enforces the contract, which package reads the widget's four — and every
+    one of those went stale the moment the packages moved. A bare `name.py` is
+    resolved against the whole tree rather than one directory, so a module that
+    moved still counts as found; the claim is that the file exists, not that
+    the sentence knows where it lives."""
+    text = (ROOT / '.env.example').read_text(encoding='utf-8')
+    text = re.sub(r'https?://\S+', '', text)
+    text = re.sub(r'^#?\s*[A-Z][A-Z0-9_]*=.*$', '', text, flags=re.MULTILINE)
+    names = {p.name for p in ROOT.rglob('*.py') if '__pycache__' not in p.parts}
+
+    missing = []
+    for match in _PATHY.finditer(text):
+        ref = next(group for group in match.groups() if group)
+        if ref.endswith('.py') and '/' not in ref:
+            if ref not in names:
+                missing.append(ref)
+        elif not (ROOT / ref).exists():
+            missing.append(ref)
+    assert not missing, f'.env.example names {missing}, which do not exist'

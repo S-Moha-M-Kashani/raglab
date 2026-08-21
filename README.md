@@ -100,9 +100,7 @@ on :9002 and the Inspector on :9003 are set separately.
    experiment**; it never enters the ranked leaderboard.
 
 The **✳ Ask** widget in the panel's corner answers questions about the lab
-itself — a tool-calling agent over the project's knowledge base and the
-`fixtures/skills/` corpus, deliberately outside the measured pipeline (it writes no
-run and no number).
+itself and about the technique it implements. It is described below.
 
 ## Datasets
 
@@ -126,6 +124,45 @@ skill files covering the advanced-RAG technique landscape, a use-case →
 starting-architecture map with a per-use-case experiment ladder, the
 experiment methodology (dev/test discipline, error analysis), and the sources
 to watch for new work. Start at `fixtures/skills/README.md`.
+
+## The Ask agent
+
+**✳** at the right of the masthead opens a tool-calling agent over two corpora
+kept deliberately distinct: a knowledge base about *this project* — ports,
+metrics, what each knob does — and `fixtures/skills/`, twelve skills about *the
+field*. It must not answer "what does this lab do" out of a technique paper, or
+present a literature claim as a measurement taken here.
+
+Five tools:
+
+| Tool | What it does |
+| --- | --- |
+| `search_knowledge_base` | Keyword match over the project's own facts. |
+| `search_rag_skills` | Names and descriptions of the twelve skills — the routing layer, twelve short lines. |
+| `read_rag_skill` | Skill bodies, at most three per call; the bodies are the expensive layer. |
+| `calculate` | Arithmetic over an AST whitelist, never `eval` — a tool handed to a model must not be a Python prompt. |
+| `measure_bilingual_alignment` | Runs the EN–Farsi probe over a real encoder and returns pair cosines, mixed-pool retrieval and a verdict. |
+
+The agent is `langchain.agents.create_agent` with six middleware hooks, and the
+model picker offers four options that state what they can do. **gpt-5-nano**
+(the default) and **gpt-5-mini** run over OpenRouter and can use the tools; a
+key is required, and without one the widget answers 502 naming what is missing.
+**claude** and **codex** drive a CLI already logged in on this machine, so they
+need no key at all — and cannot run tools, because a CLI chat has no
+`bind_tools`. Those two answer in one call with the knowledge base inlined and
+the skill names in the prompt, the bodies out of reach. Every reply carries its
+token account, or `None` where the backend reported nothing — "0 tokens" would
+be a claim about the bill.
+
+Conversation memory is one thread per page: each call sees the last twenty
+messages, and the thread lives in process memory, so a reload or a restart
+starts a fresh conversation. The key typed into **⚙** lives in process memory
+too — no file, no environment variable, no log.
+
+The widget is outside the measured seam. It writes no run, no ledger row and no
+number, and that is the only reason it may trace to LangSmith. Tracing is
+`LANGSMITH_TRACING`, which is process-global: leave it off while a scored run
+shares the process, or the run is traced too.
 
 ## What gets written where
 

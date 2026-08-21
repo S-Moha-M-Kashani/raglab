@@ -1,8 +1,8 @@
 # `skills/` — the advanced-RAG corpus
 
-Fourteen skills, one folder each, written in the
+Twelve skills, one folder each, written in the
 [Agent Skills](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview)
-open format: ten techniques from the current RAG literature, plus four working
+open format: eight techniques from the current RAG literature, plus four working
 skills — the use-case → architecture map with its per-use-case experiment
 ladders, the experiment methodology, and the two research-tracking skills.
 They exist to be read by a person and, later, retrieved by the panel's widget
@@ -15,7 +15,7 @@ what this lab has measured — findings are labelled by the corpus they were
 taken on — and the final section of every skill says how the technique maps
 onto the knobs that already exist here.
 
-## The fourteen
+## The twelve
 
 | Skill | The question it answers |
 | --- | --- |
@@ -66,7 +66,7 @@ Three reasons it is the right choice here over a single `ADVANCED_RAG.md`:
 
 - **The description is a free retrieval index.** "What it does and when to use
   it" is exactly the routing signal a search tool needs. A keyword match over
-  fourteen descriptions is cheap and honest; a keyword match over one
+  twelve descriptions is cheap and honest; a keyword match over one
   2000-line file returns the file.
 - **Progressive disclosure.** The body is only paid for when the skill is
   actually opened. That is the same two-level retrieve-then-expand pattern as
@@ -104,13 +104,14 @@ runs only when named on the pytest command line:
   guide to how the near-neighbour skills differ, which the same test forces to
   name every skill.
 - **Two tools, not one.** `search_rag_skills(query)` returns names and
-  descriptions — fourteen short lines, always affordable. `read_rag_skill(names)`
+  descriptions — twelve short lines, always affordable.
+  `read_rag_skill(names)`
   returns bodies, several per call but capped at three, reporting an unknown
   name while still serving the known ones. The model routes on the first and
   pays for the second only when it commits. Collapsing them into one tool that
   returns matching bodies puts several thousand tokens into the loop for a
   question that wanted one line.
-- **A keyword match, on purpose.** Fourteen descriptions are small enough that
+- **A keyword match, on purpose.** Twelve descriptions are small enough that
   lexical matching works, and reaching for the lab's own embedder would put
   the widget inside the measured seam, which its module header refuses.
 - **A system prompt that keeps the two corpora distinct**: `KNOWLEDGE_BASE` is
@@ -119,7 +120,7 @@ runs only when named on the pytest command line:
   literature claim as a measurement taken here.
 - **The CLI backends get the index only.** `CliChat` has no `bind_tools`, so
   the two CLI options answer in one call with the knowledge base inlined.
-  Fourteen skill bodies cannot be inlined; the CLI prompt carries the names
+  Twelve skill bodies cannot be inlined; the CLI prompt carries the names
   and descriptions and says the bodies are out of reach there — an option
   states what it can do.
 

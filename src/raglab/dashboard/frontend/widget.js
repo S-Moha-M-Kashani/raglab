@@ -141,6 +141,40 @@
     if (typeof widgetName === 'function') widgetName();
     if (typeof widgetDraw === 'function') widgetDraw();
   }
+
+  // Which draw is newest, and whether a given thread is still the one on
+  // screen — the two questions every redraw and every note has to answer
+  // before it is allowed to touch the log. Both are pure functions of state
+  // already declared in this slice (`DRAW_SEQ`, `widgetThread()`), which is
+  // exactly what lets them live here rather than beside the DOM-touching code
+  // that calls them: `widgetDrawThread` needs a real page to fetch and paint,
+  // but deciding whether a fetch that already came back is still worth
+  // painting needs nothing but arithmetic and a string compare.
+  //
+  // `DRAW_SEQ` counts every draw ever started, in the order `nextGeneration`
+  // was called — synchronously, before that draw does any awaiting, so two
+  // draws started back to back are numbered in the order they were *started*
+  // regardless of which one's network round trip happens to finish first.
+  let DRAW_SEQ = 0;
+
+  function nextGeneration() {
+    return ++DRAW_SEQ;
+  }
+
+  // True once some later draw has started — the generation this draw was
+  // given is no longer the newest, so painting now would show this draw's
+  // thread under whatever the newer one's header already reads.
+  function supersedes(mine) {
+    return mine !== DRAW_SEQ;
+  }
+
+  // True while the thread named at some earlier moment is still the thread
+  // `widgetThread()` reports right now. A note captures this once, when it is
+  // written, and checks it again just before it speaks — the gap between the
+  // two is exactly the redraw it waited through.
+  function stillCurrent(intended) {
+    return widgetThread() === intended;
+  }
   // --- end of the thread half -------------------------------------------------
 
   // The header says which conversation is on screen, because a helper that
@@ -262,32 +296,35 @@
   // thread yet — the widget was never opened, and the handoff failed before
   // `Widget.about` ran — that a fresh draw is started here.
   //
-  // `.catch` guards the wait itself: a draw that rejects (a malformed
-  // response, say) must not silently swallow the note along with it — the
-  // note is said either way, because a note that vanishes without a trace is
-  // worse than one shown a beat late.
+  // `.catch` guards the wait itself: a draw that rejects must not silently
+  // swallow the note along with it — the note is said either way, because a
+  // note that vanishes without a trace is worse than one shown a beat late.
   //
-  // `intended` closes one more face of the same problem: two board-opens in
-  // quick succession start two draws, and if the reader is already on the
-  // second experiment by the time the first note's draw settles, appending
-  // that note now would glue "about A" text under B's freshly drawn history
-  // and B's header — the note itself would be lying about which thread it
-  // belongs to. So a note is shown only if the thread it was written for is
-  // still the thread on screen when it is finally ready to appear; otherwise
-  // it is dropped rather than misattributed. It is not resurrected on a
-  // later switch back to that thread, the way a real turn would be — a note
-  // is a one-off announcement of something that just happened, not part of
-  // the conversation, so an announcement about a moment the reader has since
-  // moved past has nothing left to say truthfully.
+  // The final check closes one more face of the same problem: two
+  // board-opens in quick succession start two draws, and if the reader is
+  // already on the second experiment by the time the first note's draw
+  // settles, appending that note now would glue "about A" text under B's
+  // freshly drawn history and B's header. `supersedes` is the right test —
+  // *not* "is thread A still current", which was tried first and still has a
+  // gap: leave A and come straight back to A while A's own first draw is
+  // still in flight, and the thread name matches again even though a newer
+  // draw for that same thread has since started and will still wipe
+  // whatever this note just wrote. Generation, not thread name, is what a
+  // note actually needs to have survived — `stillCurrent` is kept alongside
+  // it as a second, cheap check on the same fact for the same reason the
+  // project never settles for one signal where a lie about provenance is
+  // possible. A note that fails either check is dropped, not resurrected on
+  // a later switch back — it is a one-off announcement of something that
+  // just happened, not part of the conversation, so an announcement about a
+  // moment the reader has since moved past has nothing left to say truthfully.
   function widgetNote(text) {
     const win = $('widget-window');
     if (win.hidden) win.hidden = false;
     const intended = widgetThread();
-    const ready = drawnFor === intended
-      ? widgetDrawing
-      : widgetLoadOptions().then(widgetDraw);
-    ready.catch(() => {}).then(() => {
-      if (widgetThread() !== intended) return;
+    if (drawnFor !== intended) widgetDraw();
+    const mine = drawnGeneration;
+    widgetDrawing.catch(() => {}).then(() => {
+      if (supersedes(mine) || !stillCurrent(intended)) return;
       widgetSay('note', text);
     });
   }
@@ -350,32 +387,39 @@
   // happens to resolve last, unconditionally, would show one thread's turns
   // under the other's header the moment the slower fetch lands: the exact
   // thing this whole feature exists to prevent, one layer down from the note
-  // race. `DRAW_SEQ` is a generation counter — a draw checks, right before it
-  // paints, that no newer draw has started since it began, and stands down
-  // instead of painting over a screen that has moved on.
-  let DRAW_SEQ = 0;
-  async function widgetDrawThread() {
-    const mine = ++DRAW_SEQ;
+  // race. `mine` is this draw's generation, handed in by `widgetDraw` — the
+  // only caller — at the moment it was started; `supersedes` says whether a
+  // newer one has begun since, in which case this one stands down instead of
+  // painting over a screen that has moved on.
+  async function widgetDrawThread(mine) {
     const log = $('widget-log');
     let read;
     try {
       read = await api('/api/widget/history?thread='
                        + encodeURIComponent(widgetThread()));
     } catch (error) {
-      if (mine === DRAW_SEQ) widgetSay('err', error.message);
+      if (!supersedes(mine)) widgetSay('err', error.message);
       return;
     }
-    if (mine !== DRAW_SEQ) return;
+    if (supersedes(mine)) return;
     log.innerHTML = '';
-    // `turns` defensively defaulted: a 200 whose body does not have the
-    // shape `/api/widget/history` promises is a bug on the lab's side, not a
-    // reason for this promise to reject — a rejection here would leave
-    // `widgetDrawing` permanently rejected, and with it, silently drop every
-    // note still waiting on it (including "no knob was changed", the one
-    // notice whose silent absence is most dangerous).
-    const turns = read.turns || [];
-    for (const turn of turns) widgetSay(turn.role, turn.text);
-    if (!turns.length) widgetOffer();
+    // A 200 whose body does not carry a `turns` array is a bug on the lab's
+    // side, and the honest response to that is an error line, not a cheerful
+    // empty thread with starter chips — showing "nothing here yet" when the
+    // truth is "the lab answered something I could not read" is exactly the
+    // kind of lie this project's rows are not allowed to tell, one layer up
+    // from where that rule is usually stated. Still resolves normally rather
+    // than throwing, though: a rejection here would leave `widgetDrawing`
+    // permanently rejected and, with it, silently drop every note still
+    // waiting on it (including "no knob was changed", the one notice whose
+    // silent absence is most dangerous).
+    if (!Array.isArray(read.turns)) {
+      widgetSay('err', 'The lab answered, but this thread’s history came '
+        + 'back in a shape this page could not read.');
+      return;
+    }
+    for (const turn of read.turns) widgetSay(turn.role, turn.text);
+    if (!read.turns.length) widgetOffer();
   }
 
   // The draw currently in flight, or the last one to finish — kept so anything
@@ -383,13 +427,25 @@
   // `widgetNote` is the reason this exists: `Widget.about` starts a draw and a
   // note is meant to land right after it, and every caller of `widgetDrawThread`
   // goes through here instead so that promise is always the current one.
-  // `drawnFor` records which thread that draw actually covers, so a caller
-  // can tell an in-flight draw worth reusing from a stale one worth ignoring.
+  // `drawnFor` records which thread that draw covers and `drawnGeneration`
+  // its `mine`, so a caller can tell an in-flight draw worth reusing from a
+  // stale one worth ignoring — and, for a note, worth waiting on by
+  // generation rather than by thread name (see `widgetNote`).
+  //
+  // The generation is assigned here, synchronously, before `widgetLoadOptions`
+  // is even asked to run — not inside `widgetDrawThread` after that promise
+  // settles. Two draws started back to back must be numbered in the order
+  // they were *started*; assigning the number only once each one's own
+  // options-load happened to finish would let an unrelated network jitter in
+  // that unrelated request scramble which draw counts as newer.
   let widgetDrawing = Promise.resolve();
   let drawnFor = null;
+  let drawnGeneration = 0;
   function widgetDraw() {
     drawnFor = widgetThread();
-    widgetDrawing = widgetDrawThread();
+    drawnGeneration = nextGeneration();
+    const mine = drawnGeneration;
+    widgetDrawing = widgetLoadOptions().then(() => widgetDrawThread(mine));
     return widgetDrawing;
   }
 
@@ -397,7 +453,7 @@
     const win = $('widget-window');
     widgetSetOpen(win.hidden);
     if (!win.hidden) {
-      widgetLoadOptions().then(widgetDraw);
+      widgetDraw();
       $('widget-input').focus();
     }
   });
@@ -537,6 +593,6 @@
   // either — the log restored from the lab, on this open exactly as on any other.
   if (widgetWasOpen()) {
     widgetSetOpen(true);
-    widgetLoadOptions().then(widgetDraw);
+    widgetDraw();
   }
 })();

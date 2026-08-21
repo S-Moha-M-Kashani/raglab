@@ -5,6 +5,12 @@
 // what happens when nothing is open, because that is most of the time: the
 // reader must land in one shared general thread rather than in a new one per
 // page, which is the reset this change exists to remove.
+//
+// `nextGeneration`/`supersedes`/`stillCurrent` are pinned here too: they are
+// the two decisions that keep a redraw or a note from painting a screen that
+// has already moved on to a different thread, and both are pure — no DOM,
+// nothing but `DRAW_SEQ` and a call to `widgetThread()` — which is exactly
+// what makes them reachable from this storage-only sandbox at all.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -50,4 +56,25 @@ test('leaving an experiment drops back to the general thread, not to a new one',
   const page = load({ 'raglab-active-experiment': 'abc123' });
   page.widgetAbout('');
   assert.equal(page.widgetThread(), 'general');
+});
+
+test('a generation is not superseded until a later one starts', () => {
+  const page = load({});
+  const mine = page.nextGeneration();
+  assert.equal(page.supersedes(mine), false);
+});
+
+test('starting a new draw supersedes every earlier generation', () => {
+  const page = load({});
+  const mine = page.nextGeneration();
+  page.nextGeneration(); // a second draw starts before the first settles
+  assert.equal(page.supersedes(mine), true);
+});
+
+test('a thread stops being current the moment another one is opened', () => {
+  const page = load({ 'raglab-active-experiment': 'abc123' });
+  assert.equal(page.stillCurrent('abc123'), true);
+  page.widgetAbout('def456');
+  assert.equal(page.stillCurrent('abc123'), false);
+  assert.equal(page.stillCurrent('def456'), true);
 });

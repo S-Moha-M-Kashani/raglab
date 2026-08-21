@@ -71,14 +71,12 @@ def candidates() -> list[LabConfig]:
     """One hypothesis per row, each a single change against the baseline."""
     out = [BASE]
 
-    def variant(label, *, index=None, retrieval=None, agent=None):
+    def variant(label, *, index=None, retrieval=None):
         cfg = BASE
         if index:
             cfg = replace(cfg, index=replace(cfg.index, **index))
         if retrieval:
             cfg = replace(cfg, retrieval=replace(cfg.retrieval, **retrieval))
-        if agent:
-            cfg = replace(cfg, agent=replace(cfg.agent, **agent))
         out.append(replace(cfg, label=label))
 
     variant('C tighter context k=5', retrieval={'k': 5})
@@ -87,19 +85,6 @@ def candidates() -> list[LabConfig]:
                                                'grade_threshold': 0.4,
                                                'grader_model': ANSWER_MODEL})
     variant('H session chunks', index={'chunker': 'session'})
-    # I and J each hand exactly one stage to a bounded loop; K is the interaction
-    # term, changing both at once, and is readable only beside them.
-    # The planner and critic run on
-    # ANSWER_MODEL, held fixed like every other model here; the row is still
-    # ranked by JUDGE_MODEL, so this is not the answerer grading its own output.
-    variant('I agentic retrieval', agent={'scope': 'retrieve', 'max_hops': 3,
-                                         'plan_model': ANSWER_MODEL})
-    variant('J self-critiquing generation',
-            agent={'scope': 'generate', 'critic': 'grounded',
-                   'max_revisions': 1, 'critic_model': ANSWER_MODEL})
-    variant('K agentic retrieval + generation',
-            agent={'scope': 'full', 'max_hops': 3, 'max_revisions': 1,
-                   'plan_model': ANSWER_MODEL, 'critic_model': ANSWER_MODEL})
     return out
 
 

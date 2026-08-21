@@ -258,14 +258,57 @@ def test_the_pipeline_sentence_names_one_fragment_per_step_that_ran():
         'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
                       'grader': 'llm'},
         'generation': {'answerer': 'llm'},
-        'agent': {'scope': ''},
     }
     assert leaderboard.pipeline_fragments(config) == [
         {'step': 'index',
-         'text': 'fixed-overlap+ctx·leiden·sentence-transformers·multilingual-e5-small'},
-        {'step': 'retrieval', 'text': 'hybrid-rrf·lexical·llm'},
-        {'step': 'generation', 'text': 'llm'},
+         'text': 'fixed-overlap+ctx·leiden·sentence-transformers·multilingual-e5-small',
+         'short': 'fix-ov+ctx·leid·ST·e5-small'},
+        {'step': 'retrieval', 'text': 'hybrid-rrf·lexical·llm',
+         'short': 'rrf·lex·llm'},
+        {'step': 'generation', 'text': 'llm', 'short': 'llm'},
     ]
+
+
+def test_every_fragment_carries_a_short_form_beside_its_own_text():
+    # this is a unit test
+    """The sentence is the widest column on the board and the one column no
+    reader can shrink, because it is what tells two rows apart. So the fragment
+    carries both readings and neither surface derives the other: the board draws
+    `short` in a frozen column narrow enough to leave the deciding metrics on
+    screen, `raglab-leaderboard` prints `text` into a markdown table with no
+    such width, and the reveal that opens on the cell publishes `text` in full.
+    An abbreviation nobody can expand is a worse column than a wide one."""
+    config = {
+        'index': {'chunker': 'semantic-drift', 'hierarchy': 'louvain',
+                  'embedder': 'fastembed',
+                  'embed_model':
+                      'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'},
+        'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'cross-encoder',
+                      'grader': 'lexical'},
+        'generation': {'answerer': 'extractive'},
+    }
+    assert [f['short'] for f in leaderboard.pipeline_fragments(config)] == [
+        'sem-drift·louv·FE·MiniLM-L12', 'rrf·CE·lex', 'extr']
+    # Nothing is lost: the same call still says all of it.
+    assert [f['text'] for f in leaderboard.pipeline_fragments(config)] == [
+        'semantic-drift·louvain·fastembed·paraphrase-multilingual-MiniLM-L12-v2',
+        'hybrid-rrf·cross-encoder·lexical', 'extractive']
+
+
+def test_a_short_form_drops_a_model_family_and_version_but_never_its_size():
+    # this is a unit test
+    """Which family and which version are the same on every row that names the
+    model at all; the size is the knob being compared. So `-v2` and the family
+    prefix go and `L12` stays — an abbreviation that collapsed MiniLM-L6 and
+    MiniLM-L12 to one word would draw two different indexes as one row."""
+    short = leaderboard.short_part
+    assert short('paraphrase-multilingual-MiniLM-L12-v2') == 'MiniLM-L12'
+    assert short('all-MiniLM-L6-v2') == 'MiniLM-L6'
+    assert short('multilingual-e5-small') == 'e5-small'
+    assert short('bge-small-en-v1.5') == 'bge-small-en'
+    # A word with no known short form is left exactly as it is, which is what
+    # keeps a knob added later readable before anybody abbreviates it.
+    assert short('some-new-embedder') == 'some-new-embedder'
 
 
 def test_a_step_that_did_not_run_is_absent_from_the_sentence():
@@ -275,7 +318,8 @@ def test_a_step_that_did_not_run_is_absent_from_the_sentence():
     looks like a failed evaluation instead of a successful build."""
     fragments = leaderboard.pipeline_fragments(
         {'index': {'chunker': 'session', 'embedder': 'token-hash'}})
-    assert fragments == [{'step': 'index', 'text': 'session·token-hash'}]
+    assert fragments == [{'step': 'index', 'text': 'session·token-hash',
+                          'short': 'sess·tok#'}]
     assert leaderboard.pipeline_fragments({}) == []
 
 
@@ -288,17 +332,7 @@ def test_the_sentence_keeps_the_embedding_model_and_drops_its_vendor():
         {'index': {'chunker': 'session', 'embedder': 'fastembed',
                    'embed_model': 'BAAI/bge-small-en-v1.5'}})
     assert fragments[0]['text'] == 'session·fastembed·bge-small-en-v1.5'
-
-
-def test_a_scope_that_is_off_writes_no_agent_fragment():
-    # this is a unit test
-    """The agent is off by default and off is the common case; a plum fragment
-    reading 'off' on every row would spend the sentence's width saying nothing."""
-    base = {'index': {'chunker': 'session'}, 'agent': {'scope': ''}}
-    assert [f['step'] for f in leaderboard.pipeline_fragments(base)] == ['index']
-    lit = {'index': {'chunker': 'session'}, 'agent': {'scope': 'full'}}
-    assert leaderboard.pipeline_fragments(lit)[-1] == {'step': 'agent',
-                                                      'text': 'full'}
+    assert fragments[0]['short'] == 'sess·FE·bge-small-en'
 
 
 def test_a_knob_set_to_none_is_absent_from_the_sentence():
@@ -311,7 +345,8 @@ def test_a_knob_set_to_none_is_absent_from_the_sentence():
     fragments = leaderboard.pipeline_fragments(
         {'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                        'grader': 'none'}})
-    assert fragments == [{'step': 'retrieval', 'text': 'hybrid-rrf'}]
+    assert fragments == [{'step': 'retrieval', 'text': 'hybrid-rrf',
+                          'short': 'rrf'}]
 
 
 # --- the board: one table per dataset --------------------------------------
@@ -499,7 +534,8 @@ def test_every_row_carries_its_pipeline_sentence(tmp_path, monkeypatch):
     ledger.connect(db).close()
     _write_run(tmp_path, monkeypatch, 'r1', 'diary-fa', {}, None)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
-        {'step': 'index', 'text': 'session·token-hash'}]
+        {'step': 'index', 'text': 'session·token-hash',
+         'short': 'sess·tok#'}]
 
 
 def test_a_ledger_only_index_build_still_gets_a_pipeline_sentence(
@@ -519,7 +555,8 @@ def test_a_ledger_only_index_build_still_gets_a_pipeline_sentence(
                                         'embedder': 'token-hash'}},
                    'seconds': 3, 'result': {}}, 'done', path=db)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
-        {'step': 'index', 'text': 'session·token-hash'}]
+        {'step': 'index', 'text': 'session·token-hash',
+         'short': 'sess·tok#'}]
 
 
 def test_a_ledger_only_retrieval_gets_its_retrieval_fragment(
@@ -540,8 +577,8 @@ def test_a_ledger_only_retrieval_gets_its_retrieval_fragment(
                                            'grader': 'none'}},
                    'seconds': 2, 'result': {}}, 'done', path=db)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
-        {'step': 'index', 'text': 'session·token-hash'},
-        {'step': 'retrieval', 'text': 'hybrid-rrf·lexical'}]
+        {'step': 'index', 'text': 'session·token-hash', 'short': 'sess·tok#'},
+        {'step': 'retrieval', 'text': 'hybrid-rrf·lexical', 'short': 'rrf·lex'}]
 
 
 # --- the serialised shape and the command line ------------------------------
@@ -674,7 +711,7 @@ def test_the_markdown_says_a_job_did_not_finish_and_why():
     rows = [_board_row('done-1', 'diary-fa', 0.71),
             dict(_board_row('gone-1', 'diary-fa', None), state='cancelled'),
             dict(_board_row('bad-1', 'diary-fa', None), state='error',
-                 error='NameError: name | agent | is not defined')]
+                 error='NameError: name | cfg | is not defined')]
     text = leaderboard.markdown(leaderboard.by_dataset(rows))
     # Split on unescaped pipes only, which is what a markdown reader does — and
     # is the whole point of escaping them: an unescaped pipe inside a reason

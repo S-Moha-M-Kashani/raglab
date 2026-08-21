@@ -27,8 +27,7 @@ The extra is required because the default embedder is a sentence-transformers
 checkpoint. Without it the service starts fine and then fails on the first
 index build. The ~2.2 GB model downloads on first index build, not at boot.
 
-Add `--extra agent` for the agent scopes, or `--extra graph-index` for the
-`leiden` hierarchy grouping.
+Add `--extra graph-index` for the `leiden` hierarchy grouping.
 
 | Command | What it does |
 | --- | --- |
@@ -81,7 +80,14 @@ on :9002 and the Inspector on :9003 are set separately.
    Ranking by the four judged decision metrics needs a real judge: switch
    RAGAS to `judged` with an `openrouter` backend (answerer and judge are
    separate models on purpose), and the leaderboard shows
-   `decision score ± spread` per run.
+   `decision score ± spread` per run. The board's table sorts on any column
+   and narrows on any of them from the **Filter** box above it — one term per
+   column, all of which must hold: `state!=failed questions>30 decision>=0.6`,
+   `when>2026-08-01`, `judge~sonnet`, `kind:run`. A column name followed by a
+   bare colon asks whether that column was measured at all (`ctx-recall:` for
+   the rows that have it, `!ctx-recall:` for the rows that do not); a bare word
+   searches the whole row and `!word` excludes it. The filter is in the URL, so
+   a narrowed board is a link.
 6. Trace any single question in the Inspector on :9003 — which chunks were
    retrieved, which were gold, what the answer was graded.
 7. Back under **⚙** → *Experiment archive*, press **Export experiment** to

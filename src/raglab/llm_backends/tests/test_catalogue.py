@@ -48,11 +48,11 @@ class Recorder:
 
 def test_every_llm_stage_has_a_role_in_the_registry():
     # this is a convention test
-    # The agent's planner and critic are LLM stages like any other, so they
-    # carry their own model rather than borrowing the answerer's.
+    # Every stage that calls a model carries its own, rather than borrowing the
+    # answerer's: a gate runs k times a question and wants cheap, a judge runs
+    # once and wants strong.
     assert {role.key for role in models.ROLES} == {
-        'expand', 'rerank', 'grade', 'answer', 'judge', 'ragas', 'plan',
-        'critic'}
+        'expand', 'rerank', 'grade', 'answer', 'judge', 'ragas'}
 
 
 def test_every_model_role_points_at_a_real_config_field():

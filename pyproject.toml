@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.18.0"
+version = "0.20.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -46,6 +46,14 @@ dependencies = [
   # langchain-core: an import that works by accident is one dependency
   # resolution away from not.
   "pyyaml>=6.0",
+  # The widget's tool loop and its conversation memory name langgraph directly
+  # (`create_agent`'s prebuilt loop, `InMemorySaver`). It arrives transitively —
+  # langchain 1.x requires `langgraph>=1.2.11` — and is declared for the same
+  # reason langchain is declared beside langchain-core. Nothing from `langsmith`
+  # is enabled here: the widget writes no number, which is the only reason it may
+  # trace at all, and no measured stage may phone a tracing service to explain
+  # itself when `.runs/` and the ledger are what account for a run.
+  "langgraph>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -61,21 +69,6 @@ local-embeddings = ["sentence-transformers>=3.0"]
 # starts — `hierarchy='leiden'` is then reported NA and refused by validation,
 # never quietly served by Louvain.
 graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
-# The agent candidates (`raglab/agentic_rag/`, `AgentConfig.scope`). Optional for the
-# reason `graph-index` is: a lab that cannot import it still starts, and a scope
-# it cannot run is reported NA and **refused** by validation rather than quietly
-# served by the fixed pipeline — a row labelled `scope=full` that ran no agent is
-# exactly the artefact this lab exists not to produce.
-#
-# Since langchain 1.x this extra installs nothing new — langchain itself
-# requires `langgraph>=1.2.11`, so a plain `uv sync` already has it, and a scope
-# that used to be reported NA for a missing langgraph now never can be. It stays
-# declared for the reason `langchain` is declared beside `langchain-core`: an
-# import that works by accident is one dependency resolution away from not, and
-# `agentic_rag` names langgraph directly. Nothing from `langsmith` is enabled here:
-# a lab that phones a tracing service to explain its own numbers has put the
-# account of a run somewhere `.runs/` and the ledger are not.
-agent = ["langgraph>=1.2,<2"]
 
 [project.scripts]
 raglab = "raglab.dashboard.cli.serve:panel"

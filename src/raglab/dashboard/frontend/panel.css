@@ -20,13 +20,11 @@
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
 [data-step="generation"] { --step: var(--step-generation); }
-[data-step="agent"] { --step: var(--step-agent); }
 /* An ink tuned for porcelain reads too dark on the chassis, so every step on a
    dark band takes its lifted variant. The bar and the rail are dark bands. */
 .topbar [data-step="index"], .statusrail [data-step="index"] { --step: var(--step-index-lit); }
 .topbar [data-step="retrieval"], .statusrail [data-step="retrieval"] { --step: var(--step-retrieval-lit); }
 .topbar [data-step="generation"], .statusrail [data-step="generation"] { --step: var(--step-generation-lit); }
-.topbar [data-step="agent"], .statusrail [data-step="agent"] { --step: var(--step-agent-lit); }
 
 * { box-sizing: border-box; }
 body {
@@ -409,6 +407,21 @@ p.explain {
    first cell, so five prose columns on the ledger sat ragged-left, and a
    sticky header whose container had no bounded height, so it was not sticky at
    all. Only the per-metric explainer, which no other surface renders, stays. */
+/* The board's variant of that component: every column centred except the one
+   that identifies the row. The shared rule aligns figures right and prose left,
+   which is right for a table read down one column at a time — the ledger on the
+   lab page. The board is read *across*: eighteen columns, one row, and the
+   question is what this experiment was and what it scored. Centred columns give
+   every heading its content directly under it, so the eye tracking one row does
+   not have to re-find which edge each column hangs off.
+   The pipeline sentence keeps its left edge, because it is the only cell here
+   holding a phrase rather than a value, and it is clipped: centring a clipped
+   sentence would trim it at both ends and start it nowhere in particular.
+   Stated at the same specificity as the rule it overrides and after it, which
+   is why this variant lives in the sheet the board loads last. */
+.data-table.centred th, .data-table.centred td { text-align: center; }
+.data-table.centred th.text, .data-table.centred td.text { text-align: left; }
+
 /* A state that is not `done`, with the '!' that says why. `nowrap` on the cell
    keeps the mark beside the word; the explainer it opens is a sibling paragraph
    inside the same cell, wrapped by the rule below. */

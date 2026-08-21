@@ -67,6 +67,10 @@ def panel_texts(client):
         # follow it here rather than being deleted with the old board.
         'leaderboard.html': client.get('/leaderboard').text,
         'leaderboard.js': client.get('/leaderboard.js').text,
+        # The row filter, over its own route: it is the leaderboard's, but it
+        # reads a cell with the shared sorter's parser, so what it can be asked
+        # is a claim about that pair of files rather than about this page.
+        'filtertable.js': client.get('/filtertable.js').text,
         # The script all three pages load before their own, over its own route
         # for the same reason as tokens.css. What both surfaces turned out to
         # need identically lives in it, so a claim about "one implementation"
@@ -210,10 +214,31 @@ CONVENTIONS = [
      'from the raw run list — two derivations is how two surfaces come to '
      'describe the same records differently'),
     ('leaderboard.js', 'onApply', None,
-     'a numbered row is a claim about the order on screen, so `#` is written '
-     'from the displayed order after every reorder rather than served with the '
-     'row — a static rank travels with its row and reads 1, 3, 2 the moment '
-     'another column is sorted'),
+     'the filter must re-run after every reorder: the sorter re-appends every '
+     'row it holds, which drops the hidden ones back among the visible ones — '
+     'a table whose stripes count rows it is hiding, and whose count was '
+     'measured against an order that has since moved'),
+    ('leaderboard.js', 'FilterTable.apply', None,
+     'the board must filter through the shared engine, which reads a cell with '
+     'the sorter\'s own parser — a second reading of the same cell is how '
+     '`decision>0.7` comes to disagree with the column it sorts'),
+    ('leaderboard.js', None, "label: '#'",
+     'the rank column must not come back: position in the current sort is what '
+     'the sort itself says, and a column that has to be rewritten after every '
+     'reorder to stay true is a column saying nothing the order does not'),
+    ('leaderboard.html', 'filtertable.js', None,
+     'the leaderboard must load the row filter, or its bar is a box that '
+     'narrows nothing'),
+    ('leaderboard.js', 'id="filter-syntax"', None,
+     'what the filter can be asked must be on the page: a query language whose '
+     'help is in a comment in the source is a control only its author can use'),
+    ('chrome.css', '.scroll-rail', None,
+     'a wide table needs the second scrollbar above it — on a long table the '
+     'one below the rows is off the bottom of the screen, so moving the columns '
+     'means scrolling away from what you were reading'),
+    ('lab.js', 'mountScrollRail', None,
+     'the rail is built once, in the script both surfaces load, rather than in '
+     'the one page that mounts it today'),
     ('leaderboard.js', 'tabindex="0"', None,
      'the table must sit in a focusable scroll region, or there is no keyboard '
      'way to reach the right-hand side of it at all'),
@@ -994,16 +1019,19 @@ def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
     # this is a convention test
     """One table per dataset, its identity frozen left and its Inspector link
-    frozen right. The rank is computed from the displayed order, never served
-    with the row, because a static rank travels with its row and reads 1, 3, 2
-    the moment another column is sorted."""
+    frozen right, sortable by any column and narrowable by any of them — and the
+    two composed in the one direction that matters, the filter re-running after
+    every reorder."""
     js = panel_texts['leaderboard.js']
     assert "'freeze-1'" in js and "'freeze-last'" in js
     assert 'SortTable.make' in js, (
         'the page loaded sorttable.js and never called it, so click-to-sort was '
         'broken here while the lab page had it — this is the pin against that '
         'coming back')
-    assert 'onApply' in js
+    assert 'onApply: applyFilter' in js, (
+        'the sorter re-appends every row it holds, so a filtered board has to '
+        'be re-filtered after each reorder or the hidden rows land back among '
+        'the visible ones')
 
 
 def test_the_context_popover_says_where_it_opens(panel_texts):
@@ -1310,7 +1338,7 @@ def test_the_night_palette_is_written_once_and_read_twice(panel_texts):
     explicit choice, and through the media query, for a reader on Auto whose
     machine is dark. CSS gives no way to put one declaration block behind both
     selectors, so the obvious spelling duplicates the whole palette, and the
-    two copies then drift the way `--step-agent` already drifted between the
+    two copies then drift the way a step ink already drifted between the
     panel and the Inspector. Instead the values live once, on bare `:root`, as
     `--night-*`; the two selectors only assign them. This pins that: every
     Night value appears exactly once in the sheet, and both selectors read

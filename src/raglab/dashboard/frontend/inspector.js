@@ -565,41 +565,10 @@ function renderRetrievalRows(candidates) {
 
 // One collapsible table per question, collapsed by default, shared by both the
 // followed list and questions you add — so both come from the same code.
-// The agent's per-node ladder, when a scope produced one. Read vertically: the
-// same node three times over is a loop that never settled, distinct from
-// having simply run out of hops.
-function agentLadder(visits) {
-  const box = document.createElement('div');
-  box.className = 'agent-ladder';
-  const hops = visits.reduce((n, v) => Math.max(n, v.hop || 0), 0);
-  box.innerHTML = `<h4>the loop · ${visits.length} steps · ${hops} hop`
-    + `${hops === 1 ? '' : 's'}</h4><table><thead><tr><th>#</th><th>node</th>`
-    + '<th>hop</th><th>what it decided</th></tr></thead><tbody>'
-    + visits.map((v, i) =>
-        `<tr><td class="num">${i + 1}</td><td class="node">${escapeHtml(v.node)}</td>`
-        + `<td class="num">${v.hop || ''}</td>`
-        + `<td class="detail" dir="auto">${escapeHtml(v.detail || '')}</td></tr>`)
-      .join('')
-    + '</tbody></table>';
-  // Wired, like every other table on either surface. It was the one built by a
-  // path that never reached the sorter — and the two questions a reader brings
-  // to a loop trace are both column questions: sort by node and a node that
-  // appears three times collects itself, sort by hop and you see what each hop
-  // cost. The third click restores the order it was served in, which for this
-  // table is the sequence itself.
-  //
-  // Deliberately not inside a `.table-scroll`: four columns, one of which
-  // wraps, so it has nothing to overflow. A bounded, bordered region around a
-  // table that never scrolls is the component worn as costume.
-  SortTable.make(box.querySelector('table'));
-  return box;
-}
-
 function questionBlock(q) {
   const candidates = (q.trace && q.trace.candidates) || [];
   const gold = candidates.filter(c => c.gold).length;
   const kept = candidates.filter(c => c.kept).length;
-  const visits = (q.trace && q.trace.agent) || [];
   // Falls back to a bare count when `gold_available` is absent (an older run),
   // rather than implying a total nobody measured.
   const goldTally = q.gold_available === null || q.gold_available === undefined
@@ -609,9 +578,6 @@ function questionBlock(q) {
   det.innerHTML = questionSummary(q.question_id, q.type, q.difficulty,
       `${candidates.length} candidates · ${kept} kept · ${goldTally}`)
     + questionHead(q.question_id, q.question_fa);
-  // Above the candidate table, because the ladder is how the candidates came to
-  // be: the table answers "what came back", the ladder answers "after what".
-  if (visits.length) det.appendChild(agentLadder(visits));
   det.appendChild(scrollable(retrievalTable(candidates),
     `candidates for ${q.question_id}`));
   return det;
@@ -817,7 +783,6 @@ function generationBlock(row, trace) {
     const inner = document.createElement('details');
     inner.className = 'gen-trace';
     inner.innerHTML = '<summary>the retrieval this answer was written from</summary>';
-    if ((trace.agent || []).length) inner.appendChild(agentLadder(trace.agent));
     inner.appendChild(scrollable(retrievalTable(trace.candidates || [])));
     det.appendChild(inner);
   }
@@ -834,15 +799,17 @@ function showLabDown(el) {
 }
 
 // One line in the header, so an empty view never leaves the reader guessing
-// whether nothing ran or nothing is listening. Two words and a dot: the line
-// used to spend itself on `body.lab_url`, which is the same address on every
+// whether nothing ran or nothing is listening. Two words and a dot, and the
+// pair is `connected`/`disconnected`: `on` alone read as a sentence cut off
+// mid-address, which is exactly what the line used to be — it spent itself on
+// `body.lab_url`, which is the same address on every
 // installation that has ever run this page, and which the surface switcher
 // directly above already links to. What is actually being reported is one bit,
 // and one bit reads faster as a coloured dot than as a sentence to parse.
 function setFollowState(body) {
   const el = document.getElementById('follow-state');
   el.dataset.lab = body.lab;
-  el.textContent = body.lab === 'up' ? 'Laboratory on' : 'Laboratory disconnected';
+  el.textContent = body.lab === 'up' ? 'Laboratory connected' : 'Laboratory disconnected';
 }
 
 let activeArchiveId = null;

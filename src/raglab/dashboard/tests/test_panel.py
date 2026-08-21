@@ -7,6 +7,7 @@ import re
 import pytest
 
 from raglab.configuration import lab_config as config
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
 
@@ -914,10 +915,15 @@ def test_the_leaderboard_route_filters_to_one_dataset(client):
     # this is an integration test
     """The picker is a filter on one population, not a switch between two
     surfaces — so the route takes the dataset and answers with one board."""
-    body = client.get('/api/leaderboard?dataset=diary-fa').json()
-    assert body['dataset'] == 'diary-fa'
+    body = client.get(f'/api/leaderboard?dataset={datasets.BUILTIN}').json()
+    assert body['dataset'] == datasets.BUILTIN
     assert isinstance(body['rows'], list)
-    assert all(r['dataset'] == 'diary-fa' for r in body['rows'])
+    # And every row agrees with the table it was served in. This held on the
+    # fixtures and not in production: three places decided what a blank dataset
+    # means, and the row was the one that answered differently — so rows with no
+    # recorded dataset arrived on the built-in board carrying a cell that said
+    # they belonged to no corpus at all.
+    assert all(r['dataset'] == datasets.BUILTIN for r in body['rows'])
 
 
 def test_the_leaderboard_route_offers_every_experiment_unfiltered(client):

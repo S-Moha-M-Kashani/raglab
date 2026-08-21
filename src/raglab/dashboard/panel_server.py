@@ -207,6 +207,13 @@ def _dataset_options() -> dict:
 def _experiment_from_run(run: dict) -> dict:
     """One run file projected into the shape a ledger row has.
 
+    Third of three projections between a run file's shape and a ledger row's,
+    and the three have to agree about what `chunker`, `retriever` and `answerer`
+    mean: `ledger.row_for` writes a finished job into those columns, and
+    `leaderboard._ledger_config` reads them back out into the nesting a config
+    has. Change what one of the three calls a knob and the other two are wrong
+    about the same row.
+
     The board is a union of the ledger and `.runs/`, because the ledger is
     written in `Jobs.run` and every evaluation that finished before it existed
     has a run file and no row. Resolving an experiment *by id* has to read the
@@ -641,8 +648,11 @@ def create_app() -> FastAPI:
         tools no route reaches."""
         boards = leaderboard.build_board(limit)
         wanted = dataset or datasets.BUILTIN
-        rows = ([row for board in boards for row in board.rows]
-                if dataset == '*' else
+        # `every_row`, not the boards concatenated: the page's own prose says the
+        # order it was served in is the ranking, and a concatenation is ordered
+        # by dataset block instead — so the unfiltered view would have said the
+        # served order meant something it did not.
+        rows = (leaderboard.every_row(boards) if dataset == '*' else
                 next((b.rows for b in boards if b.dataset == wanted), []))
         return {'dataset': dataset or wanted,
                 'datasets': [found.as_dict() for found in datasets.catalogue()],

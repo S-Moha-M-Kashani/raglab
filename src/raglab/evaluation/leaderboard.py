@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from raglab.configuration.lab_config import RUNS_DIR
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation.run_evaluation import list_runs
 from raglab.evaluation import ragas_judged_metrics as judged
 from raglab.evaluation import service_experiment_ledger as ledger
@@ -22,8 +23,8 @@ from raglab.evaluation import service_experiment_ledger as ledger
 
 # The board's leftmost column: one fragment per pipeline step that actually ran,
 # each inked with that step's colour by whatever renders it. Assembled here, not
-# in the page, for the same reason `as_dict` exists — two surfaces that each
-# derived the sentence could describe one row two ways.
+# in the page and not in the printer, for the same reason `board_dict` exists:
+# two surfaces that each derived the sentence could describe one row two ways.
 #
 # A step that did not run is absent, not '—'. An index build's sentence is its
 # index fragment and nothing else; three em-dashes beside it would draw a row
@@ -100,12 +101,24 @@ class Group:
         return 'no judge — nothing on these rows was judged'
 
 
+# Which corpus a row belongs to, decided in one place. No dataset predates the
+# field and means the built-in corpus, the only one that existed then. Three
+# callers ask — the comparability key, the board's grouping and the board's own
+# row — and while the row answered it for itself, a blank landed on the built-in
+# board carrying a cell that said it belonged to no corpus at all.
+def _dataset(*rows: dict | None) -> str:
+    for row in rows:
+        found = (row or {}).get('dataset')
+        if found:
+            return found
+    return datasets.BUILTIN
+
+
 def _key(row: dict) -> tuple:
     selection = row.get('selection') or {}
     judge = row.get('judge') or {}
-    # Coarsest first: two corpora are never one measurement. No dataset predates
-    # the field and means the built-in diary, the only corpus that existed.
-    dataset = row.get('dataset') or 'diary-fa'
+    # Coarsest first: two corpora are never one measurement.
+    dataset = _dataset(row)
     ids = tuple(sorted(selection.get('question_ids') or ()))
     if not ids:
         # No ids predates `RunResult.selection`; falls back to the count so a
@@ -198,13 +211,27 @@ def by_dataset(rows: list[dict]) -> list[Board]:
     `group()` applies within a group: unjudged rows last, never as a zero."""
     boards: dict[str, Board] = {}
     for row in rows:
-        # No dataset predates the field and means the built-in diary, the only
-        # corpus that existed then — the same fallback `_key` applies.
-        dataset = row.get('dataset') or 'diary-fa'
+        dataset = _dataset(row)
         boards.setdefault(dataset, Board(dataset)).rows.append(row)
     for found in boards.values():
-        found.rows.sort(key=lambda r: (_decision(r) is None, -(_decision(r) or 0.0)))
+        found.rows = _by_decision(found.rows)
     return sorted(boards.values(), key=lambda b: b.newest, reverse=True)
+
+
+def _by_decision(rows: list[dict]) -> list[dict]:
+    """Judged rows best first, unjudged last — never as a zero."""
+    return sorted(rows, key=lambda r: (_decision(r) is None,
+                                       -(_decision(r) or 0.0)))
+
+
+def every_row(boards: list['Board']) -> list[dict]:
+    """Every board's rows in one list, ordered the way one board is.
+
+    The order rows are served in *is* the ranking the page describes, so the
+    unfiltered view cannot be the boards concatenated: that is ordered by
+    dataset block, and a page whose own prose says the served order is the
+    ranking would then be wrong about itself."""
+    return _by_decision([row for board in boards for row in board.rows])
 
 
 # A `.runs/` row calls it `ragas_decision`; a board row calls it `decision`.
@@ -246,15 +273,29 @@ def _metrics(run: dict) -> dict:
 # reads. The ledger has no `contextual`, no `hierarchy`, no `embed_model` and
 # no agent scope, so a ledger-only sentence is necessarily shorter than a
 # run-file one — that is correct and nothing here guesses to fill the gap.
+#
+# Second of three projections between a nested config and the flat columns a row
+# has, and the inverse of the first: `ledger.row_for` writes a job's config into
+# those columns, and `panel_server._experiment_from_run` writes a run file into
+# the same shape. What one of the three calls a knob, all three must.
+#
+# A knob with no recorded value is dropped, and a step left with no knobs at all
+# goes with it. Emitting the empty shell had the settings panel draw RETRIEVAL
+# and GENERATION headings with blank knobs under them for every index build —
+# inventing, one function later, exactly the two stages `pipeline_fragments`
+# above refuses to pad. `'none'` is a recorded value and stays.
 def _ledger_config(row: dict) -> dict:
-    return {
-        'index': {'chunker': row.get('chunker') or '',
-                  'embedder': row.get('embedder') or ''},
-        'retrieval': {'retriever': row.get('retriever') or '',
-                     'reranker': row.get('reranker') or '',
-                     'grader': row.get('grader') or ''},
-        'generation': {'answerer': row.get('answerer') or ''},
+    steps = {
+        'index': {'chunker': row.get('chunker'),
+                  'embedder': row.get('embedder')},
+        'retrieval': {'retriever': row.get('retriever'),
+                      'reranker': row.get('reranker'),
+                      'grader': row.get('grader')},
+        'generation': {'answerer': row.get('answerer')},
     }
+    recorded = {step: {knob: value for knob, value in knobs.items() if value}
+                for step, knobs in steps.items()}
+    return {step: knobs for step, knobs in recorded.items() if knobs}
 
 
 def board_rows(limit: int = 500, db_path=None) -> list[dict]:
@@ -291,7 +332,10 @@ def _board_row(row: dict | None, run: dict | None) -> dict:
         'label': run.get('label') or row.get('label') or '',
         'started_at': run.get('started_at') or row.get('started_at') or '',
         'seconds': run.get('seconds') or row.get('seconds') or 0,
-        'dataset': run.get('dataset') or row.get('dataset') or '',
+        # Resolved, not served raw: `by_dataset` files a blank under the
+        # built-in corpus, and a row whose own cell then said it had no dataset
+        # would deny the table it is sitting in.
+        'dataset': _dataset(run, row),
         'provider': row.get('provider') or '',
         'n_questions': run.get('n_questions') or row.get('n_questions') or 0,
         # The run file wins where both carry it: that file is where the number
@@ -313,6 +357,21 @@ def _cell(value, digits: int = 3) -> str:
     return '—' if value is None else f'{value:.{digits}f}'
 
 
+def _state(row: dict) -> str:
+    """A job that did not finish, and why, in one cell.
+
+    Bold because it changes how every other cell on the row reads: a cancelled
+    run's blank decision is not a run waiting to be judged. The reason is
+    flattened onto one line and its pipes escaped, or it would end the cell it
+    is in and shift every column after it."""
+    state = row.get('state') or ''
+    if state == 'done':
+        return 'done'
+    said = f'**{state or "?"}**'
+    reason = ' '.join((row.get('error') or '').split()).replace('|', r'\|')
+    return f'{said} — {reason}' if reason else said
+
+
 def markdown(boards: list['Board']) -> str:
     """The board as markdown, one table per dataset.
 
@@ -322,7 +381,14 @@ def markdown(boards: list['Board']) -> str:
     whose candidates share a question set and a judge by construction.
 
     `judge` and `questions` are columns here rather than table headings, so the
-    reason two rows are not comparable is on screen instead of inferred."""
+    reason two rows are not comparable is on screen instead of inferred.
+
+    `state` is a column for the same kind of reason. The population is every
+    job, not only the evaluations a run file exists for, so cancelled and failed
+    jobs print here — and one of those read as an ordinary unjudged experiment
+    while its `—` decision looked like a run nobody had judged yet. The page
+    carries the same column with a '!' for the reason; a terminal has nowhere to
+    put a '!', so the reason is in the cell."""
     out = ['# RAG lab leaderboard',
            '',
            'Generated by `uv run raglab-leaderboard` from `.runs/` and',
@@ -334,18 +400,26 @@ def markdown(boards: list['Board']) -> str:
            'comparable.',
            '']
     for found in boards:
-        out.append(f'## {found.dataset} · {found.n_experiments} experiments')
+        n = found.n_experiments
+        out.append(f'## {found.dataset} · {n} experiment{"" if n == 1 else "s"}')
         out.append('')
-        out.append('| pipeline | kind | when | decision | ± | judge '
+        out.append('| pipeline | kind | state | when | decision | ± | judge '
                    '| questions | seconds | id |')
-        out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- |')
+        out.append('| --- | --- | --- | --- | --- | --- | --- | --- | --- '
+                   '| --- |')
         for row in found.rows:
             judge = row.get('judge') or {}
             named = (f"{judge.get('model')} via {judge.get('provider') or '?'}"
                      if judge.get('model') else '—')
-            sentence = ' '.join(f['text'] for f in row.get('pipeline') or []) or '—'
+            # ' · ' the way the page joins them. On screen the boundary between
+            # two steps is carried by their colours; in a terminal it is carried
+            # by nothing, and a space left the whole sentence reading as one
+            # run-on token.
+            sentence = ' · '.join(f['text']
+                                  for f in row.get('pipeline') or []) or '—'
             out.append(
                 f'| {sentence} | {row.get("kind", "") or "—"} '
+                f'| {_state(row)} '
                 f'| {(row.get("started_at") or "")[:16] or "—"} '
                 f'| {_cell(_decision(row), 4)} '
                 f'| {_cell(row.get("decision_stderr"), 3)} '
@@ -365,25 +439,6 @@ def board_dict(found: 'Board') -> dict:
 
 def build_board(limit: int = 500, db_path=None) -> list['Board']:
     return by_dataset(board_rows(limit=limit, db_path=db_path))
-
-
-def as_dict(found: Group) -> dict:
-    """One serialised shape, so the command line and the panel's route cannot
-    come to disagree about what a group is. `verdict` travels with the group
-    because a caller that re-derived it could reach a different answer from the
-    same rows, and then two surfaces would name different winners."""
-    return {'dataset': found.dataset, 'sample': found.sample,
-            'judge': found.judge, 'verdict': verdict(found),
-            'n_questions': found.n_questions, 'newest': found.newest,
-            # A numbered row is a rank claim, so the ranks are computed here
-            # rather than left to whatever renders them: a client counting from
-            # one would silently promote a row whose sample was never recorded.
-            'ranked': _sample_recorded(found),
-            'rows': found.rows}
-
-
-def build(limit: int = 500) -> list[Group]:
-    return group(list_runs(limit=limit))
 
 
 def main() -> None:

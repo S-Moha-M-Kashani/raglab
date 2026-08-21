@@ -3,9 +3,11 @@ together (grouping by question set and judge before ranking anything); and
 the board — every experiment that touched one corpus, in one flat table,
 ranking nothing at all."""
 import json
+import re
 
 import pytest
 
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import leaderboard
 from raglab.agents.extra_tools import sweep
@@ -247,8 +249,8 @@ def test_the_pipeline_sentence_names_one_fragment_per_step_that_ran():
     # this is a unit test
     """The board's leftmost column is one sentence per row, and each fragment
     is inked with the step it belongs to. Assembled here rather than in the
-    page, for the reason `as_dict` exists: two surfaces that each derived the
-    sentence could describe one row two ways."""
+    page, for the reason `board_dict` exists: two surfaces that each derived
+    the sentence could describe one row two ways."""
     config = {
         'index': {'chunker': 'fixed-overlap', 'contextual': True,
                   'hierarchy': 'leiden', 'embedder': 'sentence-transformers',
@@ -319,7 +321,10 @@ def test_a_knob_set_to_none_is_absent_from_the_sentence():
 # names no winner, precisely because rows judged differently share it.
 
 def _board_row(run_id, dataset, decision, ids=('q1',), judge=None):
+    # `state` the way `_board_row` serves it: every real board row carries one,
+    # and the printer's state column reads it.
     return {'run_id': run_id, 'experiment_id': run_id, 'dataset': dataset,
+            'state': 'done', 'error': '',
             'label': run_id, 'ragas_decision': decision,
             'ragas_decision_stderr': None, 'started_at': '2026-08-01 10:00:00',
             'seconds': 60, 'n_questions': len(ids), 'config': {},
@@ -544,8 +549,8 @@ def test_a_ledger_only_retrieval_gets_its_retrieval_fragment(
 def test_the_board_serialises_to_one_shape_for_the_page_and_the_command():
     # this is a unit test
     """One serialised shape, so the command line and the panel's route cannot
-    come to disagree about what a board is — the same reason `as_dict` exists
-    for a group."""
+    come to disagree about what a board is: two callers that each assembled it
+    could serve two different answers from one set of rows."""
     board = leaderboard.by_dataset([_board_row('a', 'diary-fa', 0.7)])[0]
     shape = leaderboard.board_dict(board)
     assert set(shape) == {'dataset', 'n_experiments', 'newest', 'rows'}
@@ -590,3 +595,141 @@ def test_the_markdown_names_the_judge_and_the_questions_on_every_row():
                    {'model': 'sonnet-4', 'provider': 'openrouter'})]))
     assert 'sonnet-4' in text
     assert '| judge |' in text and '| questions |' in text
+
+
+# --- the settings reveal, the state column, and where a blank dataset lands --
+
+def test_a_ledger_only_row_offers_no_stage_it_never_recorded(tmp_path,
+                                                             monkeypatch):
+    # this is an integration test
+    """The reveal is documented as a longer form of the sentence that opened it,
+    and the sentence correctly omits a stage that did not run. Emitting the
+    step's empty shell had the panel draw RETRIEVAL and GENERATION headings with
+    blank knobs under them for every index build on the board — inventing, one
+    function after `pipeline_fragments` refuses to, exactly the two stages that
+    refusal is about. `'none'` is a recorded value and is not a blank."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-1', 'kind': 'index',
+                   'config': {'index': {'chunker': 'session',
+                                        'embedder': 'token-hash'}},
+                   'seconds': 3, 'result': {}}, 'done', path=db)
+    config = leaderboard.board_rows(db_path=db)[0]['config']
+    assert set(config) == {'index'}, (
+        'a step the ledger recorded no knob for is absent, not an empty block')
+    assert config['index'] == {'chunker': 'session', 'embedder': 'token-hash'}
+
+
+def test_a_recorded_none_survives_into_the_reveal(tmp_path, monkeypatch):
+    # this is an integration test
+    """The other half of the same rule: `'none'` is a grader that ran and
+    refused nothing, which is a measurement. Dropping it with the blanks would
+    lose the distinction the sentence itself keeps."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-2', 'kind': 'retrieve',
+                   'config': {'index': {'chunker': 'session',
+                                        'embedder': 'token-hash'},
+                              'retrieval': {'retriever': 'dense',
+                                            'reranker': 'none',
+                                            'grader': 'none'}},
+                   'seconds': 2, 'result': {}}, 'done', path=db)
+    config = leaderboard.board_rows(db_path=db)[0]['config']
+    assert config['retrieval'] == {'retriever': 'dense', 'reranker': 'none',
+                                   'grader': 'none'}
+    assert 'generation' not in config
+
+
+def test_a_row_agrees_with_the_table_it_is_filed_under(tmp_path, monkeypatch):
+    # this is an integration test
+    """`by_dataset` files a row with no dataset under the built-in corpus — no
+    dataset predates the field, and that was the only corpus there was. The row
+    used to answer the question for itself and serve a blank, so it sat on the
+    built-in board carrying a cell that said it belonged to no corpus at all."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'old-1', 'kind': 'run',
+                   'config': {'index': {'chunker': 'session',
+                                        'embedder': 'token-hash'}},
+                   'seconds': 1, 'result': {}}, 'done', path=db)
+    row, = leaderboard.board_rows(db_path=db)
+    assert row['dataset'] == datasets.BUILTIN
+    board, = leaderboard.by_dataset([row])
+    assert board.dataset == datasets.BUILTIN
+    assert all(r['dataset'] == board.dataset for r in board.rows), (
+        'the cell and the table it is in have to name the same corpus')
+
+
+def test_the_markdown_says_a_job_did_not_finish_and_why():
+    # this is a unit test
+    """The command line prints every job now, not only the evaluations a run
+    file exists for — so a cancelled run and a failed retrieval print here, and
+    without this column they read as ordinary unjudged experiments whose blank
+    decision looked like a run nobody had judged yet. The page carries the same
+    column with a '!' for the reason; a terminal has nowhere to put a '!', so
+    the reason is in the cell."""
+    rows = [_board_row('done-1', 'diary-fa', 0.71),
+            dict(_board_row('gone-1', 'diary-fa', None), state='cancelled'),
+            dict(_board_row('bad-1', 'diary-fa', None), state='error',
+                 error='NameError: name | agent | is not defined')]
+    text = leaderboard.markdown(leaderboard.by_dataset(rows))
+    # Split on unescaped pipes only, which is what a markdown reader does — and
+    # is the whole point of escaping them: an unescaped pipe inside a reason
+    # ends its cell and shifts every column after it, so the row would then lie
+    # about its own seconds and its own id.
+    cells = lambda line: [c.strip() for c in re.split(r'(?<!\\)\|', line)]
+    header = next(line for line in text.splitlines()
+                  if line.startswith('| pipeline '))
+    assert '| state |' in header
+    columns = cells(header)
+    at, id_at = columns.index('state'), columns.index('id')
+    printed = [cells(line) for line in text.splitlines()
+               if line.startswith('| ') and '`' in line]
+    assert {len(row) for row in printed} == {len(columns)}, (
+        'every printed row has the same number of columns as the heading')
+    cell = {row[id_at].strip('`'): row[at] for row in printed}
+    assert cell['done-1'] == 'done'
+    assert cell['gone-1'] == '**cancelled**', (
+        'a cancelled run has to be distinguishable from a finished one')
+    assert 'NameError' in cell['bad-1']
+    assert r'\|' in cell['bad-1'], 'the reason keeps its own pipes, escaped'
+
+
+def test_the_markdown_joins_the_pipeline_the_way_the_page_does():
+    # this is a unit test
+    """On screen the boundary between two steps is carried by their colours; in
+    a terminal it is carried by nothing, and a space had the whole sentence
+    reading as one run-on token."""
+    row = dict(_board_row('r1', 'diary-fa', 0.5),
+               pipeline=[{'step': 'index', 'text': 'session·token-hash'},
+                         {'step': 'generation', 'text': 'llm'}])
+    text = leaderboard.markdown(leaderboard.by_dataset([row]))
+    assert 'session·token-hash · llm' in text
+
+
+def test_a_board_of_one_says_one_experiment():
+    # this is a unit test
+    """'1 experiments' in a heading printed by the thing that counted it."""
+    text = leaderboard.markdown(leaderboard.by_dataset(
+        [_board_row('r1', 'diary-fa', 0.5)]))
+    assert '## diary-fa · 1 experiment' in text
+    assert '1 experiments' not in text
+
+
+def test_every_row_is_ordered_by_decision_not_by_dataset_block():
+    # this is a unit test
+    """The unfiltered view's own prose says the order it was served in is the
+    ranking, and the sorter's third click restores exactly that order. Boards
+    concatenated are ordered by dataset block instead, so the page would have
+    been wrong about itself on the one view that mixes corpora."""
+    boards = leaderboard.by_dataset([
+        _board_row('mid', 'diary-fa', 0.50),
+        _board_row('best', 'meetings-de', 0.90),
+        _board_row('worst', 'diary-fa', 0.10),
+        _board_row('none', 'meetings-de', None),
+    ])
+    assert [r['run_id'] for r in leaderboard.every_row(boards)] == [
+        'best', 'mid', 'worst', 'none']

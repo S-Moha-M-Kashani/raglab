@@ -36,7 +36,7 @@
     // input in document order, and where they sit on screen is CSS's business.
     win.innerHTML = `
   <div class="widget-head">
-    <span id="widget-name" class="widget-name" role="button" tabindex="0" title="Leave this experiment's conversation">Lab helper</span>
+    <span id="widget-name" class="widget-name" role="button" tabindex="0" title="Ask about this lab">Lab helper</span>
     <span class="widget-head-actions">
       <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
       <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
@@ -112,9 +112,14 @@
   const GENERAL_THREAD = 'general';
 
   function widgetThread() {
-    // Storage throws rather than returning null in a browser set to block site
-    // data. A reader there gets one conversation per page load and the widget
-    // says so once — degraded, not broken.
+    // Storage throws rather than returning null in a browser set to block
+    // site data. This is a plain getter called on every keystroke's worth of
+    // state check, not a one-time boot step, so there is no honest place from
+    // in here to say so *once* — the only truthful options are silence or a
+    // message on every single call, and the second is worse than the first.
+    // So a reader in that browser lands on the general thread for as long as
+    // the page stays open, quietly, rather than being told about a warning
+    // that was never actually shown.
     try {
       return (localStorage.getItem(ACTIVE_EXPERIMENT) || '').trim() || GENERAL_THREAD;
     } catch (error) {
@@ -144,8 +149,14 @@
   // who opened an experiment once has no way back to the general thread.
   function widgetName() {
     const thread = widgetThread();
-    $('widget-name').textContent =
-      thread === GENERAL_THREAD ? 'Lab helper' : `About ${thread}`;
+    const general = thread === GENERAL_THREAD;
+    const el = $('widget-name');
+    el.textContent = general ? 'Lab helper' : `About ${thread}`;
+    // The general thread has nothing to leave, so the title — and, on the
+    // general thread, the point of clicking at all — has to change with it:
+    // a button that always advertises "leave this experiment" while sitting
+    // over the shared thread is offering an exit from a room you are not in.
+    el.title = general ? 'Ask about this lab' : "Leave this experiment's conversation";
   }
 
   mountWidget();
@@ -154,6 +165,20 @@
   $('widget-name').addEventListener('click', () => widgetAbout(''));
   $('widget-name').addEventListener('keydown', (event) => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); widgetAbout(''); }
+  });
+
+  // Another surface just switched which experiment is open. It already
+  // updated `localStorage` itself through `Widget.about`, and a `storage`
+  // event never reaches the tab that made the write — only every *other*
+  // open tab hears it, which is exactly the gap: with the Laboratory and the
+  // Inspector both open on this experiment, the point of this whole feature,
+  // leaving one tab's header and log stale would mean the screen names one
+  // thread while `widgetThread()` — read fresh, from storage, at ask time —
+  // already posts to another.
+  window.addEventListener('storage', (event) => {
+    if (event.key !== ACTIVE_EXPERIMENT) return;
+    widgetName();
+    widgetDraw();
   });
 
   // Replies are model output rendered into the page, so they pass through the
@@ -225,18 +250,46 @@
   // wipes the whole log and rebuilds it from history the moment it resolves —
   // history that has never heard of this note, since a note is never sent to
   // the model. Appending first and drawing after would show the note for one
-  // frame and then erase it. So this waits for whichever draw is relevant —
-  // the one `widgetAbout` just started (`widgetDrawing`), or, when the widget
-  // was still closed and had never drawn anything, a fresh one — and only then
-  // says its line.
+  // frame and then erase it.
+  //
+  // So this waits for a draw rather than racing one — but it must wait on
+  // the *same* draw `Widget.about` already started, not fire a second GET of
+  // the same history: two independent connections resolve in no guaranteed
+  // order, so a second draw chained only to itself would not close the race,
+  // it would just add a second way to lose it. `drawnFor` says which thread
+  // the in-flight (or last-finished) draw actually covers; when that already
+  // matches, this reuses it. It matches only when nothing has drawn this
+  // thread yet — the widget was never opened, and the handoff failed before
+  // `Widget.about` ran — that a fresh draw is started here.
+  //
+  // `.catch` guards the wait itself: a draw that rejects (a malformed
+  // response, say) must not silently swallow the note along with it — the
+  // note is said either way, because a note that vanishes without a trace is
+  // worse than one shown a beat late.
+  //
+  // `intended` closes one more face of the same problem: two board-opens in
+  // quick succession start two draws, and if the reader is already on the
+  // second experiment by the time the first note's draw settles, appending
+  // that note now would glue "about A" text under B's freshly drawn history
+  // and B's header — the note itself would be lying about which thread it
+  // belongs to. So a note is shown only if the thread it was written for is
+  // still the thread on screen when it is finally ready to appear; otherwise
+  // it is dropped rather than misattributed. It is not resurrected on a
+  // later switch back to that thread, the way a real turn would be — a note
+  // is a one-off announcement of something that just happened, not part of
+  // the conversation, so an announcement about a moment the reader has since
+  // moved past has nothing left to say truthfully.
   function widgetNote(text) {
     const win = $('widget-window');
-    let ready = widgetDrawing;
-    if (win.hidden) {
-      win.hidden = false;
-      ready = widgetLoadOptions().then(widgetDraw);
-    }
-    ready.then(() => widgetSay('note', text));
+    if (win.hidden) win.hidden = false;
+    const intended = widgetThread();
+    const ready = drawnFor === intended
+      ? widgetDrawing
+      : widgetLoadOptions().then(widgetDraw);
+    ready.catch(() => {}).then(() => {
+      if (widgetThread() !== intended) return;
+      widgetSay('note', text);
+    });
   }
 
   // Delegated, because the offer is rebuilt whenever a run lands.
@@ -289,19 +342,40 @@
   // The log is drawn from the lab, never from a copy kept here: what a reader
   // sees is what the model remembers. A thread with nothing in it draws the
   // starters, which is the honest rendering of a conversation not yet had.
+  //
+  // Two draws can be in flight at once — the reader can leave an experiment,
+  // or open a different one, before the first draw's fetch has come back —
+  // and the two are for different threads, over two independent connections
+  // that carry no ordering guarantee between them. Painting whichever
+  // happens to resolve last, unconditionally, would show one thread's turns
+  // under the other's header the moment the slower fetch lands: the exact
+  // thing this whole feature exists to prevent, one layer down from the note
+  // race. `DRAW_SEQ` is a generation counter — a draw checks, right before it
+  // paints, that no newer draw has started since it began, and stands down
+  // instead of painting over a screen that has moved on.
+  let DRAW_SEQ = 0;
   async function widgetDrawThread() {
+    const mine = ++DRAW_SEQ;
     const log = $('widget-log');
     let read;
     try {
       read = await api('/api/widget/history?thread='
                        + encodeURIComponent(widgetThread()));
     } catch (error) {
-      widgetSay('err', error.message);
+      if (mine === DRAW_SEQ) widgetSay('err', error.message);
       return;
     }
+    if (mine !== DRAW_SEQ) return;
     log.innerHTML = '';
-    for (const turn of read.turns) widgetSay(turn.role, turn.text);
-    if (!read.turns.length) widgetOffer();
+    // `turns` defensively defaulted: a 200 whose body does not have the
+    // shape `/api/widget/history` promises is a bug on the lab's side, not a
+    // reason for this promise to reject — a rejection here would leave
+    // `widgetDrawing` permanently rejected, and with it, silently drop every
+    // note still waiting on it (including "no knob was changed", the one
+    // notice whose silent absence is most dangerous).
+    const turns = read.turns || [];
+    for (const turn of turns) widgetSay(turn.role, turn.text);
+    if (!turns.length) widgetOffer();
   }
 
   // The draw currently in flight, or the last one to finish — kept so anything
@@ -309,8 +383,12 @@
   // `widgetNote` is the reason this exists: `Widget.about` starts a draw and a
   // note is meant to land right after it, and every caller of `widgetDrawThread`
   // goes through here instead so that promise is always the current one.
+  // `drawnFor` records which thread that draw actually covers, so a caller
+  // can tell an in-flight draw worth reusing from a stale one worth ignoring.
   let widgetDrawing = Promise.resolve();
+  let drawnFor = null;
   function widgetDraw() {
+    drawnFor = widgetThread();
     widgetDrawing = widgetDrawThread();
     return widgetDrawing;
   }

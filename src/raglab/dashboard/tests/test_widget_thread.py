@@ -1,4 +1,3 @@
-# this is a unit test
 """Runs the widget's thread contract under node, the way the board's handoff
 contract already runs. The rules are a browser's, so they are checked in one.
 """
@@ -18,6 +17,7 @@ NEEDS_NODE = pytest.mark.skipif(
 
 @NEEDS_NODE
 def test_which_conversation_the_widget_is_in():
+    # this is an integration test
     result = subprocess.run(['node', '--test', 'widget_thread.test.js'],
                             cwd=HERE, capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr

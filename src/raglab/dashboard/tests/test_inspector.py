@@ -195,6 +195,43 @@ def test_retrieve_traced_records_ranks_and_dropped_candidates():
         'expected at least one candidate with float grade_score'
 
 
+def test_the_inspector_is_served_under_the_lab_at_one_origin():
+    # this is an integration test
+    """The Inspector is a path on the lab, not a second port: one origin is
+    what lets the widget's thread id and the theme choice travel between the
+    three surfaces, since localStorage cannot cross origins."""
+    from fastapi.testclient import TestClient
+    from raglab.dashboard import served_lab
+    client = TestClient(served_lab.app)
+    page = client.get('/inspector/')
+    assert page.status_code == 200
+    assert 'RAG Lab · Inspector' in page.text
+    # The lab itself is still at the root, and its own /api/config is not the
+    # Inspector's — the mount must not shadow the panel.
+    assert client.get('/').status_code == 200
+    assert client.get('/inspector/api/health').json()['ok'] is True
+
+
+def test_the_inspector_page_asks_the_mounted_paths_for_everything_it_needs():
+    # this is a convention test
+    """A page served at /inspector/ that asks for /api/config gets the *lab's*
+    config, which is a different object with the same name — the most
+    dangerous kind of wrong. Its own assets and its own API must carry the
+    prefix; the four files both surfaces share must not, because the panel
+    serves those at the root."""
+    from pathlib import Path
+    frontend = Path(__file__).resolve().parents[1] / 'frontend'
+    html = (frontend / 'inspector.html').read_text(encoding='utf-8')
+    js = (frontend / 'inspector.js').read_text(encoding='utf-8')
+    assert 'href="/inspector/inspector.css"' in html
+    assert 'src="/inspector/inspector.js"' in html
+    for shared in ('/tokens.css', '/chrome.css', '/lab.js', '/sorttable.js'):
+        assert f'"{shared}"' in html, f'{shared} is served at the root, not under the mount'
+    assert "fetch('/api" not in js and 'fetch(`/api' not in js, (
+        'every Inspector request must go through the prefixing helper')
+    assert "const API = '/inspector'" in js
+
+
 def _client(monkeypatch):
     from raglab.dashboard import inspector_server as inspector
     # Pin the offline/fake backend so no test needs a key or a network.
@@ -400,23 +437,26 @@ def test_trace_job_marks_gold(monkeypatch):
 def inspector_texts():
     """Every named text the convention table checks, fetched the one way a
     browser actually reaches it (`client.get`) rather than a second disk read
-    of the same file. A fresh client per fixture call, same as `_client`
-    above, since the Inspector app is cheap to build and this keeps the
-    fixture independent of any one test's monkeypatch."""
+    of the same file. Built over `served_lab.app` rather than the bare
+    Inspector app, because the four files both surfaces share moved to the
+    panel's own routes at the root once the Inspector became a mount — the
+    Inspector app alone no longer serves them at all."""
     from fastapi.testclient import TestClient
+    from raglab.dashboard import served_lab
 
-    client = TestClient(inspector.create_inspector_app())
+    client = TestClient(served_lab.app)
     return {
-        'inspector.html': client.get('/').text,
-        'inspector.css': client.get('/inspector.css').text,
-        'inspector.js': client.get('/inspector.js').text,
-        # The shared chrome sheet, over its own route: the bar, the surface
-        # switcher and — since the tables pass — the scroll region and sticky
-        # header this page's own tables now sit inside.
+        'inspector.html': client.get('/inspector/').text,
+        'inspector.css': client.get('/inspector/inspector.css').text,
+        'inspector.js': client.get('/inspector/inspector.js').text,
+        # The shared chrome sheet, over the panel's own route now: the bar, the
+        # surface switcher and — since the tables pass — the scroll region and
+        # sticky header this page's own tables now sit inside.
         'chrome.css': client.get('/chrome.css').text,
-        # The shared script, over its own route as well: the reveal placer both
-        # surfaces need moved into it, so a claim about where a fixed reveal is
-        # put is now a claim about this file rather than about inspector.js.
+        # The shared script, over the panel's own route as well: the reveal
+        # placer both surfaces need moved into it, so a claim about where a
+        # fixed reveal is put is now a claim about this file rather than about
+        # inspector.js.
         'lab.js': client.get('/lab.js').text,
     }
 
@@ -573,11 +613,12 @@ INSPECTOR_CONVENTIONS = [
      "inspector.js must not keep its own copy of the pipeline's embedder name"),
     ('inspector.js', None, 'grade_threshold',
      "inspector.js must not keep its own copy of the pipeline's gate threshold"),
-    ('inspector.js', "fetch('/api/config')", None,
+    ('inspector.js', "api('/api/config')", None,
      'inspector.js must fetch the config it renders, rather than assume one — '
-     "checked against the actual `fetch(...)` call rather than the bare route, "
-     'which also appears in an adjacent comment describing why `CHOSEN` is a '
-     'fallback'),
+     "checked against the actual `api(...)` call, which goes through the "
+     'mount-prefixing helper rather than a bare `fetch`, and rather than the '
+     'bare route, which also appears in an adjacent comment describing why '
+     '`CHOSEN` is a fallback'),
     ('inspector.js', 'FOLLOWED_CONFIG || CHOSEN', None,
      'following the lab must stay the primary path and the served config only '
      'the fallback for a lab that is down — checked against the actual '
@@ -620,9 +661,8 @@ INSPECTOR_CONVENTIONS = [
      'so it was the one colour that could not follow the theme — it reads '
      '--alert now, which Night re-lights along with everything else'),
     ('inspector.html', 'id="theme-control"', None,
-     'the Inspector offers the same three choices the lab does: a reader who '
-     'set Night on :9002 and found Day on :9003 would be right to call that '
-     'broken, and these are separate origins, so the choice cannot travel'),
+     'the Inspector offers the same three choices the lab does — one origin '
+     'now, so the choice made on either surface is the choice on both'),
     ('inspector.html', 'aria-label="Settings"', None,
      'the round button carries no text, so it must carry a name'),
 ]
@@ -840,25 +880,28 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     """`tokens.css`, `chrome.css`, `lab.js` and `sorttable.js` are one file
     for both pages rather than a copy each, so a design token, the top bar, a
     utility or the meaning of clicking a column header cannot drift apart on
-    either page. This pins that the Inspector actually routes each of them, its
-    page actually loads them, and each loads before the page's own stylesheet
-    or script — a later link would lose the shared rules to the page's own
-    overrides instead of feeding them. The panel's half of this claim lives in
-    test_panel.py."""
+    either page. This pins that the served page actually loads each of them
+    from the panel's own root routes, and that each loads before the page's
+    own stylesheet or script — a later link would lose the shared rules to
+    the page's own overrides instead of feeding them. Built over
+    `served_lab.app`, not the bare Inspector app: the shared files are the
+    panel's routes now, unreachable from the Inspector app alone once it
+    became a mount. The panel's half of this claim lives in test_panel.py."""
     from fastapi.testclient import TestClient
+    from raglab.dashboard import served_lab
 
-    client = TestClient(inspector.create_inspector_app())
+    client = TestClient(served_lab.app)
     shared_css = ('tokens.css', 'chrome.css')
     shared_js = ('lab.js', 'sorttable.js')
     for name in shared_css + shared_js:
         assert (inspector.STATIC / name).exists(), name
 
-    html = client.get('/').text
+    html = client.get('/inspector/').text
     for name in shared_css:
         served = client.get(f'/{name}')
         assert served.status_code == 200, name
         assert served.headers['content-type'].startswith('text/css'), name
-        assert html.index(f'href="/{name}"') < html.index('href="/inspector.css"'), (
+        assert html.index(f'href="/{name}"') < html.index('href="/inspector/inspector.css"'), (
             f'{name} must be linked before the page\'s own sheet, or the page '
             'overrides the shared rules instead of building on them')
     for name in shared_js:
@@ -866,7 +909,7 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
         assert served.status_code == 200, name
         assert served.headers['content-type'].startswith(
             'application/javascript'), name
-        assert html.index(f'src="/{name}"') < html.index('src="/inspector.js"'), (
+        assert html.index(f'src="/{name}"') < html.index('src="/inspector/inspector.js"'), (
             f'{name} must load before inspector.js, which calls into it')
 
 
@@ -1471,10 +1514,11 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
 def test_the_inspector_stamps_the_stored_theme_before_it_paints(inspector_texts):
     # this is a convention test
     """Same guard as the lab's, and needed more here: the Inspector is the
-    surface a reader arrives at from a link on :9002, so a flash of the wrong
-    theme lands on every crossing between the two. The choice itself does not
-    cross — :9002 and :9003 are separate origins and neither can read the
-    other's storage — so this page stores and reads its own."""
+    surface a reader arrives at from a link on the lab, so a flash of the
+    wrong theme lands on every crossing between the two. The choice itself
+    now does cross — both are one origin under the mount — but the stamp
+    still has to run before the first paint on this page's own head, or the
+    read happens too late to matter."""
     head = inspector_texts['inspector.html'].split('</head>')[0]
     assert 'raglab-theme' in head and 'documentElement' in head, (
         'the stored choice must be read and stamped in the head, before the '

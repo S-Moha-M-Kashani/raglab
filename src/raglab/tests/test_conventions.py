@@ -328,16 +328,17 @@ def test_env_example_documents_every_variable_the_code_reads():
     assert documented - read == set(), 'in .env.example, read by nothing'
 
 
-def test_the_lab_and_the_inspector_take_no_port_lodestar_owns():
+def test_the_lab_takes_no_port_lodestar_owns():
     # this is a convention test
     """`RESERVED` is a copy of Lodestar's port list, not a live read — it can
-    drift out of sync and must be updated by hand if Lodestar's changes."""
+    drift out of sync and must be updated by hand if Lodestar's changes. There
+    is one port now: the Inspector moved to /inspector on this one, so that a
+    conversation and a theme choice can cross between the surfaces."""
     assert serve.PANEL_PORT == 9002
-    assert serve.INSPECTOR_PORT == 9003
-    assert serve.PANEL_PORT != serve.INSPECTOR_PORT
-    for port in (serve.PANEL_PORT, serve.INSPECTOR_PORT):
-        assert port not in serve.RESERVED, (
-            f':{port} belongs to {serve.RESERVED.get(port)}')
+    assert serve.PANEL_PORT not in serve.RESERVED, (
+        f':{serve.PANEL_PORT} belongs to {serve.RESERVED.get(serve.PANEL_PORT)}')
+    assert not hasattr(serve, 'INSPECTOR_PORT'), (
+        'the Inspector has no port of its own — it is a path on the lab')
 
 
 def test_the_documented_launch_installs_the_backend_the_default_embedder_needs():
@@ -386,9 +387,8 @@ def test_every_entry_point_resolves_to_something_callable():
     moment somebody runs the command, and nothing else would notice. Parsed
     with tomllib and each target actually imported and resolved, not just
     pattern-matched against the text."""
-    assert set(_SCRIPTS) == {'raglab', 'raglab-inspector', 'raglab-lab',
-                             'raglab-sweep', 'raglab-judgescreen',
-                             'raglab-leaderboard'}
+    assert set(_SCRIPTS) == {'raglab', 'raglab-lab', 'raglab-sweep',
+                             'raglab-judgescreen', 'raglab-leaderboard'}
     for command, target in _SCRIPTS.items():
         module, _, function = target.partition(':')
         assert callable(getattr(importlib.import_module(module), function)), (

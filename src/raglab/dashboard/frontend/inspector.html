@@ -4,9 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RAG Lab · Inspector</title>
-  <!-- The stored theme, stamped before anything paints. The lab on :9002 does
-       the same, but this is a separate origin: neither can read the other's
-       storage, so this surface remembers its own choice. -->
+  <!-- The stored theme, stamped before anything paints. All three surfaces are
+       one origin now, so the choice made on any of them is the choice here. -->
   <script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
   <!-- lab.js owns the switch itself and loads at the foot of the page, the
        way the panel's does. -->
@@ -16,7 +15,7 @@
   <!-- The bar and the surface switcher, shared with the panel on :9002; before
        inspector.css so its overrides still win. -->
   <link rel="stylesheet" href="/chrome.css">
-  <link rel="stylesheet" href="/inspector.css">
+  <link rel="stylesheet" href="/inspector/inspector.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to the evidence</a>
@@ -201,6 +200,6 @@
   <script src="/sorttable.js"></script>
   <!-- Shared utilities, before inspector.js, which calls into it. -->
   <script src="/lab.js"></script>
-  <script src="/inspector.js"></script>
+  <script src="/inspector/inspector.js"></script>
 </body>
 </html>

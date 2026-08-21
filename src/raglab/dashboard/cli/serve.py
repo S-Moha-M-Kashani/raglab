@@ -1,14 +1,13 @@
-"""The two front doors, and the ports they bind.
+"""The lab's front door, and the port it binds.
 
-The numbers live here rather than on a command line because there is no longer a
-package.json to hold them and no Node test to read them back out of one. One
-module owns them, `test_conventions.py` asserts them, and `lab.py` imports rather
-than repeats them.
+The number lives here rather than on a command line because there is no longer a
+package.json to hold it and no Node test to read it back out of one. One
+module owns it, `test_conventions.py` asserts it, and `lab.py` imports rather
+than repeats it.
 """
 import uvicorn
 
 PANEL_PORT = 9002
-INSPECTOR_PORT = 9003
 
 # Lodestar's allocation on this machine, copied on 2026-08-11 when the lab moved
 # out. Copied, not read: that repository is no longer a dependency, so nothing
@@ -26,10 +25,6 @@ RESERVED = {
 
 
 def panel() -> None:
-    """The lab's panel. `uv run --extra local-embeddings raglab`."""
-    uvicorn.run('raglab.dashboard.panel_server:app', port=PANEL_PORT)
-
-
-def inspector() -> None:
-    """The read-only Inspector. `uv run raglab-inspector`."""
-    uvicorn.run('raglab.dashboard.inspector_server:app', port=INSPECTOR_PORT)
+    """The lab: the panel at the root, the Inspector at /inspector.
+    `uv run --extra local-embeddings raglab`."""
+    uvicorn.run('raglab.dashboard.served_lab:app', port=PANEL_PORT)

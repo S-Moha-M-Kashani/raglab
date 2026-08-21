@@ -1,8 +1,8 @@
 // tests/record_mode.test.js — the Inspector's recorded-experiment mode, driven
 // over every shape the ledger actually holds.
 //
-// Contract under test: `?experiment=<id>` on :9003, which is what the board's
-// frozen `↗` column links to — `followRecordedExperiment` and
+// Contract under test: `?experiment=<id>` on :9002/inspector, which is what
+// the board's frozen `↗` column links to — `followRecordedExperiment` and
 // `renderRecordedExperiment` at the foot of `dashboard/frontend/inspector.js`.
 //
 // What is tested here is which branch a record reaches, because that is where
@@ -96,24 +96,27 @@ function inspector({ records = {}, groundtruth = {}, search = '' } = {}) {
   };
   const requests = [];
 
+  // Every request the page makes goes through its own `api()` helper now,
+  // which prefixes the mount — so the routes this fake answers are the
+  // prefixed ones, exactly as a real browser would send them.
   const answer = (path) => {
     requests.push(path);
-    if (path === '/api/config') return { ok: true, body: { chosen: LIVE_CONFIG } };
-    if (path === '/api/explain') return { ok: true, body: { metrics: [], help: {} } };
-    if (path.startsWith('/api/groundtruth')) {
+    if (path === '/inspector/api/config') return { ok: true, body: { chosen: LIVE_CONFIG } };
+    if (path === '/inspector/api/explain') return { ok: true, body: { metrics: [], help: {} } };
+    if (path.startsWith('/inspector/api/groundtruth')) {
       const dataset = decodeURIComponent(path.split('dataset=')[1] || '');
       const found = groundtruth[dataset];
       return found
         ? { ok: true, body: found }
         : { ok: false, body: { detail: `unknown dataset ${dataset}` } };
     }
-    if (path.startsWith('/api/experiments/')) {
-      const id = decodeURIComponent(path.slice('/api/experiments/'.length));
+    if (path.startsWith('/inspector/api/experiments/')) {
+      const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length));
       return records[id]
         ? { ok: true, body: records[id] }
         : { ok: false, body: { detail: 'unknown experiment' } };
     }
-    if (path === '/api/follow') return { ok: true, body: { lab: 'up', lab_url: 'x' } };
+    if (path === '/inspector/api/follow') return { ok: true, body: { lab: 'up', lab_url: 'x' } };
     return { ok: false, body: { detail: `no route ${path}` } };
   };
 
@@ -149,7 +152,7 @@ function inspector({ records = {}, groundtruth = {}, search = '' } = {}) {
     window: {
       innerHeight: 1000,
       innerWidth: 1400,
-      location: { search, href: `http://localhost:9003/${search}` },
+      location: { search, href: `http://localhost:9002/inspector/${search}` },
       history: { replaceState() {} },
     },
   };

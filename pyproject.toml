@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.21.0"
+version = "0.22.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -72,7 +72,6 @@ graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
 
 [project.scripts]
 raglab = "raglab.dashboard.cli.serve:panel"
-raglab-inspector = "raglab.dashboard.cli.serve:inspector"
 raglab-lab = "raglab.dashboard.cli.lab:main"
 raglab-sweep = "raglab.agents.extra_tools.sweep:main"
 raglab-judgescreen = "raglab.agents.extra_tools.judgescreen:main"

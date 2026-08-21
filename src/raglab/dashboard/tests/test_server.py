@@ -243,6 +243,7 @@ def test_an_experiment_resolves_from_the_run_file_when_the_ledger_has_none(clien
     import json
 
     from raglab.evaluation import run_evaluation as evaluate
+    from raglab.evaluation import leaderboard
     from raglab.evaluation import service_experiment_ledger as ledger
 
     run_id = '20260101-000000-runonly'
@@ -268,11 +269,20 @@ def test_an_experiment_resolves_from_the_run_file_when_the_ledger_has_none(clien
         found = client.get(f'/api/experiments/{run_id}')
         assert found.status_code == 200, found.text
         body = found.json()
-        assert set(body) == set(ledger.COLUMNS) | {'detail'}
+        # One object, wherever an experiment is resolved: the shared projection
+        # of the two durable records, plus the evidence a page opens a record
+        # for. The board's rows are the same projection without `detail`, and
+        # the widget's digest is the same projection without it either — so a
+        # reader cannot be handed two different accounts of one experiment id.
+        assert set(body) == set(leaderboard.experiment_record({}, {})) | {'detail'}
         assert body['experiment_id'] == run_id
         assert body['kind'] == 'run' and body['state'] == 'done'
         assert body['dataset'] == 'smoke-mini' and body['n_questions'] == 2
-        assert body['retriever'] == 'bm25' and body['answerer'] == 'llm'
+        # The knobs arrive nested, the way a config is written and the way the
+        # board carries them — not as the ledger's flat columns, which were a
+        # third spelling of the same six values.
+        assert body['config']['retrieval']['retriever'] == 'bm25'
+        assert body['config']['generation']['answerer'] == 'llm'
         assert body['decision'] == 0.5 and body['decision_stderr'] == 0.1
         # The rows travel; the traces, chunk text and summaries never reached
         # a run file, so the payload must not pretend to carry them.

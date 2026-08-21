@@ -193,64 +193,6 @@ def _dataset_options() -> dict:
     }
 
 
-def _experiment_from_run(run: dict) -> dict:
-    """One run file projected into the shape a ledger row has.
-
-    Third of three projections between a run file's shape and a ledger row's,
-    and the three have to agree about what `chunker`, `retriever` and `answerer`
-    mean: `ledger.row_for` writes a finished job into those columns, and
-    `leaderboard.ledger_config` reads them back out into the nesting a config
-    has. Change what one of the three calls a knob and the other two are wrong
-    about the same row.
-
-    The board is a union of the ledger and `.runs/`, because the ledger is
-    written in `Jobs.run` and every evaluation that finished before it existed
-    has a run file and no row. Resolving an experiment *by id* has to read the
-    same union: a link offered from a union and answered from one half is a link
-    that fails on the other, and here that half is every older evaluation — the
-    only rows that carry a score at all.
-
-    Beside the route rather than in the ledger module: a run file is not the
-    ledger's record, and this is the one place that answers "resolve an
-    experiment by id".
-    """
-    config = run.get('config') or {}
-    index = config.get('index') or {}
-    retrieval = config.get('retrieval') or {}
-    generation = config.get('generation') or {}
-    summary = run.get('summary') or {}
-    ragas = run.get('ragas') or {}
-    return {
-        'experiment_id': run.get('run_id') or '',
-        # A run file is an evaluation, and one that finished — that is what
-        # writing the file means. Neither fact is inferred from anything else.
-        'kind': 'run',
-        'state': 'done',
-        'label': run.get('label') or '',
-        'started_at': run.get('started_at') or '',
-        'seconds': run.get('seconds') or 0,
-        'dataset': run.get('dataset') or '',
-        'provider': config.get('provider') or '',
-        'chunker': index.get('chunker') or '',
-        'embedder': index.get('embedder') or '',
-        'retriever': retrieval.get('retriever') or '',
-        'reranker': retrieval.get('reranker') or '',
-        'grader': retrieval.get('grader') or '',
-        'answerer': generation.get('answerer') or '',
-        'n_questions': int(summary.get('n_questions') or 0),
-        # None, never 0.0, on a run that judged nothing — the same rule the
-        # ledger's own column keeps, for the same reason.
-        'decision': ragas.get('decision'),
-        'decision_stderr': (ragas.get('decision_spread') or {}).get('stderr'),
-        'error': '',
-        # The file itself. It carries no chunk text, no per-question traces and
-        # no summaries — those never reach a run file — so a reader of this
-        # payload is told per view what is missing rather than shown something
-        # else in its place.
-        'detail': run,
-    }
-
-
 class Jobs:
     """In-process job table. A lab restart loses running jobs; finished runs are
     on disk, which is the part that matters."""
@@ -669,13 +611,20 @@ def create_app() -> FastAPI:
         both and a row it lists must be a row this answers. An evaluation older
         than the ledger has only its run file, and those are most of the scored
         rows there are."""
-        found = ledger.experiment(experiment_id)
-        if found is not None:
-            return found
+        row = ledger.experiment(experiment_id)
         run = evaluate.load_run(experiment_id)
-        if run is None:
+        if row is None and run is None:
             raise HTTPException(404, 'unknown experiment')
-        return _experiment_from_run(run)
+        # `experiment_record` is the projection the board's own rows are, so the
+        # row a reader clicked and the page that opens it cannot give two
+        # accounts of one experiment — and any later reader that wants the same
+        # experiment without the evidence asks the same function rather than
+        # writing the ledger-versus-run precedence a third time. What a page
+        # needs on top *is* the evidence: the ledger's own `detail`, which
+        # carries the whole job result for a row it recorded, and the run file
+        # itself for an evaluation older than the ledger.
+        return leaderboard.experiment_record(row, run) | {
+            'detail': (row or {}).get('detail') or run or {}}
 
     @app.post('/api/imported-archives')
     def import_archive(payload: dict):

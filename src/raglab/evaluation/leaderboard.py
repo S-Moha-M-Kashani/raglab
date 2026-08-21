@@ -330,10 +330,9 @@ def _metrics(ragas: dict) -> dict:
 # so a ledger-only sentence is necessarily shorter than a run-file one — that
 # is correct and nothing here guesses to fill the gap.
 #
-# Second of three projections between a nested config and the flat columns a row
-# has, and the inverse of the first: `ledger.row_for` writes a job's config into
-# those columns, and `panel_server._experiment_from_run` writes a run file into
-# the same shape. What one of the three calls a knob, all three must.
+# The reading half of the two projections between a nested config and the flat
+# columns a row has, and the inverse of `ledger.row_for`, which writes a job's
+# config into those columns. What one of the two calls a knob, the other must.
 #
 # A knob with no recorded value is dropped, and a step left with no knobs at all
 # goes with it. Emitting the empty shell had the settings panel draw RETRIEVAL

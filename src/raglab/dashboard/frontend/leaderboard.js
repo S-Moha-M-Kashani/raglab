@@ -57,7 +57,8 @@ const COLUMNS = [
   { key: 'state', label: 'state' },
   { key: 'seconds', label: 'seconds', title: 'wall clock' },
   { key: 'open', label: 'open', nosort: true, freeze: 'freeze-last',
-    title: 'read this experiment in the Inspector' },
+    title: 'read this experiment in the Inspector · its settings also become '
+      + 'the Laboratory’s' },
 ];
 
 const fmt = (value, digits = 3) =>
@@ -116,9 +117,15 @@ function cell(row, key) {
           + ` aria-label="Why did this ${escapeHtml(row.state || 'fail')}?">!</button></span>`
         : `<b>${escapeHtml(row.state || '—')}</b>`;
     case 'seconds': return Math.round(row.seconds || 0);
+    // Two halves of one cell: the `href` the browser follows to the Inspector,
+    // and the id the handoff handler below reads to hand the same experiment to
+    // the Laboratory. Both name the experiment, because a link that navigated
+    // and a handler that read a row index would be two accounts of one click.
     case 'open': return `<a class="open-run" target="_blank" rel="noopener"`
       + ` href="http://localhost:9003/?experiment=${encodeURIComponent(row.experiment_id)}"`
-      + ` aria-label="Read ${escapeHtml(row.experiment_id)} in the Inspector">↗</a>`;
+      + ` data-experiment="${escapeHtml(row.experiment_id)}"`
+      + ` aria-label="Read ${escapeHtml(row.experiment_id)} in the Inspector`
+      + ` and load its settings into the Laboratory">↗</a>`;
     // The four judged metrics, by their own keys, so a column cannot drift from
     // the metric it names.
     default: return fmt(metrics[key]);
@@ -372,7 +379,11 @@ async function loadBoard(dataset) {
         failing, so those rows are a rehearsal of the pipeline and not a
         measurement of it. This table names no winner: rows graded by different
         judges over different question sets share it, so <b>judge</b> and
-        <b>questions</b> are columns you compare on.</p>
+        <b>questions</b> are columns you compare on. The <b>open</b> arrow does
+        two things: it reads the experiment in the Inspector, and it makes that
+        experiment's settings the <a href="/">Laboratory</a>'s — every knob this
+        installation can serve, with anything it cannot named in the lab
+        helper rather than quietly left behind.</p>
       <p class="table-hint" id="filter-syntax"><b>Filter</b> takes one term per
         column, all of which must hold, each written as the column's own heading
         and what you want of it: <code>questions&gt;30</code>,
@@ -513,6 +524,29 @@ document.addEventListener('click', (event) => {
   if (open && open.classList.contains('explain')) { open.remove(); return; }
   mark.parentElement.insertAdjacentHTML('afterend',
     `<p class="explain">${escapeHtml(mark.dataset.help || '')}</p>`);
+});
+
+// --- handing the experiment to the Laboratory -------------------------------
+// The open button opens the Inspector, and the same click makes that
+// experiment's settings the Laboratory's. The board cannot write those knobs
+// itself: only the lab page holds `/api/options`, so only it can tell a knob
+// this installation serves from one this row merely recorded, and a value
+// written into a `<select>` with no such option reads back as ''. So what
+// crosses is an id, in one slot, and `experiment_handoff.js` says the rest.
+//
+// Nothing here prevents the default. The cell is an `<a>` so that middle-click,
+// ⌘-click and Enter on a focused link all still reach the Inspector; a handler
+// that navigated by script instead would look the same and cost all three.
+// Delegated at the document like every other listener on this page, because the
+// whole board is rebuilt on each dataset pick.
+document.addEventListener('click', (event) => {
+  const open = event.target && event.target.closest
+    ? event.target.closest('.open-run') : null;
+  if (!open) return;
+  // `Date.now()` is not decoration: a `storage` event fires on a change, so two
+  // clicks on one row must not write the same bytes or an already-open
+  // Laboratory tab hears the second one as nothing.
+  ExperimentHandoff.offer(localStorage, open.dataset.experiment, Date.now());
 });
 
 const ASKED = new URLSearchParams(window.location.search);

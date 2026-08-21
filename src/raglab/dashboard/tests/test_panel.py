@@ -395,6 +395,39 @@ CONVENTIONS = [
      'the chosen model must travel with every message — scoped past the '
      "header comment so `embed_model:`, elsewhere in the file, cannot "
      'satisfy this by suffix collision'),
+    # --- an experiment opened on the board ---------------------------------
+    # The board's open button pins the Inspector to one experiment and makes
+    # the same experiment's settings the Laboratory's. Every row below guards
+    # one half of that: that the shared module reaches both pages, that the
+    # panel takes the handoff both ways it can arrive, and that what the reader
+    # is told is the lab's own voice and not the model's.
+    ('index.html', '/experiment_handoff.js', None,
+     'the Laboratory must load the handoff module, or the experiment the '
+     'board hands over reaches a page that cannot read it'),
+    ('leaderboard.html', '/experiment_handoff.js', None,
+     'the board must load the same module it writes the slot with'),
+    ('panel_server.py', "'experiment_handoff.js'", None,
+     'a script both pages link must have a route serving it'),
+    ('panel.js', 'ExperimentHandoff.taken', None,
+     'the Laboratory must take what the board handed over'),
+    ('panel.js', "'storage'", None,
+     'the case this handoff exists for is a board in one tab and the lab in '
+     'another, and a `storage` listener is the only thing that reaches an '
+     'already-open Laboratory — without it the settings arrive on the next '
+     'reload, which is not what the button says it did'),
+    ('panel.js', 'ExperimentHandoff.reconcile', None,
+     'which knobs this installation can serve is decided in the one module '
+     'that decides it, so the archive import and the board handoff cannot '
+     'come to disagree about what this lab serves'),
+    ('panel.js', 'ExperimentHandoff.notice', None,
+     'what could not be set must be said, and said by the module that '
+     'worked out what could not be set'),
+    ('panel.js (widget block)', "widgetSay('note'", None,
+     'the lab writes its own notices in its own voice: a line the page wrote '
+     "must never arrive as `bot`, which is the model's"),
+    ('panel.css (widget block)', '.widget-msg.note', None,
+     "a message kind with no rule of its own inherits another kind's ink and "
+     'reads as something the model said'),
     ('tokens.css', '--s-1: 0.25rem', None,
      'the spacing ramp must ship in the shared sheet: both pages hand-set '
      'every padding and margin today, which is why neither reads as '
@@ -514,6 +547,34 @@ CONVENTIONS = [
      'and the leaderboard drops it for the same reason — the two surfaces '
      'wear one switcher, so a port shown on one and not the other is drift'),
 ]
+
+
+def test_the_panel_spells_the_built_in_corpus_one_way(panel_texts):
+    # this is a convention test
+    """`IndexConfig.fingerprint()` drops `dataset=''` from its payload, so the
+    built-in corpus is the empty string and spelling it `diary-fa` instead
+    renames every collection already built under it. The panel therefore has to
+    say that in exactly one place: the `<option>` values it fills the dataset
+    select with, the lookup that reads that value back, and the catalogue it
+    tells `ExperimentHandoff.reconcile` it serves must all agree.
+
+    Written out three times, they did not. `servedKnobs()` listed the corpora
+    by id, so a recorded config carrying the built-in corpus's own `''` was not
+    in the list — and an experiment opened from the board announced the lab's
+    own default corpus as *not installed here* while quietly leaving the knob
+    alone. A fabricated discrepancy in the one notice whose entire job is to
+    report real ones."""
+    js = panel_texts['panel.js']
+    spelling = js.count("'builtin' ? '' : ")
+    assert spelling == 1, (
+        'the built-in corpus must be spelled in one place and read from there '
+        f'({spelling} copies of the rule found in panel.js)')
+    served = re.search(r'function servedKnobs\(.*?\n}', js, re.S)
+    assert served, 'servedKnobs must exist for the handoff to ask what is served'
+    assert 'datasetValues()' in served.group(0), (
+        'what servedKnobs calls a served corpus must be the same value the '
+        'dataset select offers, or the empty string that means the built-in '
+        'corpus reads as a corpus this installation does not have')
 
 
 @pytest.mark.parametrize('file, must_contain, must_not_contain, reason', CONVENTIONS)

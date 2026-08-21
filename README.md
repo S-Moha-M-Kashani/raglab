@@ -88,8 +88,15 @@ on :9002 and the Inspector on :9003 are set separately.
    the rows that have it, `!ctx-recall:` for the rows that do not); a bare word
    searches the whole row and `!word` excludes it. The filter is in the URL, so
    a narrowed board is a link.
-6. Trace any single question in the Inspector on :9003 — which chunks were
-   retrieved, which were gold, what the answer was graded.
+6. Press the **open** arrow on any row. It reads that experiment in the
+   Inspector on :9003 — which chunks were retrieved, which were gold, what the
+   answer was graded — and makes the same experiment's settings the
+   Laboratory's, so the next run starts from it. Every knob this installation
+   can serve is set; anything it cannot (an embedder that is not installed, a
+   model the current backend does not offer, a corpus since removed) is left
+   where you had it and named in the lab helper, along with how much of the
+   panel moved. A row with no run file behind it recorded only a handful of
+   knobs, and the helper says that too.
 7. Back under **⚙** → *Experiment archive*, press **Export experiment** to
    write the whole experiment to one JSON archive. Until an evaluation has
    completed under the current settings the file carries settings only; after

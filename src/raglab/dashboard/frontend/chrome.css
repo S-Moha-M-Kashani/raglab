@@ -69,10 +69,6 @@
   background: var(--chassis-soft); color: #fff;
   border-bottom-color: var(--step-index);
 }
-/* The port, for the surface that is genuinely somewhere else. Small, and
-   never the only thing distinguishing the item. */
-.topnav .port { color: var(--chassis-ink-soft); font: var(--t-2xs)/1 var(--mono); }
-.topnav a[aria-current="page"] .port { color: var(--chassis-ink); }
 
 /* The page's own actions, pushed right. One item on every surface now — the
    Settings button — because everything that used to sit loose here turned out
@@ -328,11 +324,14 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 
    Wide enough for a whole pipeline sentence, which is what this column holds —
    at the 3rem it was tuned to when it held a rank, the sentence that identifies
-   the row was three characters of it. The width is a custom property because
-   the block that clips inside the cell has to carry the same number, and a
-   second literal is a second number. */
+   the row was three characters of it. Wide enough for the *short* sentence,
+   since the fragments arrive abbreviated: 30rem of spelled-out knobs pushed the
+   four metrics that decide anything off the screen, which is the same failure
+   from the other end. The width is a custom property because the block that
+   clips inside the cell has to carry the same number, and a second literal is a
+   second number. */
 .data-table .freeze-1 {
-  --freeze-1: 30rem;
+  --freeze-1: 17rem;
   position: sticky; z-index: 1; left: 0; background: var(--card);
   width: var(--freeze-1); min-width: var(--freeze-1);
 }
@@ -382,6 +381,32 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
   background: var(--rule); border-radius: var(--radius-pill);
 }
 .table-scroll::-webkit-scrollbar-track { background: var(--plate); }
+
+/* ── the second scrollbar, above the table ─────────────────────────────────
+   The same handle on the same region, at the top edge of it: on a long table the
+   bar below the rows is off the bottom of the screen, so moving the columns
+   means scrolling the page away from the rows you were reading. Built by
+   `mountScrollRail` in lab.js, which sizes the spacer to what the region can
+   scroll and carries `scrollLeft` between the two.
+   Height, not `max-height`: the bar is the whole element, and a bar that
+   collapsed to its content's height would be a bar of no height. */
+.scroll-rail {
+  overflow-x: auto; overflow-y: hidden;
+  height: 12px; margin-bottom: var(--s-1);
+  scrollbar-width: thin;
+}
+.scroll-rail > i { display: block; height: 1px; }
+.scroll-rail::-webkit-scrollbar { height: 10px; }
+.scroll-rail::-webkit-scrollbar-thumb {
+  background: var(--rule); border-radius: var(--radius-pill);
+}
+.scroll-rail::-webkit-scrollbar-track { background: var(--plate); }
+
+/* A filtered-out row. `display` is what `[hidden]` means, and it is said here
+   rather than left to the browser because a `tr` carries `display: table-row`
+   from the UA sheet — the two rules meet at the same specificity, and which one
+   wins is not something this component should leave to sheet order. */
+.data-table tbody tr[hidden] { display: none; }
 
 .table-hint { font: var(--t-2xs)/1.5 var(--mono); color: var(--ink-soft);
               margin: var(--s-1) 0 var(--s-3); }
@@ -453,6 +478,13 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
                    display: block; margin-bottom: var(--s-1); }
 .reveal-knob { display: block; color: var(--ink-soft); }
 .reveal-knob > b { color: var(--ink); }
+/* The sentence the cell abbreviates, spelled out, at the head of the box that
+   opens on it. The knobs below it are the whole recorded config and say more
+   than the sentence does — but an abbreviation whose expansion is nowhere on
+   screen is a worse column than a wide one, and 'ST' is not answered by reading
+   `embedder sentence-transformers` three lines down and inferring it. */
+.reveal-said { color: var(--ink); margin-bottom: var(--s-2);
+               padding-bottom: var(--s-2); border-bottom: 1px solid var(--rule); }
 
 /* ── the context scope ─────────────────────────────────────────────────────
    Which corpus is in force: the lab page's Corpus scope and the board's Dataset
@@ -466,6 +498,42 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
    top layer and placed against the button rather than inside any ancestor. */
 .board-bar { display: flex; align-items: center; gap: var(--s-2);
              margin-bottom: var(--s-3); }
+
+/* ── the row filter ────────────────────────────────────────────────────────
+   One line above the table, because what it does is narrow the table below it
+   and a control that sits anywhere else is a control the reader has to find.
+   The box is monospace: what is typed into it is a query over columns, and the
+   same font the figures are set in is the honest cue for that. */
+.filter-bar { display: flex; align-items: center; gap: var(--s-2);
+              flex-wrap: wrap; margin-bottom: var(--s-2); }
+.filter-bar label { font: var(--label-font); text-transform: uppercase;
+                    letter-spacing: var(--label-track); color: var(--ink-soft); }
+.filter-input {
+  flex: 1 1 22rem; min-width: 0;
+  appearance: none; background: var(--card); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  padding: var(--s-1) var(--s-2);
+  font: var(--t-sm)/1.6 var(--mono);
+}
+.filter-input:focus-visible { outline: 2px solid var(--step-generation);
+                              outline-offset: 1px; }
+.filter-clear {
+  appearance: none; background: transparent; color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  padding: var(--s-1) var(--s-2); cursor: pointer;
+  font: var(--t-2xs)/1 var(--mono);
+}
+.filter-clear:hover { color: var(--ink); border-color: var(--ink-soft); }
+/* How many rows the reader is looking at, out of how many there are. A filtered
+   table with no count is a table that quietly might be all of them. */
+.filter-count { font: var(--t-2xs)/1 var(--mono); color: var(--ink-soft);
+                white-space: nowrap; }
+/* A query that asked nothing answerable — a column this table does not have, or
+   an operator with nothing after it. It takes a whole line and it is inked like
+   the failure marks elsewhere, because the rows below it did not move for what
+   was typed, and that has to be the more obvious of the two facts. */
+.filter-said { flex: 1 0 100%; margin: 0;
+               font: var(--t-2xs)/1.5 var(--mono); color: var(--alert); }
 .context-bar {
   max-width: var(--measure); margin: 0 auto;
   padding: var(--s-2) var(--gutter) 0;

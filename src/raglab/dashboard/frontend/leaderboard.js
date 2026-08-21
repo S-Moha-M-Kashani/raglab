@@ -25,29 +25,36 @@ const COLUMNS = [
   // reader actually needs (that this cell opens, and that `fake` is a rehearsal)
   // are in the hint prose under the table, in the page's own text.
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
-    title: 'every step this experiment ran · hover or focus for all of it' },
-  { key: 'rank', label: '#', nosort: true, title: 'position in the current sort' },
-  // The deciding score, its error and the four metrics it is the mean of come
-  // straight after the identity: they are the only columns that decide anything,
-  // and a wide frozen sentence is exactly what would push them off the screen.
-  // The descriptive columns wait behind the scroll instead.
+    title: 'every step this experiment ran, abbreviated · hover or focus for '
+      + 'the whole sentence and every knob behind it' },
+  // What the row is *about*, before anything it measured: which corpus (on the
+  // board that mixes them — one table per dataset means this column is only a
+  // question there) and how many questions were put to it. A metric read
+  // without knowing how many questions produced it is a number with no error
+  // bar, so the count comes before the numbers rather than after them.
+  { key: 'dataset', label: 'dataset', everyOnly: true },
+  { key: 'questions', label: 'questions',
+    title: 'how many questions were scored' },
+  // Then the deciding score, its error, and the four metrics it is the mean of:
+  // the only columns that decide anything, kept as close to the identity as the
+  // frozen sentence allows. The descriptive columns wait behind them.
   { key: 'decision', label: 'decision', title: 'unweighted mean of the four judged metrics' },
-  { key: 'spread', label: '±', title: 'standard error of the decision score' },
+  // '±' is a column no reader can type, so it says its filter name itself. Every
+  // other heading is already the word a reader would use for it.
+  { key: 'spread', label: '±', filter: 'spread',
+    title: 'standard error of the decision score' },
   { key: 'faithfulness', label: 'faith', step: 'generation' },
   { key: 'answer_relevancy', label: 'ans rel', step: 'generation' },
   { key: 'llm_context_precision_with_reference', label: 'ctx prec', step: 'retrieval' },
   { key: 'context_recall', label: 'ctx recall', step: 'retrieval' },
-  { key: 'kind', label: 'kind', text: true, title: 'index, retrieve, run or query' },
-  { key: 'when', label: 'when', text: true, title: 'when it started' },
-  { key: 'label', label: 'label', text: true },
-  { key: 'judge', label: 'judge', text: true, step: 'generation',
+  { key: 'kind', label: 'kind', title: 'index, retrieve, run or query' },
+  { key: 'when', label: 'when', title: 'when it started' },
+  { key: 'label', label: 'label' },
+  { key: 'judge', label: 'judge', step: 'generation',
     title: 'which model graded — rows graded differently are not comparable' },
-  { key: 'questions', label: 'questions',
-    title: 'how many questions were scored' },
-  { key: 'dataset', label: 'dataset', text: true, everyOnly: true },
-  { key: 'provider', label: 'backend', text: true,
+  { key: 'provider', label: 'backend',
     title: 'where the model calls went · fake is a rehearsal, not a measurement' },
-  { key: 'state', label: 'state', text: true },
+  { key: 'state', label: 'state' },
   { key: 'seconds', label: 'seconds', title: 'wall clock' },
   { key: 'open', label: 'open', nosort: true, freeze: 'freeze-last',
     title: 'read this experiment in the Inspector' },
@@ -65,25 +72,29 @@ const judgeOf = (row) => {
   return judge.model ? `${judge.model} via ${judge.provider || '?'}` : '—';
 };
 
-// The same sentence as plain text, which is what the column sorts on.
+// The same sentence spelled out, as plain text: what the column sorts on, what
+// a filter on it reads, and what the reveal publishes. The board *draws* the
+// short form — an abbreviated cell that also sorted and filtered as its
+// abbreviation would answer `pipeline~sentence-transformers` with nothing.
 const sentenceText = (row) =>
   (row.pipeline || []).map((f) => f.text).join(' · ');
 
-// The sentence, each fragment inked with its own step. `data-step` is how every
-// other coloured thing on these pages takes its ink, and the four inks are
-// defined once in tokens.css. Wrapped in `.clip`, which is what actually holds
-// the frozen column's width — a cell cannot.
+// The sentence, each fragment inked with its own step, in the short form the
+// service abbreviated it to — neither surface derives the other's reading, so
+// the board cannot come to abbreviate a knob the printer spells out differently.
+// `data-step` is how every other coloured thing on these pages takes its ink,
+// and the four inks are defined once in tokens.css. Wrapped in `.clip`, which is
+// what actually holds the frozen column's width — a cell cannot.
 const sentence = (row) => '<span class="clip">' + ((row.pipeline || []).length
   ? (row.pipeline || []).map((f) =>
     `<span data-step="${escapeHtml(f.step)}" class="pipe-part">`
-    + `${escapeHtml(f.text)}</span>`).join('<span class="pipe-sep">·</span>')
+    + `${escapeHtml(f.short || f.text)}</span>`).join('<span class="pipe-sep">·</span>')
   : '<span class="muted">—</span>') + '</span>';
 
 function cell(row, key) {
   const metrics = row.metrics || {};
   switch (key) {
     case 'pipeline': return sentence(row);
-    case 'rank': return '';                 // written by renumber(), below
     case 'kind': return escapeHtml(row.kind || '—');
     case 'when': return escapeHtml(when(row));
     case 'label': return escapeHtml(row.label || '—');
@@ -126,26 +137,15 @@ const corpusName = (dataset) => (dataset === EVERY
 const columnsFor = (dataset) =>
   COLUMNS.filter((col) => !col.everyOnly || dataset === EVERY);
 
-// `#` is position in what you are looking at, so it is written from the
-// displayed order and rewritten after every reorder — including the third click
-// that restores the served order, where a stale numbering would be exactly as
-// wrong. This is what `onApply` is for.
-function renumber(rows, at) {
-  rows.forEach((tr, i) => {
-    const held = tr.cells[at];
-    if (held) held.textContent = String(i + 1);
-  });
-}
-
 function renderTable(dataset, rows) {
   const columns = columnsFor(dataset);
-  const rankAt = columns.findIndex((col) => col.key === 'rank');
 
   const head = columns.map((col) => {
     const cls = [col.text ? 'text' : '', col.freeze || ''].filter(Boolean).join(' ');
     return `<th scope="col"${cls ? ` class="${cls}"` : ''}`
       + `${col.step ? ` data-step="${col.step}"` : ''}`
       + `${col.nosort ? ' data-nosort' : ''}`
+      + `${col.filter ? ` data-filter="${escapeHtml(col.filter)}"` : ''}`
       + `${col.title ? ` title="${escapeHtml(col.title)}"` : ''}>`
       + `${escapeHtml(col.label)}</th>`;
   }).join('');
@@ -173,15 +173,15 @@ function renderTable(dataset, rows) {
   // a caption and a region name are read aloud, so the id here would give the
   // screen reader the internal name and the eye the human one.
   const named = `every experiment on ${escapeHtml(corpusName(dataset))}`;
-  return { html: `
+  return `
       <div class="table-scroll" tabindex="0" role="region"
            aria-label="${named}">
-        <table class="data-table">
+        <table class="data-table centred">
           <caption>${named}</caption>
           <thead><tr>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
-      </div>`, rankAt };
+      </div>`;
 }
 
 // The whole recorded config, grouped by step and inked by step, so it reads as
@@ -190,6 +190,11 @@ function renderTable(dataset, rows) {
 // else, which is why the tooltips on these pages were removed.
 function settingsReveal(row) {
   const config = row.config || {};
+  // The abbreviation's expansion, first: the cell draws 'sem-drift·louv·ST' and
+  // the reader who does not recognise one of those words has to be able to read
+  // it here, not infer it from the knob list below. The knobs are still the
+  // longer answer — they hold what the sentence never names.
+  const said = sentenceText(row);
   const blocks = ['index', 'retrieval', 'generation', 'agent']
     .filter((step) => config[step] && Object.keys(config[step]).length)
     .map((step) => `<div class="reveal-step" data-step="${step}">`
@@ -202,10 +207,91 @@ function settingsReveal(row) {
   // and by nothing else. Some browsers make a scrollable box focusable anyway
   // and some do not, and which of them a reader has is not something the panel
   // should decide the answer for.
-  return blocks
-    ? `<div class="settings-reveal" popover="manual" tabindex="0">${blocks}</div>`
+  const head = said ? `<div class="reveal-said">${escapeHtml(said)}</div>` : '';
+  return blocks || head
+    ? `<div class="settings-reveal" popover="manual" tabindex="0">`
+      + `${head}${blocks}</div>`
     : '';
 }
+
+// --- the filter -------------------------------------------------------------
+// One line above the table. What it can be asked is `filtertable.js`'s to say;
+// what this holds is the query in force, and where it is published: in the URL,
+// so a filtered board is a link, and kept across a dataset pick, because
+// 'the failed ones' is a question about the lab and not about one corpus.
+let QUERY = '';
+let REMEASURE = null;      // the scroll rail's, once there is a table to measure
+
+function renderFilter() {
+  return `
+    <div class="filter-bar">
+      <label for="row-filter">Filter</label>
+      <input id="row-filter" class="filter-input" type="text" spellcheck="false"
+             autocapitalize="off" autocomplete="off" aria-describedby="filter-syntax"
+             placeholder="state!=failed questions&gt;30 decision&gt;0.6"
+             value="${escapeHtml(QUERY)}">
+      <button type="button" class="filter-clear" id="filter-clear">clear</button>
+      <span class="filter-count" id="filter-count" role="status"></span>
+      <p class="filter-said" id="filter-said" hidden></p>
+    </div>`;
+}
+
+const quoted = (words) => words.map((word) => `“${word}”`).join(', ');
+
+// Narrow the table to the query, and say what happened. A count on every state,
+// including the unfiltered one: a table with no count is a table that quietly
+// might not be all of it.
+function applyFilter() {
+  const table = document.querySelector('#board table');
+  const count = $('filter-count');
+  const said = $('filter-said');
+  if (!table || !count || !said) return;
+  const out = FilterTable.apply(table, QUERY);
+  const trouble = out.unknown.length
+    ? `no column called ${quoted(out.unknown)} on this board`
+    : out.bad.length
+      ? `${quoted(out.bad)} asks nothing`
+      : '';
+  // A query that asked nothing answerable leaves the rows exactly as the last
+  // answerable one left them — which while a term is half typed is the useful
+  // behaviour and never the obvious one, so it is said rather than assumed.
+  said.textContent = trouble ? `${trouble} — the rows below are unchanged.` : '';
+  said.hidden = !trouble;
+  count.textContent = out.shown === out.total
+    ? `${out.total} row${out.total === 1 ? '' : 's'}`
+    : `${out.shown} of ${out.total} shown`;
+  // The table's width follows what is in it, and the rail above it is sized to
+  // that width.
+  if (REMEASURE) REMEASURE();
+}
+
+// In the URL beside the dataset, for the same reason: a view somebody wants to
+// come back to is a view they can send.
+function publishQuery() {
+  const url = new URL(window.location.href);
+  if (QUERY) url.searchParams.set('filter', QUERY);
+  else url.searchParams.delete('filter');
+  window.history.replaceState({}, '', url);
+}
+
+// Delegated and registered once, because the whole board is rebuilt on every
+// dataset pick and a listener added per render would stack.
+document.addEventListener('input', (event) => {
+  if (!event.target || event.target.id !== 'row-filter') return;
+  QUERY = event.target.value;
+  publishQuery();
+  applyFilter();
+});
+document.addEventListener('click', (event) => {
+  const clear = event.target && event.target.closest
+    ? event.target.closest('#filter-clear') : null;
+  if (!clear) return;
+  QUERY = '';
+  const box = $('row-filter');
+  if (box) { box.value = ''; box.focus(); }
+  publishQuery();
+  applyFilter();
+});
 
 // Which corpus is on screen. The same affordance the lab page uses for its
 // corpus scope, down to the classes and the native `popover` — the browser owns
@@ -265,32 +351,53 @@ async function loadBoard(dataset) {
   }
   CURRENT = body.dataset || '';
   CATALOGUE = body.datasets || [];
-  const { html, rankAt } = renderTable(CURRENT, body.rows || []);
+  const rows = body.rows || [];
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
         <h2>${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
-        <span class="section-meta right">${(body.rows || []).length} recorded</span>
+        <span class="section-meta right">${rows.length} recorded</span>
       </div>
       ${renderPicker(CURRENT, CATALOGUE)}
-      ${(body.rows || []).length ? html : '<p class="prose">Nothing recorded for '
+      ${rows.length ? renderFilter() + renderTable(CURRENT, rows)
+        : '<p class="prose">Nothing recorded for '
         + 'this dataset yet. Open the <a href="/">Laboratory</a>, pick it and '
         + 'press <b>Run evaluation</b>.</p>'}
       <p class="table-hint">Click any column heading to sort by it, again to
-        reverse, a third time for the order it was served in. <b>#</b> is the
-        position in whatever you are looking at. The <b>pipeline</b> cell is
-        clipped to the column's width — hover it or give it focus and the whole
-        recorded config opens beside it. <b>backend</b> is where the model calls
+        reverse, a third time for the order it was served in. The
+        <b>pipeline</b> cell is abbreviated and clipped to the column's width —
+        hover it or give it focus and the whole sentence opens beside it, with
+        every recorded knob under that. <b>backend</b> is where the model calls
         actually went: <code>fake</code> answers and judges without ever
         failing, so those rows are a rehearsal of the pipeline and not a
         measurement of it. This table names no winner: rows graded by different
         judges over different question sets share it, so <b>judge</b> and
         <b>questions</b> are columns you compare on.</p>
+      <p class="table-hint" id="filter-syntax"><b>Filter</b> takes one term per
+        column, all of which must hold, each written as the column's own heading
+        and what you want of it: <code>questions&gt;30</code>,
+        <code>decision&gt;=0.6</code>, <code>seconds&lt;120</code>,
+        <code>when&gt;2026-08-01</code>, <code>state!=failed</code>,
+        <code>judge~sonnet</code>. A colon is the forgiving spelling of
+        <code>~</code> (<code>kind:run</code>); a colon with nothing after it
+        asks whether the column was measured at all (<code>ctx-recall:</code>
+        for the rows that have it, <code>!ctx-recall:</code> for the rows that do
+        not). A bare word searches the whole row, <code>!word</code> excludes it,
+        and quotes hold a value together: <code>label~"hybrid vs dense"</code>.
+        A term about a column a row never measured does not match it in either
+        direction — a dash is <i>never measured</i>, not a low value.</p>
     </section>`;
   const table = box.querySelector('table');
   if (table) {
-    SortTable.make(table, { onApply: (rows) => renumber(rows, rankAt) });
+    // Both readings of the table, wired to each other in one direction only:
+    // the sorter re-appends every row it holds on each reorder, which drops the
+    // hidden ones back among the visible ones, so the filter re-runs after it.
+    // The filter knows nothing about sorting in return — it decides each row
+    // from the query alone, so it cannot drift whatever order it is handed.
+    SortTable.make(table, { onApply: applyFilter });
+    REMEASURE = mountScrollRail(box.querySelector('.table-scroll'));
   }
+  applyFilter();
   wirePicker();
 }
 
@@ -408,4 +515,6 @@ document.addEventListener('click', (event) => {
     `<p class="explain">${escapeHtml(mark.dataset.help || '')}</p>`);
 });
 
-loadBoard(new URLSearchParams(window.location.search).get('dataset') || '');
+const ASKED = new URLSearchParams(window.location.search);
+QUERY = ASKED.get('filter') || '';
+loadBoard(ASKED.get('dataset') || '');

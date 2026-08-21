@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/chrome.css">
 <link rel="stylesheet" href="/panel.css">
 <script src="/sorttable.js"></script>
+<script src="/filtertable.js"></script>
 <script src="/lab.js"></script>
 </head>
 <body>
@@ -52,7 +53,9 @@
     <p class="prose">
       <b>One table per dataset.</b> Every experiment that touched one corpus —
       index builds, retrievals and evaluations alike — in one table, ordered by
-      decision score and sortable by any column. No winner is named: rows graded
+      decision score, sortable by any column and narrowable by any of them
+      (<code>state!=failed</code>, <code>questions&gt;30</code>,
+      <code>when&gt;2026-08-01</code>). No winner is named: rows graded
       by different judges over different question sets share a table, so
       <code>judge</code> and <code>questions</code> are columns you compare on
       rather than a promise that two rows are comparable. That stricter claim

@@ -11,6 +11,7 @@ always be checked against the experiment id on its row.
 """
 import argparse
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,6 +27,60 @@ from raglab.evaluation import service_experiment_ledger as ledger
 # in the page and not in the printer, for the same reason `board_dict` exists:
 # two surfaces that each derived the sentence could describe one row two ways.
 #
+# The short form of the words the sentence is made of. The sentence is the
+# board's widest column and the one column a reader cannot do without — it is
+# what tells two rows apart — so it is written twice rather than once: `text` is
+# every knob spelled out, `short` is the same knobs in the abbreviations the
+# field already uses. Only what a reader would recognise abbreviated is here; a
+# knob with no entry keeps its own name, which is what stops a knob added later
+# from being drawn as a word nobody can expand.
+SHORT_PARTS = {
+    # chunkers
+    'semantic-drift': 'sem-drift', 'fixed-overlap': 'fix-ov',
+    'message': 'msg', 'turn-pair': 'pair', 'session': 'sess',
+    # hierarchies
+    'louvain': 'louv', 'leiden': 'leid', 'label-prop': 'lprop',
+    'raptor': 'rapt', 'agglomerative': 'agglo', 'kmeans': 'kmn',
+    'metadata': 'meta',
+    # embedders. The hash embedders keep the '#' rather than losing the word
+    # that says what they are: hashing is the whole claim of that row.
+    'sentence-transformers': 'ST', 'fastembed': 'FE',
+    'ascii-hash': 'ascii#', 'token-hash': 'tok#', 'char-hash': 'char#',
+    # retrievers
+    'hybrid-rrf': 'rrf',
+    # rerankers and graders, which share a vocabulary
+    'lexical': 'lex', 'cross-encoder': 'CE', 'recency': 'rec',
+    'agentic': 'agt',
+    # answerers
+    'extractive': 'extr',
+    # agent scopes
+    'retrieve': 'retr', 'generate': 'gen',
+}
+
+# What every offered embedding model's name ends with, and none of what a reader
+# is comparing: the version is fixed by the checkpoint and the family is the
+# same on every row that names a model at all. The *size* is never dropped —
+# MiniLM-L6 and MiniLM-L12 are two different indexes.
+_MODEL_VERSION = re.compile(r'-v\d+(?:\.\d+)*$')
+_MODEL_FAMILY = ('paraphrase-multilingual-', 'multilingual-', 'paraphrase-',
+                 'all-')
+
+
+def short_part(part: str) -> str:
+    """One word of the pipeline sentence, in its short form."""
+    # The contextual mark rides on the chunker's name, and it is two syllables
+    # already: abbreviate what it is attached to, keep the mark.
+    if part.endswith('+ctx'):
+        return short_part(part[:-len('+ctx')]) + '+ctx'
+    if part in SHORT_PARTS:
+        return SHORT_PARTS[part]
+    trimmed = _MODEL_VERSION.sub('', part)
+    for family in _MODEL_FAMILY:
+        if trimmed.startswith(family):
+            return trimmed[len(family):]
+    return trimmed
+
+
 # A step that did not run is absent, not '—'. An index build's sentence is its
 # index fragment and nothing else; three em-dashes beside it would draw a row
 # that reads as a failed evaluation rather than a finished build.
@@ -52,9 +107,10 @@ def pipeline_fragments(config: dict) -> list[dict]:
     }
     out = []
     for step in ('index', 'retrieval', 'generation', 'agent'):
-        text = '·'.join(p for p in parts[step] if p and p != 'none')
-        if text:
-            out.append({'step': step, 'text': text})
+        said = [p for p in parts[step] if p and p != 'none']
+        if said:
+            out.append({'step': step, 'text': '·'.join(said),
+                        'short': '·'.join(short_part(p) for p in said)})
     return out
 
 

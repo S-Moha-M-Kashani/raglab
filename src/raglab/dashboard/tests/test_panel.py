@@ -166,16 +166,16 @@ CONVENTIONS = [
     ('index.html', None, 'retrieving…',
      'the ask must run through the same job box as a build or a run, not a '
      'static note'),
-    ('index.html', 'localhost:9003', None,
-     'the panel must link to the Inspector, or :9003 is a port you have to '
-     'already know about'),
-    ('index.html', 'Inspector (:9003)', None,
-     'the panel must name the Inspector in its link text, not just point at '
-     'the port — checked against the link text itself rather than the bare '
-     'word "Inspector", which also appears in three unrelated HTML comments '
-     '(the shared-tokens note by the stylesheet links, the retrieval-window '
-     'note above the actions row, and the note beside the link itself) that '
-     'a rename of the visible link would not touch'),
+    ('index.html', 'href="/inspector"', None,
+     'the panel must link to the Inspector by path — all three surfaces are '
+     'one origin now, so a port is not something a reader ever has to know'),
+    ('index.html', 'Inspector &rarr;', None,
+     'the panel must still name the Inspector in its link text — checked '
+     'against the link text itself rather than the bare word "Inspector", '
+     'which also appears in unrelated HTML comments (the shared-tokens note '
+     'by the stylesheet links, the retrieval-window note above the actions '
+     'row, and the note beside the link itself) that a rename of the '
+     'visible link would not touch'),
     ('index.html', None, 'id="question"',
      'asking one question moved to the Inspector; a control left behind is '
      'how a retired feature quietly comes back'),
@@ -1535,3 +1535,28 @@ def test_a_hovered_row_lights_up_whole_and_in_one_direction(panel_texts):
         assert css.index(stripe) < css.index(frozen), (
             f'the hover rule must come after {stripe}, or that column keeps '
             'its stripe while the rest of the row lights up')
+
+
+def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
+    # this is a convention test
+    """Three surfaces on one origin reach each other by path. A hardcoded
+    http://localhost:9002 was how a second port had to be linked; it now
+    breaks the moment the lab is served anywhere but this machine, and
+    :9003 points at nothing at all."""
+    for name in ('index.html', 'leaderboard.html', 'leaderboard.js'):
+        assert 'localhost:900' not in panel_texts[name], (
+            f'{name} still links out to a port instead of a path')
+    # The board's row link is built at runtime from a template string rather
+    # than sitting in markup, so the loop above already covers it once
+    # `leaderboard.js` is in scope — this assertion additionally pins the
+    # replacement shape, so a fix that merely drops the origin without
+    # keeping `/inspector` as the mount path still fails here.
+    assert 'href="/inspector/?experiment=' in panel_texts['leaderboard.js'], (
+        'the board must open the Inspector by path, with the experiment id '
+        'still carried in the query string')
+    # The panel's own door to the Inspector, opened from 3 · Generation once a
+    # run exists: same requirement, same reason, a second place the origin
+    # could have been left behind.
+    assert 'id="open-inspector" href="/inspector"' in panel_texts['index.html'], (
+        "the panel's lab-link to the Inspector must be a path on this "
+        'origin, not a link to a port')

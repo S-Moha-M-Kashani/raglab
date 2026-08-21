@@ -862,7 +862,7 @@ async function doRetrieve() {
     `retrieved for <b>${questions.length}</b> question` +
     `${questions.length === 1 ? '' : 's'} · ${gold} gold chunk` +
     `${gold === 1 ? '' : 's'} among the candidates — open the Inspector ` +
-    '(:9003) to read the per-question tables';
+    'to read the per-question tables';
 }
 
 $('retrieve-selected').onclick = async () => {

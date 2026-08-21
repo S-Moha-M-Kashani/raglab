@@ -1,6 +1,7 @@
-// Shared between the panel (:9002) and the Inspector (:9003) — loaded before
-// each page's own script, the way sorttable.js already is. Holds only what
-// the two pages' scripts, written months apart, turned out to need identically.
+// Shared by all three surfaces — the Laboratory, the Inspector and the
+// Leaderboard — loaded before each page's own script, the way sorttable.js
+// already is. Holds only what those scripts, written months apart, turned
+// out to need identically.
 
 // The stricter of the two copies this page used to carry separately: escapes
 // `"` as well as `&<>`. In a text node `&quot;` renders as `"`, so nothing
@@ -22,9 +23,9 @@ function escapeHtml(text) {
 // the other theme flash on every navigation between the three surfaces. The
 // two copies read the same key, which is the only thing they must agree on.
 //
-// :9002 and :9003 are separate origins, so neither surface can read the
-// other's storage and the choice does not travel between them. That is a
-// browser rule rather than a decision — the Inspector remembers its own.
+// All three surfaces are one origin, so the choice travels between them: the
+// Inspector reads the same key the Laboratory wrote. That is why the theme
+// control appears identical on every page rather than three times over.
 const THEME_KEY = 'raglab-theme';
 // Light, dark, neither — in that order, so the control reads as a range with
 // the "I have not decided" end where a reader expects to find it.

@@ -122,7 +122,7 @@ function cell(row, key) {
     // the Laboratory. Both name the experiment, because a link that navigated
     // and a handler that read a row index would be two accounts of one click.
     case 'open': return `<a class="open-run" target="_blank" rel="noopener"`
-      + ` href="http://localhost:9003/?experiment=${encodeURIComponent(row.experiment_id)}"`
+      + ` href="/inspector/?experiment=${encodeURIComponent(row.experiment_id)}"`
       + ` data-experiment="${escapeHtml(row.experiment_id)}"`
       + ` aria-label="Read ${escapeHtml(row.experiment_id)} in the Inspector`
       + ` and load its settings into the Laboratory">↗</a>`;

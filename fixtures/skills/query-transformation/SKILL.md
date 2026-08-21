@@ -56,7 +56,8 @@ Break a compound question into atomic sub-questions, retrieve for each, and
 assemble. This is the right tool for comparisons ("how did A differ from B") and
 multi-hop questions where the bridge entity is only named in the first hop's
 result. Decomposition can be a single up-front split or interleaved with
-retrieval, at which point it has become an agent loop — see `agentic-rag`.
+retrieval, at which point it has stopped being a transform and become a loop
+around retrieval — a different technique, with a different cost model.
 
 ## Conversational rewriting
 
@@ -71,8 +72,8 @@ Transforming every query pays the cost on the many queries that did not need it.
 The usual trigger conditions are cheap to compute: query length, presence of
 multiple clauses or question marks, no history to resolve, and — best of all —
 low first-stage retrieval confidence, which means the transform is only paid when
-plain retrieval already looked weak. That routing decision is itself a topic; see
-`adaptive-corrective-rag`.
+plain retrieval already looked weak. That routing decision is itself a topic:
+whether to retrieve at all, and what to do when the evidence comes back bad.
 
 ## The encoder contract, which transforms break quietly
 

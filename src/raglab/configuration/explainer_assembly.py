@@ -6,7 +6,6 @@ returning anything is a test failure, so a new field cannot ship unexplained.
 """
 from raglab.configuration.lab_config import (
     HELP,
-    AgentConfig,
     GenerationConfig,
     IndexConfig,
     RetrievalConfig)
@@ -22,7 +21,7 @@ from raglab.evaluation.ragas_judged_metrics import (
     RAGAS_MEASURES)
 
 GROUPS = (('index', IndexConfig), ('retrieval', RetrievalConfig),
-          ('generation', GenerationConfig), ('agent', AgentConfig))
+          ('generation', GenerationConfig))
 
 
 def topics() -> dict[str, str]:

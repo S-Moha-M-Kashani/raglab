@@ -936,19 +936,6 @@ def test_the_inspector_tables_sit_in_the_shared_scroll_region(inspector_texts):
         'a stripe')
 
 
-def test_the_agent_ladder_is_wired_to_the_shared_sorter(inspector_texts):
-    # this is a convention test
-    """The ladder was the one table on either surface built by a path that
-    never reached `SortTable.make`. Both questions a reader brings to a loop
-    trace are column questions — sort by node and a node visited three times
-    collects itself; sort by hop and you see what each hop cost — and the third
-    click puts back the order it was served in, which for this table is the
-    sequence itself."""
-    js = inspector_texts['inspector.js']
-    ladder = js[js.index('function agentLadder'):js.index('function questionBlock')]
-    assert 'SortTable.make(' in ladder
-
-
 # --- following the lab (:9002) ----------------------------------------------
 #
 # `/api/follow` has two halves: a real HTTP round trip to :9002 (`_lab_get`),

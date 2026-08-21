@@ -39,7 +39,7 @@ def completed_archive(run_id: str = 'imported-run-001') -> dict:
             'stage_results': {
                 'index': {'statistics': index_stats, 'metrics': {}},
                 'retrieval': {'metrics': {'recall': 1.0}},
-                'generation': {'metrics': {}}, 'agent': {'metrics': {}},
+                'generation': {'metrics': {}},
                 'overall': {'metrics': {}},
             },
             'result': {

@@ -53,17 +53,6 @@
         "judge_model": "",
         "ragas_model": ""
       },
-      "agent": {
-        "scope": "",
-        "max_hops": 3,
-        "rewrite": true,
-        "evidence_threshold": 0.5,
-        "max_revisions": 1,
-        "critic": "grounded",
-        "max_llm_calls": 12,
-        "plan_model": "",
-        "critic_model": ""
-      },
       "label": "the shipped assistant (snapshot 2026-08-11)"
     },
     "ui": {

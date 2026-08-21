@@ -44,14 +44,6 @@ SUMMARY_SCOPES = ('mixed', 'leaves', 'summaries', 'drill-down')
 RERANKERS = ('lexical', 'none', 'recency', 'agentic', 'cross-encoder', 'llm')
 GRADERS = ('none', 'lexical', 'llm')
 ANSWERERS = ('extractive', 'none', 'llm')
-# The 2x2 the agent is built on: retrieval-agent {off,on} x generation-agent
-# {off,on}, so a row can attribute its win to a stage rather than to "the
-# agent". '' is the off control. 'full' deliberately changes both against the
-# control and is only interpretable beside the two middle rows — never alone.
-SCOPES = ('', 'retrieve', 'generate', 'full')
-# What the generation agent checks before shipping a draft. 'none' is the
-# control for whether the critique bought anything at all.
-CRITICS = ('grounded', 'both', 'none')
 # Ascending, and the order a sample's uneven remainder is handed out in.
 DIFFICULTIES = ('easy', 'medium', 'hard')
 # How a limited run picks its questions. See evaluate.select_questions.

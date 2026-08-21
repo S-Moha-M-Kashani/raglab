@@ -276,55 +276,6 @@ HELP = {
         'model. The facts are English and the answers Farsi, so no lexical metric '
         'can do this — and it is the metric that exposed generation as the '
         'bottleneck (coverage 0.261 against faithfulness 0.743).'),
-    'agent.scope': (
-        'Which stage a bounded loop is allowed to own, and the only setting '
-        'here that changes what runs. "off" is the fixed pipeline every number '
-        'this lab has measured was produced on. "retrieval" lets the agent look again: '
-        'plan → retrieve → is this enough? → rewrite → retrieve, with '
-        'generation left exactly as it is. "generation" holds retrieval fixed '
-        'and lets the agent draft, critique its own draft against the retrieved '
-        'text, and revise. "both" is the two together plus the one edge neither '
-        'has alone — a bad critique can send it back for different evidence. '
-        'The four are a 2×2 on purpose: "both" changes two things at once, so '
-        'it means something only beside the two middle rows and nothing on its '
-        'own. Every retrieval and generation knob above still applies on every '
-        'hop; the agent runs them repeatedly, it does not replace them.'),
-    'agent.max_hops': (
-        'How many times the retrieval loop may go round before it settles for '
-        'what it has. Each hop is a fresh retrieval plus a sufficiency verdict, '
-        'so this is the retrieval scope\'s cost dial. 1 makes the agent a single '
-        'extra model call over the fixed pipeline, which is the honest floor to '
-        'compare the rest against.'),
-    'agent.rewrite': (
-        'Rewrite the query between hops, rather than searching the same words '
-        'again. Off, the hops differ only in what the sufficiency verdict asked '
-        'for — which is the control that says whether rewriting was the useful '
-        'part of the loop or whether looking twice was.'),
-    'agent.evidence_threshold': (
-        'The sufficiency verdict a hop has to clear for the agent to stop '
-        'looking. High values hop more and cost more; low values make the loop '
-        'a formality. An unreadable verdict counts as *insufficient* — never as '
-        'a number that clears this bar — because a model that cannot be reached '
-        'must not look like a loop that succeeded.'),
-    'agent.max_revisions': (
-        'How many times a refused draft may be rewritten. 0 means the critic '
-        'reports and nothing acts on it, which is worth running: it separates '
-        '"the critic was right" from "the revision helped".'),
-    'agent.critic': (
-        'What the agent checks before it ships a draft. "grounded" asks only '
-        'whether every claim is supported by the retrieved text — the '
-        'hallucination check. "both" also asks whether the draft actually '
-        'answers the question, which is the failure the key-facts judge '
-        'measured (coverage 0.261 against faithfulness 0.743). "none" ships the '
-        'first draft and is the control: a generation row that cannot beat it '
-        'paid for a critique that changed nothing.'),
-    'agent.max_llm_calls': (
-        'A hard ceiling on model calls per question, whatever the loop still '
-        'wants to do. The shape caps above bound how many times it goes round; '
-        'this bounds what that costs, because a judged sweep multiplies it by '
-        'thirty questions and four candidates. When this is what ends a run the '
-        'row says so ("call-cap"), so a cheap-looking score can never be a '
-        'truncated loop nobody noticed.'),
     'run.mode': (
         'Where the LLM stages run. "Local (Ollama)" is the lab default — free '
         'and private — and resets every stage to the lab\'s own defaults. '

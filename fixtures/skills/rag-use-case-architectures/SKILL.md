@@ -51,7 +51,7 @@ Ask these before naming any technique:
 
 Two 2026 patterns sit above single rows: **adaptive routing** — classify the
 query and select retrieval depth per query, so simple operational questions do
-not pay the deep pipeline (see `adaptive-corrective-rag`) — and **federated
+not pay the deep pipeline — and **federated
 retrieval** for cross-organisational cases (hospitals, jurisdictions, banks)
 where the corpus cannot be centralised and retrieval goes to the data rather
 than the reverse.
@@ -88,8 +88,7 @@ hybrid-RRF (names, dates and numbers are literal tokens) and a time treatment
 measuring each alone. Then check recall@rerank_depth against recall@k before
 paying for any reranker; add one only if the gap is large. Then add a
 relevance gate if fabricated memories are the risk that matters. Only then a
-hierarchy, measured on the counting tail and never on the mean; only then an
-agent scope, against a widened top_k control.
+hierarchy, measured on the counting tail and never on the mean.
 
 **For the use case of team meeting notes / organisational knowledge**: first
 try structure-aware chunks (one per agenda item or decision, speaker tags

@@ -31,10 +31,8 @@ _MODEL_FIELDS = (
     ('generation', 'model'),
     ('generation', 'judge_model'),
     ('generation', 'ragas_model'),
-    ('agent', 'plan_model'),
-    ('agent', 'critic_model'),
 )
-_STAGES = ('index', 'retrieval', 'generation', 'agent', 'overall')
+_STAGES = ('index', 'retrieval', 'generation', 'overall')
 _UNSAFE_METRIC_KEYS = frozenset(('__proto__', 'prototype', 'constructor'))
 
 
@@ -578,7 +576,7 @@ def validate_archive(payload, *, encoded_size=None, limits=None) -> dict:
 
 def stage_results(result: dict, metric_catalogue: list[dict]) -> dict:
     groups = {step: {'metrics': {}}
-              for step in ('retrieval', 'generation', 'agent', 'overall')}
+              for step in ('retrieval', 'generation', 'overall')}
     groups['index'] = {'statistics': copy.deepcopy(result['index']),
                        'metrics': {}}
     steps = {}

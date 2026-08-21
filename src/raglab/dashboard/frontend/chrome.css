@@ -319,27 +319,59 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 
 /* The row's identity survives scrolling right. Without this the run's date
    leaves the viewport and every remaining number belongs to nothing.
-   Both frozen columns carry a fixed width, because `left` on the second one
-   has to equal the first one's actual width — leave the widths to the content
-   and the second column slides over its neighbour instead of beside it. */
-.data-table .freeze-1, .data-table .freeze-2 {
-  position: sticky; z-index: 1; background: var(--card);
+
+   A sticky element is a stacking context whatever its `z-index` says, so
+   nothing inside this cell can be lifted above the sticky header row — which is
+   why the settings reveal it holds is in the top layer instead of in this
+   cell's paint order at all (see `.settings-reveal` below). The `z-index` here
+   only orders the cell against the header, which keeps a higher one.
+
+   Wide enough for a whole pipeline sentence, which is what this column holds —
+   at the 3rem it was tuned to when it held a rank, the sentence that identifies
+   the row was three characters of it. The width is a custom property because
+   the block that clips inside the cell has to carry the same number, and a
+   second literal is a second number. */
+.data-table .freeze-1 {
+  --freeze-1: 30rem;
+  position: sticky; z-index: 1; left: 0; background: var(--card);
+  width: var(--freeze-1); min-width: var(--freeze-1);
 }
-.data-table tbody tr:nth-child(even) .freeze-1,
-.data-table tbody tr:nth-child(even) .freeze-2 { background: var(--rule-soft); }
-.data-table thead .freeze-1, .data-table thead .freeze-2 { z-index: 4; background: var(--plate); }
-/* The frozen pair has to take the hover too, and after the striping rule above
-   it, which matches at the same specificity and would otherwise keep its
-   stripe. Without this a hovered even row is two-tone: its identity columns
-   stay striped while everything right of them lights up — invisible on Day
-   only because the two colours involved were a hundredth of a step apart. */
+.data-table tbody tr:nth-child(even) .freeze-1 { background: var(--rule-soft); }
+.data-table thead .freeze-1 { z-index: 4; background: var(--plate); }
+/* A cell cannot hold its own width: `table-layout: auto` sizes a column from
+   its widest `nowrap` content, so `width` on the cell is a suggestion the
+   longest sentence overrules — and the frozen column grew to two thirds of the
+   region, which is the failure freezing it was supposed to fix. A block *inside*
+   the cell can hold a width, so the clip happens there. Nothing is lost to it:
+   the cell opens the whole recorded config beside it. */
+.data-table .freeze-1 .clip {
+  display: block; width: var(--freeze-1);
+  overflow: hidden; text-overflow: ellipsis;
+}
+
+/* And one at the other edge. The board's identity — the pipeline sentence — is
+   frozen left, and its way into the Inspector is frozen right, because a
+   sixteen-column table is exactly where both would otherwise be off screen at
+   the same time. The divider shadow points inward, so on this side it is
+   negative.
+   Two frozen columns is the limit: a third beside a wide sentence would leave
+   too little of the region actually scrolling, which is the failure the region
+   exists to fix. */
+.data-table .freeze-last {
+  position: sticky; z-index: 1; right: 0; background: var(--card);
+  width: 3rem; min-width: 3rem;
+  box-shadow: -1px 0 0 var(--rule);
+}
+.data-table tbody tr:nth-child(even) .freeze-last { background: var(--rule-soft); }
+.data-table thead .freeze-last { z-index: 4; background: var(--plate); }
+/* A frozen column has to take the row hover too, and after the striping rule
+   above it, which matches at the same specificity and would otherwise keep its
+   stripe. Without this a hovered even row is two-tone: its frozen columns stay
+   striped while everything between them lights up. Both edges are named, not
+   just the left one — the right-hand column has the same problem for the same
+   reason. */
 .data-table tbody tr:hover .freeze-1,
-.data-table tbody tr:hover .freeze-2 { background: var(--rule); }
-.data-table .freeze-1 { left: 0; width: 3rem; min-width: 3rem; }
-.data-table .freeze-2 {
-  left: 3rem; width: 10rem; min-width: 10rem;
-  box-shadow: 1px 0 0 var(--rule);
-}
+.data-table tbody tr:hover .freeze-last { background: var(--rule); }
 
 /* macOS hides a scrollbar until it moves, so keep one visible: a cue that the
    table continues sideways, without a floated pseudo-element competing with
@@ -374,3 +406,124 @@ th.sort-col:hover { color: var(--ink); }
 th.sort-col:focus-visible { outline: 2px solid var(--step-generation); outline-offset: 1px; }
 th[aria-sort="ascending"]::after { content: " ▲"; color: var(--step-index); }
 th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
+
+/* ── the pipeline sentence and its reveal ──────────────────────────────────
+   One fragment per step that ran, each in that step's own ink, so a row says
+   which pipeline produced it before you read a single number. `data-step`
+   resolves `--step` from the four definitions in tokens.css — this file invents
+   no colour. */
+.pipe-part { color: var(--step, var(--ink)); font-weight: 600; }
+.pipe-sep { color: var(--ink-soft); margin: 0 var(--s-1); }
+
+/* The whole recorded config, opened by the cell above. `fixed`, because the
+   cell it hangs off is inside a bounded scroll region and an absolute box is
+   clipped at every width; placed by `placeReveal` in lab.js, since a fixed box
+   does not travel with its cell. The insets here are placeholders — every open
+   reveal is positioned by script.
+
+   It is also a `popover`, which is what puts it in the top layer. Nothing else
+   could: the cell it lives in is `position: sticky`, a sticky element is a
+   stacking context whatever its `z-index`, and the box is the tallest thing on
+   the page — so on any row low enough for it to open upwards it was painted
+   *under* the sticky header row it crossed, a panel of settings hidden behind a
+   row of column names. No `z-index` will lift a descendant out of its own
+   cell; the top layer is outside every stacking context on the page. `manual`,
+   because which reveal is open is decided by hover and focus in
+   leaderboard.js — not by clicking, and not by dismissing another one.
+
+   `inset: auto` and `margin: 0` undo the browser's own default for a popover
+   (`inset: 0; margin: auto`, i.e. the middle of the viewport), which would
+   otherwise fight the placement. */
+.settings-reveal {
+  position: fixed; inset: auto; top: 0; left: 0; margin: 0;
+  width: 34rem; max-width: 78vw; max-height: 42vh; overflow-y: auto;
+  padding: var(--s-3);
+  /* The cells this hangs off are `nowrap`, and that inherits: without the reset
+     an embedding model's path or a question-set id runs off the side of the box
+     and has to be scrolled to sideways, inside a panel opened to read it. */
+  white-space: normal; overflow-wrap: anywhere;
+  background: var(--card); border: 1px solid var(--ink);
+  box-shadow: var(--shadow);
+  font: var(--t-xs)/1.6 var(--mono); text-align: left;
+}
+.reveal-step { border-left: 3px solid var(--step, var(--rule));
+               padding-left: var(--s-2); margin-bottom: var(--s-2); }
+.reveal-step > b { color: var(--step, var(--ink)); text-transform: uppercase;
+                   font: var(--label-font); letter-spacing: var(--label-track);
+                   display: block; margin-bottom: var(--s-1); }
+.reveal-knob { display: block; color: var(--ink-soft); }
+.reveal-knob > b { color: var(--ink); }
+
+/* ── the context scope ─────────────────────────────────────────────────────
+   Which corpus is in force: the lab page's Corpus scope and the board's Dataset
+   picker are the same affordance answering the same question on two surfaces,
+   so the rules moved here from panel.css rather than being written twice.
+
+   The detail box is a native `popover` on both pages, so the browser owns show,
+   hide, light-dismiss and Escape. Where it opens is still this sheet's to say,
+   below. */
+/* No `position` on it: the box it opens is a popover, which is painted in the
+   top layer and placed against the button rather than inside any ancestor. */
+.board-bar { display: flex; align-items: center; gap: var(--s-2);
+             margin-bottom: var(--s-3); }
+.context-bar {
+  max-width: var(--measure); margin: 0 auto;
+  padding: var(--s-2) var(--gutter) 0;
+}
+.context-scope {
+  appearance: none; display: inline-flex; align-items: baseline; gap: var(--s-2);
+  background: transparent; border: 1px solid var(--rule);
+  border-radius: var(--radius-pill);
+  padding: var(--s-1) var(--s-3); cursor: pointer;
+  color: var(--ink); font: var(--t-xs)/1.5 var(--mono);
+}
+.context-scope:hover { border-color: var(--ink-soft); background: var(--card); }
+.context-label {
+  color: var(--ink-soft); font: var(--label-font);
+  text-transform: uppercase; letter-spacing: var(--label-track);
+}
+.context-caret { color: var(--ink-soft); font-size: var(--t-2xs); }
+/* Where it opens. A popover's own default is `inset: 0; margin: auto` — the
+   middle of the viewport — and the `margin: 0` this box needs pins it at the
+   top-left corner instead: on the lab page that covers the identity and the
+   surface switcher in the top bar, and on the board it opens a card's height
+   away from the button that opened it. Every other popover on these pages says
+   where it goes (`.settings-popover`, `.status-popover`); this one has to say it
+   against its own trigger, because the two surfaces put that trigger in
+   different places — under the top bar on the lab, mid-card on the board.
+   The inset here is the answer without anchor positioning: under the bar at the
+   gutter, which is where the lab page's trigger stands. */
+.context-detail {
+  inset: calc(var(--bar-h) + var(--s-2)) auto auto var(--gutter);
+  margin: 0; padding: var(--s-3);
+  max-width: min(46rem, calc(100vw - 2rem));
+  color: var(--ink); background: var(--plate);
+  border: 1px solid var(--rule); border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  font: var(--t-xs)/1.6 var(--mono);
+}
+/* And with it: directly under the trigger, aligned to its left edge, on either
+   surface. Guarded because an engine without anchor positioning would drop
+   `position-area` and keep `inset: auto`, which is the top-left corner again. */
+@supports (position-area: block-end) {
+  .context-scope { anchor-name: --context-scope; }
+  .context-detail {
+    position-anchor: --context-scope;
+    position-area: block-end span-inline-end;
+    inset: auto; margin: var(--s-1) 0 0;
+  }
+}
+/* The lab wraps a census in this box; the board wraps a list of corpora. A list
+   brings markers and an indent the box was never told to suppress, so it is
+   told here rather than by a second box. */
+ul.context-detail { list-style: none; }
+.pick {
+  appearance: none; display: block; width: 100%; text-align: left;
+  background: transparent; border: 0; border-radius: var(--radius-sm);
+  padding: var(--s-1) var(--s-2); cursor: pointer;
+  color: var(--ink-soft); font: var(--t-xs)/1.6 var(--mono);
+}
+.pick:hover, .pick:focus-visible { background: var(--card); color: var(--ink); }
+/* The one in force is marked by weight as well as ink: colour alone would be
+   the only difference between it and the five it sits with. */
+.pick[aria-current="true"] { color: var(--ink); font-weight: 700; }

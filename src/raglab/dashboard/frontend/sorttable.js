@@ -71,7 +71,15 @@ const SortTable = (() => {
 
   // Wire one table. Safe to call again on the same element — a re-rendered table
   // is a new element, and a second call on the same one would stack listeners.
-  function make(table) {
+  //
+  // `options.onApply(rows)` is called after every reorder, with the rows in the
+  // order now displayed. It exists for a rank column: a static `#` travels with
+  // its row, so sorting by another column renders `1, 3, 2` — a column that
+  // lies. The callback lets the page renumber instead. It fires on wiring too,
+  // so a rank starts correct rather than correct-after-the-first-click, and on
+  // the third click that restores served order, where a stale numbering would
+  // be exactly as wrong.
+  function make(table, options) {
     if (!table || wired.has(table)) return;
     const head = table.tHead && table.tHead.rows[table.tHead.rows.length - 1];
     const body = table.tBodies[0];
@@ -115,6 +123,7 @@ const SortTable = (() => {
           dir === 1 ? 'ascending' : 'descending');
       }
       for (const row of rows) body.appendChild(row);
+      if (options && typeof options.onApply === 'function') options.onApply(rows);
     }
 
     heads.forEach((th, at) => {
@@ -128,8 +137,16 @@ const SortTable = (() => {
       // conveyed by `aria-sort` instead, which is what it is for, and the
       // keydown handler below keeps the column operable from the keyboard.
       th.setAttribute('aria-sort', 'none');
-      th.title = 'sort by this column · again to reverse · a third time for the '
-        + 'order it was served in';
+      // Only where the heading has nothing of its own to say. A page that gave
+      // its columns titles explaining what their numbers mean lost nine of
+      // eleven of them to this line: two correct decisions in two files, wrong
+      // only together. What a column measures is the more useful sentence, and
+      // what a click does is the same on every sortable column on both pages —
+      // so the generic hint yields to a specific one wherever there is one.
+      if (!th.title) {
+        th.title = 'sort by this column · again to reverse · a third time for '
+          + 'the order it was served in';
+      }
       const cycle = () => {
         if (column !== at) { column = at; dir = opensAt(at); }
         else if (dir === opensAt(at)) { dir = -dir; }
@@ -144,6 +161,15 @@ const SortTable = (() => {
         }
       });
     });
+
+    // Reports the served order to onApply without touching the DOM: every
+    // sortable `th` above already got `aria-sort="none"`, so there is
+    // nothing left for `apply()` to do here except re-append rows that are
+    // already in this order — real work for no visible change, on however
+    // many sortable tables a page renders at once. A rank must still start
+    // correct rather than correct-after-the-first-click, so it is reported
+    // directly instead.
+    if (options && typeof options.onApply === 'function') options.onApply(served);
   }
 
   // Every table under a root, for a page that renders several at once.

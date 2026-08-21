@@ -338,6 +338,26 @@ def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):
     assert group.rows[0]['run_id'] == result['run_id']
     assert leaderboard.verdict(group) == 'unknown', \
         'no decision score was measured, so nothing can be ranked'
-    rank_column = leaderboard.markdown(groups).splitlines()
-    data_row = next(line for line in rank_column if result['run_id'] in line)
-    assert data_row.strip().startswith('| —'), 'no rank number on an unjudged row'
+
+    # The board (what `leaderboard.markdown` actually prints now) lists the
+    # same run under smoke-mini, its decision column reading '—' rather than
+    # a fabricated zero — the board names no ranks at all any more.
+    boards = leaderboard.build_board()
+    board, = [b for b in boards if b.dataset == 'smoke-mini']
+    board_row, = [r for r in board.rows if r['experiment_id'] == result['run_id']]
+    assert board_row['decision'] is None
+    text = leaderboard.markdown(boards)
+    header = next(line for line in text.splitlines()
+                  if line.startswith('| pipeline '))
+    columns = [c.strip() for c in header.split('|')]
+    data_row = next(line for line in text.splitlines()
+                    if result['run_id'] in line)
+    cells = [c.strip() for c in data_row.split('|')]
+    # By the heading's own position, not a counted one: the printer gained a
+    # `state` column and every literal index after it moved.
+    assert cells[columns.index('decision')] == '—', \
+        'no decision score was measured, so its column reads —'
+    # And this run finished, which is what its own state column has to say —
+    # the column exists because a cancelled job printed as an ordinary row
+    # whose blank decision looked like a run nobody had judged yet.
+    assert cells[columns.index('state')] == 'done'

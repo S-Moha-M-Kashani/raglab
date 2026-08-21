@@ -7,6 +7,7 @@ import re
 import pytest
 
 from raglab.configuration import lab_config as config
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
 
@@ -66,6 +67,11 @@ def panel_texts(client):
         # follow it here rather than being deleted with the old board.
         'leaderboard.html': client.get('/leaderboard').text,
         'leaderboard.js': client.get('/leaderboard.js').text,
+        # The script all three pages load before their own, over its own route
+        # for the same reason as tokens.css. What both surfaces turned out to
+        # need identically lives in it, so a claim about "one implementation"
+        # is a claim about this file.
+        'lab.js': client.get('/lab.js').text,
         'panel.css': css,
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
@@ -142,9 +148,10 @@ CONVENTIONS = [
      'the embed-model control must live in the one model column'),
     ('leaderboard.html', 'decision score', None,
      'the leaderboard must say which column chose the architecture'),
-    ('leaderboard.js', 'ragas_decision_stderr', None,
+    ('leaderboard.js', 'decision_stderr', None,
      'the leaderboard must show the deciding score with its error, never the '
-     'mean alone'),
+     'mean alone — a board row calls it `decision_stderr`, which is the name '
+     'the route serves'),
     ('panel.js', 'job.detail', None,
      'a judged local run spends hours in one stage, and the detail is the '
      'one thing that still moves'),
@@ -190,12 +197,7 @@ CONVENTIONS = [
     ('index.html', 'id="archive-status"', None,
      'the archive status must keep its render hook'),
     ('leaderboard.html', 'id="board"', None,
-     'the ranked leaderboard must stay on its own surface'),
-    ('index.html', 'id="experiments"', None,
-     'the ledger of every experiment must stay on the lab page — an index '
-     'build has no decision score, so it never belonged in the ranking'),
-    ('panel.js', '/api/experiments', None,
-     'the experiments list must be read from the ledger route'),
+     'the board must stay on its own surface'),
     ('index.html', 'sorttable.js', None,
      'the panel must load the shared column sorter'),
     ('index.html', None, 'ragas_decision ▼',
@@ -204,13 +206,14 @@ CONVENTIONS = [
     ('panel.js', None, 'ragas_decision ▼',
      'the hard-coded sort arrow must not come back to the script either'),
     ('leaderboard.js', '/api/leaderboard', None,
-     'the leaderboard must read the grouped route, not re-derive its own '
-     'grouping from the raw run list — two groupings is how two surfaces come '
-     'to name different winners'),
-    ('leaderboard.js', 'group.ranked', None,
-     'a numbered row is a rank claim, so the page must honour the grouping '
-     "module's own answer about whether the sample was recorded rather than "
-     'counting rows from one'),
+     'the leaderboard must read the board route, not re-derive its own rows '
+     'from the raw run list — two derivations is how two surfaces come to '
+     'describe the same records differently'),
+    ('leaderboard.js', 'onApply', None,
+     'a numbered row is a claim about the order on screen, so `#` is written '
+     'from the displayed order after every reorder rather than served with the '
+     'row — a static rank travels with its row and reads 1, 3, 2 the moment '
+     'another column is sorted'),
     ('leaderboard.js', 'tabindex="0"', None,
      'the table must sit in a focusable scroll region, or there is no keyboard '
      'way to reach the right-hand side of it at all'),
@@ -410,7 +413,7 @@ CONVENTIONS = [
     ('panel.js', None, 'title="${safe(r.error',
      'why a run failed is the reason the row is degraded, and a title '
      'attribute publishes it to a mouse and to nothing else'),
-    ('panel.js', 'class="failed"', None,
+    ('leaderboard.js', 'class="failed"', None,
      'the failed state and the mark that opens its reason travel together, '
      'wrapped — an explainer inserted directly after a <td> is hoisted out '
      'of the table by the parser'),
@@ -506,12 +509,12 @@ def test_the_served_panel_keeps_its_conventions(
 
 def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
     # this is a convention test
-    """Five tables on this page — the four readings breakdowns and the
-    experiment ledger — and until now three of them were built by hand. Two of
-    those three took the sortable styling from the stylesheet and none of the
-    listeners, so they looked sortable and were inert. One builder, wearing the
-    shared region from chrome.css, is what makes a table added later sortable
-    and scrollable by having been rendered rather than by someone remembering."""
+    """Four tables on this page — the readings breakdowns — and until now
+    three of them were built by hand. Two of those three took the sortable
+    styling from the stylesheet and none of the listeners, so they looked
+    sortable and were inert. One builder, wearing the shared region from
+    chrome.css, is what makes a table added later sortable and scrollable by
+    having been rendered rather than by someone remembering."""
     js = panel_texts['panel.js']
     assert js.count('<table') == 1, (
         'there must be exactly one place a table is built; found '
@@ -520,11 +523,27 @@ def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
         'the region must be focusable and labelled, or there is no keyboard '
         'way to reach the right-hand side of a fifteen-column table')
     assert '<table class="data-table">' in js
-    for host in ('byType', 'ragas', 'extras', 'rows', 'experiments'):
+    for host in ('byType', 'ragas', 'extras', 'rows'):
         assert f"renderTable('{host}'" in js, (
             f'#{host} must be written through renderTable, which wires the '
             'column sorter after insertion — building it with innerHTML is '
             'how #ragas and #extras came to look sortable and do nothing')
+
+
+def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
+    # this is a convention test
+    """The board's identity is at the left edge and its way into the Inspector
+    is at the right, and neither may scroll away — a frozen column that only
+    works on one side would put one of the two out of reach at exactly the width
+    where reaching it matters. Both need an explicit width for the reason the
+    left pair already carries: leave the width to the content and a sticky
+    column slides over its neighbour instead of beside it."""
+    css = panel_texts['chrome.css']
+    assert '.data-table .freeze-last' in css
+    assert 'right: 0' in css
+    assert 'box-shadow: -1px 0 0 var(--rule)' in css, (
+        'the divider goes on the inner edge, which for a right-frozen column '
+        'is the left one')
 
 
 def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
@@ -611,14 +630,19 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
     # this is a convention test
-    """The masthead, the chip row, the findings block, the spine and main each
-    set their own max-width. They are the same band and must read from the same
-    token, or one of them drifts the next time a band is added."""
-    css = panel_texts['panel.css']
-    assert 'max-width: var(--measure)' in css
-    assert css.count('max-width: var(--measure)') >= 5, (
-        'every band that centres on the page measure must name the token; '
-        f"found {css.count('max-width: var(--measure)')} of the 5 bands")
+    """Six page-level bands set their own max-width: the banner, the status
+    rail, the capability chips and main in panel.css, the top bar and the
+    context scope in chrome.css. They are one band at six widths and must read
+    from one token, or the next one added drifts. Counted per sheet, each
+    against its own number: a count over both sheets together passes with one
+    band gone and another added, which is the failure this pins."""
+    bands = {'panel.css': 4, 'chrome.css': 2}
+    for sheet, expected in bands.items():
+        found = panel_texts[sheet].count('max-width: var(--measure)')
+        assert found == expected, (
+            f'{sheet} centres {found} bands on the page measure, not '
+            f'{expected} — a band either stopped naming the token or a new one '
+            'arrived that this test has not been told about')
 
 
 def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
@@ -823,17 +847,26 @@ def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
         source.index('function snapshotDashboard'), source.index('function exportArchive'))
 
 
-def test_every_experiment_rows_escape_strings_and_bind_detail_clicks():
+def test_the_lab_page_no_longer_holds_the_experiment_ledger(panel_texts):
     # this is a convention test
-    source = PANEL_JS.read_text()
-    rows = source[source.index('async function loadExperiments'):
-                  source.index('// The whole stored payload for one experiment')]
-    assert 'const safe = (value) => escapeHtml(String(value ?? \'\'));' in rows
-    assert 'safe(r.started_at)' in rows
-    assert 'safe(r.experiment_id)' in rows
-    assert 'onclick=' not in rows
-    assert "document.createElement('a')" in rows
-    assert "addEventListener('click'" in rows
+    """It moved to the leaderboard, which is the surface for cross-run reading —
+    the lab page is for setting up one run. Pinned as an absence so the move
+    cannot half-happen and leave two tables of the same rows drifting apart."""
+    html, js = panel_texts['index.html'], panel_texts['panel.js']
+    assert 'Every experiment' not in html
+    assert 'id="experiments"' not in html
+    assert 'id="experimentDetail"' not in html
+    assert 'loadExperiments' not in js
+    assert 'showExperiment' not in js
+
+
+def test_an_imported_archive_says_where_it_landed(panel_texts):
+    # this is a convention test
+    """The import used to say 'saved in Every experiment; leaderboard
+    unchanged'. Both halves are now wrong: that table is gone, and the board
+    reads the ledger, so the leaderboard *is* changed."""
+    js = panel_texts['panel.js']
+    assert 'leaderboard unchanged' not in js.lower()
 
 
 def test_imported_results_render_their_archived_metric_catalogue():
@@ -918,6 +951,227 @@ def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client, monkeypatch,
     # Served, not counted in the browser: the page cannot know how many files it
     # was not sent.
     assert body['total'] >= 4
+
+
+# --- the leaderboard's one table per dataset --------------------------------
+
+def test_the_leaderboard_route_filters_to_one_dataset(client):
+    # this is an integration test
+    """The picker is a filter on one population, not a switch between two
+    surfaces — so the route takes the dataset and answers with one board."""
+    body = client.get(f'/api/leaderboard?dataset={datasets.BUILTIN}').json()
+    assert body['dataset'] == datasets.BUILTIN
+    assert isinstance(body['rows'], list)
+    # And every row agrees with the table it was served in. This held on the
+    # fixtures and not in production: three places decided what a blank dataset
+    # means, and the row was the one that answered differently — so rows with no
+    # recorded dataset arrived on the built-in board carrying a cell that said
+    # they belonged to no corpus at all.
+    assert all(r['dataset'] == datasets.BUILTIN for r in body['rows'])
+
+
+def test_the_leaderboard_route_offers_every_experiment_unfiltered(client):
+    # this is an integration test
+    """`*` is every experiment — the table that used to live on the lab page.
+    It is the same population with no filter, which is why it is an option in
+    the same picker rather than a second surface."""
+    body = client.get('/api/leaderboard?dataset=*').json()
+    assert body['dataset'] == '*'
+    datasets = {r['dataset'] for r in body['rows']}
+    assert len(datasets) != 1 or not body['rows'], (
+        'the unfiltered view must not be filtered')
+
+
+def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
+    # this is an integration test
+    """The picker's options travel with the board, so the page makes one
+    request rather than joining two."""
+    body = client.get('/api/leaderboard').json()
+    ids = {d['id'] for d in body['datasets']}
+    assert 'diary-fa' in ids
+
+
+def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
+    # this is a convention test
+    """One table per dataset, its identity frozen left and its Inspector link
+    frozen right. The rank is computed from the displayed order, never served
+    with the row, because a static rank travels with its row and reads 1, 3, 2
+    the moment another column is sorted."""
+    js = panel_texts['leaderboard.js']
+    assert "'freeze-1'" in js and "'freeze-last'" in js
+    assert 'SortTable.make' in js, (
+        'the page loaded sorttable.js and never called it, so click-to-sort was '
+        'broken here while the lab page had it — this is the pin against that '
+        'coming back')
+    assert 'onApply' in js
+
+
+def test_the_context_popover_says_where_it_opens(panel_texts):
+    # this is a convention test
+    """A popover opens where its sheet says, on both surfaces: the lab page puts
+    the trigger under the top bar and the board puts it mid-card, and the
+    browser's own default with `margin: 0` is the viewport's top-left corner for
+    both — over the lab's identity and the surface switcher. The other two
+    popovers on these pages each state an inset; this one states its trigger."""
+    css = panel_texts['chrome.css']
+    detail = css.split('.context-detail {', 1)[1].split('}', 1)[0]
+    assert 'inset:' in detail, (
+        'without a placement the popover lands where nobody put it')
+    assert 'position-anchor: --context-scope' in css, (
+        'the two surfaces put the trigger in different places, so the box is '
+        'placed against the trigger rather than at one literal offset')
+    assert 'anchor-name: --context-scope' in css
+
+
+def test_the_settings_reveal_wraps_what_the_cells_around_it_do_not(panel_texts):
+    # this is a convention test
+    """The reveal hangs off a table cell, and `white-space: nowrap` on those
+    cells inherits into it. Unreset, an embedding model's path or a question-set
+    id runs off the side of a box that was opened to read it."""
+    css = panel_texts['chrome.css']
+    reveal = css.split('.settings-reveal {', 1)[1].split('}', 1)[0]
+    assert 'white-space: normal' in reveal
+    assert 'overflow-wrap: anywhere' in reveal, (
+        'a knob value with no spaces in it wraps nowhere without this')
+
+
+def test_the_frozen_identity_column_sorts_on_the_sentence_it_shows(panel_texts):
+    # this is a convention test
+    """The pipeline cell carries the settings reveal, so the cell's own text is
+    the sentence plus every knob and value of the recorded config. Sorted on
+    that, the column orders by a payload the reader cannot see — and two rows
+    whose sentences share a prefix are ordered by the knobs alone. `data-sort`
+    carries the sentence, which is what the sorter reads instead."""
+    js = panel_texts['leaderboard.js']
+    assert 'data-sort="${escapeHtml(sentenceText(row))}"' in js
+    assert "const sentenceText" in js, (
+        'the sort key is the sentence as text, derived from the same '
+        '`row.pipeline` the visible fragments are, so the two cannot disagree')
+
+
+def test_the_board_names_its_dataset_the_way_the_picker_does(panel_texts):
+    # this is a convention test
+    """The heading and the button under it name the same corpus, so they say
+    the same name — a heading reading `diary-fa` over a button reading `Farsi
+    diary` makes the reader work out that they are one thing."""
+    js = panel_texts['leaderboard.js']
+    assert 'shownOption(CURRENT, CATALOGUE).name' in js
+    assert 'const shownOption' in js and 'const optionsFor' in js, (
+        'both the heading and the picker read one list of options, or the two '
+        'can drift apart again')
+    assert 'const corpusName' in js and 'corpusName(dataset)' in js, (
+        "the caption and the scroll region's name are read aloud, so an id "
+        'there gives the screen reader the internal name while the eye gets '
+        'the human one')
+
+
+def test_the_board_leads_with_what_decides(panel_texts):
+    # this is a convention test
+    """Exactly four judged metrics decide, and the frozen identity column is
+    wide enough to push whatever follows it off the screen. So `decision`, its
+    error and those four come before the descriptive columns rather than after
+    them."""
+    js = panel_texts['leaderboard.js']
+    order = [js.index(f"key: '{key}'") for key in
+             ('decision', 'spread', 'faithfulness', 'answer_relevancy',
+              'llm_context_precision_with_reference', 'context_recall',
+              'kind', 'when', 'label')]
+    assert order == sorted(order), (
+        'the four deciding metrics must sit between the frozen sentence and '
+        'the descriptive columns, not behind them')
+
+
+def test_the_board_colours_a_fragment_by_its_pipeline_step(panel_texts):
+    # this is a convention test
+    """Colour means pipeline step on both surfaces and is defined once. The
+    sentence reads its ink from `data-step`, which is how every other coloured
+    thing on these pages does it."""
+    assert 'data-step' in panel_texts['leaderboard.js']
+
+
+def test_the_board_offers_a_dataset_picker_naming_every_experiment(panel_texts):
+    # this is a convention test
+    """The picker is the surface for choosing which corpus is on screen, and
+    'every experiment' is one of its options rather than a second page — it is
+    the same population with no filter."""
+    js = panel_texts['leaderboard.js']
+    assert 'every experiment' in js
+    assert 'context-scope' in js or 'context-scope' in panel_texts['leaderboard.html']
+
+
+def test_the_settings_reveal_has_a_keyboard_way_in_at_all(panel_texts):
+    # this is a convention test
+    """Hover alone is what this project already removed from these pages twice:
+    a reveal that answers only a pointer publishes to a mouse and to nothing
+    else. This is the half a served file can be asked: that the cell is a tab
+    stop, and that no CSS rule opens the box any more — the box is a popover, so
+    a selector cannot open it and the mechanism is script. That focus actually
+    opens it, and that tabbing into the panel does not close it, is behaviour
+    and is pinned as behaviour, in `board_reveal.test.js`. A grep for the word
+    `focusin` would pass with focus ignored entirely."""
+    js = panel_texts['leaderboard.js']
+    assert 'tabindex="0"' in js, (
+        'a cell that cannot be focused has no keyboard way to its settings '
+        'however good the script is')
+    assert 'popover="manual"' in js
+    css = panel_texts['chrome.css']
+    assert ':hover .settings-reveal' not in css, (
+        'a CSS rule cannot open a popover, so one here would be a second, dead '
+        'mechanism for the same box — and it would read as the live one')
+
+
+def test_the_reveal_escapes_the_scroll_region_that_would_clip_it(panel_texts):
+    # this is a convention test
+    """The reveal hangs off a sticky cell inside a bounded scroll region, so an
+    absolutely-positioned box is clipped at every width — the exact defect the
+    Inspector's chunk reveal already had and solved by going `fixed` and being
+    placed by script. One implementation, in the file both pages load."""
+    assert 'position: fixed' in panel_texts['chrome.css']
+    assert 'placeReveal' in panel_texts['lab.js']
+    # And out of the cell's paint order as well as its clip: the cell is
+    # `position: sticky`, which is a stacking context whatever its z-index, so a
+    # reveal that flips up across the sticky header was painted underneath it.
+    # The top layer is the only place outside every stacking context on a page.
+    assert 'popover="manual"' in panel_texts['leaderboard.js']
+    assert 'showPopover' in panel_texts['leaderboard.js']
+
+
+def test_the_board_publishes_its_column_help_where_a_reader_can_read_it(
+        panel_texts):
+    # this is a convention test
+    """The board wrote eleven column explanations as `title` attributes and the
+    shared sorter wrote its own hint over nine of them — two decisions each
+    correct alone. `sorttable.js` now yields to a heading that has something of
+    its own to say (pinned in `sorttable.test.js`, because which title survives
+    is behaviour), but a `title` was never where any of this is *published*: it
+    answers a mouse and nothing else, which is the rule these pages already
+    applied twice. So the two sentences a reader actually needs are in the
+    page's own text under the table — that the pipeline cell opens, which is the
+    only announcement the settings reveal exists at all, and that a `fake`
+    backend makes a row a rehearsal rather than a measurement, which was prose
+    on the lab page until the card holding it was deleted."""
+    js = panel_texts['leaderboard.js']
+    # Whitespace-normalised: the paragraph is a wrapped template literal in the
+    # source and one flowing sentence on screen, and it is the screen this is a
+    # claim about.
+    hint = ' '.join(js[js.index('class="table-hint"'):
+                       js.index('</p>', js.index('table-hint'))].split())
+    assert 'hover it or give it focus' in hint, (
+        'the reveal has no other announcement on the page')
+    assert 'rehearsal of the pipeline and not a measurement' in hint, (
+        'the sentence explaining a fake backend has to exist somewhere a '
+        'reader can see it')
+
+
+def test_the_board_names_no_winner(panel_texts):
+    # this is a convention test
+    """A board mixes judges and question sets, so no winner claim holds across
+    one of its tables. The claim itself still exists for the sweep."""
+    js = panel_texts['leaderboard.js']
+    for banned in ('Winner:', 'No winner', 'Not comparable'):
+        assert banned not in js, (
+            f'{banned!r} is a comparability claim, and the board is not a '
+            'comparability group')
 
 
 # --- the one dynamic, data-driven guard -------------------------------------
@@ -1176,10 +1430,19 @@ def test_a_hovered_row_lights_up_whole_and_in_one_direction(panel_texts):
     hover = hover[:hover.index('}')]
     assert 'var(--rule)' in hover and 'var(--plate)' not in hover, (
         'row hover must be a step past the stripe, not the page behind the table')
-    frozen = '.data-table tbody tr:hover .freeze-1,\n.data-table tbody tr:hover .freeze-2'
+    frozen = ('.data-table tbody tr:hover .freeze-1,\n'
+              '.data-table tbody tr:hover .freeze-last')
     assert frozen in css, (
         'the frozen columns must take the hover too, or a hovered even row is '
-        'two-tone — its run id keeps the stripe while the numbers light up')
-    assert css.index('nth-child(even) .freeze-1') < css.index(frozen), (
-        'and after the striping rule: the two match at the same specificity, so '
-        'order is the only thing deciding which one wins')
+        'two-tone — its identity column keeps the stripe while the numbers '
+        'light up. Both edges: the board freezes a pipeline sentence on the '
+        'left and its Inspector link on the right, and the right-hand column '
+        'has the same problem for the same reason')
+    # After *both* striping rules, not just the first. They match at the same
+    # specificity, so order is the only thing deciding which wins — and a hover
+    # rule placed between the two stripes loses to the second one, which is a
+    # way of half-fixing this that still leaves one edge two-tone.
+    for stripe in ('nth-child(even) .freeze-1', 'nth-child(even) .freeze-last'):
+        assert css.index(stripe) < css.index(frozen), (
+            f'the hover rule must come after {stripe}, or that column keeps '
+            'its stripe while the rest of the row lights up')

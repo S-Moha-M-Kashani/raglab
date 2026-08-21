@@ -36,7 +36,7 @@
     // input in document order, and where they sit on screen is CSS's business.
     win.innerHTML = `
   <div class="widget-head">
-    <span>Lab helper</span>
+    <span id="widget-name" class="widget-name" role="button" tabindex="0" title="Leave this experiment's conversation">Lab helper</span>
     <span class="widget-head-actions">
       <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
       <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
@@ -60,8 +60,6 @@
 
     document.body.append(launcher, win);
   }
-
-  mountWidget();
 
   // --- the four helpers this file needs --------------------------------------
   // Copies of panel.js's, not imports of them: the widget rides on surfaces
@@ -100,6 +98,63 @@
       else localStorage.setItem(key, JSON.stringify(value));
     } catch (e) { /* private browsing, a full quota: not worth a broken panel */ }
   }
+
+  // --- which conversation this is ---------------------------------------------
+  // One thread per experiment: open abc123 and you are in the conversation you
+  // had about abc123, whenever that was, because widget.db kept it. With nothing
+  // open there is one general thread shared by all three surfaces — not one per
+  // page, which is exactly the reset this replaced.
+  //
+  // The key is read on every surface, which only works because the Laboratory,
+  // the Inspector and the Leaderboard are one origin now. localStorage cannot
+  // cross origins, and this is the thing that could not have travelled to :9003.
+  const ACTIVE_EXPERIMENT = 'raglab-active-experiment';
+  const GENERAL_THREAD = 'general';
+
+  function widgetThread() {
+    // Storage throws rather than returning null in a browser set to block site
+    // data. A reader there gets one conversation per page load and the widget
+    // says so once — degraded, not broken.
+    try {
+      return (localStorage.getItem(ACTIVE_EXPERIMENT) || '').trim() || GENERAL_THREAD;
+    } catch (error) {
+      return GENERAL_THREAD;
+    }
+  }
+
+  function widgetAbout(experimentId) {
+    const id = (experimentId || '').trim();
+    try {
+      if (id) localStorage.setItem(ACTIVE_EXPERIMENT, id);
+      else localStorage.removeItem(ACTIVE_EXPERIMENT);
+    } catch (error) { /* see widgetThread */ }
+    // widgetName and widgetDraw are declared below this slice, in code that
+    // never runs inside widget_thread.test.js — that contract pulls only the
+    // text between these two markers into a bare vm context with no widget
+    // mounted, to check the storage half alone. The guards are what let the
+    // real page call both after mount while the sandboxed test calls neither.
+    if (typeof widgetName === 'function') widgetName();
+    if (typeof widgetDraw === 'function') widgetDraw();
+  }
+  // --- end of the thread half -------------------------------------------------
+
+  // The header says which conversation is on screen, because a helper that
+  // quietly showed a different memory than the one you expect is worse than one
+  // that shows none. Clicking it leaves the experiment: without that, a reader
+  // who opened an experiment once has no way back to the general thread.
+  function widgetName() {
+    const thread = widgetThread();
+    $('widget-name').textContent =
+      thread === GENERAL_THREAD ? 'Lab helper' : `About ${thread}`;
+  }
+
+  mountWidget();
+  widgetName();
+
+  $('widget-name').addEventListener('click', () => widgetAbout(''));
+  $('widget-name').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); widgetAbout(''); }
+  });
 
   // Replies are model output rendered into the page, so they pass through the
   // shared escapeHtml like every other untrusted string.
@@ -163,13 +218,25 @@
   // earlier. A closed widget is opened, because a notice nobody can see is not a
   // notice; focus is deliberately left alone, since the click that caused this
   // happened on another surface and the caret is somewhere the reader put it.
+  //
+  // The note must land on the thread it is about, drawn from the lab, not on
+  // whatever the log happened to hold a moment before. `openHandedExperiment`
+  // calls `Widget.about` immediately before this, which starts a redraw that
+  // wipes the whole log and rebuilds it from history the moment it resolves —
+  // history that has never heard of this note, since a note is never sent to
+  // the model. Appending first and drawing after would show the note for one
+  // frame and then erase it. So this waits for whichever draw is relevant —
+  // the one `widgetAbout` just started (`widgetDrawing`), or, when the widget
+  // was still closed and had never drawn anything, a fresh one — and only then
+  // says its line.
   function widgetNote(text) {
     const win = $('widget-window');
+    let ready = widgetDrawing;
     if (win.hidden) {
       win.hidden = false;
-      widgetLoadOptions();
+      ready = widgetLoadOptions().then(widgetDraw);
     }
-    widgetSay('note', text);
+    ready.then(() => widgetSay('note', text));
   }
 
   // Delegated, because the offer is rebuilt whenever a run lands.
@@ -178,11 +245,6 @@
     if (!starter) return;
     widgetAsk(starter.textContent);
   });
-
-  // Which conversation this page is in. Task 8 keys it to the lab's active
-  // experiment; until then every surface shares the one general thread, which is
-  // already the behaviour the change is for.
-  function widgetThread() { return 'general'; }
 
   async function widgetAsk(message) {
     widgetSay('you', message);
@@ -242,11 +304,22 @@
     if (!read.turns.length) widgetOffer();
   }
 
+  // The draw currently in flight, or the last one to finish — kept so anything
+  // that must follow a redraw, rather than race it, has something to wait on.
+  // `widgetNote` is the reason this exists: `Widget.about` starts a draw and a
+  // note is meant to land right after it, and every caller of `widgetDrawThread`
+  // goes through here instead so that promise is always the current one.
+  let widgetDrawing = Promise.resolve();
+  function widgetDraw() {
+    widgetDrawing = widgetDrawThread();
+    return widgetDrawing;
+  }
+
   $('widget-launch').addEventListener('click', () => {
     const win = $('widget-window');
     widgetSetOpen(win.hidden);
     if (!win.hidden) {
-      widgetLoadOptions().then(widgetDrawThread);
+      widgetLoadOptions().then(widgetDraw);
       $('widget-input').focus();
     }
   });
@@ -378,6 +451,7 @@
     say: widgetSay,
     note: widgetNote,
     offer: (text) => { WIDGET_RUN_ASK = text; widgetOffer(); },
+    about: widgetAbout,
   };
 
   // A widget left open and then the page reloaded is the case this feature is
@@ -385,6 +459,6 @@
   // either — the log restored from the lab, on this open exactly as on any other.
   if (widgetWasOpen()) {
     widgetSetOpen(true);
-    widgetLoadOptions().then(widgetDrawThread);
+    widgetLoadOptions().then(widgetDraw);
   }
 })();

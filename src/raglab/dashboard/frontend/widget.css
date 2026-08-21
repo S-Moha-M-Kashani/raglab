@@ -46,6 +46,11 @@
 .widget-close:hover { background: var(--chassis-soft); color: #fff; }
 /* A gap, so two adjacent 24px targets are two targets. */
 .widget-head-actions { display: flex; align-items: center; gap: var(--s-1); }
+/* The name is a button in disguise — it leaves the experiment's thread — so it
+   takes the pointer and a focus ring, in the chassis's own ink: no step colour,
+   because the widget is a helper on top of a page, never a pipeline stage. */
+.widget-name { cursor: pointer; border-radius: var(--radius-sm); }
+.widget-name:focus-visible { outline: 2px solid var(--chassis-ink); outline-offset: 2px; }
 .widget-config {
   display: flex; align-items: center; gap: var(--s-2);
   padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule);

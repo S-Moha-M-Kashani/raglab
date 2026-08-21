@@ -128,11 +128,9 @@
   // A question about the run currently on the Readings card, and empty when
   // there is none. The page that holds a run hands it over through
   // `Widget.offer`; nothing in here goes looking for one. Deliberately the
-  // *lab's* last run and not the last conversation: the widget's memory now
-  // outlives a restart (databases/widget.db), but this page does not yet
-  // redraw a thread's history on load — that is Task 7 — so a chip claiming
-  // the conversation carried over would be true of the log and false of the
-  // screen the reader is looking at.
+  // *lab's* last run and not the last conversation: the run chip is this
+  // page's own suggestion, not a claim about what the thread holds — that
+  // claim is `widgetDrawThread`'s, drawn from the lab on every open.
   let WIDGET_RUN_ASK = '';
 
   // Rendered only while the log is empty. Called again when a run lands, so a
@@ -207,7 +205,10 @@
   }
 
   // The model list and the starters are served, not kept here — fetched once, on
-  // the first open.
+  // the first open. Returns its promise rather than swallowing it, so a caller
+  // that needs the options in place first — `widgetDrawThread` needs
+  // `WIDGET_STARTERS` before it can decide whether to offer them — can wait
+  // on it with `.then` instead of racing it.
   let widgetOptionsLoaded = false;
   async function widgetLoadOptions() {
     if (widgetOptionsLoaded) return;
@@ -218,16 +219,36 @@
         + `${escapeHtml(m.label)}</option>`).join('');
       WIDGET_STARTERS = data.starters || [];
       widgetOptionsLoaded = true;
-      widgetOffer();
     } catch (error) {
       widgetSay('err', error.message);
     }
   }
 
+  // The log is drawn from the lab, never from a copy kept here: what a reader
+  // sees is what the model remembers. A thread with nothing in it draws the
+  // starters, which is the honest rendering of a conversation not yet had.
+  async function widgetDrawThread() {
+    const log = $('widget-log');
+    let read;
+    try {
+      read = await api('/api/widget/history?thread='
+                       + encodeURIComponent(widgetThread()));
+    } catch (error) {
+      widgetSay('err', error.message);
+      return;
+    }
+    log.innerHTML = '';
+    for (const turn of read.turns) widgetSay(turn.role, turn.text);
+    if (!read.turns.length) widgetOffer();
+  }
+
   $('widget-launch').addEventListener('click', () => {
     const win = $('widget-window');
     widgetSetOpen(win.hidden);
-    if (!win.hidden) { widgetLoadOptions(); $('widget-input').focus(); }
+    if (!win.hidden) {
+      widgetLoadOptions().then(widgetDrawThread);
+      $('widget-input').focus();
+    }
   });
 
   $('widget-settings').addEventListener('click', () => {
@@ -359,5 +380,11 @@
     offer: (text) => { WIDGET_RUN_ASK = text; widgetOffer(); },
   };
 
-  if (widgetWasOpen()) { widgetSetOpen(true); widgetLoadOptions(); }
+  // A widget left open and then the page reloaded is the case this feature is
+  // for: the reader never touched Close, so nothing here should look closed
+  // either — the log restored from the lab, on this open exactly as on any other.
+  if (widgetWasOpen()) {
+    widgetSetOpen(true);
+    widgetLoadOptions().then(widgetDrawThread);
+  }
 })();

@@ -832,6 +832,23 @@ def create_app() -> FastAPI:
             # The lab is up; its widget is not — the /api/queries split.
             raise HTTPException(502, str(error))
 
+    @app.get('/api/widget/history')
+    def widget_history(thread: str = ''):
+        """One conversation, as the widget holds it. This is what a page draws
+        after a refresh: the lab is the only copy of the transcript, so a
+        reader's log and the model's memory cannot drift apart. A thread nobody
+        has used is empty, never a 404 — a conversation that has not happened
+        yet is not an error."""
+        return widget.history(thread)
+
+    @app.delete('/api/widget/history')
+    def widget_forget(thread: str = ''):
+        """New Chat. Ends the conversation named and no other — the reader's
+        other experiments keep theirs. Answers with the emptied thread, so the
+        page redraws from the lab rather than assuming what it now holds."""
+        widget.forget(thread)
+        return widget.history(thread)
+
     @app.get('/api/health')
     def health():
         # No dependency to report: the lab is up or it is not running.

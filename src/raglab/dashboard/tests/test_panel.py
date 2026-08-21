@@ -1352,6 +1352,49 @@ def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
         'both directions of the account, not just one')
 
 
+def test_the_widget_serves_the_conversation_it_holds(client):
+    # this is an integration test
+    """A refresh redraws the log from the lab, not from a copy in the browser:
+    what a reader sees is exactly what the model remembers, so the two cannot
+    drift apart."""
+    from raglab.agents.widget import conversation_memory as memory
+    memory.forget('exp-route')
+    read = client.get('/api/widget/history', params={'thread': 'exp-route'})
+    assert read.status_code == 200
+    assert read.json() == {'thread': 'exp-route', 'experiment_id': '',
+                           'started_at': '', 'turns': []}
+
+
+def test_new_chat_empties_one_conversation_and_no_other(client):
+    # this is an integration test
+    """The only control that ends a conversation, and it ends exactly one."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from langgraph.checkpoint.base import empty_checkpoint
+    from raglab.agents.widget import conversation_memory as memory
+
+    # Seeded through the real saver, the same way
+    # `agents/widget/tests/test_conversation_memory.py` does it: `SqliteSaver.put`
+    # reads `checkpoint_ns` with no default, so the config below carries it, and
+    # `empty_checkpoint()` is filled in rather than hand-built so this cannot
+    # drift from whatever shape the installed checkpointer actually keeps.
+    for thread in ('exp-a', 'exp-b'):
+        config = {'configurable': {'thread_id': thread, 'checkpoint_ns': ''}}
+        checkpoint = empty_checkpoint()
+        checkpoint['id'] = f'{thread}-1'
+        checkpoint['ts'] = '2026-08-21T00:00:00+00:00'
+        checkpoint['channel_values'] = {
+            'messages': [HumanMessage(content='q'), AIMessage(content='a')],
+            'experiment_id': thread, 'started_at': ''}
+        memory.saver().put(config, checkpoint, {'source': 'update', 'step': 1}, {})
+
+    gone = client.delete('/api/widget/history', params={'thread': 'exp-a'})
+    assert gone.status_code == 200
+    assert gone.json()['turns'] == []
+    kept = client.get('/api/widget/history', params={'thread': 'exp-b'})
+    assert kept.json()['turns'] == [{'role': 'you', 'text': 'q'},
+                                    {'role': 'bot', 'text': 'a'}]
+
+
 def test_every_served_script_actually_parses():
     # this is a convention test
     """A syntax error in a served script takes the whole page down at load —

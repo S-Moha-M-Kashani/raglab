@@ -95,33 +95,14 @@ body {
    Which corpus the controls below measure against. The name is always on
    screen because it changes what every number on the page means; the census
    (sessions, messages, period, question count) is one click away, because a
-   stats strip is not something anyone reads twice an hour. */
-.context-bar {
-  max-width: var(--measure); margin: 0 auto;
-  padding: var(--s-2) var(--gutter) 0;
-}
-.context-scope {
-  appearance: none; display: inline-flex; align-items: baseline; gap: var(--s-2);
-  background: transparent; border: 1px solid var(--rule);
-  border-radius: var(--radius-pill);
-  padding: var(--s-1) var(--s-3); cursor: pointer;
-  color: var(--ink); font: var(--t-xs)/1.5 var(--mono);
-}
-.context-scope:hover { border-color: var(--ink-soft); background: var(--card); }
-.context-label {
-  color: var(--ink-soft); font: var(--label-font);
-  text-transform: uppercase; letter-spacing: var(--label-track);
-}
-.context-caret { color: var(--ink-soft); font-size: var(--t-2xs); }
+   stats strip is not something anyone reads twice an hour.
+
+   The rules themselves are in chrome.css now: the leaderboard picks its dataset
+   with the same scope button and the same popover, and that is one affordance
+   asking one question on two surfaces rather than two that happen to look
+   alike. What stays here is only the one place this page reuses the caret
+   inside a control chrome.css does not know about. */
 .status-pill .context-caret { color: inherit; }
-.context-detail {
-  margin: 0; padding: var(--s-3);
-  max-width: min(46rem, calc(100vw - 2rem));
-  color: var(--ink); background: var(--plate);
-  border: 1px solid var(--rule); border-radius: var(--radius-md);
-  box-shadow: var(--shadow);
-  font: var(--t-xs)/1.6 var(--mono);
-}
 
 /* ── the conditional banner ──────────────────────────────────────────────────
    The archive warning, which is true only sometimes and so is not chrome. It
@@ -428,6 +409,21 @@ p.explain {
    first cell, so five prose columns on the ledger sat ragged-left, and a
    sticky header whose container had no bounded height, so it was not sticky at
    all. Only the per-metric explainer, which no other surface renders, stays. */
+/* The board's variant of that component: every column centred except the one
+   that identifies the row. The shared rule aligns figures right and prose left,
+   which is right for a table read down one column at a time — the ledger on the
+   lab page. The board is read *across*: eighteen columns, one row, and the
+   question is what this experiment was and what it scored. Centred columns give
+   every heading its content directly under it, so the eye tracking one row does
+   not have to re-find which edge each column hangs off.
+   The pipeline sentence keeps its left edge, because it is the only cell here
+   holding a phrase rather than a value, and it is clipped: centring a clipped
+   sentence would trim it at both ends and start it nowhere in particular.
+   Stated at the same specificity as the rule it overrides and after it, which
+   is why this variant lives in the sheet the board loads last. */
+.data-table.centred th, .data-table.centred td { text-align: center; }
+.data-table.centred th.text, .data-table.centred td.text { text-align: left; }
+
 /* A state that is not `done`, with the '!' that says why. `nowrap` on the cell
    keeps the mark beside the word; the explainer it opens is a sibling paragraph
    inside the same cell, wrapped by the rule below. */
@@ -445,11 +441,10 @@ p.explain {
   white-space: pre-wrap; min-width: 15rem; max-width: 22rem; text-align: left;
 }
 
-/* The leaderboard surface's verdict line, above its table rather than inside
-   the scroll region — the old board put its group heading inside the scroller,
-   so the label scrolled away sideways with the data it named. */
-.verdict { margin: 0 0 var(--s-2); font: var(--t-xs)/1.6 var(--sans); color: var(--ink-soft); }
-.verdict b { color: var(--ink); }
+/* The leaderboard's verdict line is gone with the thing it stated: a board is
+   one table per dataset mixing judges and question sets, and 'winner by more
+   than the combined error' is a claim about a comparability group, which a
+   board is not. The claim still exists for the sweep, which prints it. */
 
 .muted { color: var(--ink-soft); }
 /* Attached to the score it qualifies, quieter but never dropped. */
@@ -478,7 +473,7 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 #indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
 #datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
 #dataset-file { font-size: var(--t-xs); padding: var(--s-1); }
-#experimentDetail pre, #jobBox pre {
+#jobBox pre {
   white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;
   overflow: auto; background: var(--plate); padding: var(--s-2); border-radius: var(--radius-sm);
 }

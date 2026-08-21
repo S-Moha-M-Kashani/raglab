@@ -379,22 +379,14 @@
        it grouped by dataset only, so a table could rank rows scored on
        different questions by different judges against each other. It is gone.
        The real grouping lives on the Leaderboard surface, served from the same
-       module `raglab-leaderboard` prints from. -->
+       module `raglab-leaderboard` prints from.
 
-  <!-- Beside the ranking, not inside it: an index build has no decision score,
-       so a numbered table it appeared in would claim a rank for work that
-       measured nothing. Rows come from raglab.db, so this survives a restart. -->
-  <section class="card">
-    <div class="card-head"><h2>Every experiment</h2><span class="section-meta right" id="experimentsMeta"></span></div>
-    <p class="prose">
-      One row per finished index build, retrieval and evaluation, newest first.
-      <b>Backend</b> is where the model calls actually went: <code>fake</code>
-      answers and judges without ever failing, so those rows are a rehearsal of
-      the pipeline and not a measurement of it. Click an id for the full stored
-      detail.</p>
-    <div id="experiments"></div>
-    <div id="experimentDetail"></div>
-  </section>
+       The full experiment ledger — every finished index build, retrieval and
+       evaluation, not just the judged ones a decision score can rank — used to
+       sit here too, in its own card. It moved to the leaderboard's unfiltered
+       "every experiment" view, which reads the same rows: the lab page is for
+       setting up one run, not for reading across every run this installation
+       has finished. -->
 </div>
 </main>
 

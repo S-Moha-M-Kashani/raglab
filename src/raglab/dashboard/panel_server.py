@@ -204,6 +204,64 @@ def _dataset_options() -> dict:
     }
 
 
+def _experiment_from_run(run: dict) -> dict:
+    """One run file projected into the shape a ledger row has.
+
+    Third of three projections between a run file's shape and a ledger row's,
+    and the three have to agree about what `chunker`, `retriever` and `answerer`
+    mean: `ledger.row_for` writes a finished job into those columns, and
+    `leaderboard._ledger_config` reads them back out into the nesting a config
+    has. Change what one of the three calls a knob and the other two are wrong
+    about the same row.
+
+    The board is a union of the ledger and `.runs/`, because the ledger is
+    written in `Jobs.run` and every evaluation that finished before it existed
+    has a run file and no row. Resolving an experiment *by id* has to read the
+    same union: a link offered from a union and answered from one half is a link
+    that fails on the other, and here that half is every older evaluation — the
+    only rows that carry a score at all.
+
+    Beside the route rather than in the ledger module: a run file is not the
+    ledger's record, and this is the one place that answers "resolve an
+    experiment by id".
+    """
+    config = run.get('config') or {}
+    index = config.get('index') or {}
+    retrieval = config.get('retrieval') or {}
+    generation = config.get('generation') or {}
+    summary = run.get('summary') or {}
+    ragas = run.get('ragas') or {}
+    return {
+        'experiment_id': run.get('run_id') or '',
+        # A run file is an evaluation, and one that finished — that is what
+        # writing the file means. Neither fact is inferred from anything else.
+        'kind': 'run',
+        'state': 'done',
+        'label': run.get('label') or '',
+        'started_at': run.get('started_at') or '',
+        'seconds': run.get('seconds') or 0,
+        'dataset': run.get('dataset') or '',
+        'provider': config.get('provider') or '',
+        'chunker': index.get('chunker') or '',
+        'embedder': index.get('embedder') or '',
+        'retriever': retrieval.get('retriever') or '',
+        'reranker': retrieval.get('reranker') or '',
+        'grader': retrieval.get('grader') or '',
+        'answerer': generation.get('answerer') or '',
+        'n_questions': int(summary.get('n_questions') or 0),
+        # None, never 0.0, on a run that judged nothing — the same rule the
+        # ledger's own column keeps, for the same reason.
+        'decision': ragas.get('decision'),
+        'decision_stderr': (ragas.get('decision_spread') or {}).get('stderr'),
+        'error': '',
+        # The file itself. It carries no chunk text, no per-question traces and
+        # no summaries — those never reach a run file — so a reader of this
+        # payload is told per view what is missing rather than shown something
+        # else in its place.
+        'detail': run,
+    }
+
+
 class Jobs:
     """In-process job table. A lab restart loses running jobs; finished runs are
     on disk, which is the part that matters."""
@@ -374,6 +432,12 @@ def create_app() -> FastAPI:
     def sorttable():
         """The column sorter, shared with the Inspector — one of three static files served outside the one page."""
         return FileResponse(STATIC / 'sorttable.js',
+                            media_type='application/javascript')
+
+    @app.get('/filtertable.js')
+    def filtertable():
+        """The leaderboard's row filter, which reads a cell with the sorter's own parser rather than a second one."""
+        return FileResponse(STATIC / 'filtertable.js',
                             media_type='application/javascript')
 
     @app.get('/tokens.css')
@@ -575,17 +639,30 @@ def create_app() -> FastAPI:
                 'total': evaluate.count_runs()}
 
     @app.get('/api/leaderboard')
-    def leaderboard_groups(limit: int = 500):
-        """The grouped ranking: one table per (dataset, question set, judge).
+    def leaderboard_board(dataset: str = '', limit: int = 500):
+        """One board per dataset: every experiment that touched one corpus.
 
-        The grouping, the tie rule and the refusal to number a row whose sample
-        was never recorded all come from `evaluation.leaderboard`, the same
-        module `raglab-leaderboard` prints from — so the page and the command
-        line cannot name different winners from the same `.runs/`. This route is
+        `dataset=''` is the built-in default, `dataset='*'` is every experiment
+        — the table that used to sit on the lab page, which is the same
+        population with no filter and so an option in the same picker rather
+        than a second surface.
+
+        The grouping and the row shape come from `evaluation.leaderboard`, the
+        same module `raglab-leaderboard` prints from, so the page and the
+        command line cannot describe the same records differently. This route is
         why that module lives in `evaluation/` rather than among the terminal
         tools no route reaches."""
-        return {'groups': [leaderboard.as_dict(g)
-                           for g in leaderboard.build(limit)]}
+        boards = leaderboard.build_board(limit)
+        wanted = dataset or datasets.BUILTIN
+        # `every_row`, not the boards concatenated: the page's own prose says the
+        # order it was served in is the ranking, and a concatenation is ordered
+        # by dataset block instead — so the unfiltered view would have said the
+        # served order meant something it did not.
+        rows = (leaderboard.every_row(boards) if dataset == '*' else
+                next((b.rows for b in boards if b.dataset == wanted), []))
+        return {'dataset': dataset or wanted,
+                'datasets': [found.as_dict() for found in datasets.catalogue()],
+                'rows': rows}
 
     @app.get('/api/experiments')
     def experiments(limit: int = 200):
@@ -597,10 +674,19 @@ def create_app() -> FastAPI:
 
     @app.get('/api/experiments/{experiment_id}')
     def experiment_detail(experiment_id: str):
+        """One experiment by id, from whichever of the two records holds it.
+
+        The ledger first, then the run file, because the board is built from
+        both and a row it lists must be a row this answers. An evaluation older
+        than the ledger has only its run file, and those are most of the scored
+        rows there are."""
         found = ledger.experiment(experiment_id)
-        if found is None:
+        if found is not None:
+            return found
+        run = evaluate.load_run(experiment_id)
+        if run is None:
             raise HTTPException(404, 'unknown experiment')
-        return found
+        return _experiment_from_run(run)
 
     @app.post('/api/imported-archives')
     def import_archive(payload: dict):

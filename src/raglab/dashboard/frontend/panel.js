@@ -610,7 +610,6 @@ async function boot() {
   renderCapabilities();
 
   renderIndexes(o.indexes);
-  loadExperiments();
   restoreLastRun();
 }
 
@@ -795,10 +794,6 @@ async function poll(jobId, onDone) {
     if (job.state === 'running' || job.state === 'cancelling') { setTimeout(tick, 700); return; }
     $('cancel').disabled = true;
     delete $('cancel').dataset.jobId;
-    // Every job that stops running is a row in the ledger — including the ones
-    // that failed or were cancelled, which are the rows you most want to find
-    // later. Refreshed here, once, rather than per success path.
-    loadExperiments();
     if (job.ledger_error) {
       // The experiment survived; only its record failed. Said out loud, because
       // a table quietly missing the run you just watched is worse than an error.
@@ -869,9 +864,6 @@ $('run').onclick = async () => {
           'Readings belong to the previous settings; export will contain settings only.',
           'warning');
       }
-      // The ranking that used to refresh here lives on /leaderboard now, and
-      // reads the run records fresh on every visit.
-      loadExperiments();
     });
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 };
@@ -1148,7 +1140,7 @@ function setArchiveStatus(message, tone = '') {
 
 function databaseMessage(disposition) {
   return disposition === 'created'
-    ? 'Imported archive saved in Every experiment; leaderboard unchanged.'
+    ? 'Imported archive recorded. It appears on the leaderboard under its dataset.'
     : 'Database already contained this id; existing record unchanged. '
       + 'Inspector preview shows the selected file.';
 }
@@ -1197,9 +1189,6 @@ async function importArchiveFile(file) {
         message += ' Dataset unavailable here; completed evidence is view-only.';
       }
       setArchiveStatus(message, ARCHIVE_VIEW_ONLY ? 'warning' : 'success');
-      loadExperiments(true).catch((error) => setArchiveStatus(
-        `${databaseMessage(savedArchive.database)}; list refresh failed: ${error.message}`,
-        'warning'));
     } else {
       setArchiveStatus('Settings imported; no evaluation was run.', 'success');
     }
@@ -1380,113 +1369,12 @@ function renderTable(id, head, rows, options = {}) {
 // rank rows scored on different questions by different judges against each
 // other. Keeping a second, looser implementation beside the real one is how two
 // surfaces come to name different winners.
-
-// Every experiment this lab has finished, from raglab.db. Deliberately not
-// ranked: a build or a retrieval measures nothing, so numbering these rows
-// would claim an ordering the work does not support.
-async function loadExperiments(throwOnError = false) {
-  const safe = (value) => escapeHtml(String(value ?? ''));
-  let rows = [];
-  try {
-    rows = (await api('/api/experiments')).experiments;
-  } catch (e) {
-    $('experiments').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`;
-    if (throwOnError) throw e;
-    return;
-  }
-  const kinds = {};
-  for (const r of rows) kinds[r.kind] = (kinds[r.kind] || 0) + 1;
-  $('experimentsMeta').textContent = rows.length
-    ? `${rows.length} recorded · ` + Object.entries(kinds)
-      .map(([kind, n]) => `${n} ${kind}`).join(', ')
-    : '';
-  if (!rows.length) {
-    $('experiments').innerHTML =
-      '<div class="muted">nothing recorded yet — build an index or run '
-      + 'something, and it lands here</div>';
-    return;
-  }
-  const host = renderTable('experiments',
-    ['when', 'kind', 'id', 'label', 'backend', 'chunker', 'embedder',
-      'retriever', 'reranker', 'grader', 'answerer', 'n', 'decision', 'state', 's'],
-    rows.map((r) => [
-      safe(r.started_at),
-      `<span class="pill">${safe(r.kind)}</span>`,
-      safe(r.experiment_id),
-      safe(r.label || ''),
-      // Marked rather than merely printed: on `fake` every LLM number on the
-      // row came from a stub that cannot fail. No tooltip — what that means is
-      // written in the prose above this table, on the page, where a reader who
-      // is not holding a mouse over the cell can still find it.
-      r.provider === 'fake' ? '<b>fake</b>' : safe(r.provider || '—'),
-      safe(r.chunker || '—'), safe(r.embedder || '—'),
-      safe(r.retriever || '—'), safe(r.reranker || '—'),
-      safe(r.grader || '—'), safe(r.answerer || '—'),
-      safe(r.n_questions || '—'),
-      // Blank, never 0, when nothing was judged — the leaderboard's own rule.
-      r.decision == null ? '—' : `<b>${safe(fmt(r.decision))}</b>`
-        + (r.decision_stderr != null
-          ? ` <span class="stderr">± ${safe(fmt(r.decision_stderr))}</span>` : ''),
-      // Why a row is not `done` is the reason the row is degraded, and it used
-      // to live only in a `title` — so it was published to a mouse and to
-      // nothing else. It goes through the page's own '!' affordance instead:
-      // focusable, and the explainer opens as text under the cell. Wrapped in
-      // a span for the same reason the RAGAS metric names are: the explainer
-      // is inserted after the button's parent, and a <p> placed directly after
-      // a <td> gets hoisted out of the table by the parser.
-      // The '!' only where there is something behind it. A cancelled job has
-      // no error to give, and a mark that opens onto "no reason recorded" is
-      // an affordance that lies about having an answer.
-      r.state === 'done' ? 'done'
-        : r.error
-          ? `<span class="failed"><b>${safe(r.state)}</b>`
-            + `<button type="button" class="why" data-help="${safe(r.error)}" `
-            + `aria-label="Why did this ${safe(r.state)}?">!</button></span>`
-          : `<b>${safe(r.state)}</b>`,
-      safe(Math.round(r.seconds)),
-    ]),
-    // Every column but the three counts holds words, and this is the widest
-    // table on the page: fifteen columns, none of which can honestly be
-    // dropped, since each one is a knob you compare rows on.
-    { label: 'Every experiment recorded on this machine',
-      text: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13] });
-  const tableRows = host.querySelectorAll('tbody tr');
-  rows.forEach((r, index) => {
-    const cell = tableRows[index].children[2];
-    const link = document.createElement('a');
-    link.href = '#';
-    link.textContent = String(r.experiment_id ?? '');
-    link.addEventListener('click', (event) => {
-      event.preventDefault();
-      window.showExperiment(r.experiment_id);
-    });
-    cell.replaceChildren(link);
-  });
-}
-
-// The whole stored payload for one experiment — config, per-question rows,
-// traced ranks. Chunk text is deliberately not in there: it belongs to the
-// index fingerprint, and rebuilding reproduces it exactly.
-window.showExperiment = async (id) => {
-  const box = $('experimentDetail');
-  box.innerHTML = '<div class="muted">reading the ledger…</div>';
-  try {
-    const found = await api('/api/experiments/' + encodeURIComponent(id));
-    box.innerHTML = `<details style="margin-top:.7rem">`
-      + `<summary>the stored detail · ${escapeHtml(found.kind)} · `
-      + `${escapeHtml(found.experiment_id)}`
-      + `${found.label ? ' · ' + escapeHtml(found.label) : ''}</summary>`
-      + `<pre>${escapeHtml(JSON.stringify(found.detail, null, 1))}</pre></details>`;
-    // An evaluation's stored detail is exactly what the readings card renders,
-    // so it renders there too, rather than only as JSON to read by hand.
-    if (found.kind === 'run' && found.detail && found.detail.summary) {
-      renderResult(found.detail);
-      $('resultCard').scrollIntoView({ behavior: 'smooth' });
-    }
-  } catch (e) {
-    box.innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`;
-  }
-};
+//
+// The full experiment ledger this page used to render in its own card, with
+// its own loader and its own click-to-expand handler, moved with it: the
+// leaderboard's unfiltered "every experiment" view reads the same ledger rows
+// this page once rendered by hand, so reading across every run this
+// installation has finished has one home instead of two that could drift.
 
 window.showRun = async (runId) => {
   renderResult(await api('/api/evaluations/' + runId));

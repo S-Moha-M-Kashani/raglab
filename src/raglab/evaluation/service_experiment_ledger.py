@@ -100,7 +100,14 @@ def stamp() -> str:
 def row_for(job: dict, state: str) -> dict:
     """One ledger row from one finished job. Derived from the job's own config
     and result rather than passed in by each route, so a route added later is
-    recorded by having been run. Every field degrades to a blank or a zero."""
+    recorded by having been run. Every field degrades to a blank or a zero.
+
+    First of three projections between a job's nested config and the flat
+    columns a row has. `leaderboard._ledger_config` reads these same columns
+    back into a nested config for the board's settings panel, and
+    `panel_server._experiment_from_run` writes a run file into this shape for a
+    board row. All three have to mean the same thing by `chunker`, `retriever`
+    and `answerer`."""
     result = job.get('result') if isinstance(job.get('result'), dict) else {}
     config = job.get('config') or {}
     index = config.get('index') or {}

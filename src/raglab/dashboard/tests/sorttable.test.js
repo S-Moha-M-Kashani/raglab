@@ -105,6 +105,127 @@ test('the sorter is stable, so a tie keeps the order it was served in', () => {
   assert.deepEqual(sorted.map((r) => r[0]), ['c', 'a', 'b', 'd']);
 });
 
+// `SortTable.make` is a DOM function, and this file's harness runs sorttable.js
+// in an empty `vm` context with no DOM at all. Rather than pull in a real
+// document, this is the minimal fake covering exactly what `make` touches: a
+// `th` that records attributes and stores its listeners, a body whose
+// `appendChild` reorders (removes the row from wherever it sits, then pushes
+// it to the end — that's what makes `body.rows` reflect a sort), and a table
+// wiring the two together.
+function fakeHeader(text, title) {
+  const attrs = {};
+  const listeners = {};
+  return {
+    textContent: text,
+    // The board writes one on every column that explains what it measures, and
+    // `make` used to overwrite it; the fake carries the same property so a test
+    // can watch which sentence a header ends up with.
+    title,
+    hasAttribute: (name) => Object.prototype.hasOwnProperty.call(attrs, name),
+    getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name)
+      ? attrs[name] : null),
+    setAttribute: (name, value) => { attrs[name] = String(value); },
+    classList: { add: () => {} },
+    tabIndex: undefined,
+    addEventListener: (type, fn) => {
+      (listeners[type] = listeners[type] || []).push(fn);
+    },
+    // Not a real DOM method signature, but named the same: fires whatever
+    // `make` wired to 'click', which is all a test needs to trigger a cycle.
+    click: () => { for (const fn of (listeners.click || [])) fn(); },
+  };
+}
+
+// A cell is either a string or `[text, told]`, where `told` is the `data-sort`
+// the renderer wrote — the leaderboard's frozen identity cell carries one,
+// because its own text holds the settings reveal as well as the sentence.
+function fakeCell(spec) {
+  const [text, told] = Array.isArray(spec) ? spec : [spec, null];
+  const attrs = told === null ? {} : { 'data-sort': told };
+  return {
+    textContent: text,
+    getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name)
+      ? attrs[name] : null),
+  };
+}
+
+// A column is either a name or `[name, title]`, where `title` is the
+// explanation the renderer wrote onto the header.
+function buildTable(columnNames, dataRows) {
+  const head = { cells: columnNames.map((spec) => (Array.isArray(spec)
+    ? fakeHeader(spec[0], spec[1]) : fakeHeader(spec))) };
+  const rows = dataRows.map((cells) => ({ cells: cells.map(fakeCell) }));
+  const body = {
+    rows,
+    appendChild(row) {
+      const at = this.rows.indexOf(row);
+      if (at !== -1) this.rows.splice(at, 1);
+      this.rows.push(row);
+    },
+  };
+  return {
+    tHead: { rows: [head] },
+    tBodies: [body],
+    classList: { add: () => {} },
+  };
+}
+
+// This is a unit test.
+test('onApply reports the displayed order on wiring, on sort, and on the '
+  + 'third-click restore', () => {
+  const table = buildTable(
+    ['pipeline', 'decision'],
+    [['a', '0.40'], ['b', '0.90'], ['c', '0.10']]);
+  const seen = [];
+  // `Array.from`, not `.map`: both `rows` (the callback argument) and
+  // `table.tBodies[0].rows` are arrays from the vm sandbox sorttable.js runs
+  // in, so their own `.map` would build its result via that sandbox's own
+  // `Array`, and comparing it against a plain array literal here fails
+  // deepStrictEqual on realm identity alone, despite identical contents.
+  // `Array.from` called on this side's `Array` sidesteps that.
+  const bodyOrder = () => Array.from(
+    table.tBodies[0].rows, (r) => r.cells[0].textContent);
+  SortTable.make(table, {
+    onApply: (rows) => seen.push(Array.from(rows, (r) => r.cells[0].textContent)),
+  });
+  // Fires once on wiring, so a rank column starts correct rather than
+  // correct-after-the-first-click. The body itself was never touched to get
+  // there — nothing needed moving to already match the served order.
+  assert.equal(seen.length, 1);
+  assert.deepStrictEqual(seen.at(-1), ['a', 'b', 'c']);
+  assert.deepStrictEqual(bodyOrder(), ['a', 'b', 'c']);
+
+  const [pipelineHead, decisionHead] = table.tHead.rows[0].cells;
+  decisionHead.click();
+  assert.deepStrictEqual(seen.at(-1), ['b', 'a', 'c']);
+  // The callback's argument is only meaningful if the actual DOM agrees —
+  // this is what would have caught a shim (or a browser) that computed the
+  // right answer for onApply but never actually moved the rows.
+  assert.deepStrictEqual(bodyOrder(), ['b', 'a', 'c']);
+  assert.equal(decisionHead.getAttribute('aria-sort'), 'descending');
+  assert.equal(pipelineHead.getAttribute('aria-sort'), 'none');
+
+  decisionHead.click();
+  assert.deepStrictEqual(seen.at(-1), ['c', 'a', 'b']);
+  assert.deepStrictEqual(bodyOrder(), ['c', 'a', 'b']);
+  assert.equal(decisionHead.getAttribute('aria-sort'), 'ascending');
+
+  // The third click restores the served order, and onApply must say so — a
+  // rank column left showing the reversed numbering there would be a column
+  // lying. Same for the body itself.
+  decisionHead.click();
+  assert.deepStrictEqual(seen.at(-1), ['a', 'b', 'c']);
+  assert.deepStrictEqual(bodyOrder(), ['a', 'b', 'c']);
+  assert.equal(decisionHead.getAttribute('aria-sort'), 'none');
+});
+
+// This is a unit test.
+test('make still works with no options at all, which is how both panels call it',
+  () => {
+    const table = buildTable(['x'], [['1'], ['2']]);
+    assert.doesNotThrow(() => SortTable.make(table));
+  });
+
 // This is a unit test.
 test('a column can say which way it opens, because "best" is not always highest', () => {
   // The generic rule leads with the highest number, which is right for a score and
@@ -120,4 +241,51 @@ test('a column can say which way it opens, because "best" is not always highest'
   // Unmarked: numbers lead with the highest, text reads A to Z.
   assert.equal(SortTable.opening(th({}), true), -1);
   assert.equal(SortTable.opening(th({}), false), 1);
+});
+
+// This is a unit test.
+test('a cell that says what it sorts as is sorted by that, not by its text',
+  () => {
+    // The leaderboard's pipeline cell shows a sentence and holds the whole
+    // recorded config beside it, in the reveal that opens on hover. Both are
+    // the cell's text, so sorting on the text sorts by the config: here row
+    // 'a' comes first by sentence (it is a prefix of the other two) and last
+    // by text, because its config dump starts with a z.
+    const sentences = ['session', 'session · llm', 'session · llm · lexical'];
+    const dumps = ['zebra 1', 'alpha 2', 'kilo 3'];
+    const table = buildTable(['pipeline'], sentences.map((s, i) =>
+      [[s + dumps[i], s]]));
+    const order = () => Array.from(
+      table.tBodies[0].rows, (r) => r.cells[0].getAttribute('data-sort'));
+    SortTable.make(table);
+    const [pipelineHead] = table.tHead.rows[0].cells;
+    pipelineHead.click();
+    assert.deepStrictEqual(order(), sentences);
+    // And what the reader would have got without it: keyed on the full text,
+    // the row whose sentence sorts first is the row that sorts last.
+    const bare = buildTable(['pipeline'], sentences.map((s, i) => [s + dumps[i]]));
+    SortTable.make(bare);
+    bare.tHead.rows[0].cells[0].click();
+    assert.equal(bare.tBodies[0].rows.at(-1).cells[0].textContent,
+      'sessionzebra 1');
+  });
+
+// This is a unit test.
+test('a column that explains itself keeps its own explanation', () => {
+  // Two decisions, each right on its own, wrong only together: the board writes
+  // a title on eleven columns saying what each one measures, and this file used
+  // to write its own sort hint over every one of them. Nine were lost, read
+  // back off the live page — including the only announcement that the pipeline
+  // cell opens, and the sentence saying a `fake` backend makes a row a
+  // rehearsal rather than a measurement. What a click does is identical on
+  // every sortable column of both pages; what a column measures is not.
+  const table = buildTable(
+    [['decision', 'unweighted mean of the four judged metrics'], 'label'],
+    [['0.40', 'a'], ['0.90', 'b']]);
+  SortTable.make(table);
+  const [decision, label] = table.tHead.rows[0].cells;
+  assert.equal(decision.title, 'unweighted mean of the four judged metrics');
+  // And a column with nothing of its own to say still gets told what clicking
+  // it does — the hint is not deleted, it yields.
+  assert.match(label.title, /^sort by this column/);
 });

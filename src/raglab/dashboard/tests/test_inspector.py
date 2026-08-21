@@ -231,6 +231,39 @@ def test_inspector_proxies_one_archive_and_return_to_live(monkeypatch):
     assert deleted == ['/api/imported-archives/active']
 
 
+def test_the_inspector_proxies_one_recorded_experiment(monkeypatch):
+    # this is an integration test
+    """The board's `↗` sends a reader here, so the Inspector needs to fetch a
+    record. It proxies rather than reading raglab.db: this service owns no
+    ledger, and giving it one would be a second writer to a record whose whole
+    value is being written once."""
+    record = {'experiment_id': 'exp-1', 'kind': 'run', 'dataset': 'smoke-mini',
+              'detail': {'config': {}, 'rows': [], 'traces': []}}
+    asked = []
+
+    def lab_get(path):
+        asked.append(path)
+        return record if path == '/api/experiments/exp-1' else None
+
+    monkeypatch.setattr(inspector, '_lab_get', lab_get)
+    client = _client(monkeypatch)
+    found = client.get('/api/experiments/exp-1')
+    assert found.status_code == 200
+    assert found.json()['experiment_id'] == 'exp-1'
+    # Asked of the lab, over HTTP, and not of a database this process opened.
+    assert asked == ['/api/experiments/exp-1']
+
+
+def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
+        monkeypatch):
+    # this is an integration test
+    """Better a stated 404 than a read-only view pinned to nothing, which reads
+    as an experiment that recorded no evidence."""
+    monkeypatch.setattr(inspector, '_lab_get', lambda path: None)
+    client = _client(monkeypatch)
+    assert client.get('/api/experiments/no-such-id').status_code == 404
+
+
 # FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     # this is an integration test
@@ -381,6 +414,10 @@ def inspector_texts():
         # switcher and — since the tables pass — the scroll region and sticky
         # header this page's own tables now sit inside.
         'chrome.css': client.get('/chrome.css').text,
+        # The shared script, over its own route as well: the reveal placer both
+        # surfaces need moved into it, so a claim about where a fixed reveal is
+        # put is now a claim about this file rather than about inspector.js.
+        'lab.js': client.get('/lab.js').text,
     }
 
 
@@ -389,6 +426,12 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.html', None, 'class="port"',
+     'the switcher names surfaces, not ports. Both panel pages dropped theirs '
+     '(pinned in test_panel.py) and this page kept two, so every walk to the '
+     'Inspector made ":9002" appear out of nowhere beside two links that had '
+     'been bare on the page before it — one switcher worn by three surfaces '
+     'cannot label the address on one of them only'),
     ('inspector.css', 'font-size: var(--t-sm)', None,
      'one table step for both surfaces: this table read --t-xs where the '
      "lab's read --t-sm, which is what a ramp offering three indiscriminable "
@@ -559,13 +602,14 @@ INSPECTOR_CONVENTIONS = [
      "the ranks column draws a shape the same three numbers already follow, "
      "so sorting on the picture would sort on nothing"),
     # --- Day and Night, and the line that reports the lab -----------------
-    ('inspector.js', 'Laboratory on', None,
+    ('inspector.js', 'Laboratory connected', None,
      'the header reports the lab as a state, not as a sentence with a URL in '
      'it: the reader is being told whether there is anything to follow, and '
      'the address they would need if there were is already the link above'),
     ('inspector.js', 'Laboratory disconnected', None,
-     'and the same shape when there is not — one word apart from the reachable '
-     'case, so which one is showing is read at the dot rather than parsed'),
+     'and the same shape when there is not — one prefix apart from the '
+     'reachable case, so which one is showing is read at the dot rather than '
+     'parsed'),
     ('inspector.js', None, 'following the lab at',
      'the old sentence must go: it spent a whole line on an address that is '
      'the same address on every installation that has ever run this page'),
@@ -608,8 +652,12 @@ def test_the_served_inspector_page_keeps_its_conventions(
 def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
     # this is a convention test
     source = INSPECTOR_JS.read_text()
+    # Bounded by the next function rather than by `renderFollow`, which is no
+    # longer the next thing in the file: the slice would otherwise span every
+    # line of the recorded-experiment mode, and a claim about one function
+    # would quietly become a claim about two hundred lines.
     function = source[source.index('async function followImportedArchive'):
-                      source.index('function renderFollow')]
+                      source.index('async function returnToLive')]
     assert 'if (archiveId === activeArchiveId) return;' in function
     assert 'const archive = await archiveRequest(' in function
     assert "'/api/imported-archives/' + encodeURIComponent(archiveId)" in function
@@ -623,6 +671,119 @@ def test_inspector_archive_mode_reuses_renderers_and_fetches_once_per_id():
     assert 'id="archive-return-live"' in html
 
 
+def test_the_inspector_opens_a_recorded_experiment_from_the_url(inspector_texts):
+    # this is a convention test
+    """The board's frozen `↗` column links here, so the page has to read a
+    parameter — neither surface read one before this. It pins itself read-only
+    and reuses archive mode's own chrome rather than growing a second read-only
+    mode with its own controls."""
+    js = inspector_texts['inspector.js']
+    assert 'URLSearchParams' in js
+    assert "'experiment'" in js or '"experiment"' in js
+    assert 'archive-state' in js and 'archive-return-live' in js
+
+
+# `test_a_recorded_experiment_says_its_chunk_text_was_not_recorded` used to sit
+# here, asserting `'not recorded' in js` — a claim the *retrieval* empty state
+# satisfies on its own, so the pin for this branch's headline honesty claim could
+# not fail while advertising that it covered it. The claim is now made where it
+# can be checked: `record_mode.test.js` renders a record and reads what the
+# Chunks tab actually says, and that a rebuild is offered only under a config the
+# record itself named.
+
+
+def test_returning_to_live_from_a_record_forgets_it_in_both_places(
+        inspector_texts):
+    # this is a convention test
+    """Two things pin the page to a record: the variable and the URL it was
+    opened with. Clearing only the variable leaves a page whose next reload
+    silently pins itself again, which is not what "return to live" asked for.
+
+    Read out of `leaveRecordMode` rather than out of the whole file: the
+    file-wide version of this test passed on the *declaration* of
+    `activeExperimentId`, so half of it could not fail."""
+    js = inspector_texts['inspector.js']
+    leaving = js[js.index('async function leaveRecordMode'):
+                 js.index('async function renderFollow')]
+    assert "searchParams.delete('experiment')" in leaving
+    assert 'activeExperimentId = null' in leaving
+    # And the one control that does it has to be reachable from the failure
+    # state too, or a record that never loaded leaves a banner and a stale
+    # parameter with nothing to dismiss either.
+    assert 'activeExperimentId !== null || recordProblem' in js
+
+
+def test_a_record_that_cannot_be_read_still_leaves_a_populated_page(
+        inspector_texts):
+    # this is a convention test
+    """A deep link claims its loading id synchronously, so the page's own boot
+    fetch of the live fixture is turned away — and the follow loop reloads only
+    on a corpus *change*, which `'' -> ''` is not. Without an explicit reload on
+    the failure path the ground-truth tab stayed empty on every unresolvable
+    id, which is how this was found in a browser rather than here."""
+    js = inspector_texts['inspector.js']
+    following = js[js.index('async function followRecordedExperiment'):
+                   js.index('async function renderRecordedExperiment')]
+    assert 'recordLoadingId = null' in following, (
+        'the loading claim must be released before anything asks for the live '
+        'fixture, or the guard that reads it turns that request away too')
+    assert 'await loadGroundTruth(' in following, (
+        'the failure path must ask for the live fixture itself — nothing else '
+        'is going to')
+
+
+def test_a_record_says_which_of_two_reasons_its_retrieval_is_empty(
+        inspector_texts):
+    # this is a convention test
+    """An evaluation resolved from its run file has answers and no candidate
+    rankings, because rankings never travel there; an index build measured no
+    questions at all. One sentence for both would tell the reader the wrong one
+    half the time."""
+    js = inspector_texts['inspector.js']
+    render = js[js.index('async function renderRecordedExperiment'):
+                js.index('function recordedStages')]
+    assert 'The per-question retrieval of this experiment' in render
+    assert 'an index build measures no questions' in render
+    # And a retrieval experiment keeps its rows under a different key than an
+    # evaluation does, the way the live route already normalises the pair.
+    assert 'detail.traces || detail.questions' in render
+
+
+def test_a_records_config_line_names_only_the_stages_it_ran(inspector_texts):
+    # this is a convention test
+    """A build's stored config carries a whole pipeline — retrieval and
+    generation defaults no part of a build reads — while the board's row for the
+    same id shows its index stages and nothing else. Printing the rest here
+    made two surfaces tell two stories about one experiment."""
+    js = inspector_texts['inspector.js']
+    stages = js[js.index('function recordedStages'):
+                js.index('function showRecordedChunks')]
+    assert "record.kind !== 'index'" in stages
+    assert 'return { index: config.index };' in stages
+
+
+def test_a_record_whose_corpus_is_gone_claims_no_direction(inspector_texts):
+    # this is a convention test
+    """The rule the archive path already keeps: `auto` when the language is
+    unstated. A corpus this installation cannot load leaves the page unable to
+    report one, and rendering it in whatever direction the *live* corpus reads
+    is a claim about text nothing here has seen."""
+    js = inspector_texts['inspector.js']
+    render = js[js.index('async function renderRecordedExperiment'):
+                js.index('function recordedStages')]
+    assert "setCorpusDir('')" in render
+
+
+def test_the_chunks_build_has_one_request_path(inspector_texts):
+    # this is a convention test
+    """A record's Chunks tab offers a rebuild under the recorded config, and the
+    button beside the tab builds under the live one. Two buttons, one request:
+    a second `fetch('/api/chunks')` would be a second place for the status
+    line, the config line and the summaries toggle to be updated — or not."""
+    js = inspector_texts['inspector.js']
+    assert js.count("'/api/chunks'") == 1
+
+
 def test_archive_mode_still_reports_lab_reachability():
     # this is a convention test
     """A page opened while an archive is already active must not sit on the
@@ -632,7 +793,7 @@ def test_archive_mode_still_reports_lab_reachability():
     source = INSPECTOR_JS.read_text()
     follow = source[source.index('async function renderFollow'):]
     assert follow.index('setFollowState(body);') \
-        < follow.index('if (body.archive_id)'), (
+        < follow.index('if (body.archive_id &&'), (
         'renderFollow must set the follow state before the early-returning '
         'archive branch, or archive mode never reports lab reachability')
 
@@ -756,10 +917,15 @@ def test_the_inspector_tables_sit_in_the_shared_scroll_region(inspector_texts):
     assert 'position: fixed' in css.split('.chunk-reveal {')[1].split('}')[0], (
         'the reveal must leave the scroll region\'s flow, or the region clips '
         'the text it exists to show')
-    assert 'function placeReveal' in js, (
+    assert 'function placeReveal' in inspector_texts['lab.js'], (
         'a fixed reveal has to be told where to go, and told at the moment it '
-        'opens — its row may have been scrolled anywhere inside the region'
+        'opens — its row may have been scrolled anywhere inside the region. It '
+        'lives in the shared script because the board on :9002 hangs a reveal '
+        'off a cell in this same region and needs the same answer'
     )
+    assert "placeReveal(revealCell(event.target), '.chunk-reveal')" in js, (
+        'and this page must actually call it — only the caller knows which '
+        'reveal its cell holds')
     assert '.table-scroll { overflow-x: auto; }' not in css, (
         'the narrow-width-only scroll override is what the shared region '
         'replaced; keeping both means the page has two answers')

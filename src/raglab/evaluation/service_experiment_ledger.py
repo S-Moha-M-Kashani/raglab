@@ -102,12 +102,15 @@ def row_for(job: dict, state: str) -> dict:
     and result rather than passed in by each route, so a route added later is
     recorded by having been run. Every field degrades to a blank or a zero.
 
-    First of three projections between a job's nested config and the flat
-    columns a row has. `leaderboard._ledger_config` reads these same columns
-    back into a nested config for the board's settings panel, and
-    `panel_server._experiment_from_run` writes a run file into this shape for a
-    board row. All three have to mean the same thing by `chunker`, `retriever`
-    and `answerer`."""
+    One of the two projections between a job's nested config and the flat
+    columns a row has, and the writing half: `leaderboard.ledger_config` reads
+    these same columns back into a nested config. Both have to mean the same
+    thing by `chunker`, `retriever` and `answerer`.
+
+    There was a third — a run file written into this shape, so that resolving an
+    experiment by id could answer in a ledger row's spelling. Resolving by id
+    now answers with `leaderboard.experiment_record`, the projection the board
+    is built from, so a run file is never reshaped into a row again."""
     result = job.get('result') if isinstance(job.get('result'), dict) else {}
     config = job.get('config') or {}
     index = config.get('index') or {}

@@ -1,9 +1,11 @@
 """The panel's LLM widget: one self-contained package, deliberately outside
 `chat_model_factory.py`'s measured seam.
 
-It answers questions about this project from a small knowledge base and a
-calculator — it retrieves nothing, judges nothing, and writes no run, no
-ledger row and no number. That is why it may do two things the measured path
+It answers questions about this project from a small knowledge base, a
+calculator, a skills corpus, and — read-only, injected by the panel because
+this package imports no evaluation module — the experiments the lab has
+already recorded. It retrieves nothing, judges nothing, computes no score, and
+writes no run, no ledger row and no number. That is why it may do two things the measured path
 must not: talk to OpenRouter through its own `ChatOpenAI`, and trace to
 LangSmith when tracing is switched on (backends.TRACING_ENV). Removing the
 widget is deleting this
@@ -12,9 +14,11 @@ lab module reaches in, and that this package reaches the lab only through
 its unmeasured edges (skills, clichat, settings).
 
 One module per concern: `prompts` loads the model-facing fixtures,
-`hooks` holds the six middleware, `tools` the five tools and their registry,
-`probe` the bilingual measurement those tools wrap, `backends` the catalogue
-and the two answer paths, `__main__` the real-call harness.
+`hooks` holds the six middleware, `tools` the project-knowledge tools and the
+registry the agent is handed, `experiment_tools` the three read-only windows
+onto what this lab has already measured, `probe` the bilingual measurement
+those tools wrap, `backends` the catalogue and the two answer paths,
+`__main__` the real-call harness.
 
 The agent is `langchain.agents.create_agent` with six middleware hooks, taken
 2026-08-18 when this project moved to langchain 1.x. Before that the pin said
@@ -27,6 +31,7 @@ version away.
 # a test that monkeypatches an internal must patch the module that defines
 # it, not this package's re-export of it.
 from raglab.agents.widget import backends
+from raglab.agents.widget import experiment_tools
 from raglab.agents.widget import hooks
 from raglab.agents.widget import probe
 from raglab.agents.widget import prompts
@@ -62,6 +67,13 @@ from raglab.agents.widget.prompts import (
     PROMPTS_DIR,
     STARTERS,
     SYSTEM_PROMPT)
+from raglab.agents.widget.experiment_tools import (
+    EXPERIMENT_TOOLS,
+    MAX_LISTED,
+    list_experiments,
+    read_experiment,
+    read_experiment_questions,
+    set_experiment_reader)
 from raglab.agents.widget.tools import (
     MAX_SKILL_READS,
     TOOLS,

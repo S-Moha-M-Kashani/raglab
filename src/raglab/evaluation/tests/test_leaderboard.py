@@ -428,6 +428,35 @@ def test_boards_are_ordered_newest_experiment_first():
 # only. Neither is sufficient, so the board reads both and joins them on the id
 # the ledger already stores: `experiment_id = result['run_id'] or job['id']`.
 
+def test_a_run_file_that_names_no_corpus_reads_as_the_built_in_one(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """Preserved behaviour, pinned because one projection now has to keep it.
+
+    A run file with no `dataset` key predates the day a second corpus existed,
+    so the only corpus it can have measured is the built-in one. `list_runs`
+    used to resolve that one layer below the board; the shared projection does
+    it now, and resolves it *from the run* before the ledger row is consulted —
+    so a ledger row naming another corpus does not overwrite the answer. Change
+    that and every pre-multi-corpus run silently moves to another table."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
+    (tmp_path / 'ancient.json').write_text(json.dumps({
+        'run_id': 'ancient', 'label': 'before there were corpora',
+        'started_at': '2026-01-01 09:00:00', 'seconds': 4,
+        'config': {'index': {'chunker': 'session'}},
+        'summary': {'n_questions': 3}, 'ragas': {},
+    }), encoding='utf-8')
+    ledger.record({'id': 'ancient', 'kind': 'run',
+                   'config': {'index': {'dataset': 'meetings-de',
+                                        'chunker': 'session'}},
+                   'seconds': 4, 'result': {'run_id': 'ancient'}},
+                  'done', path=db)
+    row, = leaderboard.board_rows(db_path=db)
+    assert row['dataset'] == datasets.BUILTIN
+
+
 def _write_run(tmp_path, monkeypatch, run_id, dataset, metrics, decision):
     """One run file, in the shape `list_runs` reads back."""
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)

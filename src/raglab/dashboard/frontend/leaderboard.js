@@ -19,6 +19,11 @@ const $ = (id) => document.getElementById(id);
 const EVERY = '*';
 
 const COLUMNS = [
+  // `title` here is the short form for a pointer, and `sorttable.js` now leaves
+  // a heading that has one alone. It is not where any of this is *published*,
+  // though — a title answers a mouse and nothing else, so the two sentences a
+  // reader actually needs (that this cell opens, and that `fake` is a rehearsal)
+  // are in the hint prose under the table, in the page's own text.
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
     title: 'every step this experiment ran · hover or focus for all of it' },
   { key: 'rank', label: '#', nosort: true, title: 'position in the current sort' },
@@ -273,9 +278,14 @@ async function loadBoard(dataset) {
         + 'press <b>Run evaluation</b>.</p>'}
       <p class="table-hint">Click any column heading to sort by it, again to
         reverse, a third time for the order it was served in. <b>#</b> is the
-        position in whatever you are looking at. This table names no winner:
-        rows graded by different judges over different question sets share it,
-        so <b>judge</b> and <b>questions</b> are columns you compare on.</p>
+        position in whatever you are looking at. The <b>pipeline</b> cell is
+        clipped to the column's width — hover it or give it focus and the whole
+        recorded config opens beside it. <b>backend</b> is where the model calls
+        actually went: <code>fake</code> answers and judges without ever
+        failing, so those rows are a rehearsal of the pipeline and not a
+        measurement of it. This table names no winner: rows graded by different
+        judges over different question sets share it, so <b>judge</b> and
+        <b>questions</b> are columns you compare on.</p>
     </section>`;
   const table = box.querySelector('table');
   if (table) {

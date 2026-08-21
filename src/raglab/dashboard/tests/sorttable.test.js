@@ -112,18 +112,21 @@ test('the sorter is stable, so a tie keeps the order it was served in', () => {
 // `appendChild` reorders (removes the row from wherever it sits, then pushes
 // it to the end — that's what makes `body.rows` reflect a sort), and a table
 // wiring the two together.
-function fakeHeader(text) {
+function fakeHeader(text, title) {
   const attrs = {};
   const listeners = {};
   return {
     textContent: text,
+    // The board writes one on every column that explains what it measures, and
+    // `make` used to overwrite it; the fake carries the same property so a test
+    // can watch which sentence a header ends up with.
+    title,
     hasAttribute: (name) => Object.prototype.hasOwnProperty.call(attrs, name),
     getAttribute: (name) => (Object.prototype.hasOwnProperty.call(attrs, name)
       ? attrs[name] : null),
     setAttribute: (name, value) => { attrs[name] = String(value); },
     classList: { add: () => {} },
     tabIndex: undefined,
-    title: undefined,
     addEventListener: (type, fn) => {
       (listeners[type] = listeners[type] || []).push(fn);
     },
@@ -146,8 +149,11 @@ function fakeCell(spec) {
   };
 }
 
+// A column is either a name or `[name, title]`, where `title` is the
+// explanation the renderer wrote onto the header.
 function buildTable(columnNames, dataRows) {
-  const head = { cells: columnNames.map(fakeHeader) };
+  const head = { cells: columnNames.map((spec) => (Array.isArray(spec)
+    ? fakeHeader(spec[0], spec[1]) : fakeHeader(spec))) };
   const rows = dataRows.map((cells) => ({ cells: cells.map(fakeCell) }));
   const body = {
     rows,
@@ -263,3 +269,23 @@ test('a cell that says what it sorts as is sorted by that, not by its text',
     assert.equal(bare.tBodies[0].rows.at(-1).cells[0].textContent,
       'sessionzebra 1');
   });
+
+// This is a unit test.
+test('a column that explains itself keeps its own explanation', () => {
+  // Two decisions, each right on its own, wrong only together: the board writes
+  // a title on eleven columns saying what each one measures, and this file used
+  // to write its own sort hint over every one of them. Nine were lost, read
+  // back off the live page — including the only announcement that the pipeline
+  // cell opens, and the sentence saying a `fake` backend makes a row a
+  // rehearsal rather than a measurement. What a click does is identical on
+  // every sortable column of both pages; what a column measures is not.
+  const table = buildTable(
+    [['decision', 'unweighted mean of the four judged metrics'], 'label'],
+    [['0.40', 'a'], ['0.90', 'b']]);
+  SortTable.make(table);
+  const [decision, label] = table.tHead.rows[0].cells;
+  assert.equal(decision.title, 'unweighted mean of the four judged metrics');
+  // And a column with nothing of its own to say still gets told what clicking
+  // it does — the hint is not deleted, it yields.
+  assert.match(label.title, /^sort by this column/);
+});

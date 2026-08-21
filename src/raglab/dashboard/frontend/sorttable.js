@@ -137,8 +137,16 @@ const SortTable = (() => {
       // conveyed by `aria-sort` instead, which is what it is for, and the
       // keydown handler below keeps the column operable from the keyboard.
       th.setAttribute('aria-sort', 'none');
-      th.title = 'sort by this column · again to reverse · a third time for the '
-        + 'order it was served in';
+      // Only where the heading has nothing of its own to say. A page that gave
+      // its columns titles explaining what their numbers mean lost nine of
+      // eleven of them to this line: two correct decisions in two files, wrong
+      // only together. What a column measures is the more useful sentence, and
+      // what a click does is the same on every sortable column on both pages —
+      // so the generic hint yields to a specific one wherever there is one.
+      if (!th.title) {
+        th.title = 'sort by this column · again to reverse · a third time for '
+          + 'the order it was served in';
+      }
       const cycle = () => {
         if (column !== at) { column = at; dir = opensAt(at); }
         else if (dir === opensAt(at)) { dir = -dir; }

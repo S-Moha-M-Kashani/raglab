@@ -1086,6 +1086,33 @@ def test_the_reveal_escapes_the_scroll_region_that_would_clip_it(panel_texts):
     assert 'showPopover' in panel_texts['leaderboard.js']
 
 
+def test_the_board_publishes_its_column_help_where_a_reader_can_read_it(
+        panel_texts):
+    # this is a convention test
+    """The board wrote eleven column explanations as `title` attributes and the
+    shared sorter wrote its own hint over nine of them — two decisions each
+    correct alone. `sorttable.js` now yields to a heading that has something of
+    its own to say (pinned in `sorttable.test.js`, because which title survives
+    is behaviour), but a `title` was never where any of this is *published*: it
+    answers a mouse and nothing else, which is the rule these pages already
+    applied twice. So the two sentences a reader actually needs are in the
+    page's own text under the table — that the pipeline cell opens, which is the
+    only announcement the settings reveal exists at all, and that a `fake`
+    backend makes a row a rehearsal rather than a measurement, which was prose
+    on the lab page until the card holding it was deleted."""
+    js = panel_texts['leaderboard.js']
+    # Whitespace-normalised: the paragraph is a wrapped template literal in the
+    # source and one flowing sentence on screen, and it is the screen this is a
+    # claim about.
+    hint = ' '.join(js[js.index('class="table-hint"'):
+                       js.index('</p>', js.index('table-hint'))].split())
+    assert 'hover it or give it focus' in hint, (
+        'the reveal has no other announcement on the page')
+    assert 'rehearsal of the pipeline and not a measurement' in hint, (
+        'the sentence explaining a fake backend has to exist somewhere a '
+        'reader can see it')
+
+
 def test_the_board_names_no_winner(panel_texts):
     # this is a convention test
     """A board mixes judges and question sets, so no winner claim holds across

@@ -100,7 +100,8 @@ on :9002 and the Inspector on :9003 are set separately.
    experiment**; it never enters the ranked leaderboard.
 
 The **✳ Ask** widget in the panel's corner answers questions about the lab
-itself and about the technique it implements. It is described below.
+itself, about the technique it implements, and about the experiments this
+installation has already recorded. It is described below.
 
 ## Datasets
 
@@ -133,7 +134,7 @@ metrics, what each knob does — and `fixtures/skills/`, twelve skills about *th
 field*. It must not answer "what does this lab do" out of a technique paper, or
 present a literature claim as a measurement taken here.
 
-Five tools:
+Eight tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -142,6 +143,20 @@ Five tools:
 | `read_rag_skill` | Skill bodies, at most three per call; the bodies are the expensive layer. |
 | `calculate` | Arithmetic over an AST whitelist, never `eval` — a tool handed to a model must not be a Python prompt. |
 | `measure_bilingual_alignment` | Runs the EN–Farsi probe over a real encoder and returns pair cosines, mixed-pool retrieval and a verdict. |
+| `list_experiments` | Recorded experiments, newest first, with each decision score beside its own error. |
+| `read_experiment` | One experiment: its knobs step by step, the four judged metrics, the judge, the deterministic summary and the backend that answered. |
+| `read_experiment_questions` | The per-question rows of one evaluation — by default the questions whose gold evidence retrieval did not fully find inside k. |
+
+The last three read the two durable records — the ledger and `.runs/` — and
+nothing else: they compute no score, rank nothing, and carry no chunk text,
+trace or hierarchy summary. That is what makes "what went wrong in the last
+run, and what should change" answerable in the widget, against the run's own
+evidence rather than from the model's memory. Nothing was written for the widget
+to read: it is handed the board's own rows and the same projection the
+leaderboard's open button resolves, and all it adds is the formatting that makes
+them readable to a model. The widget imports no evaluation module, so the panel
+injects those functions at startup; started without them, the three tools say
+the records are unavailable rather than answering from an empty list.
 
 The agent is `langchain.agents.create_agent` with six middleware hooks, and the
 model picker offers four options that state what they can do. **gpt-5-nano**

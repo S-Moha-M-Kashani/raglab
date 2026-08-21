@@ -269,12 +269,15 @@ def test_an_experiment_resolves_from_the_run_file_when_the_ledger_has_none(clien
         found = client.get(f'/api/experiments/{run_id}')
         assert found.status_code == 200, found.text
         body = found.json()
-        # One object, wherever an experiment is resolved: the shared projection
-        # of the two durable records, plus the evidence a page opens a record
-        # for. The board's rows are the same projection without `detail`, and
-        # the widget's digest is the same projection without it either — so a
-        # reader cannot be handed two different accounts of one experiment id.
-        assert set(body) == set(leaderboard.experiment_record({}, {})) | {'detail'}
+        # One object, wherever an experiment is resolved. `leaderboard.experiment`
+        # is that object — the board's own projection of the two records, plus
+        # what only a single-experiment reader wants — and this route is exactly
+        # it plus `detail`, the evidence a page opens a record for. The panel's
+        # widget is handed the same function and adds nothing but formatting, so
+        # the page and the widget cannot give two accounts of one experiment id.
+        resolved = leaderboard.experiment(run_id)
+        assert set(body) == set(resolved) | {'detail'}
+        assert {k: v for k, v in body.items() if k != 'detail'} == resolved
         assert body['experiment_id'] == run_id
         assert body['kind'] == 'run' and body['state'] == 'done'
         assert body['dataset'] == 'smoke-mini' and body['n_questions'] == 2

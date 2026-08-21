@@ -17,7 +17,7 @@ from pathlib import Path
 
 from raglab.configuration.lab_config import RUNS_DIR
 from raglab.corpora import dataset_import_contract as datasets
-from raglab.evaluation.run_evaluation import load_runs
+from raglab.evaluation.run_evaluation import load_run, load_runs
 from raglab.evaluation import ragas_judged_metrics as judged
 from raglab.evaluation import service_experiment_ledger as ledger
 
@@ -371,11 +371,12 @@ def board_rows(limit: int = 500, db_path=None) -> list[dict]:
 def experiment_record(row: dict | None, run: dict | None) -> dict:
     """One experiment as the two durable records jointly describe it.
 
-    The one projection of the pair, read by the board and by
-    `experiment_digest` alike. Two records exist, neither is sufficient, and
-    every reader therefore has to decide which wins where they overlap — so
-    that decision is made here, once. Written twice, agreement between the
-    board and the widget was a coincidence kept up by hand.
+    The one projection of the pair. `board_rows` builds every row of the board
+    from it and `experiment` resolves one id through it, which is what the
+    open-button route and the panel's widget both read. Two records exist,
+    neither is sufficient, and every reader therefore has to decide which wins
+    where they overlap — so that decision is made here, once. Written twice,
+    agreement between two readers was a coincidence kept up by hand.
 
     Precedence: the run file wins where both carry a fact, because that file is
     where the number was computed and the one a reader can open to check it; the
@@ -425,6 +426,41 @@ def experiment_record(row: dict | None, run: dict | None) -> dict:
         'config': config,
         # A reader is entitled to know why a metric column is blank.
         'source': source,
+    }
+
+
+
+def experiment(experiment_id: str, db_path=None) -> dict | None:
+    """One experiment by id, or None when neither record holds it.
+
+    The singular of `board_rows`: the same projection, resolved for one id
+    rather than for every row, plus the four things only a reader of one
+    experiment wants — the judge's notes, the index it was built on, the
+    deterministic summary, and whether there are per-question rows to ask for
+    next. The board has no column for any of them and does not pay to carry
+    them across two hundred rows.
+
+    Every reader of a single recorded experiment comes through here: the route
+    behind the leaderboard's open button, which adds the evidence, and the
+    read-only tools the panel's widget is given, which add nothing and only
+    format. A second resolution would be a second answer to "what was this
+    experiment".
+    """
+    row = ledger.experiment(experiment_id, path=db_path) or {}
+    run = load_run(experiment_id) or {}
+    if not row and not run:
+        return None
+    ragas = run.get('ragas') or {}
+    return experiment_record(row, run) | {
+        'ragas_notes': list(ragas.get('notes') or []),
+        'ragas_skipped': ragas.get('skipped'),
+        'index': run.get('index') or {},
+        'summary': run.get('summary') or {},
+        'notes': list(run.get('notes') or []),
+        # Whether there is a next call to make, not the rows themselves: they
+        # are the expensive layer, and `run_evaluation.question_rows` is where
+        # they are asked for, one filter and one cap at a time.
+        'has_question_rows': bool(run.get('rows')),
     }
 
 

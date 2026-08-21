@@ -53,3 +53,45 @@ measure_bilingual_alignment: |-
           [["I slept badly.", "بد خوابیدم."], ["It rained.", "باران آمد."]].
           Pass sentences the user provides in this shape. Empty means the
           bundled diary-like pairs (fixtures/bilingual_probe_pairs.json).
+list_experiments: |-
+  List the experiments this lab has already recorded, newest first: the id,
+  the corpus, what ran, the decision score with its error, the judge and the
+  backend that answered.
+
+  Start here for any question about past runs — you need an id before you can
+  read one. A row reading "unjudged" scored none of the four deciding metrics,
+  so it makes no claim; a row whose backend is "fake" measured nothing at all
+  and must never be compared as if it had.
+
+  Args:
+      dataset: A corpus id to restrict to, e.g. "diary-fa" or "smoke-mini".
+          Leave empty for every corpus. Scores never cross corpora, so a
+          question about one dataset should pass it.
+read_experiment: |-
+  Read one experiment: its knobs step by step, the four judged metrics that
+  decide, the judge, the deterministic summary and the backend that answered.
+
+  To compare two experiments, call this once per id. Then say plainly whether
+  they are comparable before saying which is better: only rows on the same
+  dataset, over the same question set, graded by the same judge can be
+  compared at all, and a lead smaller than the two errors combined is a tie,
+  not a win. One knob differing is a finding; three differing is not.
+
+  Args:
+      experiment_id: An id from list_experiments.
+read_experiment_questions: |-
+  Read the per-question rows of one evaluation — by default the questions
+  whose gold evidence retrieval did not fully find inside k.
+
+  Each row names the question, its type and difficulty, recall, precision,
+  mrr, and which evidence sessions were expected against which were
+  retrieved. This is the evidence for any answer about what to change: read
+  it before recommending a knob, and pair it with the RAG skills
+  (search_rag_skills) so the recommendation rests on both this run's failures
+  and the field's technique.
+
+  Args:
+      experiment_id: An id from list_experiments.
+      only: "missed" for questions whose evidence was not fully retrieved
+          (the default), "abstained" for questions the answerer declined, or
+          "all" for every row.

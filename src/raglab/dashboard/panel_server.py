@@ -11,6 +11,7 @@ import traceback
 import uuid
 import inspect
 import sqlite3
+from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -310,6 +311,17 @@ class Jobs:
 
 def create_app() -> FastAPI:
     widget.set_openrouter_key_resolver(credentials.active)
+    # The widget imports no evaluation module — a convention test pins it as a
+    # sealed leaf — so the two durable records reach it the same way the key
+    # does: injected here, by the one module that already reads both. Three
+    # functions off the modules that own them, deliberately not a fourth module
+    # written for the widget: what it is handed is what the board is built from
+    # and what this service's own route answers with, and all it adds is the
+    # formatting that makes them readable to a model.
+    widget.set_experiment_reader(SimpleNamespace(
+        board_rows=leaderboard.board_rows,
+        experiment=leaderboard.experiment,
+        question_rows=evaluate.question_rows))
     boot_settings = load_lab_settings()
 
     def settings_now():
@@ -611,10 +623,11 @@ def create_app() -> FastAPI:
         both and a row it lists must be a row this answers. An evaluation older
         than the ledger has only its run file, and those are most of the scored
         rows there are."""
+        found = leaderboard.experiment(experiment_id)
+        if found is None:
+            raise HTTPException(404, 'unknown experiment')
         row = ledger.experiment(experiment_id)
         run = evaluate.load_run(experiment_id)
-        if row is None and run is None:
-            raise HTTPException(404, 'unknown experiment')
         # `experiment_record` is the projection the board's own rows are, so the
         # row a reader clicked and the page that opens it cannot give two
         # accounts of one experiment — and any later reader that wants the same
@@ -623,8 +636,7 @@ def create_app() -> FastAPI:
         # needs on top *is* the evidence: the ledger's own `detail`, which
         # carries the whole job result for a row it recorded, and the run file
         # itself for an evaluation older than the ledger.
-        return leaderboard.experiment_record(row, run) | {
-            'detail': (row or {}).get('detail') or run or {}}
+        return found | {'detail': (row or {}).get('detail') or run or {}}
 
     @app.post('/api/imported-archives')
     def import_archive(payload: dict):

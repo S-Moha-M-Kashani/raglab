@@ -75,15 +75,43 @@ def close() -> None:
         _SAVER = None
 
 
+def _text(content) -> str:
+    """One message rendered the way the reader already saw it live. A model may
+    answer with a plain string or with a list of content blocks — a reasoning or
+    multi-block model over OpenRouter does the latter — and `backends.ask`
+    flattens that list to exactly this joined text before the panel shows it.
+    The two renderings are deliberately the same one: a log is a second account
+    of a conversation the reader already read, and an account that words a turn
+    differently from how it arrived is a quieter kind of the same lie as an
+    account that leaves it out. (When the live path is rewired onto this module,
+    it should call this rather than keep its own copy of the join.)"""
+    if isinstance(content, list):
+        return ' '.join(part.get('text', '') if isinstance(part, dict)
+                        else str(part) for part in content)
+    return content if isinstance(content, str) else str(content)
+
+
 def _turns(messages) -> list[dict]:
     """The conversation as a reader saw it: what was asked, what was answered.
-    A tool call is how the answer was reached, not part of it, and an empty
-    assistant message is the model calling a tool rather than speaking."""
+
+    Two kinds of message are left out, for two unrelated reasons. An assistant
+    message carrying tool calls is dropped because a tool call is how an answer
+    was reached rather than part of the answer — the reader was never shown it,
+    and a log is what the reader saw. A message with no text at all is dropped
+    because there is nothing of it to show; that is what an assistant message
+    looks like in the moment it calls a tool instead of speaking.
+
+    Neither rule may swallow a reply that simply arrives in another shape. This
+    once tested `isinstance(text, str)` and dropped everything else, which meant
+    a block-shaped answer the reader had watched arrive was gone from the log by
+    the next day, leaving a question with nothing under it — a record that
+    misrepresents the conversation as surely as an invented turn would. Rendering
+    is `_text`'s job, and it keeps them."""
     out = []
     for message in messages or []:
         kind = getattr(message, 'type', '')
-        text = getattr(message, 'content', '')
-        if not isinstance(text, str) or not text.strip():
+        text = _text(getattr(message, 'content', ''))
+        if not text.strip():
             continue
         if kind == 'human':
             out.append({'role': 'you', 'text': text})

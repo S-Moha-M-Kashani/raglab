@@ -2190,7 +2190,7 @@ requires-dist = [
     { name = "langchain-core", specifier = ">=1,<2" },
     { name = "langchain-openai", specifier = ">=1,<2" },
     { name = "langgraph", specifier = ">=1.2,<2" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
     { name = "leidenalg", marker = "extra == 'graph-index'", specifier = ">=0.10" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=2.0" },

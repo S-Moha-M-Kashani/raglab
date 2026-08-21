@@ -59,8 +59,14 @@ dependencies = [
   # ledger does and the in-memory index does not. A separate distribution from
   # langgraph itself, and declared for the same reason langchain is declared
   # beside langchain-core — an import that works by accident is one dependency
-  # resolution away from not.
-  "langgraph-checkpoint-sqlite>=2.0",
+  # resolution away from not. The floor is 3.1.1 rather than the 2.0 the import
+  # alone would need, because New Chat is implemented on one method:
+  # `SqliteSaver.delete_thread`, which conversation_memory.forget() calls to end
+  # the conversation a reader is in without touching any other experiment's. A
+  # resolve that landed a version without it would install fine, serve fine, and
+  # then raise AttributeError the first time anyone pressed the button. 3.1.1 is
+  # the version that method was verified present on here.
+  "langgraph-checkpoint-sqlite>=3.1.1",
 ]
 
 [project.optional-dependencies]

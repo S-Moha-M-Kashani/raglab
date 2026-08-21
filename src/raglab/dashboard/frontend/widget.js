@@ -161,6 +161,14 @@
     return ++DRAW_SEQ;
   }
 
+  // The generation as of right now, for a caller that is not itself starting
+  // a draw and so has no `mine` of its own to be handed — `widgetAsk` reads
+  // this before it posts, then asks `supersedes` the same question every
+  // draw asks: did a newer one start while I was waiting.
+  function currentGeneration() {
+    return DRAW_SEQ;
+  }
+
   // True once some later draw has started — the generation this draw was
   // given is no longer the newest, so painting now would show this draw's
   // thread under whatever the newer one's header already reads.
@@ -336,12 +344,43 @@
     widgetAsk(starter.textContent);
   });
 
+  // This file's one log writer that used to carry no guard at all: it reads
+  // `widgetThread()` at post time and, after the round trip, said `bot` and
+  // `err` unconditionally. That was fine while every surface shared one
+  // thread — there was nowhere else for the reply to belong. Once the header
+  // started naming a thread, an answer landing here after the reader left it
+  // (clicked the header, opened a different experiment, heard about one from
+  // another tab) became exactly the lie this task exists to rule out: an
+  // answer about A rendered under B's header, with nothing on the row saying
+  // so. `intended`/`mine` are captured before the post, the same shape as
+  // `widgetNote`'s, and checked again after.
+  //
+  // The exchange is not lost when the check fails — the lab already wrote it
+  // to `intended`'s own history the moment it answered, and whoever looks at
+  // `intended` next sees it there, drawn fresh, the way any earlier turn is.
+  // What must not happen is drawing it here, now, under a header that did
+  // not produce it, so the render is dropped rather than misattributed.
   async function widgetAsk(message) {
+    const intended = widgetThread();
+    const mine = currentGeneration();
     widgetSay('you', message);
+    const model = $('widget-model').value;
+    if (!model) {
+      // Posting with `model: ''` does not fail — `ask()` on the lab's side
+      // quietly substitutes its own default, and its reply carries no field
+      // naming which model actually ran, so there is no way to say so
+      // honestly afterwards. An empty selection here — the model list
+      // failed to load, most likely — is refused before the fact instead,
+      // which is the only way the dropdown is never shown empty while a
+      // real model answers anyway.
+      widgetSay('err', 'No model is available, so this question was not '
+        + 'sent — the model list failed to load. Reopen the helper to retry.');
+      return;
+    }
     $('widget-send').disabled = true;
     try {
-      const data = await api('/api/widget',
-        { message, model: $('widget-model').value, thread: widgetThread() });
+      const data = await api('/api/widget', { message, model, thread: intended });
+      if (supersedes(mine) || !stillCurrent(intended)) return;
       widgetSay('bot', data.reply);
       // The token account, when the backend reported one — an unreported
       // account renders nothing rather than a made-up zero.
@@ -349,7 +388,7 @@
         widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
       }
     } catch (error) {
-      widgetSay('err', error.message);
+      if (!supersedes(mine) && stillCurrent(intended)) widgetSay('err', error.message);
     } finally {
       $('widget-send').disabled = false;
       $('widget-input').focus();
@@ -362,6 +401,14 @@
   // `WIDGET_STARTERS` before it can decide whether to offer them — can wait
   // on it with `.then` instead of racing it.
   let widgetOptionsLoaded = false;
+  // Set on a failed load, cleared on a successful one — read by
+  // `widgetDrawThread`, not said here, because every caller of this function
+  // is immediately followed by a draw (see `widgetDraw`) whose own
+  // `log.innerHTML = ''` would silently erase an error said at this point
+  // the instant it repaints. An error about the model list disappearing
+  // under the very next redraw is exactly the kind of loss this file no
+  // longer allows itself anywhere else in this task.
+  let widgetOptionsError = null;
   async function widgetLoadOptions() {
     if (widgetOptionsLoaded) return;
     try {
@@ -371,8 +418,9 @@
         + `${escapeHtml(m.label)}</option>`).join('');
       WIDGET_STARTERS = data.starters || [];
       widgetOptionsLoaded = true;
+      widgetOptionsError = null;
     } catch (error) {
-      widgetSay('err', error.message);
+      widgetOptionsError = error.message;
     }
   }
 
@@ -412,14 +460,26 @@
     // than throwing, though: a rejection here would leave `widgetDrawing`
     // permanently rejected and, with it, silently drop every note still
     // waiting on it (including "no knob was changed", the one notice whose
-    // silent absence is most dangerous).
-    if (!Array.isArray(read.turns)) {
+    // silent absence is most dangerous). An `if`/`else` rather than an early
+    // return, because the options-list error below must still be said either
+    // way — it is a separate fact about this draw, not a reason to skip it.
+    if (Array.isArray(read.turns)) {
+      for (const turn of read.turns) widgetSay(turn.role, turn.text);
+      if (!read.turns.length) widgetOffer();
+    } else {
       widgetSay('err', 'The lab answered, but this thread’s history came '
         + 'back in a shape this page could not read.');
-      return;
     }
-    for (const turn of read.turns) widgetSay(turn.role, turn.text);
-    if (!read.turns.length) widgetOffer();
+    // Said here, once the paint above is done, rather than inside
+    // `widgetLoadOptions` itself — see the comment there. `widgetAsk`
+    // separately refuses to post with no model selected, so this line is
+    // the explanation for why the dropdown is empty and starters are
+    // missing, not the only thing standing between a reader and a silent
+    // substitution.
+    if (widgetOptionsError) {
+      widgetSay('err', `Could not load the model list (${widgetOptionsError}). `
+        + 'Asking is refused until it does; reopening the helper tries again.');
+    }
   }
 
   // The draw currently in flight, or the last one to finish — kept so anything

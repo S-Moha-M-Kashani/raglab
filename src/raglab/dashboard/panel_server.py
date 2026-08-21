@@ -434,6 +434,12 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'sorttable.js',
                             media_type='application/javascript')
 
+    @app.get('/filtertable.js')
+    def filtertable():
+        """The leaderboard's row filter, which reads a cell with the sorter's own parser rather than a second one."""
+        return FileResponse(STATIC / 'filtertable.js',
+                            media_type='application/javascript')
+
     @app.get('/tokens.css')
     def tokens_css():
         """The design tokens shared with the Inspector, so a colour cannot drift apart on either page."""

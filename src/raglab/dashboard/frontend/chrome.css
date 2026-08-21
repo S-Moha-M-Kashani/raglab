@@ -406,6 +406,12 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 }
 .scroll-rail::-webkit-scrollbar-track { background: var(--plate); }
 
+/* A filtered-out row. `display` is what `[hidden]` means, and it is said here
+   rather than left to the browser because a `tr` carries `display: table-row`
+   from the UA sheet — the two rules meet at the same specificity, and which one
+   wins is not something this component should leave to sheet order. */
+.data-table tbody tr[hidden] { display: none; }
+
 .table-hint { font: var(--t-2xs)/1.5 var(--mono); color: var(--ink-soft);
               margin: var(--s-1) 0 var(--s-3); }
 
@@ -496,6 +502,42 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
    top layer and placed against the button rather than inside any ancestor. */
 .board-bar { display: flex; align-items: center; gap: var(--s-2);
              margin-bottom: var(--s-3); }
+
+/* ── the row filter ────────────────────────────────────────────────────────
+   One line above the table, because what it does is narrow the table below it
+   and a control that sits anywhere else is a control the reader has to find.
+   The box is monospace: what is typed into it is a query over columns, and the
+   same font the figures are set in is the honest cue for that. */
+.filter-bar { display: flex; align-items: center; gap: var(--s-2);
+              flex-wrap: wrap; margin-bottom: var(--s-2); }
+.filter-bar label { font: var(--label-font); text-transform: uppercase;
+                    letter-spacing: var(--label-track); color: var(--ink-soft); }
+.filter-input {
+  flex: 1 1 22rem; min-width: 0;
+  appearance: none; background: var(--card); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  padding: var(--s-1) var(--s-2);
+  font: var(--t-sm)/1.6 var(--mono);
+}
+.filter-input:focus-visible { outline: 2px solid var(--step-generation);
+                              outline-offset: 1px; }
+.filter-clear {
+  appearance: none; background: transparent; color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  padding: var(--s-1) var(--s-2); cursor: pointer;
+  font: var(--t-2xs)/1 var(--mono);
+}
+.filter-clear:hover { color: var(--ink); border-color: var(--ink-soft); }
+/* How many rows the reader is looking at, out of how many there are. A filtered
+   table with no count is a table that quietly might be all of them. */
+.filter-count { font: var(--t-2xs)/1 var(--mono); color: var(--ink-soft);
+                white-space: nowrap; }
+/* A query that asked nothing answerable — a column this table does not have, or
+   an operator with nothing after it. It takes a whole line and it is inked like
+   the failure marks elsewhere, because the rows below it did not move for what
+   was typed, and that has to be the more obvious of the two facts. */
+.filter-said { flex: 1 0 100%; margin: 0;
+               font: var(--t-2xs)/1.5 var(--mono); color: var(--alert); }
 .context-bar {
   max-width: var(--measure); margin: 0 auto;
   padding: var(--s-2) var(--gutter) 0;

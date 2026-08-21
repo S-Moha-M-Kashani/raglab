@@ -32,7 +32,10 @@ const COLUMNS = [
   // and a wide frozen sentence is exactly what would push them off the screen.
   // The descriptive columns wait behind the scroll instead.
   { key: 'decision', label: 'decision', title: 'unweighted mean of the four judged metrics' },
-  { key: 'spread', label: '±', title: 'standard error of the decision score' },
+  // '±' is a column no reader can type, so it says its filter name itself. Every
+  // other heading is already the word a reader would use for it.
+  { key: 'spread', label: '±', filter: 'spread',
+    title: 'standard error of the decision score' },
   { key: 'faithfulness', label: 'faith', step: 'generation' },
   { key: 'answer_relevancy', label: 'ans rel', step: 'generation' },
   { key: 'llm_context_precision_with_reference', label: 'ctx prec', step: 'retrieval' },
@@ -65,10 +68,10 @@ const judgeOf = (row) => {
   return judge.model ? `${judge.model} via ${judge.provider || '?'}` : '—';
 };
 
-// The same sentence spelled out, as plain text: what the column sorts on and
-// what the reveal publishes. The board *draws* the short form — an abbreviated
-// cell that also sorted as its abbreviation would order two rows by words
-// neither of them shows.
+// The same sentence spelled out, as plain text: what the column sorts on, what
+// a filter on it reads, and what the reveal publishes. The board *draws* the
+// short form — an abbreviated cell that also sorted and filtered as its
+// abbreviation would answer `pipeline~sentence-transformers` with nothing.
 const sentenceText = (row) =>
   (row.pipeline || []).map((f) => f.text).join(' · ');
 
@@ -138,6 +141,7 @@ function renderTable(dataset, rows) {
     return `<th scope="col"${cls ? ` class="${cls}"` : ''}`
       + `${col.step ? ` data-step="${col.step}"` : ''}`
       + `${col.nosort ? ' data-nosort' : ''}`
+      + `${col.filter ? ` data-filter="${escapeHtml(col.filter)}"` : ''}`
       + `${col.title ? ` title="${escapeHtml(col.title)}"` : ''}>`
       + `${escapeHtml(col.label)}</th>`;
   }).join('');
@@ -206,6 +210,85 @@ function settingsReveal(row) {
     : '';
 }
 
+// --- the filter -------------------------------------------------------------
+// One line above the table. What it can be asked is `filtertable.js`'s to say;
+// what this holds is the query in force, and where it is published: in the URL,
+// so a filtered board is a link, and kept across a dataset pick, because
+// 'the failed ones' is a question about the lab and not about one corpus.
+let QUERY = '';
+let REMEASURE = null;      // the scroll rail's, once there is a table to measure
+
+function renderFilter() {
+  return `
+    <div class="filter-bar">
+      <label for="row-filter">Filter</label>
+      <input id="row-filter" class="filter-input" type="text" spellcheck="false"
+             autocapitalize="off" autocomplete="off" aria-describedby="filter-syntax"
+             placeholder="state!=failed questions&gt;30 decision&gt;0.6"
+             value="${escapeHtml(QUERY)}">
+      <button type="button" class="filter-clear" id="filter-clear">clear</button>
+      <span class="filter-count" id="filter-count" role="status"></span>
+      <p class="filter-said" id="filter-said" hidden></p>
+    </div>`;
+}
+
+const quoted = (words) => words.map((word) => `“${word}”`).join(', ');
+
+// Narrow the table to the query, and say what happened. A count on every state,
+// including the unfiltered one: a table with no count is a table that quietly
+// might not be all of it.
+function applyFilter() {
+  const table = document.querySelector('#board table');
+  const count = $('filter-count');
+  const said = $('filter-said');
+  if (!table || !count || !said) return;
+  const out = FilterTable.apply(table, QUERY);
+  const trouble = out.unknown.length
+    ? `no column called ${quoted(out.unknown)} on this board`
+    : out.bad.length
+      ? `${quoted(out.bad)} asks nothing`
+      : '';
+  // A query that asked nothing answerable leaves the rows exactly as the last
+  // answerable one left them — which while a term is half typed is the useful
+  // behaviour and never the obvious one, so it is said rather than assumed.
+  said.textContent = trouble ? `${trouble} — the rows below are unchanged.` : '';
+  said.hidden = !trouble;
+  count.textContent = out.shown === out.total
+    ? `${out.total} row${out.total === 1 ? '' : 's'}`
+    : `${out.shown} of ${out.total} shown`;
+  // The table's width follows what is in it, and the rail above it is sized to
+  // that width.
+  if (REMEASURE) REMEASURE();
+}
+
+// In the URL beside the dataset, for the same reason: a view somebody wants to
+// come back to is a view they can send.
+function publishQuery() {
+  const url = new URL(window.location.href);
+  if (QUERY) url.searchParams.set('filter', QUERY);
+  else url.searchParams.delete('filter');
+  window.history.replaceState({}, '', url);
+}
+
+// Delegated and registered once, because the whole board is rebuilt on every
+// dataset pick and a listener added per render would stack.
+document.addEventListener('input', (event) => {
+  if (!event.target || event.target.id !== 'row-filter') return;
+  QUERY = event.target.value;
+  publishQuery();
+  applyFilter();
+});
+document.addEventListener('click', (event) => {
+  const clear = event.target && event.target.closest
+    ? event.target.closest('#filter-clear') : null;
+  if (!clear) return;
+  QUERY = '';
+  const box = $('row-filter');
+  if (box) { box.value = ''; box.focus(); }
+  publishQuery();
+  applyFilter();
+});
+
 // Which corpus is on screen. The same affordance the lab page uses for its
 // corpus scope, down to the classes and the native `popover` — the browser owns
 // show, hide, light-dismiss and Escape, so there is no second implementation of
@@ -264,15 +347,16 @@ async function loadBoard(dataset) {
   }
   CURRENT = body.dataset || '';
   CATALOGUE = body.datasets || [];
-  const html = renderTable(CURRENT, body.rows || []);
+  const rows = body.rows || [];
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
         <h2>${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
-        <span class="section-meta right">${(body.rows || []).length} recorded</span>
+        <span class="section-meta right">${rows.length} recorded</span>
       </div>
       ${renderPicker(CURRENT, CATALOGUE)}
-      ${(body.rows || []).length ? html : '<p class="prose">Nothing recorded for '
+      ${rows.length ? renderFilter() + renderTable(CURRENT, rows)
+        : '<p class="prose">Nothing recorded for '
         + 'this dataset yet. Open the <a href="/">Laboratory</a>, pick it and '
         + 'press <b>Run evaluation</b>.</p>'}
       <p class="table-hint">Click any column heading to sort by it, again to
@@ -285,12 +369,31 @@ async function loadBoard(dataset) {
         measurement of it. This table names no winner: rows graded by different
         judges over different question sets share it, so <b>judge</b> and
         <b>questions</b> are columns you compare on.</p>
+      <p class="table-hint" id="filter-syntax"><b>Filter</b> takes one term per
+        column, all of which must hold, each written as the column's own heading
+        and what you want of it: <code>questions&gt;30</code>,
+        <code>decision&gt;=0.6</code>, <code>seconds&lt;120</code>,
+        <code>when&gt;2026-08-01</code>, <code>state!=failed</code>,
+        <code>judge~sonnet</code>. A colon is the forgiving spelling of
+        <code>~</code> (<code>kind:run</code>); a colon with nothing after it
+        asks whether the column was measured at all (<code>ctx-recall:</code>
+        for the rows that have it, <code>!ctx-recall:</code> for the rows that do
+        not). A bare word searches the whole row, <code>!word</code> excludes it,
+        and quotes hold a value together: <code>label~"hybrid vs dense"</code>.
+        A term about a column a row never measured does not match it in either
+        direction — a dash is <i>never measured</i>, not a low value.</p>
     </section>`;
   const table = box.querySelector('table');
   if (table) {
-    SortTable.make(table);
-    mountScrollRail(box.querySelector('.table-scroll'));
+    // Both readings of the table, wired to each other in one direction only:
+    // the sorter re-appends every row it holds on each reorder, which drops the
+    // hidden ones back among the visible ones, so the filter re-runs after it.
+    // The filter knows nothing about sorting in return — it decides each row
+    // from the query alone, so it cannot drift whatever order it is handed.
+    SortTable.make(table, { onApply: applyFilter });
+    REMEASURE = mountScrollRail(box.querySelector('.table-scroll'));
   }
+  applyFilter();
   wirePicker();
 }
 
@@ -408,4 +511,6 @@ document.addEventListener('click', (event) => {
     `<p class="explain">${escapeHtml(mark.dataset.help || '')}</p>`);
 });
 
-loadBoard(new URLSearchParams(window.location.search).get('dataset') || '');
+const ASKED = new URLSearchParams(window.location.search);
+QUERY = ASKED.get('filter') || '';
+loadBoard(ASKED.get('dataset') || '');

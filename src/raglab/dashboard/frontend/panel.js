@@ -135,13 +135,22 @@ function fillModels() {
   $('modelRoles').innerHTML = spare.map(row).join('');
 }
 
-// The corpora this lab can be pointed at. The built-in one is offered as '' —
-// the value every run already recorded carries, and the one a fingerprint is
-// computed without, so choosing it changes nothing about an index that exists.
+// How this panel spells a corpus. The built-in one is offered as '' — the
+// value every run already recorded carries, and the one a fingerprint is
+// computed without (`IndexConfig.fingerprint()` drops `dataset=''`), so
+// choosing it changes nothing about an index that exists and spelling it
+// `diary-fa` instead would rename every collection already built under it.
+// Three readers have to agree on that: the option values, the lookup that
+// reads one back, and the catalogue `servedKnobs()` calls served. Written out
+// three times they did not, and an experiment opened from the board announced
+// this lab's own default corpus as one it does not have.
+const datasetValue = (d) => (d.source === 'builtin' ? '' : d.id);
+const datasetValues = () => (OPTIONS.datasets || []).map(datasetValue);
+
 function fillDatasets() {
   const found = OPTIONS.datasets || [];
   $('dataset').innerHTML = found.map((d) =>
-    `<option value="${escapeHtml(d.source === 'builtin' ? '' : d.id)}">`
+    `<option value="${escapeHtml(datasetValue(d))}">`
     + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.sessions} `
     + `sessions · ${d.questions} questions`
     + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
@@ -152,7 +161,7 @@ function fillDatasets() {
 }
 
 const datasetOf = (id) => (OPTIONS.datasets || []).find(
-  (d) => (d.source === 'builtin' ? '' : d.id) === id);
+  (d) => datasetValue(d) === id);
 
 // One line about the corpus in force, in the header where the corpus has always
 // been described — switching datasets has to move that line, or the page says
@@ -566,6 +575,9 @@ async function boot() {
 
   renderIndexes(o.indexes);
   restoreLastRun();
+  // Last, so an experiment handed over by the board writes its knobs over a
+  // panel that is already fully built rather than one still filling its selects.
+  takeHandedExperiment();
 }
 
 // Re-read the options and re-render everything they decide, keeping the config
@@ -895,39 +907,109 @@ function archiveSettings() {
   });
 }
 
-const configValue = (config, path) => {
-  const [group, field] = path.split('.');
-  return config[group][field];
-};
+// --- what this installation serves ------------------------------------------
+// One assembly of every constraint this panel puts on a config, in the shape
+// `ExperimentHandoff.reconcile` reads. Two readers, one statement: an imported
+// archive is refused on the first knob in here it cannot serve, and an
+// experiment opened on the board applies every knob it can and names the rest.
+// Written out twice, the two would have drifted into disagreeing about what
+// this lab serves — and the disagreement would surface as a config that
+// imports but cannot be opened, or the reverse.
+
+// The numeric knobs take their bounds from the controls themselves, so a range
+// changed in the markup cannot leave a validator behind believing the old one.
+const NUMERIC_KNOBS = [
+  ['chunk_chars', 'index.chunk_chars'], ['overlap', 'index.overlap'],
+  ['graph_knn', 'index.graph_knn'], ['granularity', 'index.granularity'],
+  ['hierarchy_levels', 'index.hierarchy_levels'], ['min_group', 'index.min_group'],
+  ['k', 'retrieval.k'], ['candidates', 'retrieval.candidates'],
+  ['rerank_depth', 'retrieval.rerank_depth'],
+  ['recency_half_life_days', 'retrieval.recency_half_life_days'],
+  ['mmr_lambda', 'retrieval.mmr_lambda'],
+  ['grade_threshold', 'retrieval.grade_threshold'],
+  ['summary_boost', 'retrieval.summary_boost'],
+];
+
+function bounds(id) {
+  const control = $(id);
+  return {
+    min: control.min === '' ? null : Number(control.min),
+    max: control.max === '' ? null : Number(control.max),
+  };
+}
+
+// `mode` is a parameter rather than a read of the select, because the archive
+// path validates a config against the mode the *archive* declares — that is the
+// mode `writeArchiveSettings` is about to put the panel into, and validating
+// against the one still on screen would refuse models the import would then
+// have served perfectly well.
+function servedKnobs(mode = $('mode').value) {
+  const offered = (OPTIONS.modes || []).find((row) => row.key === mode);
+  const chatModels = ((offered && offered.models) || OPTIONS.models || [])
+    .map((row) => row.id);
+  // Each catalogue carries the reason it would refuse. The chat models are what
+  // *this backend mode* offers; the embedding models are what is installed here
+  // at all. One reason for both sends half the readers to change the wrong
+  // thing — a mode switch will never install a sentence-transformer.
+  const models = {
+    'index.embed_model': {
+      ids: (OPTIONS.embed_models || []).map((row) => row.id),
+      reason: 'not served by this lab',
+    },
+  };
+  for (const role of OPTIONS.model_roles || []) {
+    models[role.field] = {
+      ids: chatModels, reason: `not served in ${mode || 'boot'} mode`,
+    };
+  }
+  const ranges = {};
+  for (const [id, path] of NUMERIC_KNOBS) ranges[path] = bounds(id);
+  return {
+    mode: mode || 'boot',
+    datasets: datasetValues(),
+    choices: {
+      'index.chunker': OPTIONS.chunkers || [],
+      'index.embedder': (OPTIONS.embedder_hints || []).map((row) => row.kind),
+      'index.hierarchy': OPTIONS.hierarchies || [],
+      'index.graph_source': OPTIONS.graph_sources || [],
+      'index.summarizer': OPTIONS.summarizers || [],
+      'retrieval.retriever': OPTIONS.retrievers || [],
+      'retrieval.reranker': OPTIONS.rerankers || [],
+      'retrieval.grader': OPTIONS.graders || [],
+      'retrieval.summary_scope': OPTIONS.summary_scopes || [],
+      'generation.answerer': OPTIONS.answerers || [],
+    },
+    models,
+    ranges,
+  };
+}
 
 function validateAgainstPanelOptions(imported) {
   const config = imported.settings.config;
   const ui = imported.settings.ui;
+  // The corpus has its own disposition rather than the rule below: an archive
+  // carrying completed evidence for a dataset this installation lacks is
+  // allowed in, view-only, which is why `index.dataset` is filtered out there.
   ArchiveIO.datasetDisposition(imported, OPTIONS.datasets.map((row) => row.id));
 
-  const choices = [
-    ['index.chunker', OPTIONS.chunkers],
-    ['index.embedder', (OPTIONS.embedder_hints || []).map((row) => row.kind)],
-    ['index.hierarchy', OPTIONS.hierarchies],
-    ['index.graph_source', OPTIONS.graph_sources],
-    ['index.summarizer', OPTIONS.summarizers],
-    ['retrieval.retriever', OPTIONS.retrievers],
-    ['retrieval.reranker', OPTIONS.rerankers],
-    ['retrieval.grader', OPTIONS.graders],
-    ['retrieval.summary_scope', OPTIONS.summary_scopes],
-    ['generation.answerer', OPTIONS.answerers],
-  ];
-  for (const [path, values] of choices) {
-    const value = configValue(config, path);
-    if (!(values || []).includes(value)) {
-      throw new Error(`settings.config.${path}: ${value} is not served by this lab`);
-    }
-  }
-
+  // Before the config, because the config's models are read against it.
   const modes = ['', ...(OPTIONS.modes || []).map((row) => row.key)];
   if (!modes.includes(ui.mode)) {
     throw new Error(`settings.ui.mode: ${ui.mode} is not served by this lab`);
   }
+
+  // The same rule the board's handoff reads, asked in the strict direction. An
+  // imported file either arrives intact or it does not arrive at all, so the
+  // first knob this lab cannot serve refuses the whole config. Opening a row of
+  // this lab's own board is the other case, and applies what it can.
+  const refused = ExperimentHandoff
+    .reconcile(config, config, servedKnobs(ui.mode)).unserved
+    .filter((row) => row.path !== 'index.dataset');
+  if (refused.length) {
+    throw new Error(`settings.config.${refused[0].path}: `
+      + `${refused[0].value} is ${refused[0].reason}`);
+  }
+
   if (![...$('ragas_mode').options].some((option) => option.value === ui.ragas_mode)) {
     throw new Error(`settings.ui.ragas_mode: ${ui.ragas_mode} is not available`);
   }
@@ -937,40 +1019,14 @@ function validateAgainstPanelOptions(imported) {
       throw new Error(`settings.ui.types: ${type} is not served by this lab`);
     }
   }
-
-  const embedModels = new Set((OPTIONS.embed_models || []).map((row) => row.id));
-  if (config.index.embed_model && !embedModels.has(config.index.embed_model)) {
-    throw new Error(`settings.config.index.embed_model: ${config.index.embed_model} is not served by this lab`);
-  }
-  const mode = (OPTIONS.modes || []).find((row) => row.key === ui.mode);
-  const modelIds = new Set(((mode && mode.models) || OPTIONS.models || [])
-    .map((row) => row.id));
-  for (const role of OPTIONS.model_roles || []) {
-    const value = configValue(config, role.field);
-    if (value && !modelIds.has(value)) {
-      throw new Error(`settings.config.${role.field}: ${value} is not served in ${ui.mode || 'boot'} mode`);
-    }
-  }
-
-  const numericControls = [
-    ['chunk_chars', 'index.chunk_chars'], ['overlap', 'index.overlap'],
-    ['graph_knn', 'index.graph_knn'], ['granularity', 'index.granularity'],
-    ['hierarchy_levels', 'index.hierarchy_levels'], ['min_group', 'index.min_group'],
-    ['k', 'retrieval.k'], ['candidates', 'retrieval.candidates'],
-    ['rerank_depth', 'retrieval.rerank_depth'],
-    ['recency_half_life_days', 'retrieval.recency_half_life_days'],
-    ['mmr_lambda', 'retrieval.mmr_lambda'],
-    ['grade_threshold', 'retrieval.grade_threshold'],
-    ['summary_boost', 'retrieval.summary_boost'],
-    ['limit', 'ui.limit'], ['ragas_limit', 'ui.ragas_limit'],
-  ];
-  for (const [id, path] of numericControls) {
-    const control = $(id);
-    const value = path.startsWith('ui.') ? ui[path.slice(3)] : configValue(config, path);
-    const minimum = control.min === '' ? null : Number(control.min);
-    const maximum = control.max === '' ? null : Number(control.max);
-    if ((minimum !== null && value < minimum) || (maximum !== null && value > maximum)) {
-      throw new Error(`settings.${path}: ${value} is outside the panel range`);
+  // The two numbers that are the run's and not the config's, so they are not in
+  // the shared rule: how many questions to put, and how many to judge.
+  for (const key of ['limit', 'ragas_limit']) {
+    const range = bounds(key);
+    const value = ui[key];
+    if ((range.min !== null && value < range.min)
+        || (range.max !== null && value > range.max)) {
+      throw new Error(`settings.ui.${key}: ${value} is outside the panel range`);
     }
   }
 }
@@ -1183,6 +1239,78 @@ $('archive-export').onclick = () => {
   catch (error) { setArchiveStatus(error.message, 'error'); }
 };
 
+// --- an experiment opened on the board --------------------------------------
+// The board's open button pins the Inspector to one recorded experiment and
+// hands the same experiment here, so the knobs on this page become that
+// experiment's. The board cannot write them itself — only this page holds
+// `/api/options` — so what crosses is an id in one slot, and `servedKnobs()`
+// above decides which of the recorded knobs this installation can honour.
+//
+// Two ways it arrives, because both happen: this page loading with a slot
+// already written, and a `storage` event, which is the only thing that reaches
+// a Laboratory already open in another tab. That second case is the ordinary
+// one — the board opens the Inspector in a new tab, so the reader who has both
+// surfaces up is the reader this is for — and without it the button would set
+// the settings on the *next* reload, which is not what it said it did.
+
+async function openHandedExperiment(experimentId) {
+  let record;
+  try {
+    record = await api('/api/experiments/' + encodeURIComponent(experimentId));
+  } catch (error) {
+    // A row deleted from the ledger, a mistyped id, a lab that stopped between
+    // the click and the read. Said, and not one knob touched: settings half
+    // applied under a notice that never arrived is the only outcome worse than
+    // nothing happening.
+    widgetNote(`Could not read experiment ${experimentId} from the lab `
+      + `(${error.message}). No knob was changed.`);
+    return;
+  }
+  const out = ExperimentHandoff.reconcile(
+    record.config || {}, readConfig(), servedKnobs());
+  applyDefaults(out.config);
+  keepUnshown(out.config);
+  applyDependencies();
+  // The corpus may have moved, and with it whether this panel is looking at an
+  // archived dataset it can only read.
+  syncArchiveViewOnlyFromDataset();
+  if (!ARCHIVE_VIEW_ONLY) describeDataset();
+  remember(SAVED_CONFIG, readConfig());
+  // Whatever is on the readings card was produced by the settings that were
+  // here a moment ago. This is the same caution the panel raises when a knob is
+  // changed by hand, in the same words, for the same reason — these controls
+  // were just changed by hand, at one remove. `applyDefaults` writes the
+  // controls without firing `change`, so the listener that normally says this
+  // never hears it.
+  if (CURRENT_ARCHIVE) {
+    CURRENT_ARCHIVE = null;
+    setArchiveStatus('Readings belong to the previous settings; export will '
+      + 'contain settings only.', 'warning');
+  }
+  widgetNote(ExperimentHandoff.notice(record, out));
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key !== ExperimentHandoff.KEY || !event.newValue) return;
+  // Read from the event rather than from the slot: with two Laboratory tabs
+  // open both hear this, and a slot consumed by whichever ran first would leave
+  // the other sitting on the reader's old settings under no notice at all.
+  let offered = null;
+  try { offered = JSON.parse(event.newValue); } catch (e) { return; }
+  // Cleared all the same, so a later reload does not re-announce an experiment
+  // the reader opened days ago. Clearing is idempotent, and the null it writes
+  // is filtered out by the guard above rather than heard as a second handoff.
+  ExperimentHandoff.taken(localStorage);
+  if (offered && offered.experiment_id) {
+    openHandedExperiment(offered.experiment_id);
+  }
+});
+
+function takeHandedExperiment() {
+  const offered = ExperimentHandoff.taken(localStorage);
+  if (offered) openHandedExperiment(offered.experiment_id);
+}
+
 function renderResult(result, options = {}) {
   const safe = (value) => escapeHtml(String(value ?? ''));
   const metricCatalogue = options.metric_catalogue || measures();
@@ -1340,9 +1468,11 @@ function widgetSay(kind, text) {
   const log = $('widget-log');
   // The empty state goes on the first thing said, not on the first reply: a
   // panel of examples sitting above your own question reads as a menu you
-  // failed to use.
+  // failed to use. A `note` is not a turn in the conversation — it is the lab
+  // saying what it just did, and it can arrive at a widget the reader has never
+  // opened — so it lands under the examples instead of clearing them.
   const offer = log.querySelector('.widget-empty');
-  if (offer) offer.remove();
+  if (offer && kind !== 'note') offer.remove();
   log.insertAdjacentHTML('beforeend',
     `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
   log.scrollTop = log.scrollHeight;
@@ -1387,14 +1517,39 @@ function widgetRunAsk(result, catalogue) {
 // widget left open and untouched picks up the chip for the run just finished.
 function widgetOffer() {
   const log = $('widget-log');
-  if (log.querySelector('.widget-msg')) return;
+  // A note is not a conversation, so a log holding only notes is still a log
+  // nobody has asked anything in — and the reader whose widget was opened *by*
+  // a note is exactly the reader who has not seen the examples yet.
+  if (log.querySelector('.widget-msg:not(.note)')) return;
   if (!WIDGET_STARTERS.length && !WIDGET_RUN_ASK) return;
   const chip = (text, extra = '') =>
     `<button type="button" class="widget-starter${extra}">${escapeHtml(text)}</button>`;
-  log.innerHTML = '<div class="widget-empty"><b>What you can ask</b>'
+  const standing = log.querySelector('.widget-empty');
+  if (standing) standing.remove();
+  // Inserted rather than assigned over the log, which would take any note with
+  // it — the offer is rebuilt whenever a run lands, and by then a note may
+  // already be sitting there.
+  log.insertAdjacentHTML('afterbegin',
+    '<div class="widget-empty"><b>What you can ask</b>'
     + WIDGET_STARTERS.map((text) => chip(text)).join('')
     + (WIDGET_RUN_ASK ? chip(WIDGET_RUN_ASK, ' widget-starter-run') : '')
-    + '</div>';
+    + '</div>');
+}
+
+// A line the lab wrote, in the widget's log — which is where a reader finds it
+// on whichever surface the widget is on. Never `bot`: the model did not say
+// this, and a page borrowing the model's voice for its own statements is the
+// same lie a row telling you the wrong model produced it would be, one seam
+// earlier. A closed widget is opened, because a notice nobody can see is not a
+// notice; focus is deliberately left alone, since the click that caused this
+// happened on another surface and the caret is somewhere the reader put it.
+function widgetNote(text) {
+  const win = $('widget-window');
+  if (win.hidden) {
+    win.hidden = false;
+    widgetLoadOptions();
+  }
+  widgetSay('note', text);
 }
 
 // Delegated, because the offer is rebuilt whenever a run lands.

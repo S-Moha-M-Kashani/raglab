@@ -1,4 +1,4 @@
-"""The widget's five tools, and the registry the agent is handed.
+"""The widget's tools, and the registry the agent is handed.
 
 The docstrings on the tools below are for readers of this file; what the
 model sees is assigned from widget_tools.yaml right after TOOLS — the fixture
@@ -11,6 +11,7 @@ import re
 from langchain_core.tools import tool
 
 from raglab.agents.widget import skills_corpus_loader as skills
+from raglab.agents.widget.experiment_tools import EXPERIMENT_TOOLS
 from raglab.agents.widget import probe
 from raglab.agents.widget.prompts import _TOOL_PROMPTS, KNOWLEDGE_BASE
 
@@ -98,8 +99,11 @@ def measure_bilingual_alignment(model_name: str = '', pairs: str = '') -> str:
     return probe.measure(model_name, pairs)
 
 
+# The recorded-experiment tools are defined in their own module: they are one
+# concern (what this lab has already measured), and the only tools whose data
+# is injected rather than read from a fixture.
 TOOLS = [search_knowledge_base, calculate, search_rag_skills, read_rag_skill,
-         measure_bilingual_alignment]
+         measure_bilingual_alignment] + EXPERIMENT_TOOLS
 
 # The YAML page is what the model reads; assigning it here makes the fixture
 # the single source, and the import fails on a tool the page does not name.

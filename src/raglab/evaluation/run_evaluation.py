@@ -576,8 +576,121 @@ def list_runs(limit: int = 50) -> list[dict]:
     return out
 
 
+# How many per-question rows one read returns. The rows are the expensive layer
+# of a run file, and a whole 167-question failure set would fill the context
+# window of the one reader that asks for them with the tail of a list nobody
+# reads past.
+MAX_QUESTION_ROWS = 25
+
+
+def load_runs(limit: int = 500) -> list[dict]:
+    """Run files as they were saved, newest first, without their per-question rows.
+
+    `list_runs` reads the same files and flattens them for an API response —
+    `_row_shape` reduces `ragas` to its metrics dict alone. The board and the
+    digest both project from a run file rather than from that flattening, so
+    they need `ragas` as the block it is on disk, with the decision, its spread
+    and the judge still inside it.
+
+    `rows` is dropped because neither reader looks at it and it is the one part
+    of a run file that is large: keeping five hundred runs' worth of
+    per-question rows in memory to build a table that shows none of them is
+    what `list_runs` was already careful not to do. Nothing else is reshaped.
+    """
+    if not RUNS_DIR.exists():
+        return []
+    out = []
+    for path in sorted(RUNS_DIR.glob('*.json'), reverse=True)[:limit]:
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        if 'run_id' not in data:
+            continue        # not a run: never assume a directory holds only ours
+        data.pop('rows', None)
+        out.append(data)
+    return out
+
+
 def load_run(run_id: str) -> dict | None:
     path = RUNS_DIR / f'{run_id}.json'
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding='utf-8'))
+
+
+def question_rows(experiment_id: str, only: str = 'missed',
+                  limit: int = MAX_QUESTION_ROWS, db_path=None) -> dict:
+    """The per-question rows of one evaluation, filtered, named and capped.
+
+    `only='missed'` is the failure set worth reading: every question whose gold
+    evidence retrieval did not fully find inside k. The rows themselves carry a
+    question *id* and no text, so the dataset's ground truth is joined in — an
+    id alone cannot tell a reader what the retriever was looking for.
+    """
+    run = load_run(experiment_id) or {}
+    if not run:
+        return {'experiment_id': experiment_id, 'rows': [], 'n_questions': 0,
+                'n_matched': 0,
+                'reason': 'no run file for this experiment — per-question rows '
+                          'live in .runs/ only, and this experiment has a '
+                          'ledger row alone (an index build, a retrieval, or a '
+                          'run older than the ledger)'}
+    dataset = run.get('dataset') or datasets.BUILTIN
+    rows = run.get('rows') or []
+    matched = [row for row in rows if _matches(row, only)]
+    asked = _questions(dataset)
+    return {
+        'experiment_id': experiment_id, 'dataset': dataset,
+        'filter': only,
+        'n_questions': len(rows), 'n_matched': len(matched),
+        'k': (run.get('config') or {}).get('retrieval', {}).get('k'),
+        'rows': [_question_row(row, asked.get(row.get('id'), {}))
+                 for row in matched[:limit]],
+    }
+
+
+def _matches(row: dict, only: str) -> bool:
+    """Which rows one filter keeps. Unknown filter names keep everything rather
+    than silently returning an empty failure set, which would read as a run
+    with nothing wrong with it."""
+    recall = row.get('recall')
+    if only == 'missed':
+        # Below 1.0 is "not all of the gold evidence was inside k"; a missing
+        # recall is not a pass, so it stays in.
+        return recall is None or recall < 1.0
+    if only == 'abstained':
+        return bool(row.get('abstained'))
+    return True
+
+
+def _question_row(row: dict, asked: dict) -> dict:
+    """One per-question row, joined to what the question actually was."""
+    return {
+        'id': row.get('id', ''),
+        # The corpus's own language first, English beside it when the dataset
+        # carries one: `question_en` is optional and blank on most rows.
+        'question': asked.get('question_en') or asked.get('question_fa', ''),
+        'type': row.get('type') or asked.get('type', ''),
+        'difficulty': row.get('difficulty') or asked.get('difficulty', ''),
+        'answerable': row.get('answerable', asked.get('answerable')),
+        'recall': row.get('recall'), 'precision': row.get('precision'),
+        'mrr': row.get('mrr'), 'hit': row.get('hit'),
+        'n_contexts': row.get('n_contexts'),
+        'retrieved_sessions': list(row.get('retrieved_sessions') or []),
+        'expected_sessions': [ev.get('session_id', '')
+                              for ev in asked.get('evidence') or []],
+        'abstained': bool(row.get('abstained')),
+        'false_abstention': bool(row.get('false_abstention')),
+    }
+
+
+def _questions(dataset: str) -> dict:
+    """The dataset's ground-truth questions by id, or nothing when the corpus
+    is no longer loadable — an imported dataset can be gone while the runs it
+    produced remain, and a digest of those runs is still worth reading."""
+    try:
+        return {q.get('id'): q
+                for q in datasets.load(dataset)[1].get('questions') or []}
+    except (ValueError, OSError, KeyError):
+        return {}

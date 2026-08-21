@@ -1072,9 +1072,12 @@ function recordLabel(record) {
 // the row recorded travels with it, because a page showing one experiment is
 // the only place a reader can read that reason at all.
 function unfinishedNote(record, missing) {
-  return '<p class="empty-note">This experiment was <b>'
-    + `${escapeHtml(record.state || 'never finished')}</b>, so ${missing}: a job `
-    + 'that stopped recorded its config and nothing after it. '
+  // The row's own word for the state, in a frame that stays grammatical
+  // whichever word it is — and the same word the board's state column prints,
+  // so the two surfaces are describing one record in one vocabulary.
+  return '<p class="empty-note">This experiment did not finish — the ledger '
+    + `records it as <b>${escapeHtml(record.state || 'unfinished')}</b> — so `
+    + `${missing}: a job that stopped recorded its config and nothing after it. `
     + (record.error
        ? `The reason it recorded — ${escapeHtml(record.error)}`
        : 'It recorded no reason beyond the state itself.')

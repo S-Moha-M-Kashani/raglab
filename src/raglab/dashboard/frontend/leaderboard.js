@@ -25,7 +25,8 @@ const COLUMNS = [
   // reader actually needs (that this cell opens, and that `fake` is a rehearsal)
   // are in the hint prose under the table, in the page's own text.
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
-    title: 'every step this experiment ran · hover or focus for all of it' },
+    title: 'every step this experiment ran, abbreviated · hover or focus for '
+      + 'the whole sentence and every knob behind it' },
   // The deciding score, its error and the four metrics it is the mean of come
   // straight after the identity: they are the only columns that decide anything,
   // and a wide frozen sentence is exactly what would push them off the screen.
@@ -64,18 +65,23 @@ const judgeOf = (row) => {
   return judge.model ? `${judge.model} via ${judge.provider || '?'}` : '—';
 };
 
-// The same sentence as plain text, which is what the column sorts on.
+// The same sentence spelled out, as plain text: what the column sorts on and
+// what the reveal publishes. The board *draws* the short form — an abbreviated
+// cell that also sorted as its abbreviation would order two rows by words
+// neither of them shows.
 const sentenceText = (row) =>
   (row.pipeline || []).map((f) => f.text).join(' · ');
 
-// The sentence, each fragment inked with its own step. `data-step` is how every
-// other coloured thing on these pages takes its ink, and the four inks are
-// defined once in tokens.css. Wrapped in `.clip`, which is what actually holds
-// the frozen column's width — a cell cannot.
+// The sentence, each fragment inked with its own step, in the short form the
+// service abbreviated it to — neither surface derives the other's reading, so
+// the board cannot come to abbreviate a knob the printer spells out differently.
+// `data-step` is how every other coloured thing on these pages takes its ink,
+// and the four inks are defined once in tokens.css. Wrapped in `.clip`, which is
+// what actually holds the frozen column's width — a cell cannot.
 const sentence = (row) => '<span class="clip">' + ((row.pipeline || []).length
   ? (row.pipeline || []).map((f) =>
     `<span data-step="${escapeHtml(f.step)}" class="pipe-part">`
-    + `${escapeHtml(f.text)}</span>`).join('<span class="pipe-sep">·</span>')
+    + `${escapeHtml(f.short || f.text)}</span>`).join('<span class="pipe-sep">·</span>')
   : '<span class="muted">—</span>') + '</span>';
 
 function cell(row, key) {
@@ -176,6 +182,11 @@ function renderTable(dataset, rows) {
 // else, which is why the tooltips on these pages were removed.
 function settingsReveal(row) {
   const config = row.config || {};
+  // The abbreviation's expansion, first: the cell draws 'sem-drift·louv·ST' and
+  // the reader who does not recognise one of those words has to be able to read
+  // it here, not infer it from the knob list below. The knobs are still the
+  // longer answer — they hold what the sentence never names.
+  const said = sentenceText(row);
   const blocks = ['index', 'retrieval', 'generation', 'agent']
     .filter((step) => config[step] && Object.keys(config[step]).length)
     .map((step) => `<div class="reveal-step" data-step="${step}">`
@@ -188,8 +199,10 @@ function settingsReveal(row) {
   // and by nothing else. Some browsers make a scrollable box focusable anyway
   // and some do not, and which of them a reader has is not something the panel
   // should decide the answer for.
-  return blocks
-    ? `<div class="settings-reveal" popover="manual" tabindex="0">${blocks}</div>`
+  const head = said ? `<div class="reveal-said">${escapeHtml(said)}</div>` : '';
+  return blocks || head
+    ? `<div class="settings-reveal" popover="manual" tabindex="0">`
+      + `${head}${blocks}</div>`
     : '';
 }
 
@@ -264,9 +277,9 @@ async function loadBoard(dataset) {
         + 'press <b>Run evaluation</b>.</p>'}
       <p class="table-hint">Click any column heading to sort by it, again to
         reverse, a third time for the order it was served in. The
-        <b>pipeline</b> cell is
-        clipped to the column's width — hover it or give it focus and the whole
-        recorded config opens beside it. <b>backend</b> is where the model calls
+        <b>pipeline</b> cell is abbreviated and clipped to the column's width —
+        hover it or give it focus and the whole sentence opens beside it, with
+        every recorded knob under that. <b>backend</b> is where the model calls
         actually went: <code>fake</code> answers and judges without ever
         failing, so those rows are a rehearsal of the pipeline and not a
         measurement of it. This table names no winner: rows graded by different

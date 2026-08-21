@@ -328,11 +328,14 @@ button.why:hover { color: var(--card); background: var(--step, var(--ink));
 
    Wide enough for a whole pipeline sentence, which is what this column holds —
    at the 3rem it was tuned to when it held a rank, the sentence that identifies
-   the row was three characters of it. The width is a custom property because
-   the block that clips inside the cell has to carry the same number, and a
-   second literal is a second number. */
+   the row was three characters of it. Wide enough for the *short* sentence,
+   since the fragments arrive abbreviated: 30rem of spelled-out knobs pushed the
+   four metrics that decide anything off the screen, which is the same failure
+   from the other end. The width is a custom property because the block that
+   clips inside the cell has to carry the same number, and a second literal is a
+   second number. */
 .data-table .freeze-1 {
-  --freeze-1: 30rem;
+  --freeze-1: 17rem;
   position: sticky; z-index: 1; left: 0; background: var(--card);
   width: var(--freeze-1); min-width: var(--freeze-1);
 }
@@ -453,6 +456,13 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
                    display: block; margin-bottom: var(--s-1); }
 .reveal-knob { display: block; color: var(--ink-soft); }
 .reveal-knob > b { color: var(--ink); }
+/* The sentence the cell abbreviates, spelled out, at the head of the box that
+   opens on it. The knobs below it are the whole recorded config and say more
+   than the sentence does — but an abbreviation whose expansion is nowhere on
+   screen is a worse column than a wide one, and 'ST' is not answered by reading
+   `embedder sentence-transformers` three lines down and inferring it. */
+.reveal-said { color: var(--ink); margin-bottom: var(--s-2);
+               padding-bottom: var(--s-2); border-bottom: 1px solid var(--rule); }
 
 /* ── the context scope ─────────────────────────────────────────────────────
    Which corpus is in force: the lab page's Corpus scope and the board's Dataset

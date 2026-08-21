@@ -8,29 +8,9 @@ reason this one file exists is that a reader's chat should not.
 import os
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.checkpoint.base import empty_checkpoint
 
 from raglab.agents.widget import conversation_memory as memory
-
-
-def _write_messages(thread: str, messages: list) -> None:
-    """Whatever messages a caller names, straight into the checkpointer without
-    an LLM: the memory is what is under test, not the agent that fills it.
-
-    The checkpoint is `empty_checkpoint()` filled in rather than a dict written
-    out here, so this helper cannot drift from whatever shape the installed
-    checkpointer actually keeps — and the config carries `checkpoint_ns`,
-    which `SqliteSaver.put` reads without a default. It is the real saver
-    doing the writing either way, which is the part that matters."""
-    config = {'configurable': {'thread_id': thread, 'checkpoint_ns': ''}}
-    saver = memory.saver()
-    checkpoint = empty_checkpoint()
-    checkpoint['id'] = f'{thread}-1'
-    checkpoint['ts'] = '2026-08-21T00:00:00+00:00'
-    checkpoint['channel_values'] = {
-        'messages': messages,
-        'experiment_id': '', 'started_at': '2026-08-21T00:00:00+00:00'}
-    saver.put(config, checkpoint, {'source': 'update', 'step': 1}, {})
+from raglab.agents.widget.tests.widget_examples import write_messages as _write_messages
 
 
 def _write(thread: str, said: str, replied) -> None:

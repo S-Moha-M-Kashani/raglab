@@ -1369,23 +1369,14 @@ def test_new_chat_empties_one_conversation_and_no_other(client):
     # this is an integration test
     """The only control that ends a conversation, and it ends exactly one."""
     from langchain_core.messages import AIMessage, HumanMessage
-    from langgraph.checkpoint.base import empty_checkpoint
-    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.tests.widget_examples import write_messages
 
-    # Seeded through the real saver, the same way
-    # `agents/widget/tests/test_conversation_memory.py` does it: `SqliteSaver.put`
-    # reads `checkpoint_ns` with no default, so the config below carries it, and
-    # `empty_checkpoint()` is filled in rather than hand-built so this cannot
-    # drift from whatever shape the installed checkpointer actually keeps.
+    # Seeded through the real saver, the same helper
+    # `agents/widget/tests/test_conversation_memory.py` seeds its own threads
+    # with — one definition of what a checkpoint has to look like, not two
+    # that a langgraph upgrade could silently pull apart.
     for thread in ('exp-a', 'exp-b'):
-        config = {'configurable': {'thread_id': thread, 'checkpoint_ns': ''}}
-        checkpoint = empty_checkpoint()
-        checkpoint['id'] = f'{thread}-1'
-        checkpoint['ts'] = '2026-08-21T00:00:00+00:00'
-        checkpoint['channel_values'] = {
-            'messages': [HumanMessage(content='q'), AIMessage(content='a')],
-            'experiment_id': thread, 'started_at': ''}
-        memory.saver().put(config, checkpoint, {'source': 'update', 'step': 1}, {})
+        write_messages(thread, [HumanMessage(content='q'), AIMessage(content='a')])
 
     gone = client.delete('/api/widget/history', params={'thread': 'exp-a'})
     assert gone.status_code == 200

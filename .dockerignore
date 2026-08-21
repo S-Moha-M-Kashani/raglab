@@ -1,0 +1,42 @@
+# What the build context must not carry. Two reasons appear below: size (a
+# 13 MB .runs/ and a local .venv slow every build) and secrecy (.env holds the
+# OpenRouter key and must never become an image layer — layers are immutable,
+# so a later `rm` does not take a secret back out).
+
+# Secrets. Supplied at runtime by compose's env_file, never baked in.
+.env
+.env.*
+!.env.example
+
+# Durable artifacts. These arrive as mounts (see compose.yaml); a copy in the
+# image would shadow the mount at build time and confuse which one is real.
+.runs/
+databases/
+.datasets/
+
+# Host-side Python state. A macOS venv is useless in a Linux image and would
+# defeat the dependency layer.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Git history, and the ignored working directories the project keeps beside it.
+.git/
+.gitignore
+docs/
+.screens/
+graphify-out/
+
+# Editor and agent scaffolding.
+.claude/
+.superpowers/
+.idea/
+.vscode/
+.DS_Store
+
+# The container builds its own.
+Dockerfile
+compose.yaml
+.dockerignore

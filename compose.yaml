@@ -1,0 +1,81 @@
+# The two front doors, containerised. One image (see Dockerfile), two commands.
+#
+#   mkdir -p .runs databases .datasets   once, before the first up
+#   docker compose up -d --build         bring both up
+#   docker compose logs -f panel         watch the lab
+#   docker compose down                  stop
+#
+# The mkdir is not optional housekeeping: a bind mount whose source is missing
+# is created by the engine as root, and the lab then cannot write into it.
+#
+# The OpenRouter key does not belong in this file. Either let `.env` carry it
+# (env_file below, never copied into the image) or leave it unset and type it
+# into the panel's masthead Settings — the panel holds a typed key in process
+# memory only, which is the one route that never writes it anywhere.
+
+x-lab: &lab
+  build: .
+  # `.env` is read for the variables .env.example documents. Absent, every one
+  # of them falls back to its documented default, so the lab still starts.
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    # Ollama is the default backend and its documented URL is localhost, which
+    # inside a container means the container. This points it back at the daemon
+    # running on the Mac.
+    RAGLAB_OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+    RAGAS_DO_NOT_TRACK: "true"
+  extra_hosts:
+    # Docker Desktop resolves this on its own; the mapping is here so the same
+    # file works on a plain Linux engine.
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+
+services:
+  # The panel: builds indexes, runs evaluations, writes the durable records.
+  panel:
+    <<: *lab
+    # Bound to loopback on purpose. The container listens on 0.0.0.0 because it
+    # has to (see Dockerfile), so the host side is where reachability is decided
+    # — and a page you type an API key into should not be on the LAN.
+    ports:
+      - "127.0.0.1:9002:9002"
+    volumes:
+      # RUNS_DIR is `ROOT / '.runs'` in configuration/env_settings.py and takes
+      # no environment override, so this mount is what makes a run outlive the
+      # container rather than a convenience.
+      - ./.runs:/app/.runs
+      # The experiment ledger — one row per job. RAGLAB_DB defaults to
+      # databases/raglab.db, relative to the workdir.
+      - ./databases:/app/databases
+      # Where a corpus imported through the panel lands (RAGLAB_DATASETS).
+      - ./.datasets:/app/.datasets
+      # Embedding checkpoints, ~1 GB. A named volume, so `down` does not throw
+      # them away and the next `up` does not re-download them.
+      - hf-cache:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request as r; r.urlopen('http://127.0.0.1:9002/')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+
+  # The Inspector: reads what the panel produced. Read-only, so it needs the
+  # records but not the dataset directory or the embedding cache.
+  inspector:
+    <<: *lab
+    command: >
+      uv run uvicorn raglab.dashboard.inspector_server:app
+      --host 0.0.0.0 --port 9003
+    ports:
+      - "127.0.0.1:9003:9003"
+    volumes:
+      - ./.runs:/app/.runs:ro
+      - ./databases:/app/databases:ro
+    depends_on:
+      - panel
+
+volumes:
+  hf-cache:

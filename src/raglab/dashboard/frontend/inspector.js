@@ -795,7 +795,7 @@ function generationBlock(row, trace) {
 
 function showLabDown(el) {
   el.textContent = 'Nothing to show until the lab is running. Start it with '
-    + '`npm run raglab`.';
+    + '`uv run --extra local-embeddings raglab`.';
 }
 
 // One line in the header, so an empty view never leaves the reader guessing

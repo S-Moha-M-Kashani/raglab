@@ -576,6 +576,35 @@ def list_runs(limit: int = 50) -> list[dict]:
     return out
 
 
+def load_runs(limit: int = 500) -> list[dict]:
+    """Run files as they were saved, newest first, without their per-question rows.
+
+    `list_runs` reads the same files and flattens them for an API response —
+    `_row_shape` reduces `ragas` to its metrics dict alone. The board and the
+    digest both project from a run file rather than from that flattening, so
+    they need `ragas` as the block it is on disk, with the decision, its spread
+    and the judge still inside it.
+
+    `rows` is dropped because neither reader looks at it and it is the one part
+    of a run file that is large: keeping five hundred runs' worth of
+    per-question rows in memory to build a table that shows none of them is
+    what `list_runs` was already careful not to do. Nothing else is reshaped.
+    """
+    if not RUNS_DIR.exists():
+        return []
+    out = []
+    for path in sorted(RUNS_DIR.glob('*.json'), reverse=True)[:limit]:
+        try:
+            data = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            continue
+        if 'run_id' not in data:
+            continue        # not a run: never assume a directory holds only ours
+        data.pop('rows', None)
+        out.append(data)
+    return out
+
+
 def load_run(run_id: str) -> dict | None:
     path = RUNS_DIR / f'{run_id}.json'
     if not path.exists():

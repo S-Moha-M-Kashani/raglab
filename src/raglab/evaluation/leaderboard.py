@@ -17,7 +17,7 @@ from pathlib import Path
 
 from raglab.configuration.lab_config import RUNS_DIR
 from raglab.corpora import dataset_import_contract as datasets
-from raglab.evaluation.run_evaluation import list_runs
+from raglab.evaluation.run_evaluation import load_runs
 from raglab.evaluation import ragas_judged_metrics as judged
 from raglab.evaluation import service_experiment_ledger as ledger
 
@@ -307,10 +307,15 @@ def _decision(row: dict):
 # `Jobs.run`: every evaluation older than the ledger has a run file and no
 # ledger row, and reading one record would drop those runs off the board
 # without saying so.
-def _metrics(run: dict) -> dict:
+def _metrics(ragas: dict) -> dict:
     """Only the four that decide, read from the tuple that defines them so a
-    board column cannot drift from the decision rule."""
-    found = run.get('ragas') or {}
+    board column cannot drift from the decision rule.
+
+    Takes the run file's `ragas` block, so the metrics are read from where they
+    were written. `list_runs` used to hand this the block already reduced to its
+    metrics dict — the same key meaning two different depths on two paths, which
+    is exactly the confusion one projection removes."""
+    found = ragas.get('metrics') or {}
     return {name: found[name] for name in judged.DECISION_METRICS
             if found.get(name) is not None}
 
@@ -350,23 +355,42 @@ def ledger_config(row: dict) -> dict:
 
 
 def board_rows(limit: int = 500, db_path=None) -> list[dict]:
-    runs = {r['run_id']: r for r in list_runs(limit=limit)}
+    runs = {r['run_id']: r for r in load_runs(limit=limit)}
     out, seen = [], set()
     for row in ledger.experiments(limit=limit, path=db_path):
         found = runs.get(row['experiment_id'])
         seen.add(row['experiment_id'])
-        out.append(_board_row(row, found))
+        out.append(experiment_record(row, found))
     # Evaluations the ledger never saw. Ordered after the ledger's rows and then
     # re-sorted by `by_dataset`, so the seam is not visible in the table.
     for run_id, found in runs.items():
         if run_id not in seen:
-            out.append(_board_row(None, found))
+            out.append(experiment_record(None, found))
     return out
 
 
-def _board_row(row: dict | None, run: dict | None) -> dict:
+def experiment_record(row: dict | None, run: dict | None) -> dict:
+    """One experiment as the two durable records jointly describe it.
+
+    The one projection of the pair, read by the board and by
+    `experiment_digest` alike. Two records exist, neither is sufficient, and
+    every reader therefore has to decide which wins where they overlap — so
+    that decision is made here, once. Written twice, agreement between the
+    board and the widget was a coincidence kept up by hand.
+
+    Precedence: the run file wins where both carry a fact, because that file is
+    where the number was computed and the one a reader can open to check it; the
+    ledger fills in what only it records — the kind, the state, the backend that
+    answered — and stands alone for every index build, every retrieval and every
+    imported archive, none of which a run file covers.
+
+    `run` is a run file as `save_run` wrote it (`load_run`, `load_runs`), never
+    `list_runs`'s flattening of one: `ragas` has to be the block it is on disk.
+    """
     row = row or {}
     run = run or {}
+    ragas = run.get('ragas') or {}
+    summary = run.get('summary') or {}
     # A run file's config wins when there is one; a ledger-only row (no run
     # file at all) still gets a sentence, built from the ledger's own flat
     # columns rather than left blank.
@@ -386,17 +410,18 @@ def _board_row(row: dict | None, run: dict | None) -> dict:
         # Resolved, not served raw: `by_dataset` files a blank under the
         # built-in corpus, and a row whose own cell then said it had no dataset
         # would deny the table it is sitting in.
-        'dataset': _dataset(run, row),
+        'dataset': ((run.get('dataset') or datasets.BUILTIN) if run
+                    else _dataset(row)),
         'provider': row.get('provider') or '',
-        'n_questions': run.get('n_questions') or row.get('n_questions') or 0,
+        'n_questions': (summary.get('n_questions')
+                        or row.get('n_questions') or 0),
         # The run file wins where both carry it: that file is where the number
         # was computed and the one a reader can open to check it.
-        'decision': (run.get('ragas_decision') if run
-                     else row.get('decision')),
-        'decision_stderr': (run.get('ragas_decision_stderr') if run
-                            else row.get('decision_stderr')),
-        'metrics': _metrics(run),
-        'judge': run.get('judge') or {},
+        'decision': ragas.get('decision') if run else row.get('decision'),
+        'decision_stderr': ((ragas.get('decision_spread') or {}).get('stderr')
+                            if run else row.get('decision_stderr')),
+        'metrics': _metrics(ragas),
+        'judge': ragas.get('judge') or {},
         'pipeline': pipeline_fragments(config),
         'config': config,
         # A reader is entitled to know why a metric column is blank.

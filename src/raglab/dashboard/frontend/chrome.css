@@ -69,10 +69,6 @@
   background: var(--chassis-soft); color: #fff;
   border-bottom-color: var(--step-index);
 }
-/* The port, for the surface that is genuinely somewhere else. Small, and
-   never the only thing distinguishing the item. */
-.topnav .port { color: var(--chassis-ink-soft); font: var(--t-2xs)/1 var(--mono); }
-.topnav a[aria-current="page"] .port { color: var(--chassis-ink); }
 
 /* The page's own actions, pushed right. One item on every surface now — the
    Settings button — because everything that used to sit loose here turned out

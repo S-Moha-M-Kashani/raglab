@@ -426,6 +426,12 @@ def inspector_texts():
 # docstring so a failure names the rule rather than printing a bare
 # "assert 'x' in text".
 INSPECTOR_CONVENTIONS = [
+    ('inspector.html', None, 'class="port"',
+     'the switcher names surfaces, not ports. Both panel pages dropped theirs '
+     '(pinned in test_panel.py) and this page kept two, so every walk to the '
+     'Inspector made ":9002" appear out of nowhere beside two links that had '
+     'been bare on the page before it — one switcher worn by three surfaces '
+     'cannot label the address on one of them only'),
     ('inspector.css', 'font-size: var(--t-sm)', None,
      'one table step for both surfaces: this table read --t-xs where the '
      "lab's read --t-sm, which is what a ramp offering three indiscriminable "

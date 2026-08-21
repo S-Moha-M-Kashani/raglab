@@ -199,7 +199,7 @@ def _experiment_from_run(run: dict) -> dict:
     Third of three projections between a run file's shape and a ledger row's,
     and the three have to agree about what `chunker`, `retriever` and `answerer`
     mean: `ledger.row_for` writes a finished job into those columns, and
-    `leaderboard._ledger_config` reads them back out into the nesting a config
+    `leaderboard.ledger_config` reads them back out into the nesting a config
     has. Change what one of the three calls a knob and the other two are wrong
     about the same row.
 

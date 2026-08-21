@@ -335,7 +335,7 @@ def _metrics(run: dict) -> dict:
 # and GENERATION headings with blank knobs under them for every index build —
 # inventing, one function later, exactly the two stages `pipeline_fragments`
 # above refuses to pad. `'none'` is a recorded value and stays.
-def _ledger_config(row: dict) -> dict:
+def ledger_config(row: dict) -> dict:
     steps = {
         'index': {'chunker': row.get('chunker'),
                   'embedder': row.get('embedder')},
@@ -370,7 +370,7 @@ def _board_row(row: dict | None, run: dict | None) -> dict:
     # A run file's config wins when there is one; a ledger-only row (no run
     # file at all) still gets a sentence, built from the ledger's own flat
     # columns rather than left blank.
-    config = run.get('config') or (_ledger_config(row) if row else {})
+    config = run.get('config') or (ledger_config(row) if row else {})
     source = 'both' if (row and run) else ('ledger' if row else 'run')
     return {
         'experiment_id': row.get('experiment_id') or run.get('run_id') or '',

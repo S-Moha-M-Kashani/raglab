@@ -103,7 +103,7 @@ def row_for(job: dict, state: str) -> dict:
     recorded by having been run. Every field degrades to a blank or a zero.
 
     First of three projections between a job's nested config and the flat
-    columns a row has. `leaderboard._ledger_config` reads these same columns
+    columns a row has. `leaderboard.ledger_config` reads these same columns
     back into a nested config for the board's settings panel, and
     `panel_server._experiment_from_run` writes a run file into this shape for a
     board row. All three have to mean the same thing by `chunker`, `retriever`

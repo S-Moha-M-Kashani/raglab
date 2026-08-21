@@ -457,7 +457,7 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 #indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
 #datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
 #dataset-file { font-size: var(--t-xs); padding: var(--s-1); }
-#experimentDetail pre, #jobBox pre {
+#jobBox pre {
   white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;
   overflow: auto; background: var(--plate); padding: var(--s-2); border-radius: var(--radius-sm);
 }

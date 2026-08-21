@@ -128,10 +128,11 @@
   // A question about the run currently on the Readings card, and empty when
   // there is none. The page that holds a run hands it over through
   // `Widget.offer`; nothing in here goes looking for one. Deliberately the
-  // *lab's* last run and not the last conversation: widget memory is an
-  // in-process checkpointer keyed to a page-scoped session id, so a reload
-  // genuinely forgets, and a chip claiming otherwise would be a panel lying
-  // about what produced it.
+  // *lab's* last run and not the last conversation: the widget's memory now
+  // outlives a restart (databases/widget.db), but this page does not yet
+  // redraw a thread's history on load — that is Task 7 — so a chip claiming
+  // the conversation carried over would be true of the log and false of the
+  // screen the reader is looking at.
   let WIDGET_RUN_ASK = '';
 
   // Rendered only while the log is empty. Called again when a run lands, so a
@@ -180,17 +181,17 @@
     widgetAsk(starter.textContent);
   });
 
-  // One conversation per page: the id is minted when the script loads and sent
-  // with every ask, so a follow-up lands in the same thread and a reloaded page
-  // starts clean — nothing persisted, nothing shared between tabs.
-  const widgetSession = crypto.randomUUID();
+  // Which conversation this page is in. Task 8 keys it to the lab's active
+  // experiment; until then every surface shares the one general thread, which is
+  // already the behaviour the change is for.
+  function widgetThread() { return 'general'; }
 
   async function widgetAsk(message) {
     widgetSay('you', message);
     $('widget-send').disabled = true;
     try {
       const data = await api('/api/widget',
-        { message, model: $('widget-model').value, session: widgetSession });
+        { message, model: $('widget-model').value, thread: widgetThread() });
       widgetSay('bot', data.reply);
       // The token account, when the backend reported one — an unreported
       // account renders nothing rather than a made-up zero.

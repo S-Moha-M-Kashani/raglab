@@ -7,10 +7,10 @@ process per call with the knowledge base inlined, because `CliChat` has no
 """
 import os
 from threading import RLock
-from uuid import uuid4
 
 from langchain_core.messages import HumanMessage
 
+from raglab.agents.widget import conversation_memory as memory
 from raglab.agents.widget import skills_corpus_loader as skills
 from raglab.llm_backends.cli_subprocess_chat import (
     CliChat,
@@ -88,7 +88,8 @@ _AGENTS_LOCK = RLock()
 
 
 def reset() -> None:
-    """Drop the cached agents so the next ask() rebuilds (tests, key changes)."""
+    """Drop the cached clients so the next ask() rebuilds (tests, key changes).
+    Not the memory: that outlives every client, and lives in widget.db."""
     with _AGENTS_LOCK:
         _AGENTS.clear()
 
@@ -120,7 +121,6 @@ def _build_agent(model: str):
 
     from langchain.agents import create_agent
     from langchain_openai import ChatOpenAI
-    from langgraph.checkpoint.memory import InMemorySaver
 
     llm = ChatOpenAI(model=model, api_key=openrouter_api_key,
                      base_url=_openrouter_url())
@@ -129,12 +129,16 @@ def _build_agent(model: str):
     # static kind — and the agent then answered from its own knowledge, called
     # neither tool, and said nothing about it. Interception lives in
     # `trim_and_call` now, which is where 1.x puts it.
-    # The checkpointer is this build's own: in process like the index, dying
-    # with it — and with the build, so `reset()` forgets the conversations
-    # too. `trim_and_call` keeps the model's window at MAX_HISTORY however
-    # long a remembered thread grows.
+    # One checkpointer for the process, not one per agent: `reset()` clears
+    # this cache on every credential change, and a memory living inside an
+    # agent went with it — typing a key ended the conversation. The state is
+    # two fields, deliberately (conversation_memory.WidgetState).
+    # `trim_and_call` keeps the model's window at MAX_HISTORY however long a
+    # remembered thread grows.
     return create_agent(llm, tools=TOOLS, system_prompt=SYSTEM_PROMPT,
-                        middleware=MIDDLEWARE, checkpointer=InMemorySaver())
+                        middleware=MIDDLEWARE,
+                        state_schema=memory.WidgetState,
+                        checkpointer=memory.saver())
 
 
 def _cli_system() -> str:
@@ -178,15 +182,15 @@ def _accounted(reply: str, used: list) -> dict:
                               if used else None)}
 
 
-def ask(message: str, model: str = '', session: str = '') -> dict:
+def ask(message: str, model: str = '', thread: str = '') -> dict:
     """One question in, one answer out: `{'reply', 'input_tokens',
     'output_tokens'}` — the account read from the `usage_metadata` LangChain
     puts on every AI message. `model` picks from WIDGET_MODELS; empty means
-    the default. Agents build on first use, one per model. `session` names
-    the conversation to continue — the browser page's own id, one thread per
-    page; empty means a one-off ask on a throwaway thread, because a
-    checkpointed graph demands a thread id and a shared default would leak
-    one anonymous caller's history into the next."""
+    the default. Agents build on first use, one per model. `thread` names the
+    conversation to continue — the lab's active experiment, or `general` when
+    it has none; empty lands on `general` rather than on a fresh id, because a
+    reader who asked without an experiment open twice is having one
+    conversation, not two."""
     choice = model or DEFAULT_MODEL
     kind, _ = WIDGET_MODELS.get(choice) or (None, None)
     if kind is None:
@@ -196,7 +200,7 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
         # The two agent-level hooks bracket a CLI too, through the halves they
         # were factored into: a CLI has no loop for the middle four, and no
         # graph to hang middleware on at all. One process per call means no
-        # memory either — the session is accepted and ignored, the label
+        # memory either — the thread is accepted and ignored, the label
         # already says what a CLI cannot do.
         answer = _cli_answer(choice, _validate(message))
         used = getattr(answer, 'usage_metadata', None)
@@ -217,7 +221,7 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
         result = agent.invoke(
             {'messages': [HumanMessage(content=message)]},
             config={'recursion_limit': 24,
-                    'configurable': {'thread_id': session or f'one-off-{uuid4()}'}})
+                    'configurable': {'thread_id': thread or memory.GENERAL}})
     except WidgetUnavailable:
         raise
     except Exception as error:
@@ -235,9 +239,10 @@ def ask(message: str, model: str = '', session: str = '') -> dict:
             break
     used = [m.usage_metadata for m in turn
             if getattr(m, 'usage_metadata', None)]
-    reply = messages[-1].content
-    if isinstance(reply, list):
-        reply = ' '.join(part.get('text', '') if isinstance(part, dict) else str(part)
-                         for part in reply)
+    # The same rendering `conversation_memory.history()` reads back with —
+    # `_text` is the one place a message's content becomes a string, so the
+    # reply the reader sees live and the turn the log shows later cannot
+    # drift into two different accounts of the same answer.
+    reply = memory._text(messages[-1].content)
     # `close_the_log` already accounted for this run from inside the graph.
-    return _accounted(str(reply), used)
+    return _accounted(reply, used)

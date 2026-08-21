@@ -47,7 +47,8 @@ dependencies = [
   # resolution away from not.
   "pyyaml>=6.0",
   # The widget's tool loop and its conversation memory name langgraph directly
-  # (`create_agent`'s prebuilt loop, `InMemorySaver`). It arrives transitively —
+  # (`create_agent`'s prebuilt loop, the `SqliteSaver` checkpointer every agent
+  # shares — see `langgraph-checkpoint-sqlite` below). It arrives transitively —
   # langchain 1.x requires `langgraph>=1.2.11` — and is declared for the same
   # reason langchain is declared beside langchain-core. Nothing from `langsmith`
   # is enabled here: the widget writes no number, which is the only reason it may

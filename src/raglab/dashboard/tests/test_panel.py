@@ -692,10 +692,10 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
     # this is a convention test
     """One chip built from the run on the Readings card, and nothing when there
     is no run — never a chip that refers to nothing. It is deliberately the
-    *lab's* last run rather than the last conversation: widget memory is an
-    in-process checkpointer keyed to a page-scoped session id, so a reload
-    genuinely forgets, and a chip implying otherwise would be a panel lying
-    about what produced it."""
+    *lab's* last run rather than the last conversation: the widget's memory
+    now outlives a restart, but the page does not yet redraw a thread's
+    history on load, so a chip implying the conversation carried over would be
+    a panel lying about what the reader can actually see."""
     js = panel_texts['panel.js']
     # The helper itself is widget.js now; what stays on the Laboratory is this
     # one function, at the foot of the file, because it reads a *run*.
@@ -1329,17 +1329,15 @@ def test_every_surface_carries_the_widget(panel_texts):
         assert 'href="/widget.css"' in page, f'{name} does not style the widget'
 
 
-def test_the_widget_sends_one_session_id_per_page(panel_texts):
+def test_the_widget_sends_the_thread_it_is_in(panel_texts):
     # this is a convention test
-    """The widget's memory is a browser page's: the client mints one id when
-    the script loads and sends it with every ask, so a follow-up lands in the
-    same thread and a reloaded page starts clean — nothing persisted, nothing
-    shared between tabs."""
+    """The widget's memory is a thread in widget.db, not a page's lifetime. The
+    POST must carry which thread, or every question lands in the same one."""
     block = panel_texts['panel.js (widget block)']
-    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bsession\b", block), (
-        'the widget POST must carry the session id')
-    assert 'crypto.randomUUID' in block, (
-        'one id, minted client-side, once per page load')
+    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bthread\b", block), (
+        'the widget POST must carry the thread id')
+    assert 'crypto.randomUUID' not in block, (
+        'a per-page id is exactly the reset this change removed')
 
 
 def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):

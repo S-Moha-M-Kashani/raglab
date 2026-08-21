@@ -78,13 +78,12 @@ def close() -> None:
 def _text(content) -> str:
     """One message rendered the way the reader already saw it live. A model may
     answer with a plain string or with a list of content blocks — a reasoning or
-    multi-block model over OpenRouter does the latter — and `backends.ask`
-    flattens that list to exactly this joined text before the panel shows it.
-    The two renderings are deliberately the same one: a log is a second account
+    multi-block model over OpenRouter does the latter — and `backends.ask` calls
+    this same function to flatten that list before the panel shows the reply.
+    The two renderings are deliberately the same call: a log is a second account
     of a conversation the reader already read, and an account that words a turn
     differently from how it arrived is a quieter kind of the same lie as an
-    account that leaves it out. (When the live path is rewired onto this module,
-    it should call this rather than keep its own copy of the join.)"""
+    account that leaves it out."""
     if isinstance(content, list):
         return ' '.join(part.get('text', '') if isinstance(part, dict)
                         else str(part) for part in content)

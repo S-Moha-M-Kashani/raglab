@@ -94,6 +94,10 @@ SPACING_OFF_RAMP = [
      'taller than the ramp\'s top step — a bigger step invented for one use is '
      'a step with one user. It stays keyed to panel.css because it is a rule '
      'on the page: the launcher\'s own rules live in widget.css'),
+    ('inspector.css', 'padding-bottom: 5rem',
+     'clearance under the whole page for the fixed widget launcher, which is '
+     'taller than the ramp\'s top step — the Laboratory reserves the same, for '
+     'the same reason'),
     ('panel.css', 'padding-bottom: 2px',
      'the gap between a link and the rule underlining it, which is a border '
      'offset rather than spacing between things'),

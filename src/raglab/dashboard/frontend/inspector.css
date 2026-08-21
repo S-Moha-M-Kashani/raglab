@@ -83,6 +83,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Clearance for the fixed widget launcher, whose rules live in widget.css —
+   the same 5rem the Laboratory reserves, and off the ramp for the same reason. */
+body { padding-bottom: 5rem; }
+
 button { font: inherit; cursor: pointer; color: inherit; }
 select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--step-generation); outline-offset: 2px; }

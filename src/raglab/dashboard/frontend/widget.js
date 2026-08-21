@@ -225,7 +225,7 @@
 
   $('widget-launch').addEventListener('click', () => {
     const win = $('widget-window');
-    win.hidden = !win.hidden;
+    widgetSetOpen(win.hidden);
     if (!win.hidden) { widgetLoadOptions(); $('widget-input').focus(); }
   });
 
@@ -234,7 +234,7 @@
     row.hidden = !row.hidden;
   });
 
-  $('widget-close').addEventListener('click', () => { $('widget-window').hidden = true; });
+  $('widget-close').addEventListener('click', () => { widgetSetOpen(false); });
 
   $('widget-form').addEventListener('submit', (event) => {
     event.preventDefault();
@@ -250,6 +250,23 @@
   // outward looks like. The size is a preference, not a gesture, so it is
   // remembered under the same `lodestar:` prefix as the settings and the last run.
   const SAVED_WIDGET_SIZE = 'lodestar:raglab-widget-size';
+
+  // Open or shut travels with the reader, the way the size already does. The
+  // point of the helper being on three surfaces is that crossing between them
+  // changes nothing about it — a window that shut itself on every navigation
+  // would make the shared conversation pointless.
+  const SAVED_WIDGET_OPEN = 'raglab-widget-open';
+
+  function widgetSetOpen(open) {
+    $('widget-window').hidden = !open;
+    try { localStorage.setItem(SAVED_WIDGET_OPEN, open ? '1' : ''); }
+    catch (error) { /* storage blocked: the window still opens, it just forgets */ }
+  }
+
+  function widgetWasOpen() {
+    try { return localStorage.getItem(SAVED_WIDGET_OPEN) === '1'; }
+    catch (error) { return false; }
+  }
 
   const rootPx = () =>
     parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
@@ -340,4 +357,6 @@
     note: widgetNote,
     offer: (text) => { WIDGET_RUN_ASK = text; widgetOffer(); },
   };
+
+  if (widgetWasOpen()) { widgetSetOpen(true); widgetLoadOptions(); }
 })();

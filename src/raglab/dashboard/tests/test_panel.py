@@ -326,6 +326,10 @@ CONVENTIONS = [
     ('widget.js', 'setPointerCapture', None,
      'a drag off a six-pixel handle must keep going — without capture the '
      'resize stops the instant the cursor outruns the edge, which is at once'),
+    ('widget.js', 'raglab-widget-open', None,
+     'whether the window is open must outlive the page: a helper that closed '
+     'itself on every navigation is a helper the reader reopens on every '
+     'surface, which is the friction this change removes'),
     ('panel_server.py', "'starters': widget.STARTERS", None,
      'the four questions are served from the widget package, whose fixture '
      'they live in — a copy in the page would be text nothing pins'),
@@ -1303,6 +1307,26 @@ def test_the_widget_is_two_shared_files_every_surface_can_load(client):
     assert 'widgetSay' in js.text
     assert '.widget-launch' not in client.get('/panel.css').text, (
         'the widget rules must live in one sheet, not two')
+
+
+def test_every_surface_carries_the_widget(panel_texts):
+    # this is a convention test
+    """One helper, three surfaces. A reader who can ask a question on the
+    Laboratory and not on the board is reading two different labs.
+
+    Built over `served_lab.app`, not the shared `client` fixture — that
+    fixture is `panel_server.create_app()` alone, and the Inspector is only
+    mounted where the three surfaces actually come together, the way
+    `test_inspector.py`'s own cross-surface checks already do."""
+    from fastapi.testclient import TestClient
+    from raglab.dashboard import served_lab
+
+    inspector = TestClient(served_lab.app).get('/inspector/').text
+    for name, page in (('index.html', panel_texts['index.html']),
+                       ('leaderboard.html', panel_texts['leaderboard.html']),
+                       ('inspector.html', inspector)):
+        assert 'src="/widget.js"' in page, f'{name} does not load the widget'
+        assert 'href="/widget.css"' in page, f'{name} does not style the widget'
 
 
 def test_the_widget_sends_one_session_id_per_page(panel_texts):

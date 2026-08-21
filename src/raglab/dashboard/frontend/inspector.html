@@ -16,6 +16,9 @@
        inspector.css so its overrides still win. -->
   <link rel="stylesheet" href="/chrome.css">
   <link rel="stylesheet" href="/inspector/inspector.css">
+  <!-- The helper, shared with the other two surfaces. It writes no run, no
+       ledger row and no number, which is why a read-only surface may carry it. -->
+  <link rel="stylesheet" href="/widget.css">
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to the evidence</a>
@@ -201,5 +204,8 @@
   <!-- Shared utilities, before inspector.js, which calls into it. -->
   <script src="/lab.js"></script>
   <script src="/inspector/inspector.js"></script>
+  <!-- The helper, shared with the other two surfaces. It writes no run, no
+       ledger row and no number, which is why a read-only surface may carry it. -->
+  <script src="/widget.js"></script>
 </body>
 </html>

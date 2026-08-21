@@ -101,19 +101,19 @@ unmeasured.
   False, with `expansion_model` naming which model writes the hypothetical).
   Both are retrieval fields, outside the index fingerprint, so they sweep free
   against one build.
-- **The agent's `retrieve` scope contains a second, conditional transform**: its
-  loop is plan → retrieve → judge the evidence → rewrite → retry, so the rewrite
-  step is a retrieval-confidence-triggered reformulation with a stopping rule.
-  A `multi_query`/`hyde` candidate and a `scope='retrieve'` candidate are
-  therefore two prices for the same idea — unconditional and cheap against
-  conditional and expensive — and are worth reading side by side.
+- **Every transform this lab measures is unconditional**: it fires on each
+  question, so its cost is the same on the questions that needed it and the
+  ones that did not. A conditional transform — one triggered by low
+  first-stage confidence, with a stopping rule — is the other price for the
+  same idea, and this lab has no knob for it. Reading the two side by side
+  means building it first.
 - The lab has a Farsi time-scope filter on the query side already, which is a
   reminder that some query-side machinery is corpus-specific rather than general
   — the four control corpora in `fixtures/corpus_groundtruth_datasets/` exist to tell
   those two apart.
-- **Missing here**: step-back as its own knob, decomposition outside the agent
-  loop, and conversational rewriting — the last because the lab evaluates
-  single questions, not multi-turn sessions.
+- **Missing here**: step-back as its own knob, decomposition, and
+  conversational rewriting — the last because the lab evaluates single
+  questions, not multi-turn sessions.
 
 ## Sources
 

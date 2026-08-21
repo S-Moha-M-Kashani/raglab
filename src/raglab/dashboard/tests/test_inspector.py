@@ -619,11 +619,6 @@ INSPECTOR_CONVENTIONS = [
      "the down state's red was the one colour on this page typed as a literal, "
      'so it was the one colour that could not follow the theme — it reads '
      '--alert now, which Night re-lights along with everything else'),
-    ('inspector.css', None, '--step-agent: var(--step-agent-lit)',
-     'plum is re-lit for Night in the shared sheet with the other three, so '
-     'this page keeps no private answer to a question both pages ask — the '
-     'panel had gone without the re-light entirely, which on Night put a '
-     'near-black plum on a near-black plate'),
     ('inspector.html', 'id="theme-control"', None,
      'the Inspector offers the same three choices the lab does: a reader who '
      'set Night on :9002 and found Day on :9003 would be right to call that '

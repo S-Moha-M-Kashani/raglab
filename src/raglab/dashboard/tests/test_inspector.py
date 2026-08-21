@@ -647,17 +647,13 @@ def test_the_inspector_opens_a_recorded_experiment_from_the_url(inspector_texts)
     assert 'archive-state' in js and 'archive-return-live' in js
 
 
-def test_a_recorded_experiment_says_its_chunk_text_was_not_recorded(
-        inspector_texts):
-    # this is a convention test
-    """`detail_for` strips `chunks_by_session` by design, so the Chunks tab
-    cannot be filled from the record. It says so and offers a rebuild, rather
-    than rebuilding silently: a rebuild months later may not reproduce what ran,
-    and showing today's chunks under an old experiment's id would be a row lying
-    about what produced it."""
-    js = inspector_texts['inspector.js']
-    assert 'not recorded' in js
-    assert 'rebuild' in js.lower()
+# `test_a_recorded_experiment_says_its_chunk_text_was_not_recorded` used to sit
+# here, asserting `'not recorded' in js` — a claim the *retrieval* empty state
+# satisfies on its own, so the pin for this branch's headline honesty claim could
+# not fail while advertising that it covered it. The claim is now made where it
+# can be checked: `record_mode.test.js` renders a record and reads what the
+# Chunks tab actually says, and that a rebuild is offered only under a config the
+# record itself named.
 
 
 def test_returning_to_live_from_a_record_forgets_it_in_both_places(
@@ -761,7 +757,7 @@ def test_archive_mode_still_reports_lab_reachability():
     source = INSPECTOR_JS.read_text()
     follow = source[source.index('async function renderFollow'):]
     assert follow.index('setFollowState(body);') \
-        < follow.index('if (body.archive_id)'), (
+        < follow.index('if (body.archive_id &&'), (
         'renderFollow must set the follow state before the early-returning '
         'archive branch, or archive mode never reports lab reachability')
 

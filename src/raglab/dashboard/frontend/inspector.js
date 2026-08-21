@@ -1038,19 +1038,74 @@ async function followRecordedExperiment(experimentId) {
   await renderRecordedExperiment(record);
 }
 
+// Which of the ledger's shapes a record is, told from the two columns the row
+// already carries. It decides what each view can show and, where a view is
+// empty, why — and deciding that from how many rows the detail happened to hold
+// was one test doing five jobs: a cancelled run was told it had measured no
+// questions, a one-off query was told nothing was retrieved while its own
+// record held the trace and the answer, and an errored retrieval was handed an
+// index build's explanation.
+function recordShape(record) {
+  const detail = record.detail || {};
+  // An imported archive is preserved verbatim, so its detail is the archive
+  // payload and not a job's result: no `config`, no `rows`, no `traces`.
+  if (detail.format === 'raglab-experiment' && detail.evaluation) return 'archive';
+  // A job that stopped holds its config and nothing after it, whatever kind of
+  // job it was — so the reason every view is empty is the row's own state, not
+  // the shape of a result it never produced.
+  if ((record.state || 'done') !== 'done') return 'unfinished';
+  return record.kind || 'run';
+}
+
+// The state line: the kind, and the state as well when the state is the point.
+// A read-only view of a cancelled experiment that never says "cancelled" is a
+// row not carrying the reason it is degraded — the rule the board's own state
+// column keeps, said here in the one line this page has for it.
+function recordLabel(record) {
+  const kind = record.kind || 'kind unrecorded';
+  const state = record.state || '';
+  return `Recorded experiment (${state && state !== 'done'
+    ? `${kind} · ${state}` : kind})`;
+}
+
+// Why a stopped job has no evidence, said per view: the job stopped. The reason
+// the row recorded travels with it, because a page showing one experiment is
+// the only place a reader can read that reason at all.
+function unfinishedNote(record, missing) {
+  return '<p class="empty-note">This experiment was <b>'
+    + `${escapeHtml(record.state || 'never finished')}</b>, so ${missing}: a job `
+    + 'that stopped recorded its config and nothing after it. '
+    + (record.error
+       ? `The reason it recorded — ${escapeHtml(record.error)}`
+       : 'It recorded no reason beyond the state itself.')
+    + '</p>';
+}
+
 // Three of the four tabs come off the record: the ledger strips only chunk
 // text, so the config, the per-question traces and the answered rows all
-// survive into it. What is missing is stated where it is missing, and an
-// experiment that measured no questions — an index build — says that rather
-// than showing four empty views.
+// survive into it. What is missing is stated where it is missing, in the terms
+// of the shape this record actually is.
 async function renderRecordedExperiment(record) {
   const detail = record.detail || {};
+  const shape = recordShape(record);
   const config = detail.config || {};
   FOLLOWED_CONFIG = config;
   // Questions added by hand were run against the live corpus under the live
   // config, so they are not evidence about this record.
   ADDED.clear();
   renderAdded();
+
+  // An archive's payload already has a renderer on this page — the one the
+  // archive control uses, which reads every field of it — so the record hands
+  // over rather than describing that shape a second way. Read as a job result
+  // it emptied all four tabs for a row whose decision score the board can show,
+  // and offered a rebuild that would have fallen back to the *live* config
+  // under a note promising this experiment's.
+  if (shape === 'archive') {
+    renderImportedArchive(detail);
+    setArchiveState(record.experiment_id, recordLabel(record));
+    return;
+  }
 
   // The record names its own corpus, and a corpus is read in the direction its
   // own language reads — so the fixture is fetched for *that* dataset rather
@@ -1077,39 +1132,81 @@ async function renderRecordedExperiment(record) {
   // shape, normalised here the way `/api/follow` normalises the live pair.
   const traces = detail.traces || detail.questions || [];
   const rows = detail.rows || [];
-  renderQuestionTables(traces);
-  if (!traces.length) {
-    // Two different reasons a record has no candidate tables, and they must not
-    // be told in one sentence. An experiment that answered questions ran a
-    // retrieval and it was simply never written down — chunk text, traces and
-    // summaries do not reach a run file — while an index build measured no
-    // questions at all. Saying the second where the first is true would be a
-    // view lying about why it is empty.
-    document.getElementById('retrieval-questions').innerHTML = rows.length
-      ? '<p class="empty-note">The per-question retrieval of this experiment '
-        + 'was <b>not recorded</b> — its answers and scores were written to a '
-        + 'run file, and candidate rankings never travel there. The answers '
-        + 'themselves are under Generation; what was retrieved to write them '
-        + 'is not recoverable from this record.</p>'
-      : '<p class="empty-note">This experiment recorded no per-question '
-        + 'retrieval — an index build measures no questions, so there are no '
-        + 'candidate tables to read here.</p>';
-  }
-  if (rows.length) {
-    // Keyed by question id, and handed over only because these ranks and these
-    // answers are the same experiment's — the same rule the live path follows.
-    renderGeneration({ job_id: record.experiment_id, config: config,
-                       rows: rows, summary: detail.summary,
-                       ragas: detail.ragas },
-                     new Map(traces.map(row => [row.question_id, row.trace])));
+  const questions = document.getElementById('retrieval-questions');
+  const generation = document.getElementById('generation-questions');
+  const answer = document.getElementById('retrieval-answer');
+  // The one-off query boxes follow a live job, and a ledger row is not one —
+  // so they are cleared for every shape but the one that actually recorded a
+  // single traced question, whose evidence goes in exactly here.
+  document.getElementById('retrieval-body').innerHTML = '';
+  answer.textContent = '';
+  document.getElementById('generation-ragas').innerHTML = '';
+  renderQuestionTables(shape === 'query' ? [] : traces);
+
+  if (shape === 'unfinished') {
+    questions.innerHTML = unfinishedNote(record, 'nothing was retrieved');
+    generation.innerHTML = unfinishedNote(record, 'no answer was written');
+  } else if (shape === 'query') {
+    // A one-off query is one question traced once — the single-question shape
+    // this page already draws for a live query, in the same two boxes, from the
+    // record's own trace and answer instead of from a job that is running. Read
+    // as an evaluation it was told nothing had been retrieved and nothing
+    // answered, while its record held both.
+    questions.innerHTML = '<p class="empty-note">This experiment is a one-off '
+      + '<b>query</b>: one question, traced once, with no selected question '
+      + 'set — so there is no per-question list here. Its candidates are in the '
+      + 'single table below, and the answer it wrote is under them.</p>';
+    renderRetrievalRows(((detail.trace || {}).candidates) || []);
+    // An answer is written in the corpus's language, so it reads in the
+    // corpus's direction — settled after the fixture above, never in markup.
+    answer.dir = CORPUS_DIR;
+    answer.textContent = detail.answer || '';
+    generation.innerHTML = '<p class="empty-note">A one-off query is not '
+      + 'judged: it writes no run file and no decision score, so there is '
+      + 'nothing scored to show here. Its question, its candidates and its '
+      + 'answer are on the Retrieval tab.'
+      + (detail.abstained
+         ? ' This query <b>abstained</b> — the pipeline declined to answer '
+           + 'from what it retrieved rather than answering anyway.' : '')
+      + '</p>';
   } else {
-    document.getElementById('generation-questions').innerHTML =
-      '<p class="empty-note">This experiment wrote no answers — only an '
-      + 'evaluation generates, so a build or a retrieval has nothing to show '
-      + 'here and nothing was scored.</p>';
-    document.getElementById('generation-ragas').innerHTML = '';
+    if (!traces.length) {
+      // Two different reasons a build or an evaluation has no candidate tables,
+      // and they must not be told in one sentence. An experiment that answered
+      // questions ran a retrieval and it was simply never written down — chunk
+      // text, traces and summaries do not reach a run file — while an index
+      // build measured no questions at all.
+      questions.innerHTML = rows.length
+        ? '<p class="empty-note">The per-question retrieval of this experiment '
+          + 'was <b>not recorded</b> — its answers and scores were written to a '
+          + 'run file, and candidate rankings never travel there. The answers '
+          + 'themselves are under Generation; what was retrieved to write them '
+          + 'is not recoverable from this record.</p>'
+        : '<p class="empty-note">This experiment recorded no per-question '
+          + 'retrieval — an index build measures no questions, so there are no '
+          + 'candidate tables to read here.</p>';
+    }
+    if (rows.length) {
+      // Keyed by question id, and handed over only because these ranks and
+      // these answers are the same experiment's — the live path's own rule.
+      renderGeneration({ job_id: record.experiment_id, config: config,
+                         rows: rows, summary: detail.summary,
+                         ragas: detail.ragas },
+                       new Map(traces.map(row => [row.question_id, row.trace])));
+    } else {
+      // Each kind in its own terms. "A build or a retrieval" covered both in
+      // one sentence, which left the reader of either to work out which half
+      // was about the row in front of them.
+      generation.innerHTML = '<p class="empty-note">This experiment wrote no '
+        + 'answers — ' + ({
+          index: 'an index build chunks and embeds a corpus and stops there',
+          retrieve: 'a retrieval ranks candidates and stops there, and only an '
+            + 'evaluation goes on to generate',
+        }[record.kind] || 'only an evaluation generates')
+        + ', so there is nothing to show here and nothing was scored.</p>';
+    }
   }
-  showRecordedChunks(record);
+  showRecordedChunks(record, shape);
 
   // All four, so no view is left describing the live pipeline beside recorded
   // rows. After `showRecordedChunks`, which is why the chunks note carries its
@@ -1119,12 +1216,7 @@ async function renderRecordedExperiment(record) {
                     'retrieval-set-config', 'generation-active-config']) {
     document.getElementById(id).textContent = shown;
   }
-  // The one-off query view follows a live job; a ledger row holds no such
-  // thing, and last tick's candidates under this id would belong to neither.
-  document.getElementById('retrieval-body').innerHTML = '';
-  document.getElementById('retrieval-answer').textContent = '';
-  setArchiveState(record.experiment_id,
-                  `Recorded experiment (${record.kind || 'kind unrecorded'})`);
+  setArchiveState(record.experiment_id, recordLabel(record));
 }
 
 // Only the stages this experiment actually ran. A build stores a whole config
@@ -1143,28 +1235,43 @@ function recordedStages(record) {
 // would put the corpus in the ledger — so this says so and offers the rebuild
 // rather than taking it: a rebuild is today's index, and today's chunks shown
 // under an old experiment's id would be a row lying about what produced it.
-function showRecordedChunks(record) {
+function showRecordedChunks(record, shape) {
   const detail = record.detail || {};
+  const config = detail.config;
+  // Offered only where the record actually named one. `buildChunks(null)` falls
+  // back to the live config on purpose, for the button beside the tab that has
+  // no other config to use — and taking that fallback here would rebuild under
+  // a config this experiment never ran, under a note promising this
+  // experiment's, which is the one substitution this tab exists to refuse.
+  const rebuildable = !!(config && Object.keys(config).length);
   const body = document.getElementById('chunks-body');
-  body.innerHTML = '<p class="empty-note">The chunk text of this experiment was '
-    + '<b>not recorded</b> — a record keeps the config that produces an '
-    + 'index, never a copy of the corpus. A rebuild below is today\'s index '
-    + 'under this experiment\'s config, which is not the same claim: the corpus '
-    + 'or the chunker may have changed since it ran.</p>';
-  const rebuild = document.createElement('button');
-  rebuild.type = 'button';
-  rebuild.id = 'rebuild-recorded-chunks';
-  rebuild.textContent = 'Rebuild from this config';
-  // The one request path, the same the button beside the tab uses — so the
-  // status line, the config line and the summaries toggle all follow.
-  rebuild.addEventListener('click', () => buildChunks(detail.config));
-  // In the page's own control row rather than loose in the view: a bare
-  // <button> here inherits the page's light ink onto the browser's own light
-  // chassis, and the label all but disappears.
-  const row = document.createElement('div');
-  row.className = 'inspector-controls';
-  row.appendChild(rebuild);
-  body.appendChild(row);
+  body.innerHTML = (shape === 'unfinished'
+    ? unfinishedNote(record, 'no chunk text was recorded')
+    : '<p class="empty-note">The chunk text of this experiment was <b>not '
+      + 'recorded</b> — a record keeps the config that produces an index, never '
+      + 'a copy of the corpus.</p>')
+    + (rebuildable
+       ? '<p class="empty-note">A rebuild below is today\'s index under this '
+         + 'experiment\'s recorded config, which is not the same claim: the '
+         + 'corpus or the chunker may have changed since it ran.</p>'
+       : '<p class="empty-note">Its config was not recorded either, so there '
+         + 'is nothing here to rebuild it from.</p>');
+  if (rebuildable) {
+    const rebuild = document.createElement('button');
+    rebuild.type = 'button';
+    rebuild.id = 'rebuild-recorded-chunks';
+    rebuild.textContent = 'Rebuild from this config';
+    // The one request path, the same the button beside the tab uses — so the
+    // status line, the config line and the summaries toggle all follow.
+    rebuild.addEventListener('click', () => buildChunks(config));
+    // In the page's own control row rather than loose in the view: a bare
+    // <button> here inherits the page's light ink onto the browser's own light
+    // chassis, and the label all but disappears.
+    const row = document.createElement('div');
+    row.className = 'inspector-controls';
+    row.appendChild(rebuild);
+    body.appendChild(row);
+  }
   // Summaries are the toggle's other half and a record does keep those: they
   // are text a build wrote, not the corpus's own. A record that reported none
   // at all is a third state, and says so rather than claiming a flat index.
@@ -1208,7 +1315,14 @@ async function renderFollow(body) {
   // the reader followed a link to that experiment, not to whatever is running
   // now. Below `setFollowState` for the same reason the archive branch is.
   if (activeExperimentId !== null || recordLoadingId !== null) return;
-  if (body.archive_id) {
+  // A stated failure to read a deep-linked experiment holds this page on live
+  // too. An archive the lab happens to be holding open is not an answer to the
+  // link the reader followed, and letting it in overwrote the message with an
+  // unrelated one — leaving the reader on an archive they never asked for, told
+  // nothing, with a "Return to live" that routed to the record's own exit and
+  // so never cleared the lab's archive. Dismissing the message clears
+  // `recordProblem`, and the next tick enters archive mode properly.
+  if (body.archive_id && !recordProblem) {
     await followImportedArchive(body.archive_id);
     return;
   }

@@ -473,3 +473,25 @@ def test_nothing_ships_without_an_explainer(gate):
     a bare number: a config field with no help text, and a key a run can
     report with nothing defining it."""
     assert getattr(explain, gate)() == []
+
+
+def test_the_leaderboard_rule_describes_the_code_that_exists():
+    # this is a convention test
+    """A rule the code disobeys is worse than either rule alone. The board was
+    deliberately flattened to one table per dataset — the owner's call about
+    their own instrument — so the document moves with it. The stricter claim is
+    not deleted: `group()`/`verdict()` still partition by question set and judge
+    and still refuse to name a winner inside the combined error, because that is
+    what a *sweep* ranks by and a sweep's candidates are comparable by
+    construction."""
+    text = (ROOT / 'CLAUDE.md').read_text(encoding='utf-8')
+    assert 'one table per dataset' in text.lower(), (
+        'the board is one table per dataset and the doc must say so')
+    assert 'verdict' in text.lower() or 'comparability' in text.lower(), (
+        'the sweep still groups before it ranks, and dropping that from the '
+        'doc would invite someone to delete the machinery it protects')
+
+    from raglab.evaluation import leaderboard
+    assert hasattr(leaderboard, 'verdict') and hasattr(leaderboard, 'group'), (
+        'the sweep imports both; flattening the board must not have cost them')
+    assert hasattr(leaderboard, 'by_dataset')

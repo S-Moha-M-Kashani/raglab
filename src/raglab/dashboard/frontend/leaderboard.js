@@ -27,10 +27,17 @@ const COLUMNS = [
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
     title: 'every step this experiment ran, abbreviated · hover or focus for '
       + 'the whole sentence and every knob behind it' },
-  // The deciding score, its error and the four metrics it is the mean of come
-  // straight after the identity: they are the only columns that decide anything,
-  // and a wide frozen sentence is exactly what would push them off the screen.
-  // The descriptive columns wait behind the scroll instead.
+  // What the row is *about*, before anything it measured: which corpus (on the
+  // board that mixes them — one table per dataset means this column is only a
+  // question there) and how many questions were put to it. A metric read
+  // without knowing how many questions produced it is a number with no error
+  // bar, so the count comes before the numbers rather than after them.
+  { key: 'dataset', label: 'dataset', everyOnly: true },
+  { key: 'questions', label: 'questions',
+    title: 'how many questions were scored' },
+  // Then the deciding score, its error, and the four metrics it is the mean of:
+  // the only columns that decide anything, kept as close to the identity as the
+  // frozen sentence allows. The descriptive columns wait behind them.
   { key: 'decision', label: 'decision', title: 'unweighted mean of the four judged metrics' },
   // '±' is a column no reader can type, so it says its filter name itself. Every
   // other heading is already the word a reader would use for it.
@@ -40,17 +47,14 @@ const COLUMNS = [
   { key: 'answer_relevancy', label: 'ans rel', step: 'generation' },
   { key: 'llm_context_precision_with_reference', label: 'ctx prec', step: 'retrieval' },
   { key: 'context_recall', label: 'ctx recall', step: 'retrieval' },
-  { key: 'kind', label: 'kind', text: true, title: 'index, retrieve, run or query' },
-  { key: 'when', label: 'when', text: true, title: 'when it started' },
-  { key: 'label', label: 'label', text: true },
-  { key: 'judge', label: 'judge', text: true, step: 'generation',
+  { key: 'kind', label: 'kind', title: 'index, retrieve, run or query' },
+  { key: 'when', label: 'when', title: 'when it started' },
+  { key: 'label', label: 'label' },
+  { key: 'judge', label: 'judge', step: 'generation',
     title: 'which model graded — rows graded differently are not comparable' },
-  { key: 'questions', label: 'questions',
-    title: 'how many questions were scored' },
-  { key: 'dataset', label: 'dataset', text: true, everyOnly: true },
-  { key: 'provider', label: 'backend', text: true,
+  { key: 'provider', label: 'backend',
     title: 'where the model calls went · fake is a rehearsal, not a measurement' },
-  { key: 'state', label: 'state', text: true },
+  { key: 'state', label: 'state' },
   { key: 'seconds', label: 'seconds', title: 'wall clock' },
   { key: 'open', label: 'open', nosort: true, freeze: 'freeze-last',
     title: 'read this experiment in the Inspector' },
@@ -172,7 +176,7 @@ function renderTable(dataset, rows) {
   return `
       <div class="table-scroll" tabindex="0" role="region"
            aria-label="${named}">
-        <table class="data-table">
+        <table class="data-table centred">
           <caption>${named}</caption>
           <thead><tr>${head}</tr></thead>
           <tbody>${body}</tbody>

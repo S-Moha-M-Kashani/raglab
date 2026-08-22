@@ -43,15 +43,15 @@ MEASURES = (
             'this run produced',
             'metrics._headline' + NO_MODEL,
             'One comparable number for the leaderboard, weighted in the order '
-            'that matters here: did retrieval find the evidence, did the '
-            'answering sentence survive chunking, was the evidence ranked first, '
-            'and was an unanswerable question refused. Generation quality is '
+            'that matters: did retrieval find the evidence, did the answering '
+            'sentence survive chunking, was the evidence ranked first, and was '
+            'an unanswerable question refused. Generation quality is '
             'deliberately excluded, so a config measured with the extractive '
             'answerer stays comparable to one measured with an LLM.'),
     Measure('recall', 'Recall@k', 'evidence sessions found',
             'retrieval', '|gold ∩ top-k| / |gold|',
             'metrics.recall_at_k' + NO_MODEL,
-            'Of the diary sessions the ground truth marks as evidence, the share '
+            'Of the sessions the ground truth marks as evidence, the share '
             'that appear in the top k retrieved. This is the ceiling on '
             'everything downstream: an answer cannot cite what retrieval never '
             'returned. Questions with no evidence (the unanswerable ones) are '
@@ -62,10 +62,11 @@ MEASURES = (
             'is a substring of the normalised context or its longest common run '
             'covers >= 0.9 of it',
             'metrics.quote_recall (difflib.SequenceMatcher)' + NO_MODEL,
-            'Session recall says the right day was found; this says the sentence '
-            'that actually answers the question is inside the retrieved text. A '
-            'chunker that cuts mid-thought scores well on the first and badly on '
-            'this one, which is exactly the failure a session-level metric hides.'),
+            'Session recall says the right session was found; this says the '
+            'sentence that actually answers the question is inside the '
+            'retrieved text. A splitter that cuts mid-thought scores well on '
+            'the first and badly on this one, which is exactly the failure a '
+            'session-level metric hides.'),
     Measure('ndcg', 'nDCG@k', 'evidence ranked first', 'retrieval',
             'DCG/IDCG with binary gains: DCG = Σ gain_i / log2(i+2), IDCG the '
             'same sum over a perfect ordering',
@@ -95,16 +96,16 @@ MEASURES = (
             '1 if the newest evidence session is in top-k, else 0 '
             '(knowledge-update questions only)',
             'metrics.latest_state_session' + NO_MODEL,
-            'On facts that changed over the year, retrieving only the superseded '
+            'On a fact that changed over time, retrieving only the superseded '
             'state is worse than retrieving nothing: it produces a confident, '
-            'stale answer. This checks the most recent evidence session was '
-            'found.'),
+            'stale answer. This checks that the most recent evidence session '
+            'was found.'),
     Measure('abstained_correctly', 'Abstention', 'unanswerable refused',
             'generation',
             'refusals / unanswerable questions',
             'metrics.score_question, reading the answerer\'s refusal flag'
             + NO_MODEL,
-            'The diary genuinely has nothing about some of these questions. '
+            'The corpus genuinely has nothing about some of these questions. '
             'Saying so is the correct answer, and this is the fraction of those '
             'where the answerer refused instead of inventing something.'),
     Measure('false_abstention', 'False refusals', 'answerable wrongly refused',
@@ -121,10 +122,12 @@ MEASURES = (
             'difflib ratio = 2·M / T over normalised characters, where M is '
             'matched characters and T the combined length',
             'metrics.answer_similarity (difflib.SequenceMatcher)' + NO_MODEL,
-            'A blunt instrument, chosen because it is a *stable* one: no model, '
-            'no variance. On Farsi it mostly tracks whether the same names, dates '
-            'and numbers appear. It punishes a correct short answer, which is why '
-            'token F1 sits beside it.'),
+            'A blunt instrument, chosen because it is a *stable* one: no '
+            'model, no variance. In practice it mostly tracks whether the same '
+            'names, dates and numbers appear, and it punishes a correct short '
+            'answer — which is why token F1 sits beside it. It compares '
+            'characters, so it is meaningless when the answer and the '
+            'reference are in different languages.'),
     Measure('answer_token_f1', 'Answer token F1', 'unigram overlap', 'generation',
             'F1 = 2PR/(P+R) over content words, P = overlap/|predicted|, '
             'R = overlap/|reference|, counting duplicates once',
@@ -136,10 +139,12 @@ MEASURES = (
             'facts the judge marked present / key facts in the ground truth',
             'evaluate.judge_key_facts — an LLM judge (the "Key-facts judge" '
             'model role), so this number carries that model\'s variance',
-            'The ground truth lists the English key facts a correct answer must '
-            'contain; the answers are Farsi. The judge is translating as well as '
-            'checking, which is why no deterministic metric replaces it — and why '
-            'a weak model here produces confidently wrong scores.'),
+            'The ground truth lists the atomic facts a correct answer must '
+            'contain, and a judge checks each one. When the facts and the '
+            'answers are in different languages — the bundled diary lists '
+            'English facts against Farsi answers — the judge is translating as '
+            'well as checking, which is why no deterministic metric replaces '
+            'it, and why a weak model here produces confidently wrong scores.'),
     Measure('latency_ms', 'Latency', 'ms per question', '',
             'sum of the per-stage timings for one question, in milliseconds',
             'time.perf_counter around each pipeline stage' + NO_MODEL,
@@ -161,14 +166,14 @@ MEASURES = (
     Measure('n_summaries', 'Summaries used', 'summary rows in the context', 'index',
             'mean count of contexts whose layer is summary',
             'metrics.score_question' + NO_MODEL,
-            'How often the summary hierarchy was actually retrieved. This is the '
-            'number that had to exist: in July 2026 the lab deleted five summary '
-            'layers for scoring within 0.006 of no hierarchy at all, and the '
-            'post-mortem found the habit ledger had been correct, reachable, and '
-            'retrieved for one question in twenty-four. A hierarchy scoring flat '
-            'because nothing retrieved it and a hierarchy scoring flat because it '
-            'did not help are different findings, and no other field on the row '
-            'tells them apart. Zero here means the second reading is unavailable.'),
+            'How often the summary hierarchy was actually retrieved. This is '
+            'the number that had to exist: a hierarchy scoring flat because '
+            'nothing retrieved it and a hierarchy scoring flat because it did '
+            'not help are different findings, and no other field on the row '
+            'tells them apart. Zero here means the second reading is '
+            'unavailable — which is exactly what the lab found once, having '
+            'deleted five summary layers that were correct, reachable, and '
+            'almost never retrieved.'),
     Measure('n_expanded', 'Drilled down', 'members reached through a summary',
             'retrieval',
             'mean count of contexts expanded from a retrieved summary',

@@ -123,6 +123,37 @@ def test_a_reply_that_arrives_in_content_blocks_is_kept_not_dropped():
         {'role': 'bot', 'text': 'because a decision score needs all four'}]
 
 
+def test_a_turn_with_a_reported_account_reads_it_back():
+    """`usage_metadata` rides on the stored `AIMessage` and survives the
+    checkpointer round-trip untouched — it is not written here, only carried
+    through. A reader who opens the widget later must see the same bill the
+    live reply showed, or the account exists only until the next redraw."""
+    _write_messages('exp-billed', [
+        HumanMessage(content='how many tokens did that cost?'),
+        AIMessage(content='1692 total', usage_metadata={
+            'input_tokens': 1630, 'output_tokens': 62, 'total_tokens': 1692})])
+    assert memory.history('exp-billed')['turns'] == [
+        {'role': 'you', 'text': 'how many tokens did that cost?'},
+        {'role': 'bot', 'text': '1692 total',
+         'input_tokens': 1630, 'output_tokens': 62}]
+
+
+def test_a_turn_with_no_reported_account_carries_no_keys():
+    """A human turn never carries `usage_metadata` at all, and a CLI backend's
+    `AIMessage` carries none either — `_accounted` in `backends.py` already
+    reads that absence as "the backend did not account for it", never as
+    zero, and the log has to keep that same distinction: a turn with nothing
+    reported gets no `input_tokens`/`output_tokens` keys at all, not zeros a
+    reader could mistake for a real, free answer."""
+    _write('exp-unbilled', 'no account for this one', 'plain reply')
+    turns = memory.history('exp-unbilled')['turns']
+    assert turns == [
+        {'role': 'you', 'text': 'no account for this one'},
+        {'role': 'bot', 'text': 'plain reply'}]
+    assert 'input_tokens' not in turns[1]
+    assert 'output_tokens' not in turns[1]
+
+
 def test_the_moment_the_model_calls_a_tool_is_not_a_turn():
     """The other half of the same rule, pinned so widening the first cannot
     quietly widen this one too. A tool call is how an answer was reached, not

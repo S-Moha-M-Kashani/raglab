@@ -491,14 +491,18 @@
   // `widgetSay` could. It also takes a newer generation than whatever draw
   // overtook us, so that one stands down rather than repainting over it.
   //
-  // What the redraw cannot carry is the token account: history keeps the
-  // turns, not what the round trip cost, and appending the numbers after a
-  // repaint would park them under whatever turn happens to be last — which,
-  // with another surface posting to the same thread, need not be this one.
-  // An unlabelled count under someone else's turn is exactly the row that
-  // lies about what produced it, so on this path the account is refused
-  // rather than guessed; the answer itself, which is what the reader asked
-  // for, survives in full.
+  // The redraw carries the token account too, not just the answer:
+  // `conversation_memory` puts `usage_metadata` on the stored `AIMessage` and
+  // carries it through the checkpointer, so the history this redraw fetches
+  // already has the right numbers sitting on the right turn, and
+  // `widgetDrawThread`'s own loop renders them the same way it renders every
+  // other redrawn reply's meta line. Nothing here has to park a count under
+  // "whatever turn happens to be last" the way an appended-after-the-fact
+  // number would have to — the account is drawn from the same row the answer
+  // is, so it cannot land on the wrong one. (This used to be the one thing a
+  // `'stale'` redraw could not show; it changed when the account moved onto
+  // the turn itself, in the log the lab keeps, rather than living only in the
+  // reply this function got back.)
   //
   // A failed POST takes neither route. There is nothing new in history to
   // redraw — that is what failed — and the error line exists nowhere but
@@ -561,7 +565,7 @@
       // The token account, when the backend reported one — an unreported
       // account renders nothing rather than a made-up zero.
       if (data.input_tokens != null) {
-        widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
+        widgetSay('meta', `out ${data.output_tokens} in ${data.input_tokens} tok.`);
       }
     } catch (error) {
       const fate = replyFate(mine, intended, wasPending || drawPending);
@@ -643,7 +647,17 @@
     // return, because the options-list error below must still be said either
     // way — it is a separate fact about this draw, not a reason to skip it.
     if (Array.isArray(read.turns)) {
-      for (const turn of read.turns) widgetSay(turn.role, turn.text);
+      for (const turn of read.turns) {
+        widgetSay(turn.role, turn.text);
+        // The account travels on the turn itself now (`conversation_memory`
+        // carries `usage_metadata` through the checkpointer), so a redrawn
+        // reply gets the same meta line the live one showed — checked with
+        // `!= null` rather than truthiness so a real, reported zero still
+        // renders instead of being read as "nothing reported".
+        if (turn.input_tokens != null) {
+          widgetSay('meta', `out ${turn.output_tokens} in ${turn.input_tokens} tok.`);
+        }
+      }
       if (!read.turns.length) widgetOffer();
     } else {
       widgetSay('err', 'The lab answered, but this thread’s history came '

@@ -116,7 +116,16 @@ def _turns(messages) -> list[dict]:
     a block-shaped answer the reader had watched arrive was gone from the log by
     the next day, leaving a question with nothing under it — a record that
     misrepresents the conversation as surely as an invented turn would. Rendering
-    is `_text`'s job, and it keeps them."""
+    is `_text`'s job, and it keeps them.
+
+    A bot turn also carries `input_tokens`/`output_tokens` when the message it
+    came from has them — `usage_metadata` rides on the stored `AIMessage` and
+    survives the checkpointer round-trip untouched, so nothing is computed
+    here, only forwarded. A message with no `usage_metadata` (every human
+    turn, and any AI turn a backend did not account for — a CLI reply keeps
+    nothing at all) carries neither key, never zeros: the same distinction
+    `_accounted` in `backends.py` draws between "the bill says zero" and "no
+    bill was ever produced," read back on the way out instead of in."""
     out = []
     for message in messages or []:
         kind = getattr(message, 'type', '')
@@ -126,7 +135,12 @@ def _turns(messages) -> list[dict]:
         if kind == 'human':
             out.append({'role': 'you', 'text': text})
         elif kind == 'ai' and not getattr(message, 'tool_calls', None):
-            out.append({'role': 'bot', 'text': text})
+            turn = {'role': 'bot', 'text': text}
+            used = getattr(message, 'usage_metadata', None)
+            if used:
+                turn['input_tokens'] = used.get('input_tokens')
+                turn['output_tokens'] = used.get('output_tokens')
+            out.append(turn)
     return out
 
 
@@ -170,7 +184,10 @@ def thread_stamp(thread: str, now: datetime | None = None) -> dict:
 def history(thread: str) -> dict:
     """One thread, as the model holds it. A thread nobody has used reads as
     empty rather than as an error: a conversation that has not happened yet is
-    not a failure, and the empty log with its starters says so."""
+    not a failure, and the empty log with its starters says so. Each bot turn
+    carries its token account when `_turns` found one on the message it came
+    from — this is a pass-through, not a second computation, so the account a
+    reader sees on a redraw is the very same one the live reply reported."""
     name = (thread or '').strip() or GENERAL
     values = _channels(name)
     return {'thread': name,

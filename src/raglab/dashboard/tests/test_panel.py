@@ -1424,6 +1424,29 @@ def test_the_widget_serves_the_conversation_it_holds(client, monkeypatch):
     assert body['started_at']
 
 
+def test_the_route_serves_a_turns_token_account_when_one_was_reported(client):
+    # this is an integration test
+    """The route is a thin pass-through over `conversation_memory.history`, so
+    what it proves here is that nothing between the checkpointer and the JSON
+    response strips the account back off — the same seeding helper the unit
+    tests use, read back through the actual FastAPI route rather than the
+    Python function directly."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    write_messages('exp-billed-route', [
+        HumanMessage(content='what did that cost?'),
+        AIMessage(content='1692 total', usage_metadata={
+            'input_tokens': 1630, 'output_tokens': 62, 'total_tokens': 1692})])
+
+    read = client.get('/api/widget/history', params={'thread': 'exp-billed-route'})
+    assert read.status_code == 200
+    assert read.json()['turns'] == [
+        {'role': 'you', 'text': 'what did that cost?'},
+        {'role': 'bot', 'text': '1692 total',
+         'input_tokens': 1630, 'output_tokens': 62}]
+
+
 def test_new_chat_empties_one_conversation_and_no_other(client):
     # this is an integration test
     """The only control that ends a conversation, and it ends exactly one."""

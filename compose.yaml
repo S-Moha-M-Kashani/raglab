@@ -1,7 +1,9 @@
-# The two front doors, containerised. One image (see Dockerfile), two commands.
+# The lab, containerised. One image (see Dockerfile), one command — the
+# Inspector is a path on the lab (/inspector), not a second service, so there
+# is only ever one container to bring up.
 #
 #   mkdir -p .runs databases .datasets   once, before the first up
-#   docker compose up -d --build         bring both up
+#   docker compose up -d --build         bring it up
 #   docker compose logs -f panel         watch the lab
 #   docker compose down                  stop
 #
@@ -33,7 +35,10 @@ x-lab: &lab
   restart: unless-stopped
 
 services:
-  # The panel: builds indexes, runs evaluations, writes the durable records.
+  # The lab: the panel at /, the read-only Inspector mounted at /inspector,
+  # the leaderboard at /leaderboard — one process, one origin, kept under the
+  # name `panel` since that is still what builds indexes, runs evaluations
+  # and writes the durable records.
   panel:
     <<: *lab
     # Bound to loopback on purpose. The container listens on 0.0.0.0 because it
@@ -47,7 +52,10 @@ services:
       # container rather than a convenience.
       - ./.runs:/app/.runs
       # The experiment ledger — one row per job. RAGLAB_DB defaults to
-      # databases/raglab.db, relative to the workdir.
+      # databases/raglab.db, relative to the workdir. The widget's own
+      # conversations land in this same directory (databases/widget.db,
+      # RAGLAB_WIDGET_DB overrides) — no separate mount needed, since it is
+      # nothing more than a second file under the path already bound here.
       - ./databases:/app/databases
       # Where a corpus imported through the panel lands (RAGLAB_DATASETS).
       - ./.datasets:/app/.datasets
@@ -61,21 +69,6 @@ services:
       timeout: 5s
       start_period: 90s
       retries: 3
-
-  # The Inspector: reads what the panel produced. Read-only, so it needs the
-  # records but not the dataset directory or the embedding cache.
-  inspector:
-    <<: *lab
-    command: >
-      uv run uvicorn raglab.dashboard.inspector_server:app
-      --host 0.0.0.0 --port 9003
-    ports:
-      - "127.0.0.1:9003:9003"
-    volumes:
-      - ./.runs:/app/.runs:ro
-      - ./databases:/app/databases:ro
-    depends_on:
-      - panel
 
 volumes:
   hf-cache:

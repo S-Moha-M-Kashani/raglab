@@ -1,6 +1,6 @@
-# The lab in a container. Two services come out of this one image — the panel
-# and the read-only Inspector — because they differ only in which app uvicorn
-# is pointed at; compose.yaml names both.
+# The lab in a container: one image, one service. The Inspector is a path on
+# the lab (`/inspector`), not a second process, so there is nothing left for a
+# second command to point at.
 #
 # The image carries no corpus state: `.runs/`, `databases/` and `.datasets/`
 # are the durable artifacts and arrive as mounts, never as layers. See
@@ -36,15 +36,20 @@ RUN uv sync --frozen --extra local-embeddings
 # starts without the volumes attached.
 RUN mkdir -p /app/.runs /app/databases /app/.datasets
 
-# Documentation only — publishing is compose.yaml's job. The numbers are owned
-# by src/raglab/dashboard/cli/serve.py (PANEL_PORT, INSPECTOR_PORT); these two
-# lines and compose.yaml's are the only places outside it that repeat them.
-EXPOSE 9002 9003
+# Documentation only — publishing is compose.yaml's job. The number is owned
+# by src/raglab/dashboard/cli/serve.py (PANEL_PORT); this line and
+# compose.yaml's are the only places outside it that repeat it.
+EXPOSE 9002
 
 # Not the `raglab` entry point, and that is deliberate: serve.py calls
 # uvicorn.run() without a host, so uvicorn's default 127.0.0.1 applies — inside
 # a container that is the container's own loopback and no published port would
 # ever reach it. Binding every interface is safe here only because compose.yaml
 # publishes to 127.0.0.1 on the host side.
-CMD ["uv", "run", "uvicorn", "raglab.dashboard.panel_server:app", \
+#
+# `served_lab:app`, not `panel_server:app`: the composed app is what mounts the
+# Inspector at /inspector. Pointing this at the bare panel app would still
+# answer on :9002, but /inspector — and the widget's shared static files it
+# needs — would 404.
+CMD ["uv", "run", "uvicorn", "raglab.dashboard.served_lab:app", \
      "--host", "0.0.0.0", "--port", "9002"]

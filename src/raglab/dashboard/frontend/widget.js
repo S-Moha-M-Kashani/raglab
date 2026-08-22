@@ -233,6 +233,14 @@
     // a button that always advertises "leave this experiment" while sitting
     // over the shared thread is offering an exit from a room you are not in.
     el.title = general ? 'Ask about this lab' : "Leave this experiment's conversation";
+    // New Chat's own title has to track the same fact for the same reason:
+    // there is no experiment to end a conversation "about" on the general
+    // thread, and a title that said so anyway would be exactly the kind of
+    // inaccurate label this file refuses everywhere else a control describes
+    // which thread it acts on.
+    $('widget-new').title = general
+      ? 'Start a new conversation'
+      : 'Start a new conversation about this experiment';
   }
 
   mountWidget();
@@ -447,6 +455,22 @@
   // redraw — that is what failed — and the error line exists nowhere but
   // here, so it is handed to `widgetSayAfterDraw` to be said once the draw
   // that would have wiped it has finished, the same way a note is.
+  //
+  // Asking and ending a conversation are mutually exclusive in meaning — you
+  // cannot coherently be asking a question and ending the thread it belongs
+  // to at the same instant — so `widget-new` is disabled for the same
+  // stretch `widget-send` already is. Without this, `forget()` on the New
+  // Chat side calls `saver().delete_thread(name)` with no coordination
+  // against the checkpoint write this function's own `agent.invoke` (inside
+  // `api('/api/widget', ...)`, on the lab's side) makes to the very same
+  // `thread_id`. If that write lands after the delete, the thread New Chat
+  // just ended regrows exactly one turn — this function's own `'stale'`
+  // branch would still redraw honestly from whatever the backend now holds,
+  // so the screen never lies, but the substantive promise ("this
+  // conversation has ended") would be broken regardless. Disabling the
+  // other button before either request leaves this tick is what keeps the
+  // two from ever being in flight together on the one path a reader can
+  // actually reach — a slower click, not a second open tab.
   async function widgetAsk(message) {
     const intended = widgetThread();
     const mine = currentGeneration();
@@ -465,6 +489,7 @@
       return;
     }
     $('widget-send').disabled = true;
+    $('widget-new').disabled = true;
     try {
       const data = await api('/api/widget', { message, model, thread: intended });
       const fate = replyFate(mine, intended, drawPending);
@@ -483,6 +508,7 @@
       widgetSay('err', error.message);
     } finally {
       $('widget-send').disabled = false;
+      $('widget-new').disabled = false;
       $('widget-input').focus();
     }
   }
@@ -657,7 +683,15 @@
   // than a second copy of it invented here.
   $('widget-new').addEventListener('click', async () => {
     const intended = widgetThread();
+    // Send is disabled for the same stretch, and for the same reason
+    // `widgetAsk` disables New Chat during its own request: the DELETE this
+    // triggers races `widgetAsk`'s own checkpoint write for this thread with
+    // no coordination on the lab's side, and a question that slips in
+    // between this click and the DELETE landing could regrow the thread
+    // this button just ended. See the comment on `widgetAsk` for the full
+    // shape of that race — this is the other half of the same guard.
     $('widget-new').disabled = true;
+    $('widget-send').disabled = true;
     try {
       await api('/api/widget/history?thread='
                 + encodeURIComponent(intended), null, 'DELETE');
@@ -666,6 +700,7 @@
       widgetSayAfterDraw('err', error.message, intended);
     } finally {
       $('widget-new').disabled = false;
+      $('widget-send').disabled = false;
     }
   });
 

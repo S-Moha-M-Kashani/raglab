@@ -157,7 +157,7 @@ test('a question captures whether a draw was already in flight before it posts',
   const ask = source.slice(source.indexOf('async function widgetAsk'),
                            source.indexOf('async function widgetLoadOptions'));
   const captured = ask.indexOf('const wasPending = drawPending;');
-  const posted = ask.indexOf('await api(');
+  const posted = ask.indexOf('await widgetStream(');
   assert.ok(captured > -1,
     'widgetAsk must read drawPending into a local, not at reply time');
   assert.ok(posted > -1 && captured < posted,
@@ -167,4 +167,24 @@ test('a question captures whether a draw was already in flight before it posts',
                            'replyFate(mine, intended, wasPending || drawPending)'],
     'both the answer and the failure path must weigh the whole wait: a draw '
     + 'in flight when the question was asked counts even once it has settled');
+});
+
+// The same discipline, one layer in: the answer no longer arrives all at once,
+// so the log is written to over and over while the reader can still leave the
+// thread or start a draw that clears it. Every piece has to re-ask the two
+// questions `replyFate` asks at the end — read from the source for the same
+// reason the capture above is: what is being pinned is *where* the check sits,
+// inside the callback that renders a piece, and a sandbox with no DOM, no
+// fetch and no stream cannot observe that by running it.
+test('every streamed piece re-asks whether it still belongs on this screen', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  const delta = ask.slice(ask.indexOf('(delta) =>'), ask.indexOf('replyFate'));
+  assert.ok(delta.includes('supersedes(mine)'),
+    'a piece must not paint over a screen a newer draw has taken');
+  assert.ok(delta.includes('!stillCurrent(intended)'),
+    'a piece must not be typed into a thread the reader has left');
+  assert.ok(ask.indexOf('widgetFinish(live, data.reply)') > ask.indexOf('replyFate'),
+    'the reply the lab holds must replace the typed pieces, and only after '
+    + 'the fate check has said this screen is still the right one');
 });

@@ -137,6 +137,29 @@
   border-inline-start: 3px solid var(--ink-soft);
   border-start-start-radius: 0; border-end-start-radius: 0;
 }
+/* An answer still being written. The caret is a marker on the bubble rather
+   than a character in it, so nothing is ever appended to the reply the lab
+   holds; it takes currentColor, which is already the bot bubble's own ink on
+   both themes, so this needs no dark block of its own. And no step ink: the
+   widget is a helper, not a stage. Honoured `prefers-reduced-motion` by
+   holding the caret still rather than dropping it — a reader who asked for
+   less movement still needs to see that the answer has not finished. */
+.widget-msg.bot.streaming::after {
+  content: '▍'; margin-inline-start: var(--s-px); color: currentColor;
+  animation: widget-caret 1s steps(1, end) infinite;
+}
+@keyframes widget-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .widget-msg.bot.streaming::after { animation: none; }
+}
+/* An answer that stopped part-way: what arrived is kept, because the reader
+   watched it arrive, but it must not sit there looking like a whole reply —
+   the error line beneath says what happened, and this says which bubble it is
+   about. --alert is the one ink both themes define for exactly this. */
+.widget-msg.bot.stopped {
+  border-inline-start: 3px solid var(--alert);
+  border-start-start-radius: 0; border-end-start-radius: 0;
+}
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
                    font-size: var(--t-sm); padding-top: 0; margin-top: calc(var(--s-1) * -1); }

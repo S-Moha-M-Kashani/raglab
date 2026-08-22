@@ -865,3 +865,220 @@ def test_the_route_serves_the_reply_and_the_account_unchanged(client, monkeypatc
     assert answer.status_code == 200
     assert answer.json() == {'reply': 'echo: hello',
                              'input_tokens': 40, 'output_tokens': 12}
+
+
+# --- streaming: the answer arrives as it is written ------------------------
+# The reply used to appear all at once, one round trip after Send, which reads
+# as a stall and then a wall of text. `stream` is the same turn — the same
+# graph, the same checkpointer, the same account — handed over in the order it
+# was written. What these tests pin is that nothing else changed with it: a
+# tool call is still not answer text, the final word on what was said is still
+# the log's, and anything knowable before the first piece is still a refusal
+# rather than a 200 that turns out to be an apology.
+
+def _chunks(*texts):
+    from langchain_core.messages import AIMessageChunk
+    return [('messages', (AIMessageChunk(content=text), {})) for text in texts]
+
+
+class _StreamStub:
+    """An agent that streams: `stream` yields the pieces, then the state."""
+
+    def __init__(self, events, final):
+        self.events, self.final = events, final
+        self.seen = {}
+
+    def stream(self, payload, config=None, stream_mode=None):
+        self.seen['payload'] = payload
+        self.seen['config'] = config
+        self.seen['stream_mode'] = stream_mode
+        yield from self.events
+        yield ('values', self.final)
+
+
+def _streaming(agent, model='openai/gpt-5-nano'):
+    widget.reset()
+    widget._AGENTS[model] = agent
+    return model
+
+
+def test_stream_yields_the_answer_in_pieces_then_the_account():
+    # this is a unit test
+    """One event per piece while the answer is written, then exactly one final
+    event — the same dict `ask` returns, so a page can render either."""
+    from langchain_core.messages import HumanMessage
+    stub = _StreamStub(_chunks('the ', 'ports ', 'are 9002'),
+                       {'messages': [HumanMessage(content='which ports?'),
+                                     AIMessage(content='the ports are 9002',
+                                               usage_metadata={
+                                                   'input_tokens': 30,
+                                                   'output_tokens': 7,
+                                                   'total_tokens': 37})]})
+    model = _streaming(stub)
+    try:
+        events = list(widget.stream('which ports?', model=model, thread='exp-a'))
+    finally:
+        widget.reset()
+    assert [e['delta'] for e in events[:-1]] == ['the ', 'ports ', 'are 9002']
+    assert events[-1] == {'reply': 'the ports are 9002',
+                          'input_tokens': 30, 'output_tokens': 7}
+    # The same thread the same way `ask` runs it, stamp included.
+    assert stub.seen['config']['configurable']['thread_id'] == 'exp-a'
+    assert stub.seen['payload']['experiment_id'] == 'exp-a'
+
+
+def test_streaming_says_nothing_for_a_tool_call_or_its_result():
+    # this is a unit test
+    """A tool call's arguments arrive token by token on the very same channel
+    the answer does, and so does the tool's reply. Neither is what the reader
+    is watching being written — the widget's own log has never shown them."""
+    from langchain_core.messages import (AIMessageChunk, HumanMessage,
+                                         ToolMessage)
+    calling = AIMessageChunk(content='', tool_call_chunks=[
+        {'name': 'search_knowledge_base', 'args': '{"query": "por',
+         'id': 'call-1', 'index': 0, 'type': 'tool_call_chunk'}])
+    events = [('messages', (calling, {})),
+              ('messages', (ToolMessage(content='9002', tool_call_id='call-1'), {}))]
+    events += _chunks('9002 it is')
+    stub = _StreamStub(events, {'messages': [HumanMessage(content='ports?'),
+                                             AIMessage(content='9002 it is')]})
+    model = _streaming(stub)
+    try:
+        said = list(widget.stream('ports?', model=model))
+    finally:
+        widget.reset()
+    assert [e['delta'] for e in said[:-1]] == ['9002 it is']
+
+
+def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
+    # this is a unit test
+    """The pieces are how the answer arrived; the final event is what the lab
+    now holds for that turn, read from the state the graph checkpointed with
+    the same `_text` the history route reads back with. A page that showed the
+    concatenated pieces and nothing else could drift from the transcript — so
+    the reply is stated again, from the log, and the page adopts it."""
+    from langchain_core.messages import HumanMessage
+    stub = _StreamStub(_chunks('half an ans'),
+                       {'messages': [HumanMessage(content='q'),
+                                     AIMessage(content='half an answer, whole')]})
+    model = _streaming(stub)
+    try:
+        events = list(widget.stream('q', model=model))
+    finally:
+        widget.reset()
+    assert events[-1]['reply'] == 'half an answer, whole'
+
+
+def test_a_cli_answer_arrives_as_one_piece_because_that_is_what_it_is(monkeypatch):
+    # this is a unit test
+    """A CLI is one process and one complete reply: there is no partial output
+    to forward. It still travels the streaming path — one delta, then the
+    account — rather than the page keeping a second way to ask."""
+    monkeypatch.setattr(
+        widget.backends, '_cli_answer',
+        lambda cli, message: AIMessage(content='from the cli', usage_metadata={
+            'input_tokens': 12, 'output_tokens': 3, 'total_tokens': 15}))
+    monkeypatch.setattr(widget.backends, 'cli_available', lambda cli: True)
+    events = list(widget.stream('hello', model='claude'))
+    assert [e['delta'] for e in events[:-1]] == ['from the cli']
+    assert events[-1] == {'reply': 'from the cli',
+                          'input_tokens': 12, 'output_tokens': 3}
+
+
+def test_an_unknown_model_is_refused_before_a_single_piece_is_yielded():
+    # this is a unit test
+    """`stream` is a call that returns an iterator, not a generator function:
+    everything knowable up front is raised here, where the route can still
+    answer it with a status code."""
+    with pytest.raises(ValueError):
+        widget.stream('hello', model='gpt-9')
+
+
+def test_a_missing_key_refuses_before_the_stream_opens(monkeypatch):
+    # this is a unit test
+    monkeypatch.delenv('OPENROUTER_API_KEY', raising=False)
+    credentials.clear()
+    widget.reset()
+    with pytest.raises(widget.WidgetUnavailable) as caught:
+        widget.stream('hello', model='openai/gpt-5-nano')
+    assert 'OPENROUTER_API_KEY' in str(caught.value)
+
+
+def _sse(response) -> list[dict]:
+    import json
+    return [json.loads(line[len('data: '):])
+            for line in response.text.splitlines()
+            if line.startswith('data: ')]
+
+
+def test_the_stream_route_sends_the_pieces_then_the_account(client, monkeypatch):
+    # this is an integration test
+    """Server-sent events, one JSON object per line: the deltas as they come,
+    the account last. The route carries them and adds nothing."""
+    monkeypatch.setattr(widget, 'stream',
+                        lambda message, model='', thread='': iter(
+                            [{'delta': 'he'}, {'delta': 'llo'},
+                             {'reply': 'hello', 'input_tokens': 4,
+                              'output_tokens': 1}]))
+    answer = client.post('/api/widget/stream', json={'message': 'hi'})
+    assert answer.status_code == 200
+    assert answer.headers['content-type'].startswith('text/event-stream')
+    assert _sse(answer) == [{'delta': 'he'}, {'delta': 'llo'},
+                            {'reply': 'hello', 'input_tokens': 4,
+                             'output_tokens': 1}]
+
+
+def test_the_stream_route_refuses_an_empty_message(client):
+    # this is an integration test
+    answer = client.post('/api/widget/stream', json={'message': '   '})
+    assert answer.status_code == 400
+
+
+def test_the_stream_route_passes_the_model_and_thread_through(client, monkeypatch):
+    # this is an integration test
+    seen = {}
+
+    def fake_stream(message, model='', thread=''):
+        seen.update(message=message, model=model, thread=thread)
+        return iter([{'reply': 'ok', 'input_tokens': None,
+                      'output_tokens': None}])
+
+    monkeypatch.setattr(widget, 'stream', fake_stream)
+    client.post('/api/widget/stream', json={'message': 'hello',
+                                            'model': 'openai/gpt-5-mini',
+                                            'thread': 'exp-one'})
+    assert seen == {'message': 'hello', 'model': 'openai/gpt-5-mini',
+                    'thread': 'exp-one'}
+
+
+def test_an_unavailable_widget_is_a_502_before_the_stream_opens(client, monkeypatch):
+    # this is an integration test
+    """The refusal is raised by the call, not by the iterator, so it is still a
+    status code rather than a 200 whose body apologises."""
+    def refuse(message, model='', thread=''):
+        raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
+
+    monkeypatch.setattr(widget, 'stream', refuse)
+    answer = client.post('/api/widget/stream', json={'message': 'hello'})
+    assert answer.status_code == 502
+    assert 'OPENROUTER_API_KEY' in answer.json()['detail']
+
+
+def test_a_failure_halfway_through_arrives_as_an_error_event(client, monkeypatch):
+    # this is an integration test
+    """Once the first piece is out the status code is spent, so the only
+    honest place left to say the answer never finished is the stream itself —
+    never a truncated reply the page would render as a whole one."""
+    def half_then_fail(message, model='', thread=''):
+        def events():
+            yield {'delta': 'the answer beg'}
+            raise widget.WidgetUnavailable('the widget could not answer: gone')
+        return events()
+
+    monkeypatch.setattr(widget, 'stream', half_then_fail)
+    answer = client.post('/api/widget/stream', json={'message': 'hello'})
+    assert answer.status_code == 200
+    said = _sse(answer)
+    assert said[0] == {'delta': 'the answer beg'}
+    assert 'could not answer' in said[-1]['error']
+    assert not any('reply' in event for event in said)

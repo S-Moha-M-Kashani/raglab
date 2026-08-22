@@ -49,7 +49,8 @@ from raglab.agents.widget.backends import (
     _openrouter_url,
     ask,
     reset,
-    set_openrouter_key_resolver)
+    set_openrouter_key_resolver,
+    stream)
 from raglab.agents.widget.conversation_memory import (
     GENERAL,
     MAX_RECALLED,

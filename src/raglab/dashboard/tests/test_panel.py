@@ -1342,10 +1342,33 @@ def test_the_widget_sends_the_thread_it_is_in(panel_texts):
     """The widget's memory is a thread in widget.db, not a page's lifetime. The
     POST must carry which thread, or every question lands in the same one."""
     script = panel_texts['widget.js']
-    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bthread\b", script), (
-        'the widget POST must carry the thread id')
+    assert re.search(r"widgetStream\('/api/widget/stream',\s*\{[^}]*\bthread\b",
+                     script), ('the widget POST must carry the thread id')
     assert 'crypto.randomUUID' not in script, (
         'a per-page id is exactly the reset this change removed')
+
+
+def test_the_widget_types_the_answer_out_as_it_arrives(panel_texts):
+    # this is a convention test
+    """The reply used to land in one piece one round trip after Send. It comes
+    from `/api/widget/stream` now, read as it arrives — and the pieces are only
+    how it arrived: the final event carries the reply the lab's own log holds,
+    and the bubble adopts that, so the screen and the transcript cannot differ.
+    A stream that stops part-way leaves what came marked as stopped rather than
+    dressed up as a whole answer."""
+    script, style = panel_texts['widget.js'], panel_texts['widget.css']
+    assert "'/api/widget/stream'" in script, (
+        'the widget must ask the streaming route')
+    assert 'getReader()' in script, (
+        "the answer must be read as it arrives, not awaited as one body")
+    assert 'widgetFinish(live, data.reply)' in script, (
+        "the reply the lab holds must replace the pieces the page typed")
+    assert 'widgetStopped(live)' in script, (
+        'a stream that failed must not leave a fragment looking finished')
+    assert '.widget-msg.bot.streaming::after' in style, (
+        'an answer still being written must say so on screen')
+    assert '.widget-msg.bot.stopped' in style, (
+        'and one that stopped part-way must say that instead')
 
 
 def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):

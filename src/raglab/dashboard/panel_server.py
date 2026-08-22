@@ -5,6 +5,7 @@ job. Runs are jobs, not requests — creating one answers 202 with a job id and 
 Location, and the panel polls that — one at a time, since concurrent runs
 would fight over the same index.
 """
+import json
 import threading
 import time
 import traceback
@@ -15,7 +16,8 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import (FileResponse, JSONResponse,
+                               StreamingResponse)
 
 from raglab.llm_backends import openrouter_key_memory as credentials
 from raglab.corpora import dataset_import_contract as datasets
@@ -186,6 +188,26 @@ def _capabilities(live) -> dict:
                     'runs': str(RUNS_DIR.relative_to(ROOT)),
                     'experiments': _relative(ledger.db_path())},
     }}
+
+
+def _sent_events(events):
+    """One iterator of dicts, encoded as server-sent events: `data: ` and the
+    JSON, one object per line, blank line between. The lab's only streaming
+    route, so this lives beside it rather than in the shared plumbing.
+
+    A failure part-way through is encoded as an `error` event and the stream
+    ends there. It cannot be a status code — those were spent on the first
+    piece — and it must not be silence either: a page that saw the pieces stop
+    with no word would have to guess whether the answer had finished, and
+    guessing "finished" would show a fragment as a whole reply. Every
+    exception is caught, not only the widget's own: an iterator that dies
+    unexpectedly must still say so on the wire it was writing to.
+    """
+    try:
+        for event in events:
+            yield f'data: {json.dumps(event)}\n\n'
+    except Exception as error:
+        yield f'data: {json.dumps({"error": str(error)})}\n\n'
 
 
 def _dataset_options() -> dict:
@@ -831,6 +853,38 @@ def create_app() -> FastAPI:
         except widget.WidgetUnavailable as error:
             # The lab is up; its widget is not — the /api/queries split.
             raise HTTPException(502, str(error))
+
+    @app.post('/api/widget/stream')
+    def widget_stream(payload: dict):
+        """The same turn as POST /api/widget, sent as it is written: one
+        server-sent event per piece of the answer, then one final event
+        carrying the reply the lab now holds and its token account — the very
+        body the other route returns whole. The page renders the pieces as
+        they land and adopts the final reply, so what stays on screen is what
+        the conversation log holds rather than whatever the pieces spelled.
+
+        `widget.stream` raises before it yields anything, which is what keeps a
+        refusal a status code: an unserved model is a 400 and an unreachable
+        widget a 502, decided here, before the response opens. Once the first
+        piece is out the status code is spent, so a failure after that can only
+        be said inside the stream — an `error` event, and no `reply` event
+        ever, because a half-written answer must never be handed over as a
+        whole one."""
+        message = (payload.get('message') or '').strip()
+        if not message:
+            raise HTTPException(400, 'message is empty')
+        try:
+            events = widget.stream(message,
+                                   (payload.get('model') or '').strip(),
+                                   thread=(payload.get('thread') or '').strip())
+        except widget.WidgetUnavailable as error:
+            raise HTTPException(502, str(error))
+        return StreamingResponse(
+            _sent_events(events), media_type='text/event-stream',
+            # No cache anywhere in front of a conversation, and no proxy
+            # buffering: a stream held back until it completes is the sudden
+            # printing this route exists to end.
+            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
     @app.get('/api/widget/history')
     def widget_history(thread: str = ''):

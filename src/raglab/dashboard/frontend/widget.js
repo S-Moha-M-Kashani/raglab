@@ -3,8 +3,9 @@
 // thirty lines of markup — the way lab.js already builds the footer rail and the
 // theme control. Loads after lab.js, whose escapeHtml it uses.
 //
-// One route behind it (POST /api/widget) plus the two that read and reset the
-// conversation. Nothing here writes a run, a ledger row or a number, which is
+// One route behind it (POST /api/widget/stream, which sends the answer as it
+// is written) plus the GET that serves the model list and starters and the two
+// that read and reset the conversation. Nothing here writes a run, a ledger row or a number, which is
 // the whole reason a helper may sit on a read-only surface at all.
 //
 // Wrapped the way archive_io.js and experiment_handoff.js are wrapped, and for
@@ -296,6 +297,126 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // --- the answer, as it is written ------------------------------------------
+  // The reply used to land in one piece, one round trip after Send: a stalled
+  // widget, then a wall of text. `/api/widget/stream` sends the same turn as
+  // server-sent events — the pieces as the model writes them, then one final
+  // event carrying the reply the lab now holds and its token account.
+  //
+  // Three rules the rest of this file already lives by, restated for a reply
+  // that arrives over time rather than all at once:
+  //
+  //   * The final event has the last word. The pieces are how the answer
+  //     arrived; the reply is read back out of the conversation log the lab
+  //     just wrote, and the bubble adopts it (`widgetFinish`). A page that
+  //     kept the concatenated pieces would be a second, private account of a
+  //     turn the lab is the only copy of — the one thing this file refuses
+  //     everywhere else.
+  //   * A fragment is never left looking finished. A stream that dies keeps
+  //     what did arrive — the reader watched it, pretending otherwise is its
+  //     own lie — but marked as stopped, with the error line under it. An
+  //     empty bubble is removed instead: it has nothing to say.
+  //   * Every piece re-asks whether it still belongs on this screen. A draw
+  //     can clear the log mid-answer, and the reader can leave the thread
+  //     while it is still being written; both stop the typing where it is and
+  //     leave the fate check at the end of `widgetAsk` to decide honestly
+  //     between dropping the answer and redrawing the thread from the lab.
+
+  function widgetLiveReply() {
+    // Built through widgetSay so the empty state clears exactly as it does for
+    // a reply that arrives whole, then filled with `textContent` — assigning
+    // text, never markup, which is the same guarantee escapeHtml gives the
+    // other writers.
+    widgetSay('bot', '');
+    const el = $('widget-log').lastElementChild;
+    el.classList.add('streaming');
+    return el;
+  }
+
+  function widgetType(el, text) {
+    const log = $('widget-log');
+    el.textContent += text;
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function widgetFinish(el, reply) {
+    const log = $('widget-log');
+    if (!el || !log.contains(el)) { widgetSay('bot', reply); return; }
+    el.classList.remove('streaming');
+    el.textContent = reply;
+    log.scrollTop = log.scrollHeight;
+  }
+
+  function widgetStopped(el) {
+    const log = $('widget-log');
+    if (!el || !log.contains(el)) return;
+    el.classList.remove('streaming');
+    // Nothing arrived, so there is nothing to keep: an empty bubble above an
+    // error line reads as an answer of no words rather than as no answer.
+    if (!el.textContent) { el.remove(); return; }
+    el.classList.add('stopped');
+  }
+
+  // One SSE reader: `data: ` lines carrying one JSON object each, events
+  // separated by a blank line. Deltas go to `onDelta` as they land; the final
+  // event is returned. An `error` event is thrown, because that is what it is —
+  // the stream's own way of saying the answer never finished, once the status
+  // code has been spent on the first piece.
+  async function widgetStream(path, body, onDelta) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(data.detail || res.statusText);
+    }
+    let buffer = '';
+    let final = null;
+    // `flush` is the difference between "the connection is still open, so the
+    // tail of the buffer is half an event" and "it closed, so the tail is all
+    // there will ever be". Splitting without that distinction would parse a
+    // half-arrived event and throw on it.
+    const drain = (flush) => {
+      const parts = buffer.split('\n\n');
+      buffer = flush ? '' : parts.pop();
+      for (const part of parts) {
+        const line = part.split('\n').find((l) => l.startsWith('data: '));
+        if (!line) continue;
+        let event;
+        try {
+          event = JSON.parse(line.slice(6));
+        } catch (error) {
+          throw new Error('the lab sent an answer this page could not read');
+        }
+        if (event.error) throw new Error(event.error);
+        if (event.delta != null) onDelta(event.delta);
+        else final = event;
+      }
+    };
+    if (res.body) {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const step = await reader.read();
+        if (step.value) buffer += decoder.decode(step.value, { stream: true });
+        drain(step.done);
+        if (step.done) break;
+      }
+    } else {
+      // No streaming body to read (an old browser, a harness that buffers):
+      // the same events, parsed the same way, all at once. The answer is not
+      // lost — it simply does not type itself out.
+      buffer = await res.text();
+      drain(true);
+    }
+    if (!final) {
+      throw new Error('the answer stopped before the lab said what it holds');
+    }
+    return final;
+  }
+
   // --- what you can ask ------------------------------------------------------
   // The four examples come from the served fixture (fixtures/prompts/widget.yaml,
   // through the /api/widget response the model list already rides), because
@@ -517,9 +638,9 @@
   // delegated click listener on `widget-log`), not a decoration outside the
   // lock. Without this, `forget()` on the New Chat side calls
   // `saver().delete_thread(name)` with no coordination against the
-  // checkpoint write this function's own `agent.invoke` (inside
-  // `api('/api/widget', ...)`, on the lab's side) makes to the very same
-  // `thread_id`. If that write lands after the delete, the thread New Chat
+  // checkpoint write this function's own `agent.stream` (inside
+  // `widgetStream('/api/widget/stream', ...)`, on the lab's side) makes to the
+  // very same `thread_id`. If that write lands after the delete, the thread New Chat
   // just ended regrows exactly one turn — this function's own `'stale'`
   // branch would still redraw honestly from whatever the backend now holds,
   // so the screen never lies, but the substantive promise ("this
@@ -556,18 +677,42 @@
       return;
     }
     widgetLock(true);
+    // The bubble the answer is typed into, created on the first piece rather
+    // than up front: a bubble that appears and then never fills is a claim
+    // the lab has not made yet.
+    let live = null;
     try {
-      const data = await api('/api/widget', { message, model, thread: intended });
+      const data = await widgetStream('/api/widget/stream',
+        { message, model, thread: intended },
+        (delta) => {
+          // Every piece re-asks the two questions the answer as a whole is
+          // asked below. A newer draw, or a reader who has left the thread,
+          // stops the typing here — the log has moved on, and the fate check
+          // at the end is what decides whether this turn is dropped or the
+          // thread redrawn from the lab. `contains` is the same fact read a
+          // second, cheaper way: a bubble the log no longer holds was wiped
+          // by a draw, whatever the generation says.
+          if (supersedes(mine) || !stillCurrent(intended)) { live = null; return; }
+          if (live && !$('widget-log').contains(live)) live = null;
+          if (!live) live = widgetLiveReply();
+          widgetType(live, delta);
+        });
       const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
       if (fate === 'stale') { widgetDraw(); return; }
-      widgetSay('bot', data.reply);
+      // The lab's own reading of what it just wrote replaces what was typed:
+      // the pieces were how the answer arrived, this is the turn the log
+      // holds, and the two must not be allowed to differ on screen.
+      widgetFinish(live, data.reply);
       // The token account, when the backend reported one — an unreported
       // account renders nothing rather than a made-up zero.
       if (data.input_tokens != null) {
         widgetSay('meta', `out ${data.output_tokens} in ${data.input_tokens} tok.`);
       }
     } catch (error) {
+      // Whatever had arrived stays, marked as stopped rather than dressed up
+      // as a finished reply; an empty bubble goes, having said nothing.
+      widgetStopped(live);
       const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
       if (fate === 'stale') { widgetSayAfterDraw('err', error.message, intended); return; }

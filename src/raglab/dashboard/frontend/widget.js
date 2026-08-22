@@ -183,6 +183,39 @@
   function stillCurrent(intended) {
     return widgetThread() === intended;
   }
+
+  // What has become of the log by the time an answer to a question comes back.
+  // Three things can be true of it, and only one of them means "paint here":
+  //
+  //   'gone'  — the reader has left the thread they asked in. The answer is
+  //             about a conversation that is no longer on screen, and drawing
+  //             it under the header that is would be the misattribution this
+  //             whole task exists to rule out. Nothing is lost by refusing:
+  //             the lab wrote the exchange to `intended`'s own history the
+  //             moment it answered, so the next draw of that thread shows it.
+  //   'stale' — still the same thread, so nothing could be misattributed, but
+  //             a draw this answer is not part of is about to repaint the log
+  //             (or already has). Painting into it would either be wiped a
+  //             frame later or, worse, be wiped along with the question,
+  //             because that draw's history GET was very likely issued before
+  //             this answer had been written and so carries neither. This is
+  //             the case that must not be a silent drop: the reader would be
+  //             left with no question, no answer and no explanation, which is
+  //             the same silent absence this file refuses for a note.
+  //   'here'  — nothing has moved; say it where it was asked.
+  //
+  // `redrawPending` is handed in rather than read here because whether a draw
+  // has settled is state the DOM half owns; everything else this decides is
+  // arithmetic on `DRAW_SEQ` and a string compare, which is what keeps the
+  // decision itself testable without a page. It is a separate signal from
+  // `supersedes` and both are needed: a question asked while the draw that
+  // opened the widget is still in flight carries *that* draw's generation, so
+  // nothing supersedes it, and yet that same draw is about to clear the log.
+  function replyFate(mine, intended, redrawPending) {
+    if (!stillCurrent(intended)) return 'gone';
+    if (redrawPending || supersedes(mine)) return 'stale';
+    return 'here';
+  }
   // --- end of the thread half -------------------------------------------------
 
   // The header says which conversation is on screen, because a helper that
@@ -263,6 +296,16 @@
     // nobody has asked anything in — and the reader whose widget was opened *by*
     // a note is exactly the reader who has not seen the examples yet.
     if (log.querySelector('.widget-msg:not(.note)')) return;
+    // A chip is an invitation to ask, and while the model list is missing
+    // `widgetAsk` refuses to ask at all — so offering one would be advertising
+    // a button that answers a click with a refusal. It would not even survive
+    // being offered: `widgetDrawThread` says the options error immediately
+    // after this, and `widgetSay` clears the empty state for every kind but a
+    // note, so on an empty thread the chips would be inserted and removed in
+    // the same pass. Writing what you are about to erase is the shape of bug
+    // this file has spent several rounds removing; the honest version is not
+    // to write it.
+    if (widgetOptionsError) return;
     if (!WIDGET_STARTERS.length && !WIDGET_RUN_ASK) return;
     const chip = (text, extra = '') =>
       `<button type="button" class="widget-starter${extra}">${escapeHtml(text)}</button>`;
@@ -330,10 +373,22 @@
     if (win.hidden) win.hidden = false;
     const intended = widgetThread();
     if (drawnFor !== intended) widgetDraw();
+    widgetSayAfterDraw('note', text, intended);
+  }
+
+  // The waiting half of the paragraph above, on its own because a note is not
+  // the only line the lab keeps no copy of: `widgetAsk` says an `err` under
+  // exactly the same conditions — something worth telling the reader, written
+  // here and nowhere else, arriving while a redraw that would wipe it is
+  // still in flight. Both must wait for that draw rather than race it, and
+  // both must then re-ask whether they still belong on the screen they are
+  // about to write to. One implementation, so the two cannot drift apart on
+  // which of those two checks matters.
+  function widgetSayAfterDraw(kind, text, intended) {
     const mine = drawnGeneration;
     widgetDrawing.catch(() => {}).then(() => {
       if (supersedes(mine) || !stillCurrent(intended)) return;
-      widgetSay('note', text);
+      widgetSay(kind, text);
     });
   }
 
@@ -355,11 +410,42 @@
   // so. `intended`/`mine` are captured before the post, the same shape as
   // `widgetNote`'s, and checked again after.
   //
-  // The exchange is not lost when the check fails — the lab already wrote it
-  // to `intended`'s own history the moment it answered, and whoever looks at
-  // `intended` next sees it there, drawn fresh, the way any earlier turn is.
-  // What must not happen is drawing it here, now, under a header that did
-  // not produce it, so the render is dropped rather than misattributed.
+  // The exchange is not lost when the reader has left the thread — the lab
+  // already wrote it to `intended`'s own history the moment it answered, and
+  // whoever looks at `intended` next sees it there, drawn fresh, the way any
+  // earlier turn is. What must not happen is drawing it here, now, under a
+  // header that did not produce it, so that render is dropped rather than
+  // misattributed.
+  //
+  // Dropping was, for one round, what happened in the other superseded case
+  // too — a redraw of the *same* thread starting while the question was in
+  // flight (a board open on the experiment already open, a cross-tab
+  // `storage` echo of the same id, the launcher shut and reopened). There the
+  // header is right and nothing could be misattributed, so a drop bought no
+  // honesty and cost the reader their own turn: that redraw's history GET
+  // races the still-pending POST and usually wins, so the question goes with
+  // the answer and the reader is left with no trace of either. `replyFate`
+  // separates the two: `'gone'` still refuses, `'stale'` redraws. The redraw
+  // is the honest way out precisely because the lab is the only copy of the
+  // transcript — its history now holds this exchange, a draw started after
+  // the POST resolved is guaranteed to read it back, and a draw rebuilds the
+  // log from nothing, so it cannot duplicate a turn the way a second
+  // `widgetSay` could. It also takes a newer generation than whatever draw
+  // overtook us, so that one stands down rather than repainting over it.
+  //
+  // What the redraw cannot carry is the token account: history keeps the
+  // turns, not what the round trip cost, and appending the numbers after a
+  // repaint would park them under whatever turn happens to be last — which,
+  // with another surface posting to the same thread, need not be this one.
+  // An unlabelled count under someone else's turn is exactly the row that
+  // lies about what produced it, so on this path the account is refused
+  // rather than guessed; the answer itself, which is what the reader asked
+  // for, survives in full.
+  //
+  // A failed POST takes neither route. There is nothing new in history to
+  // redraw — that is what failed — and the error line exists nowhere but
+  // here, so it is handed to `widgetSayAfterDraw` to be said once the draw
+  // that would have wiped it has finished, the same way a note is.
   async function widgetAsk(message) {
     const intended = widgetThread();
     const mine = currentGeneration();
@@ -380,7 +466,9 @@
     $('widget-send').disabled = true;
     try {
       const data = await api('/api/widget', { message, model, thread: intended });
-      if (supersedes(mine) || !stillCurrent(intended)) return;
+      const fate = replyFate(mine, intended, drawPending);
+      if (fate === 'gone') return;
+      if (fate === 'stale') { widgetDraw(); return; }
       widgetSay('bot', data.reply);
       // The token account, when the backend reported one — an unreported
       // account renders nothing rather than a made-up zero.
@@ -388,7 +476,10 @@
         widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
       }
     } catch (error) {
-      if (!supersedes(mine) && stillCurrent(intended)) widgetSay('err', error.message);
+      const fate = replyFate(mine, intended, drawPending);
+      if (fate === 'gone') return;
+      if (fate === 'stale') { widgetSayAfterDraw('err', error.message, intended); return; }
+      widgetSay('err', error.message);
     } finally {
       $('widget-send').disabled = false;
       $('widget-input').focus();
@@ -498,14 +589,30 @@
   // they were *started*; assigning the number only once each one's own
   // options-load happened to finish would let an unrelated network jitter in
   // that unrelated request scramble which draw counts as newer.
+  //
+  // `drawPending` says whether the newest draw has finished, which is the one
+  // thing a generation number cannot say on its own: a question asked while
+  // the draw that opened the widget is still in flight carries that draw's
+  // own generation, so `supersedes` is false about it, and yet it is about to
+  // clear the log out from under the answer. Only the newest draw's
+  // settlement clears the flag — an older one finishing late says nothing
+  // about whether the screen has stopped moving, so it leaves the flag alone.
   let widgetDrawing = Promise.resolve();
   let drawnFor = null;
   let drawnGeneration = 0;
+  let drawPending = false;
   function widgetDraw() {
     drawnFor = widgetThread();
     drawnGeneration = nextGeneration();
     const mine = drawnGeneration;
-    widgetDrawing = widgetLoadOptions().then(() => widgetDrawThread(mine));
+    drawPending = true;
+    // `finally`, not `then`: neither half of the chain is allowed to reject
+    // and both take care not to, but a flag that stayed true forever because
+    // one of them did anyway would quietly turn every later answer into a
+    // redraw — and `finally` also passes a rejection on untouched, leaving
+    // this promise exactly as rejectable (that is, not) as it was before.
+    widgetDrawing = widgetLoadOptions().then(() => widgetDrawThread(mine))
+      .finally(() => { if (!supersedes(mine)) drawPending = false; });
     return widgetDrawing;
   }
 

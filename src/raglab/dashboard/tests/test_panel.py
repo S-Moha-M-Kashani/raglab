@@ -424,9 +424,12 @@ CONVENTIONS = [
     ('panel.js', 'ExperimentHandoff.notice', None,
      'what could not be set must be said, and said by the module that '
      'worked out what could not be set'),
-    ('panel.js (widget block)', "widgetSay('note'", None,
+    ('panel.js (widget block)', "widgetSayAfterDraw('note'", None,
      'the lab writes its own notices in its own voice: a line the page wrote '
-     "must never arrive as `bot`, which is the model's"),
+     "must never arrive as `bot`, which is the model's. Pinned at the one "
+     'call site that writes one — a notice is said only once the redraw it '
+     'waited through has finished, so the kind and that wait travel '
+     'together'),
     ('panel.css (widget block)', '.widget-msg.note', None,
      "a message kind with no rule of its own inherits another kind's ink and "
      'reads as something the model said'),

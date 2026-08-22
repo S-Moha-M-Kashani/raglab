@@ -1,9 +1,18 @@
-// The Inspector's whole frontend: four views over the read-only :9003 API —
-// ground truth, chunks, retrieval, generation — three of which auto-follow
-// whatever the lab (:9002) actually ran.
+// The Inspector's whole frontend: four views over its own read-only API,
+// mounted at /inspector on the lab — ground truth, chunks, retrieval,
+// generation — three of which auto-follow whatever the lab actually ran.
+
+// Everything this page asks for lives under the mount. The lab serves its own
+// /api/config, /api/chunks and /api/questions at the root and they are
+// different objects with the same names, so a bare, unprefixed call to one of
+// these routes here does not fail — it quietly answers with the wrong thing.
+// One helper, and a convention test that no bare call survives.
+const API = '/inspector';
+const api = (path, init) => fetch(API + path, init);
+
 let CHOSEN = null;   // fallback config, served by /api/config so it cannot drift
 async function loadChosen() {
-  CHOSEN = (await (await fetch('/api/config')).json()).chosen;
+  CHOSEN = (await (await api('/api/config')).json()).chosen;
 }
 const chosenReady = loadChosen();
 
@@ -49,7 +58,7 @@ show('groundtruth');
 
 async function pollJob(jobId) {
   for (;;) {
-    const job = await (await fetch(`/api/jobs/${jobId}`)).json();
+    const job = await (await api(`/api/jobs/${jobId}`)).json();
     if (job.state === 'done') return job.result;
     if (job.state === 'error') throw new Error(job.error || 'job failed');
     await new Promise(r => setTimeout(r, 500));
@@ -124,7 +133,7 @@ document.addEventListener('click', event => {
 });
 
 async function loadExplain() {
-  try { EXPLAIN = await (await fetch('/api/explain')).json(); }
+  try { EXPLAIN = await (await api('/api/explain')).json(); }
   catch (error) { /* the marks fall back to the bare key; not worth failing on */ }
 }
 loadExplain();
@@ -222,7 +231,7 @@ async function fetchGroundTruth(dataset) {
   const requestedDataset = dataset || '';
   // Named on every request, never assumed, so this view can't show one corpus
   // while another view on the page shows a different one.
-  const response = await fetch('/api/groundtruth?dataset='
+  const response = await api('/api/groundtruth?dataset='
                                + encodeURIComponent(requestedDataset));
   const body = await response.json().catch(() => ({ detail: response.statusText }));
   if (!response.ok) throw new Error(body.detail || response.statusText);
@@ -353,7 +362,7 @@ async function buildChunks(config) {
     status.textContent = 'building…';
     await chosenReady;
     const asked = config || CHOSEN;
-    const response = await fetch('/api/chunks',
+    const response = await api('/api/chunks',
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(asked) });
     const result = await pollJob(await startedJob(response));
@@ -685,7 +694,7 @@ async function addQuestion(questionId) {
   try {
     status.textContent = `running ${questionId}…`;
     await chosenReady;
-    const response = await fetch('/api/questions',
+    const response = await api('/api/questions',
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...activeConfig(), question_id: questionId }) });
     const result = await pollJob(await startedJob(response));
@@ -890,7 +899,7 @@ function renderImportedArchive(archive) {
 }
 
 async function archiveRequest(path, method = 'GET') {
-  const response = await fetch(path, { method });
+  const response = await api(path, { method });
   const body = await response.json().catch(() => ({ detail: response.statusText }));
   if (!response.ok) throw new Error(body.detail || response.statusText);
   return body;
@@ -1429,7 +1438,7 @@ async function renderFollow(body) {
 
 async function pollFollow() {
   try {
-    await renderFollow(await (await fetch('/api/follow')).json());
+    await renderFollow(await (await api('/api/follow')).json());
   } catch (error) {
     // A hiccup fetching our own origin — try again next tick rather than
     // treating a transient failure as "the lab is down".

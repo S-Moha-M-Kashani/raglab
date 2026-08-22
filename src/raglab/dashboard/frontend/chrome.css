@@ -1,9 +1,10 @@
-/* Shared chrome for both surfaces — the panel (:9002) and the Inspector
-   (:9003) route this one file, so the top of a page cannot come to mean two
-   different things on two ports. Loaded after tokens.css (whose scale it
-   reads) and before each page's own sheet, so a page can still override.
+/* Shared chrome for all three surfaces — the Laboratory, the Inspector and
+   the Leaderboard route this one file, so the top of a page cannot come to
+   mean two different things on two of them. Loaded after tokens.css (whose
+   scale it reads) and before each page's own sheet, so a page can still
+   override.
 
-   What lives here is only what BOTH pages render: the skip link, the top bar,
+   What lives here is only what every page renders: the skip link, the top bar,
    the surface switcher, the table scroll region and its sortable header, and
    the '!' that opens an explainer. The panel's status rail and status pill stay
    in panel.css — they report lab state the Inspector does not hold, and they

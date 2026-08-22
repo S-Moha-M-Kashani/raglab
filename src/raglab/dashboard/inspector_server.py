@@ -1,9 +1,10 @@
-"""The RAG Lab Inspector — a read-only viewer served on :9003, over the same fixtures and pipeline as the lab.
+"""The RAG Lab Inspector — a read-only view over the same fixtures and pipeline as the lab, mounted at :9002/inspector.
 
-Builds its own in-memory index and writes nothing. `GET /api/follow` also
-polls the lab (:9002) over plain `urllib` for its newest finished jobs, so the
-two stay separate processes sharing nothing but HTTP; a lab that is not
-running comes back as `{'lab': 'down', ...}`, never an exception.
+Builds its own in-memory index and writes nothing. `GET /api/follow` reads the
+lab's newest finished jobs over plain `urllib` at `lab_base_url()`, which after
+the mount is this same process; `RAGLAB_INSPECTOR_LAB_URL` still points it at a
+lab somewhere else. A lab that is not running comes back as
+`{'lab': 'down', ...}`, never an exception.
 """
 import json
 import os
@@ -202,6 +203,8 @@ def create_inspector_app() -> FastAPI:
     def page():
         return FileResponse(STATIC / 'inspector.html')
 
+    # Only the Inspector's own two: the four files both surfaces share are
+    # served by the panel at the root, and this app is mounted underneath it.
     @app.get('/inspector.css')
     def css():
         return FileResponse(STATIC / 'inspector.css', media_type='text/css')
@@ -209,28 +212,6 @@ def create_inspector_app() -> FastAPI:
     @app.get('/inspector.js')
     def js():
         return FileResponse(STATIC / 'inspector.js',
-                            media_type='application/javascript')
-
-    @app.get('/sorttable.js')
-    def sorttable():
-        """The column sorter, shared with the panel so a header click means the same thing on both pages."""
-        return FileResponse(STATIC / 'sorttable.js',
-                            media_type='application/javascript')
-
-    @app.get('/tokens.css')
-    def tokens_css():
-        """The design tokens shared with the panel, so a colour cannot drift apart on either page."""
-        return FileResponse(STATIC / 'tokens.css', media_type='text/css')
-
-    @app.get('/chrome.css')
-    def chrome_css():
-        """The bar and surface switcher shared with the panel, so neither surface is a dead end."""
-        return FileResponse(STATIC / 'chrome.css', media_type='text/css')
-
-    @app.get('/lab.js')
-    def lab_js():
-        """The utilities shared with the panel, so a name like escapeHtml has one behaviour, not two."""
-        return FileResponse(STATIC / 'lab.js',
                             media_type='application/javascript')
 
     @app.get('/api/health')

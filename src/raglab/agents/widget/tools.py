@@ -11,6 +11,7 @@ import re
 from langchain_core.tools import tool
 
 from raglab.agents.widget import skills_corpus_loader as skills
+from raglab.agents.widget.conversation_memory import recall_conversation
 from raglab.agents.widget.experiment_tools import EXPERIMENT_TOOLS
 from raglab.agents.widget import probe
 from raglab.agents.widget.prompts import _TOOL_PROMPTS, KNOWLEDGE_BASE
@@ -103,7 +104,7 @@ def measure_bilingual_alignment(model_name: str = '', pairs: str = '') -> str:
 # concern (what this lab has already measured), and the only tools whose data
 # is injected rather than read from a fixture.
 TOOLS = [search_knowledge_base, calculate, search_rag_skills, read_rag_skill,
-         measure_bilingual_alignment] + EXPERIMENT_TOOLS
+         measure_bilingual_alignment, recall_conversation] + EXPERIMENT_TOOLS
 
 # The YAML page is what the model reads; assigning it here makes the fixture
 # the single source, and the import fails on a tool the page does not name.

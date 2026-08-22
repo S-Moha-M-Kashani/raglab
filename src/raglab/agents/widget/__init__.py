@@ -31,6 +31,7 @@ version away.
 # a test that monkeypatches an internal must patch the module that defines
 # it, not this package's re-export of it.
 from raglab.agents.widget import backends
+from raglab.agents.widget import conversation_memory
 from raglab.agents.widget import experiment_tools
 from raglab.agents.widget import hooks
 from raglab.agents.widget import probe
@@ -49,6 +50,13 @@ from raglab.agents.widget.backends import (
     ask,
     reset,
     set_openrouter_key_resolver)
+from raglab.agents.widget.conversation_memory import (
+    GENERAL,
+    MAX_RECALLED,
+    WidgetState,
+    forget,
+    history,
+    recall_conversation)
 from raglab.agents.widget.hooks import (
     HOOK_LOG,
     MAX_HISTORY,

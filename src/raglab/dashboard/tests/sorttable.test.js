@@ -1,9 +1,10 @@
 // tests/sorttable.test.js — the column sorter both RAG lab panels share.
 //
 // Contract under test: `dashboard/frontend/sorttable.js`, loaded as a plain
-// script by the lab (:9002) and the Inspector (:9003) — the two pages are served
-// out of the same directory, which is what lets one file be the single answer to
-// "what does clicking a header do". Its DOM half is verified in a real
+// script by the panel and the Inspector alike — one served app on :9002, the
+// Inspector mounted at /inspector, both pages out of the same directory,
+// which is what lets one file be the single answer to "what does clicking a
+// header do". Its DOM half is verified in a real
 // browser; what is tested here is the part that decides an *order*, because that
 // is where a sorter is wrong in ways nobody notices:
 //

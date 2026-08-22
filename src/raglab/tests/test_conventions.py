@@ -62,7 +62,8 @@ def test_every_step_of_the_shared_scale_has_a_user():
     later". If a step is worth having, something reads it now; if nothing does,
     the decision it records is a guess."""
     sheets = '\n'.join((_SHEETS / name).read_text(encoding='utf-8') for name in
-                       ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'))
+                       ('tokens.css', 'chrome.css', 'panel.css',
+                        'inspector.css', 'widget.css'))
     tokens = (_SHEETS / 'tokens.css').read_text(encoding='utf-8')
     declared = dict.fromkeys(re.findall(r'^\s*(--[a-z0-9-]+):', tokens, re.M))
     scale = [t for t in declared
@@ -91,7 +92,12 @@ SPACING_OFF_RAMP = [
     ('panel.css', 'padding: 0 0 5rem',
      'clearance under the whole page for the fixed widget launcher, which is '
      'taller than the ramp\'s top step — a bigger step invented for one use is '
-     'a step with one user'),
+     'a step with one user. It stays keyed to panel.css because it is a rule '
+     'on the page: the launcher\'s own rules live in widget.css'),
+    ('inspector.css', 'padding-bottom: 5rem',
+     'clearance under the whole page for the fixed widget launcher, which is '
+     'taller than the ramp\'s top step — the Laboratory reserves the same, for '
+     'the same reason'),
     ('panel.css', 'padding-bottom: 2px',
      'the gap between a link and the rule underlining it, which is a border '
      'offset rather than spacing between things'),
@@ -139,7 +145,7 @@ def test_every_spacing_value_comes_off_the_ramp_or_is_named_here():
     allowed = sorted((f, d) for f, d, _ in SPACING_OFF_RAMP)
     found = sorted((name, hit)
                    for name in ('tokens.css', 'chrome.css', 'panel.css',
-                                'inspector.css')
+                                'inspector.css', 'widget.css')
                    for hit in _spacing_literals(
                        (_SHEETS / name).read_text(encoding='utf-8')))
     assert found == allowed, (
@@ -160,7 +166,8 @@ def test_every_letter_spacing_value_comes_from_the_label_recipe():
     spacing there is no value here that has a reason to be off it: the three
     negative values are outside this guard by construction, since tightening
     three specific dense elements is not this recipe drifting."""
-    for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css'):
+    for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css',
+                 'widget.css'):
         css = (_SHEETS / name).read_text(encoding='utf-8')
         assert _track_literals(css) == [], (
             f'{name} spells its own tracking: {_track_literals(css)}. Read '
@@ -328,16 +335,17 @@ def test_env_example_documents_every_variable_the_code_reads():
     assert documented - read == set(), 'in .env.example, read by nothing'
 
 
-def test_the_lab_and_the_inspector_take_no_port_lodestar_owns():
+def test_the_lab_takes_no_port_lodestar_owns():
     # this is a convention test
     """`RESERVED` is a copy of Lodestar's port list, not a live read — it can
-    drift out of sync and must be updated by hand if Lodestar's changes."""
+    drift out of sync and must be updated by hand if Lodestar's changes. There
+    is one port now: the Inspector moved to /inspector on this one, so that a
+    conversation and a theme choice can cross between the surfaces."""
     assert serve.PANEL_PORT == 9002
-    assert serve.INSPECTOR_PORT == 9003
-    assert serve.PANEL_PORT != serve.INSPECTOR_PORT
-    for port in (serve.PANEL_PORT, serve.INSPECTOR_PORT):
-        assert port not in serve.RESERVED, (
-            f':{port} belongs to {serve.RESERVED.get(port)}')
+    assert serve.PANEL_PORT not in serve.RESERVED, (
+        f':{serve.PANEL_PORT} belongs to {serve.RESERVED.get(serve.PANEL_PORT)}')
+    assert not hasattr(serve, 'INSPECTOR_PORT'), (
+        'the Inspector has no port of its own — it is a path on the lab')
 
 
 def test_the_documented_launch_installs_the_backend_the_default_embedder_needs():
@@ -386,9 +394,8 @@ def test_every_entry_point_resolves_to_something_callable():
     moment somebody runs the command, and nothing else would notice. Parsed
     with tomllib and each target actually imported and resolved, not just
     pattern-matched against the text."""
-    assert set(_SCRIPTS) == {'raglab', 'raglab-inspector', 'raglab-lab',
-                             'raglab-sweep', 'raglab-judgescreen',
-                             'raglab-leaderboard'}
+    assert set(_SCRIPTS) == {'raglab', 'raglab-lab', 'raglab-sweep',
+                             'raglab-judgescreen', 'raglab-leaderboard'}
     for command, target in _SCRIPTS.items():
         module, _, function = target.partition(':')
         assert callable(getattr(importlib.import_module(module), function)), (

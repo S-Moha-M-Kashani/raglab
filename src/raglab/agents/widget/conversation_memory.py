@@ -17,6 +17,7 @@ it, applied to the one thing here that outlives a process.
 """
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 
@@ -36,7 +37,16 @@ class WidgetState(AgentState):
     """The agent's state beside its messages. Deliberately two fields: the
     state is a real thing that persists and can be read back, and small enough
     that redesigning it later is a rewrite of this class rather than an
-    unpicking of everything that grew into it."""
+    unpicking of everything that grew into it.
+
+    Both are written by `thread_stamp` below, handed to the graph as part of
+    `agent.invoke`'s own input by `backends.ask` — the same channel the
+    messages travel on, so the checkpointer persists them in the same write
+    and there is no second writer racing it. They were declared here and
+    written nowhere for a while, which meant `/api/widget/history` reported
+    two empty strings as facts about every thread: a field that always says
+    nothing is this project's own rule about a row that cannot say what
+    produced it, one layer out from where that rule is usually stated."""
     experiment_id: str   # '' in the general thread
     started_at: str      # ISO 8601, when this thread began
 
@@ -120,13 +130,49 @@ def _turns(messages) -> list[dict]:
     return out
 
 
+def _channels(name: str) -> dict:
+    """One thread's persisted state, or an empty mapping for a thread that has
+    never been used. Two readers need this — the history route and the stamp
+    that decides whether a thread has already begun — and a thread nobody has
+    used has to read the same way for both, so the "no checkpoint is not an
+    error" rule lives here once rather than in each of them."""
+    checkpoint = saver().get({'configurable': {'thread_id': name}})
+    return (checkpoint or {}).get('channel_values') or {}
+
+
+def thread_stamp(thread: str, now: datetime | None = None) -> dict:
+    """What a turn writes about the thread it lands in, for `backends.ask` to
+    pass through `agent.invoke`'s input.
+
+    `experiment_id` is the thread itself, because that is what a thread *is*
+    here — one conversation per experiment — and `''` on the general thread,
+    which belongs to no experiment. It is written on every turn rather than
+    only the first: it cannot change for a given thread, so re-stating it
+    costs nothing and repairs a thread whose first turn predates this stamp.
+
+    `started_at` is the opposite: it is stamped only when the thread has none,
+    and is left out of the returned mapping entirely otherwise, so langgraph
+    leaves that channel exactly as it found it. A "when this began" that moved
+    to the latest turn would be a field naming itself after something it is
+    not — worse than the empty string it replaced, because an empty string at
+    least admits to knowing nothing. Two turns racing to open the same thread
+    could both find it unstamped and both write; they would be writing very
+    nearly the same instant, and the loser's value is overwritten rather than
+    added to, so the field still names one moment near the thread's start."""
+    name = (thread or '').strip() or GENERAL
+    stamp = {'experiment_id': '' if name == GENERAL else name}
+    if not _channels(name).get('started_at'):
+        stamp['started_at'] = (now or datetime.now(timezone.utc)).isoformat(
+            timespec='seconds')
+    return stamp
+
+
 def history(thread: str) -> dict:
     """One thread, as the model holds it. A thread nobody has used reads as
     empty rather than as an error: a conversation that has not happened yet is
     not a failure, and the empty log with its starters says so."""
     name = (thread or '').strip() or GENERAL
-    checkpoint = saver().get({'configurable': {'thread_id': name}})
-    values = (checkpoint or {}).get('channel_values') or {}
+    values = _channels(name)
     return {'thread': name,
             'experiment_id': values.get('experiment_id') or '',
             'started_at': values.get('started_at') or '',

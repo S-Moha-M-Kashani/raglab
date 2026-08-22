@@ -85,6 +85,26 @@ def test_every_prompt_the_model_reads_is_the_yaml_fixture():
                                      for key, text in knowledge_page.items()}
 
 
+def test_the_recall_prompt_names_the_cap_the_code_actually_applies():
+    # this is a convention test
+    """The one number in `fixtures/prompts/widget_tools.yaml` that is also a
+    constant in Python. `recall_conversation` tells the model "At most 20
+    turns" and `conversation_memory.MAX_RECALLED` is what decides how many it
+    really gets; the fixture is pinned byte-equal, so nothing stopped the
+    constant from moving and leaving the model reading a promise the code no
+    longer keeps — a tool description that misstates its own limit is the
+    same lie as a row misstating what produced it, told to the model instead
+    of to the reader. Reading the fixture rather than the loaded description
+    on purpose: the number has to be right in the file a maintainer edits."""
+    import yaml
+    from raglab.agents.widget import conversation_memory as memory
+    tools_page = yaml.safe_load(
+        (widget.PROMPTS_DIR / 'widget_tools.yaml').read_text(encoding='utf-8'))
+    assert f'At most {memory.MAX_RECALLED} turns' in tools_page['recall_conversation'], (
+        'the recall prompt must state MAX_RECALLED, or the model is told a '
+        'cap the code does not apply')
+
+
 # --- the bilingual probe tool ---------------------------------------------
 
 def test_the_widget_offers_the_bilingual_probe_tool():
@@ -681,6 +701,37 @@ def test_ask_threads_the_thread_into_the_agent():
     assert threads[2] != threads[0]
     # the recursion cap is a hard ceiling and must survive the new config key
     assert all(call.get('recursion_limit') for call in calls)
+
+
+def test_ask_stamps_the_thread_state_through_the_graphs_own_input():
+    # this is a unit test
+    """`WidgetState`'s two fields are channels like `messages`, and `ask` writes
+    them the same way — in the invoke input, so the checkpointer persists them
+    in the same write rather than a second writer racing the graph. Without
+    this, both fields stayed empty forever and `/api/widget/history` reported
+    two blanks as facts about every thread. The stub records the payload the
+    real graph would have been handed."""
+    payloads = []
+
+    class Stub:
+        def invoke(self, payload, config=None):
+            payloads.append(payload)
+            return {'messages': [AIMessage(content='ok')]}
+
+    widget.reset()
+    widget._AGENTS['openai/gpt-5-nano'] = Stub()
+    try:
+        widget.ask('hello', model='openai/gpt-5-nano', thread='exp-stamped')
+        widget.ask('hello', model='openai/gpt-5-nano')
+    finally:
+        widget.reset()
+    assert payloads[0]['experiment_id'] == 'exp-stamped'
+    assert payloads[0]['started_at']
+    # The general thread belongs to no experiment, and says so with the empty
+    # string rather than with the thread's own name or by leaving the field
+    # out: it is an answer about that thread, not a gap in what is known.
+    assert payloads[1]['experiment_id'] == ''
+    assert payloads[1]['started_at']
 
 
 def test_no_thread_lands_on_general():

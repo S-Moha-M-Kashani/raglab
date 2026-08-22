@@ -6,6 +6,7 @@ Everything else in this lab dies with it — the index by design — and the who
 reason this one file exists is that a reader's chat should not.
 """
 import os
+from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -28,6 +29,51 @@ def test_a_conversation_reads_back_in_order():
     assert read['turns'] == [
         {'role': 'you', 'text': 'what is the decision score?'},
         {'role': 'bot', 'text': 'the unweighted mean of four'}]
+
+
+def test_the_two_state_fields_name_the_thread_and_when_it_began():
+    """`WidgetState`'s two fields were declared and written by nothing, so the
+    history route reported two empty strings as facts about every thread. A
+    turn stamps them now, and the stamp is what these assert: the thread's own
+    id, and a moment. The general thread belongs to no experiment, so its
+    `experiment_id` is the empty string on purpose — that is a statement, not
+    an absence."""
+    assert memory.thread_stamp('exp-stamp')['experiment_id'] == 'exp-stamp'
+    assert memory.thread_stamp(memory.GENERAL)['experiment_id'] == ''
+    assert memory.thread_stamp('')['experiment_id'] == ''
+    # ISO 8601 with an offset and to the second — the same precision the
+    # leaderboard identifies a run by, and enough to say when a conversation
+    # began without pretending to microseconds nobody asked for. Handed a
+    # moment rather than reading the clock, so the format is what is pinned.
+    fixed = datetime(2026, 8, 22, 9, 30, tzinfo=timezone.utc)
+    assert memory.thread_stamp('exp-stamp', now=fixed)['started_at'] == (
+        '2026-08-22T09:30:00+00:00')
+
+
+def test_when_a_thread_began_is_stamped_once_and_never_moves():
+    """A "when this began" that crept forward to the latest turn would be a
+    field naming itself after something it is not — worse than the empty
+    string it replaced, which at least admitted to knowing nothing. So the
+    stamp is written only while the thread has none, and a thread that already
+    carries one gets no `started_at` key back at all: langgraph writes what it
+    is handed, and the only way to leave a channel alone is not to name it."""
+    _write('exp-began', 'first question', 'first answer')
+    began = memory.history('exp-began')['started_at']
+    assert began
+    assert 'started_at' not in memory.thread_stamp('exp-began')
+    _write('exp-began', 'a later question', 'a later answer')
+    assert memory.history('exp-began')['started_at'] == began
+
+
+def test_a_seeded_thread_reports_the_fields_a_real_turn_would_have_written():
+    """The route's whole claim about a thread: not just its turns but which
+    experiment it is about and when it started. Seeded through the same stamp
+    a real turn goes through, so this fails if the stamp stops producing
+    values rather than passing on hard-coded ones."""
+    _write('exp-fields', 'q', 'a')
+    read = memory.history('exp-fields')
+    assert read['experiment_id'] == 'exp-fields'
+    assert read['started_at']
 
 
 def test_a_thread_nobody_has_used_reads_as_empty_not_as_an_error():

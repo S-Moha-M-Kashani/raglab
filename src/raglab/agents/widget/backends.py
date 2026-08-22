@@ -193,7 +193,9 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     conversation to continue — the lab's active experiment, or `general` when
     it has none; empty lands on `general` rather than on a fresh id, because a
     reader who asked without an experiment open twice is having one
-    conversation, not two."""
+    conversation, not two. On the OpenRouter path the turn also stamps the
+    thread's own two state fields (`conversation_memory.thread_stamp`); a CLI
+    keeps nothing at all, so it stamps nothing either — the label says so."""
     choice = model or DEFAULT_MODEL
     kind, _ = WIDGET_MODELS.get(choice) or (None, None)
     if kind is None:
@@ -213,18 +215,29 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
         if choice not in _AGENTS:
             _AGENTS[choice] = _build_agent(choice)
         agent = _AGENTS[choice]
+    # One reading of the thread's name for both the id the graph runs under
+    # and the state written into it, stripped the way `history` and `forget`
+    # already strip theirs — a turn that ran under `' abc '` while the reader
+    # read back `'abc'` would be two threads wearing one name.
+    name = (thread or '').strip() or memory.GENERAL
     try:
         # A real HumanMessage rather than a dict, so it carries an id that
         # `check_request` can write a capped question back over.
+        # `thread_stamp` rides in on the same input: `WidgetState`'s two
+        # fields are channels like `messages`, so writing them here is one
+        # checkpoint write rather than a second writer racing the graph, and
+        # `/api/widget/history` can report them as facts about the thread
+        # because a turn is what put them there.
         # Measured 2026-08-18: with the six middleware nodes a tool hop costs
         # ~4 supersteps, so 12 allowed exactly one hop — a run that searched,
         # then searched and read, then answered (13 steps) died *after* its
         # final answer, one node short of close_the_log. 24 gives the loop
         # about five hops, still a hard ceiling rather than a budget.
         result = agent.invoke(
-            {'messages': [HumanMessage(content=message)]},
+            {'messages': [HumanMessage(content=message)],
+             **memory.thread_stamp(name)},
             config={'recursion_limit': 24,
-                    'configurable': {'thread_id': thread or memory.GENERAL}})
+                    'configurable': {'thread_id': name}})
     except WidgetUnavailable:
         raise
     except Exception as error:

@@ -276,6 +276,15 @@ CONVENTIONS = [
      'the form must keep a stable id — widget.js binds its submit handler '
      'directly, and a missing id throws at script load and takes the whole '
      'panel down'),
+    ('widget.js', 'id="widget-new"', None,
+     'the only control that ends a conversation must exist — without it the '
+     'thread is unresettable, which is the other half of "it never resets"'),
+    ('widget.js', "null, 'DELETE')", None,
+     'New Chat must actually forget the thread in widget.db, not merely blank '
+     'the log — a cleared screen over a remembered conversation is the widget '
+     "lying about what the model holds. Checked against api()'s real "
+     "three-argument shape (path, body, method) rather than the brief's "
+     "{ method: 'DELETE' } sketch, which this file's api() never took"),
     ('panel.css (widget block)', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '

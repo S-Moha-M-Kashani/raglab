@@ -44,6 +44,12 @@
   border-radius: var(--radius-sm);
 }
 .widget-close:hover { background: var(--chassis-soft); color: #fff; }
+/* panel.css carries a page-wide `button:disabled` rule, but the Inspector
+   never loads panel.css — only the Laboratory and the Leaderboard do — so
+   New Chat's brief disabled window while it asks the lab to forget a thread
+   would look identical to enabled on the one surface most likely to load
+   this sheet alone. Stated here instead, where every surface reaches it. */
+.widget-close:disabled { opacity: .4; cursor: default; }
 /* A gap, so two adjacent 24px targets are two targets. */
 .widget-head-actions { display: flex; align-items: center; gap: var(--s-1); }
 /* The name is a button in disguise — it leaves the experiment's thread — so it

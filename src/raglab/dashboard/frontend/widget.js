@@ -38,6 +38,7 @@
   <div class="widget-head">
     <span id="widget-name" class="widget-name" role="button" tabindex="0" title="Ask about this lab">Lab helper</span>
     <span class="widget-head-actions">
+      <button id="widget-new" class="widget-close" type="button" aria-label="New chat" title="Start a new conversation about this experiment">↻</button>
       <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
       <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
     </span>
@@ -632,6 +633,42 @@
 
   $('widget-close').addEventListener('click', () => { widgetSetOpen(false); });
 
+  // New Chat: the only control that ends a conversation, and it ends exactly
+  // the one on screen. Ending a conversation means asking the lab to forget
+  // it, not merely blanking the log — a cleared screen over a conversation
+  // widget.db still holds would be this file lying about what the model
+  // remembers, the same rule a note or a reply already answers to. `intended`
+  // is captured before the DELETE, the same discipline every other writer to
+  // this log follows: the reader is free to open a different experiment
+  // while the request is in flight, and this button must end the thread it
+  // was pressed on, never whatever the screen has since moved to.
+  //
+  // A successful forget redraws only when the reader is still on that
+  // thread. Leaving it already started its own draw of wherever they went —
+  // `widgetAbout` sees to that — so forcing a second draw here would be a
+  // redundant fetch of a screen nobody is looking at, the same reasoning
+  // `replyFate`'s 'gone' case already applies to a reply that arrives after
+  // the reader has left. A failed forget is said through
+  // `widgetSayAfterDraw`, not `widgetSay` directly, for the reason a note
+  // already is: a draw already in flight for this thread — the widget's own
+  // opening draw, another tab's switch echoed back through `storage` — would
+  // otherwise clear the log a moment after the error line lands in it, and
+  // `widgetSayAfterDraw` is the one place that wait already lives, rather
+  // than a second copy of it invented here.
+  $('widget-new').addEventListener('click', async () => {
+    const intended = widgetThread();
+    $('widget-new').disabled = true;
+    try {
+      await api('/api/widget/history?thread='
+                + encodeURIComponent(intended), null, 'DELETE');
+      if (stillCurrent(intended)) widgetDraw();
+    } catch (error) {
+      widgetSayAfterDraw('err', error.message, intended);
+    } finally {
+      $('widget-new').disabled = false;
+    }
+  });
+
   $('widget-form').addEventListener('submit', (event) => {
     event.preventDefault();
     const message = $('widget-input').value.trim();
@@ -748,8 +785,14 @@
 
   // The only way another script may reach the widget. Kept deliberately small:
   // a page tells the widget something, and the widget decides how to show it.
+  // `say` is deliberately not here: it is the raw log writer, with no thread,
+  // generation or in-flight-draw check, so a caller on any surface could have
+  // written a line under any header at any moment, bypassing every guard this
+  // file keeps. Nothing outside this file ever called it — `note`, `about`
+  // and `offer` are the whole of what a page has ever said to the widget —
+  // so the door it opened is closed rather than left standing for the next
+  // caller to find.
   window.Widget = {
-    say: widgetSay,
     note: widgetNote,
     offer: (text) => { WIDGET_RUN_ASK = text; widgetOffer(); },
     about: widgetAbout,

@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.21.0"
+version = "0.22.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -47,13 +47,27 @@ dependencies = [
   # resolution away from not.
   "pyyaml>=6.0",
   # The widget's tool loop and its conversation memory name langgraph directly
-  # (`create_agent`'s prebuilt loop, `InMemorySaver`). It arrives transitively —
+  # (`create_agent`'s prebuilt loop, the `SqliteSaver` checkpointer every agent
+  # shares — see `langgraph-checkpoint-sqlite` below). It arrives transitively —
   # langchain 1.x requires `langgraph>=1.2.11` — and is declared for the same
   # reason langchain is declared beside langchain-core. Nothing from `langsmith`
   # is enabled here: the widget writes no number, which is the only reason it may
   # trace at all, and no measured stage may phone a tracing service to explain
   # itself when `.runs/` and the ledger are what account for a run.
   "langgraph>=1.2,<2",
+  # The widget's conversation memory is durable: one SqliteSaver over
+  # databases/widget.db, so a reader's chat survives a restart the way the
+  # ledger does and the in-memory index does not. A separate distribution from
+  # langgraph itself, and declared for the same reason langchain is declared
+  # beside langchain-core — an import that works by accident is one dependency
+  # resolution away from not. The floor is 3.1.1 rather than the 2.0 the import
+  # alone would need, because New Chat is implemented on one method:
+  # `SqliteSaver.delete_thread`, which conversation_memory.forget() calls to end
+  # the conversation a reader is in without touching any other experiment's. A
+  # resolve that landed a version without it would install fine, serve fine, and
+  # then raise AttributeError the first time anyone pressed the button. 3.1.1 is
+  # the version that method was verified present on here.
+  "langgraph-checkpoint-sqlite>=3.1.1",
 ]
 
 [project.optional-dependencies]
@@ -72,7 +86,6 @@ graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
 
 [project.scripts]
 raglab = "raglab.dashboard.cli.serve:panel"
-raglab-inspector = "raglab.dashboard.cli.serve:inspector"
 raglab-lab = "raglab.dashboard.cli.lab:main"
 raglab-sweep = "raglab.agents.extra_tools.sweep:main"
 raglab-judgescreen = "raglab.agents.extra_tools.judgescreen:main"

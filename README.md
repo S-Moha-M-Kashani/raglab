@@ -19,8 +19,7 @@ answers.
 ## Quick start
 
 ```sh
-uv run --extra local-embeddings raglab      # the panel on :9002
-uv run raglab-inspector                     # the read-only Inspector on :9003
+uv run --extra local-embeddings raglab      # the panel on :9002, the read-only Inspector at /inspector
 ```
 
 The extra is required because the default embedder is a sentence-transformers
@@ -32,7 +31,6 @@ Add `--extra graph-index` for the `leiden` hierarchy grouping.
 | Command | What it does |
 | --- | --- |
 | `uv run raglab-lab` | the suite, then the panel — refuses to serve on a red suite |
-| `uv run raglab-inspector` | the read-only Inspector on :9003, where one question is traced |
 | `uv run raglab-sweep` | the one-change-at-a-time ablation ladder |
 | `uv run raglab-judgescreen` | score a candidate judge model before trusting it |
 | `uv run raglab-leaderboard` | rank the runs in `.runs/`, refusing to rank the incomparable |
@@ -56,8 +54,9 @@ Everything else the lab reads is in `.env.example`, commented out and kept
 complete by `test_conventions.py`.
 
 **⚙** also holds the theme: **Day**, **Night**, or **Auto**, which follows the
-machine and is the default. The choice is remembered per service, so the panel
-on :9002 and the Inspector on :9003 are set separately.
+machine and is the default. The panel, the Inspector and the board are one
+origin, so the choice travels between them rather than being remembered three
+times over.
 
 ## A first experiment
 
@@ -89,8 +88,8 @@ on :9002 and the Inspector on :9003 are set separately.
    searches the whole row and `!word` excludes it. The filter is in the URL, so
    a narrowed board is a link.
 6. Press the **open** arrow on any row. It reads that experiment in the
-   Inspector on :9003 — which chunks were retrieved, which were gold, what the
-   answer was graded — and makes the same experiment's settings the
+   Inspector at `/inspector` — which chunks were retrieved, which were gold,
+   what the answer was graded — and makes the same experiment's settings the
    Laboratory's, so the next run starts from it. Every knob this installation
    can serve is set; anything it cannot (an embedder that is not installed, a
    model the current backend does not offer, a corpus since removed) is left
@@ -141,7 +140,7 @@ metrics, what each knob does — and `fixtures/skills/`, twelve skills about *th
 field*. It must not answer "what does this lab do" out of a technique paper, or
 present a literature claim as a measurement taken here.
 
-Eight tools:
+Nine tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -153,17 +152,22 @@ Eight tools:
 | `list_experiments` | Recorded experiments, newest first, with each decision score beside its own error. |
 | `read_experiment` | One experiment: its knobs step by step, the four judged metrics, the judge, the deterministic summary and the backend that answered. |
 | `read_experiment_questions` | The per-question rows of one evaluation — by default the questions whose gold evidence retrieval did not fully find inside k. |
+| `recall_conversation` | What was said about another experiment in an earlier conversation, read back from `databases/widget.db` by that experiment's id. |
 
-The last three read the two durable records — the ledger and `.runs/` — and
-nothing else: they compute no score, rank nothing, and carry no chunk text,
-trace or hierarchy summary. That is what makes "what went wrong in the last
-run, and what should change" answerable in the widget, against the run's own
-evidence rather than from the model's memory. Nothing was written for the widget
-to read: it is handed the board's own rows and the same projection the
-leaderboard's open button resolves, and all it adds is the formatting that makes
-them readable to a model. The widget imports no evaluation module, so the panel
-injects those functions at startup; started without them, the three tools say
-the records are unavailable rather than answering from an empty list.
+Three of them — `list_experiments`, `read_experiment`,
+`read_experiment_questions` — read the two durable records, the ledger and
+`.runs/`, and nothing else: they compute no score, rank nothing, and carry no
+chunk text, trace or hierarchy summary. That is what makes "what went wrong in
+the last run, and what should change" answerable in the widget, against the
+run's own evidence rather than from the model's memory. Nothing was written for
+the widget to read: it is handed the board's own rows and the same projection
+the leaderboard's open button resolves, and all it adds is the formatting that
+makes them readable to a model. The widget imports no evaluation module, so the
+panel injects those functions at startup; started without them, the three
+tools say the records are unavailable rather than answering from an empty
+list. `recall_conversation` reads a different record — the widget's own
+conversation log, not evidence of anything measured — so it answers from what
+was *said* about an experiment, never from what was scored.
 
 The agent is `langchain.agents.create_agent` with six middleware hooks, and the
 model picker offers four options that state what they can do. **gpt-5-nano**
@@ -171,15 +175,22 @@ model picker offers four options that state what they can do. **gpt-5-nano**
 key is required, and without one the widget answers 502 naming what is missing.
 **claude** and **codex** drive a CLI already logged in on this machine, so they
 need no key at all — and cannot run tools, because a CLI chat has no
-`bind_tools`. Those two answer in one call with the knowledge base inlined and
-the skill names in the prompt, the bodies out of reach. Every reply carries its
-token account, or `None` where the backend reported nothing — "0 tokens" would
-be a claim about the bill.
+`bind_tools`, and keep no memory of their own, because a CLI call is one
+process with no graph and no checkpointer behind it. Those two answer in one
+call with the knowledge base inlined and the skill names in the prompt, the
+bodies out of reach. Every reply carries its token account, or `None` where
+the backend reported nothing — "0 tokens" would be a claim about the bill.
 
-Conversation memory is one thread per page: each call sees the last twenty
-messages, and the thread lives in process memory, so a reload or a restart
-starts a fresh conversation. The key typed into **⚙** lives in process memory
-too — no file, no environment variable, no log.
+Conversation memory is one thread per experiment, plus one `general` thread
+for whenever the lab has none open, shared by all three surfaces; each call
+sees the last twenty messages of the thread it lands on. Threads persist in
+`databases/widget.db`, so a reload or a restart of the lab does not lose them
+— New Chat is the only thing that does, and it ends only the one thread it was
+pressed in. A CLI turn is the exception: it answers inside that thread but
+writes nothing to it, so a conversation carried on `claude` or `codex` is not
+remembered on the next turn even though the lab keeps running. The key typed
+into **⚙** lives in process memory only — no file, no environment variable, no
+log.
 
 The widget is outside the measured seam. It writes no run, no ledger row and no
 number, and that is the only reason it may trace to LangSmith. Tracing is
@@ -191,6 +202,11 @@ shares the process, or the run is traced too.
 - `.runs/` — one JSON file per evaluation run. Git-ignored.
 - `databases/raglab.db` — one row per finished experiment. `RAGLAB_DB`
   overrides the path.
+- `databases/widget.db` — the widget's conversations, one thread per
+  experiment plus `general`; see `.env.example` for what it is and is not.
+  `RAGLAB_WIDGET_DB` overrides the path — the suite redirects it
+  automatically, but a hand-run server does not, so set it yourself or a
+  manual check writes into your real conversation store.
 - `.screens/` — one JSON file per judge screen, the evidence for which model
   was allowed to grade the deciding metrics. Git-ignored, so keep it if you
   care which judge produced a number.

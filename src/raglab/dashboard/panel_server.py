@@ -399,6 +399,19 @@ def create_app() -> FastAPI:
         return FileResponse(STATIC / 'lab.js',
                             media_type='application/javascript')
 
+    @app.get('/widget.css')
+    def widget_css():
+        """The widget's own rules, served to all three surfaces — the helper is
+        not the Laboratory's, so its sheet is not panel.css."""
+        return FileResponse(STATIC / 'widget.css', media_type='text/css')
+
+    @app.get('/widget.js')
+    def widget_js():
+        """The widget itself. One file, three pages: it builds its own markup,
+        so a surface gains the helper by loading this and nothing else."""
+        return FileResponse(STATIC / 'widget.js',
+                            media_type='application/javascript')
+
     @app.get('/leaderboard')
     def leaderboard_page():
         """The cross-run surface: what earlier runs said, kept off the lab page where the knobs live."""
@@ -808,15 +821,33 @@ def create_app() -> FastAPI:
         if not message:
             raise HTTPException(400, 'message is empty')
         try:
-            # The session is the page's claim about itself; the route only
-            # carries it — absent lands as '', the stateless ask. The reply
-            # arrives with its token account and is served unchanged.
+            # The thread is the page's claim about which conversation this is —
+            # the lab's active experiment, or `general`. The route only carries
+            # it. The reply arrives with its token account and is served
+            # unchanged.
             return widget.ask(message,
                               (payload.get('model') or '').strip(),
-                              session=(payload.get('session') or '').strip())
+                              thread=(payload.get('thread') or '').strip())
         except widget.WidgetUnavailable as error:
             # The lab is up; its widget is not — the /api/queries split.
             raise HTTPException(502, str(error))
+
+    @app.get('/api/widget/history')
+    def widget_history(thread: str = ''):
+        """One conversation, as the widget holds it. This is what a page draws
+        after a refresh: the lab is the only copy of the transcript, so a
+        reader's log and the model's memory cannot drift apart. A thread nobody
+        has used is empty, never a 404 — a conversation that has not happened
+        yet is not an error."""
+        return widget.history(thread)
+
+    @app.delete('/api/widget/history')
+    def widget_forget(thread: str = ''):
+        """New Chat. Ends the conversation named and no other — the reader's
+        other experiments keep theirs. Answers with the emptied thread, so the
+        page redraws from the lab rather than assuming what it now holds."""
+        widget.forget(thread)
+        return widget.history(thread)
 
     @app.get('/api/health')
     def health():

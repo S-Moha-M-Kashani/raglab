@@ -85,6 +85,26 @@ def test_every_prompt_the_model_reads_is_the_yaml_fixture():
                                      for key, text in knowledge_page.items()}
 
 
+def test_the_recall_prompt_names_the_cap_the_code_actually_applies():
+    # this is a convention test
+    """The one number in `fixtures/prompts/widget_tools.yaml` that is also a
+    constant in Python. `recall_conversation` tells the model "At most 20
+    turns" and `conversation_memory.MAX_RECALLED` is what decides how many it
+    really gets; the fixture is pinned byte-equal, so nothing stopped the
+    constant from moving and leaving the model reading a promise the code no
+    longer keeps — a tool description that misstates its own limit is the
+    same lie as a row misstating what produced it, told to the model instead
+    of to the reader. Reading the fixture rather than the loaded description
+    on purpose: the number has to be right in the file a maintainer edits."""
+    import yaml
+    from raglab.agents.widget import conversation_memory as memory
+    tools_page = yaml.safe_load(
+        (widget.PROMPTS_DIR / 'widget_tools.yaml').read_text(encoding='utf-8'))
+    assert f'At most {memory.MAX_RECALLED} turns' in tools_page['recall_conversation'], (
+        'the recall prompt must state MAX_RECALLED, or the model is told a '
+        'cap the code does not apply')
+
+
 # --- the bilingual probe tool ---------------------------------------------
 
 def test_the_widget_offers_the_bilingual_probe_tool():
@@ -427,7 +447,7 @@ def test_the_route_passes_the_chosen_model_through(client, monkeypatch):
     # this is an integration test
     seen = {}
 
-    def fake_ask(message, model='', session=''):
+    def fake_ask(message, model='', thread=''):
         seen['model'] = model
         return 'ok'
 
@@ -537,7 +557,7 @@ def test_an_empty_env_variable_is_missing_too(monkeypatch):
 def test_the_route_answers_with_the_agents_reply(client, monkeypatch):
     # this is an integration test
     monkeypatch.setattr(widget, 'ask',
-                        lambda message, model='', session='': {
+                        lambda message, model='', thread='': {
                             'reply': f'echo: {message}',
                             'input_tokens': None, 'output_tokens': None})
     answer = client.post('/api/widget', json={'message': 'what is this lab?'})
@@ -556,7 +576,7 @@ def test_an_unavailable_widget_is_a_502_naming_the_reason(client, monkeypatch):
     # this is an integration test
     """The lab is up, its widget is not — the same split `/api/queries` makes
     for an unreachable grade model."""
-    def refuse(message, model='', session=''):
+    def refuse(message, model='', thread=''):
         raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
     monkeypatch.setattr(widget, 'ask', refuse)
     answer = client.post('/api/widget', json={'message': 'hello'})
@@ -579,14 +599,15 @@ def test_the_agent_builds_offline_when_the_extra_is_present(monkeypatch):
     widget.reset()
 
 
-# --- session memory: a conversation the process remembers ------------------
+# --- thread memory: a conversation widget.db remembers ---------------------
 
-def test_the_agent_carries_a_checkpointer_so_a_session_can_continue(monkeypatch):
+def test_the_agent_carries_a_checkpointer_so_a_thread_can_continue(monkeypatch):
     # this is a unit test
     """One question in, one answer out was the whole contract until
     2026-08-19; a helper that forgets the question before cannot be asked a
-    follow-up. The memory lives in the compiled graph — in process like the
-    index, dying with it, so nothing here writes a file."""
+    follow-up. The memory now lives in `databases/widget.db`, shared by every
+    agent this module builds, so nothing about it dies with the agent that
+    reads it."""
     pytest.importorskip('langgraph')
     widget.reset()
     for name in widget.REQUIRED_ENV:
@@ -596,11 +617,70 @@ def test_the_agent_carries_a_checkpointer_so_a_session_can_continue(monkeypatch)
     widget.reset()
 
 
-def test_ask_threads_the_session_into_the_agent():
+def test_a_credential_change_rebuilds_the_agent_without_forgetting_anything():
     # this is a unit test
-    """`ask` takes a `session` and hands it to the graph as the thread id:
-    two turns of one browser page share a history, two pages never do. The
-    stub records what the real agent would have been asked."""
+    """The regression this whole change exists to prevent. `reset()` runs on
+    every key set and clear; when the checkpointer lived inside the agent it
+    went with it, so typing a key ended the conversation."""
+    from raglab.agents.widget import backends
+    from raglab.agents.widget import conversation_memory as memory
+    before = memory.saver()
+    backends.reset()
+    assert memory.saver() is before, (
+        'reset() must drop the cached clients, never the memory behind them')
+
+
+def test_every_model_shares_one_memory():
+    # this is a unit test
+    """Switching model in the widget's gear is not starting a new conversation.
+    One saver, handed to every agent the cache builds."""
+    from raglab.agents.widget import backends
+    from raglab.agents.widget import conversation_memory as memory
+    saver = memory.saver()
+    for model in [name for name, (kind, _) in backends.WIDGET_MODELS.items()
+                  if kind == 'openrouter']:
+        # Build without a key by asserting the refusal names the key, not a
+        # checkpointer — a build that got as far as needing a key got past the
+        # saver, which is what this checks.
+        try:
+            backends._build_agent(model)
+        except backends.WidgetUnavailable as refusal:
+            assert 'OPENROUTER_API_KEY' in str(refusal)
+    assert memory.saver() is saver
+
+
+def test_two_builds_share_one_checkpointer_across_models_and_a_reset(monkeypatch):
+    # this is a unit test
+    """The deleted precursor to this test asserted the opposite of the
+    contract this task establishes — that two builds got two different
+    `.checkpointer` objects, so `reset()` (which runs on every credential
+    change) forgot the conversation along with the client. This test builds
+    two real agents offline, across two different models and across a
+    `reset()` in between, and checks they hold the *identical* checkpointer
+    object `conversation_memory.saver()` returns — not two `SqliteSaver`
+    instances that merely point at the same file. A fake key is enough:
+    `_build_agent` opens no socket, `ChatOpenAI(...)` is only constructed
+    here, never called."""
+    pytest.importorskip('langgraph')
+    from raglab.agents.widget import conversation_memory as memory
+    widget.reset()
+    for name in widget.REQUIRED_ENV:
+        monkeypatch.setenv(name, 'test-value')
+    first = widget._build_agent('openai/gpt-5-nano').checkpointer
+    widget.reset()
+    second = widget._build_agent('openai/gpt-5-mini').checkpointer
+    widget.reset()
+    assert first is second is memory.saver(), (
+        'every build must share the one process-wide checkpointer, across '
+        'models and across reset() — a fresh one per build is the bug this '
+        'task removes')
+
+
+def test_ask_threads_the_thread_into_the_agent():
+    # this is a unit test
+    """`ask` takes a `thread` and hands it to the graph as the thread id: two
+    turns naming the same thread share a history, two different threads never
+    do. The stub records what the real agent would have been asked."""
     calls = []
 
     class Stub:
@@ -611,9 +691,9 @@ def test_ask_threads_the_session_into_the_agent():
     widget.reset()
     widget._AGENTS['openai/gpt-5-nano'] = Stub()
     try:
-        widget.ask('hello', model='openai/gpt-5-nano', session='tab-one')
-        widget.ask('again', model='openai/gpt-5-nano', session='tab-one')
-        widget.ask('hello', model='openai/gpt-5-nano', session='tab-two')
+        widget.ask('hello', model='openai/gpt-5-nano', thread='exp-one')
+        widget.ask('again', model='openai/gpt-5-nano', thread='exp-one')
+        widget.ask('hello', model='openai/gpt-5-nano', thread='exp-two')
     finally:
         widget.reset()
     threads = [call['configurable']['thread_id'] for call in calls]
@@ -623,12 +703,44 @@ def test_ask_threads_the_session_into_the_agent():
     assert all(call.get('recursion_limit') for call in calls)
 
 
-def test_no_session_is_still_a_stateless_ask():
+def test_ask_stamps_the_thread_state_through_the_graphs_own_input():
     # this is a unit test
-    """A checkpointed graph demands a thread id, but an ask without a session
-    must stay what it always was — stateless. Each such call gets a thread of
-    its own, never a shared default that would leak one anonymous caller's
-    history into the next one's answer."""
+    """`WidgetState`'s two fields are channels like `messages`, and `ask` writes
+    them the same way — in the invoke input, so the checkpointer persists them
+    in the same write rather than a second writer racing the graph. Without
+    this, both fields stayed empty forever and `/api/widget/history` reported
+    two blanks as facts about every thread. The stub records the payload the
+    real graph would have been handed."""
+    payloads = []
+
+    class Stub:
+        def invoke(self, payload, config=None):
+            payloads.append(payload)
+            return {'messages': [AIMessage(content='ok')]}
+
+    widget.reset()
+    widget._AGENTS['openai/gpt-5-nano'] = Stub()
+    try:
+        widget.ask('hello', model='openai/gpt-5-nano', thread='exp-stamped')
+        widget.ask('hello', model='openai/gpt-5-nano')
+    finally:
+        widget.reset()
+    assert payloads[0]['experiment_id'] == 'exp-stamped'
+    assert payloads[0]['started_at']
+    # The general thread belongs to no experiment, and says so with the empty
+    # string rather than with the thread's own name or by leaving the field
+    # out: it is an answer about that thread, not a gap in what is known.
+    assert payloads[1]['experiment_id'] == ''
+    assert payloads[1]['started_at']
+
+
+def test_no_thread_lands_on_general():
+    # this is a unit test
+    """A reader who asks without an experiment open twice is having one
+    conversation, not two: an empty `thread` lands on the same `general`
+    thread every time, never on a fresh id that would scatter one
+    conversation across unrelated stateless turns."""
+    from raglab.agents.widget import conversation_memory as memory
     calls = []
 
     class Stub:
@@ -644,53 +756,38 @@ def test_no_session_is_still_a_stateless_ask():
     finally:
         widget.reset()
     threads = [call['configurable']['thread_id'] for call in calls]
-    assert all(threads)
-    assert threads[0] != threads[1]
+    assert threads == [memory.GENERAL, memory.GENERAL]
 
 
-def test_a_cli_model_accepts_a_session_and_stays_stateless(monkeypatch):
+def test_a_cli_model_accepts_a_thread_and_stays_stateless(monkeypatch):
     # this is a unit test
-    """`CliChat` runs one process per call with no session persistence — by
-    design. A session passed with a CLI model is accepted and ignored, not an
-    error: the panel sends one either way."""
+    """`CliChat` runs one process per call with no persistence — by design. A
+    thread passed with a CLI model is accepted and ignored, not an error: the
+    panel sends one either way."""
     monkeypatch.setattr(widget.backends, '_cli_answer',
                         lambda cli, message: AIMessage(content='ok'))
-    answer = widget.ask('hello', model='claude', session='tab-one')
+    answer = widget.ask('hello', model='claude', thread='exp-one')
     assert answer['reply'] == 'ok'
 
 
-def test_reset_forgets_the_conversations_too(monkeypatch):
-    # this is a unit test
-    """`reset` exists for key changes and tests; a rebuilt agent must not
-    resurrect the old histories, so the memory belongs to the build, never
-    to the module."""
-    pytest.importorskip('langgraph')
-    widget.reset()
-    for name in widget.REQUIRED_ENV:
-        monkeypatch.setenv(name, 'test-value')
-    first = widget._build_agent('openai/gpt-5-nano').checkpointer
-    second = widget._build_agent('openai/gpt-5-nano').checkpointer
-    assert first is not second
-    widget.reset()
-
-
-def test_the_route_passes_the_session_through(client, monkeypatch):
+def test_the_route_passes_the_thread_through(client, monkeypatch):
     # this is an integration test
-    """The session is the browser page's claim about itself; the route's job
-    is only to carry it — absent lands as '', the stateless ask."""
+    """The thread is the page's claim about which conversation this is; the
+    route's job is only to carry it — absent lands as '', which `ask` reads
+    as `general`."""
     seen = {}
 
-    def fake_ask(message, model='', session=''):
-        seen['session'] = session
+    def fake_ask(message, model='', thread=''):
+        seen['thread'] = thread
         return 'ok'
 
     monkeypatch.setattr(widget, 'ask', fake_ask)
     answer = client.post('/api/widget', json={'message': 'hello',
-                                              'session': 'tab-one'})
+                                              'thread': 'exp-one'})
     assert answer.status_code == 200
-    assert seen['session'] == 'tab-one'
+    assert seen['thread'] == 'exp-one'
     client.post('/api/widget', json={'message': 'hello'})
-    assert seen['session'] == ''
+    assert seen['thread'] == ''
 
 
 # --- token usage: the account travels with the reply -----------------------
@@ -752,7 +849,7 @@ def test_a_cli_reply_carries_its_account_too(monkeypatch):
         widget.backends, '_cli_answer',
         lambda cli, message: AIMessage(content='ok', usage_metadata={
             'input_tokens': 100, 'output_tokens': 20, 'total_tokens': 120}))
-    answer = widget.ask('hello', model='claude', session='tab-one')
+    answer = widget.ask('hello', model='claude', thread='exp-one')
     assert answer['reply'] == 'ok'
     assert answer['input_tokens'] == 100
     assert answer['output_tokens'] == 20
@@ -761,7 +858,7 @@ def test_a_cli_reply_carries_its_account_too(monkeypatch):
 def test_the_route_serves_the_reply_and_the_account_unchanged(client, monkeypatch):
     # this is an integration test
     monkeypatch.setattr(widget, 'ask',
-                        lambda message, model='', session='': {
+                        lambda message, model='', thread='': {
                             'reply': f'echo: {message}',
                             'input_tokens': 40, 'output_tokens': 12})
     answer = client.post('/api/widget', json={'message': 'hello'})

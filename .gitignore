@@ -14,9 +14,14 @@ __pycache__/
 # diaries. A corpus somebody uploaded is their material, not this repository's.
 .datasets/
 
-# The experiment ledger. Machine-local history, not source.
+# The experiment ledger. Machine-local history, not source. The widget's
+# conversation memory (databases/widget.db) is this repo's first WAL-mode
+# SQLite user — its checkpointer runs `PRAGMA journal_mode=WAL`, which is
+# where the `-shm` and `-wal` siblings come from; raglab.db uses a bare
+# sqlite3.connect() and never produced them.
 *.db
 *.db-journal
+*.db-shm
 *.db-wal
 
 # Tooling scratch, none of it source.

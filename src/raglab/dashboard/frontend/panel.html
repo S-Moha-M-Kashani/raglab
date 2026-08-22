@@ -10,13 +10,18 @@
      between the three surfaces. Inline because a separate file is a request,
      and the flash lasts exactly as long as that request. -->
 <script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
-<!-- Design tokens shared with the Inspector on :9003; before panel.css so its
-     overrides still win. -->
+<!-- Design tokens shared with the Inspector, now the same origin; before
+     panel.css so its overrides still win. -->
 <link rel="stylesheet" href="/tokens.css">
 <!-- The bar and the surface switcher, shared with the Inspector; before
      panel.css so the page can still override. -->
 <link rel="stylesheet" href="/chrome.css">
 <link rel="stylesheet" href="/panel.css">
+<!-- The corner helper's own rules, shared with the Inspector and the
+     Leaderboard: the widget is not the Laboratory's, so its sheet is not
+     panel.css. After panel.css, because nothing in it is a page rule the
+     page should be able to override. -->
+<link rel="stylesheet" href="/widget.css">
 <!-- The column sorter, shared with the Inspector: one file, so clicking a
      header means the same thing on both pages. -->
 <script src="/sorttable.js"></script>
@@ -32,12 +37,12 @@
     <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
     <!-- Three surfaces, nearest first: the Inspector reads what this page just
          produced, the Leaderboard ranks across every run there has ever been.
-         The Inspector is a separate service on :9003, so these are links
-         rather than tabs pretending the click stays here — but the port is not
-         shown, because it is not what anybody is choosing between. -->
+         All three are mounted on this one lab process now, so these are links
+         to a path rather than tabs pretending the click stays here — and a
+         path is also all a reader ever needs to choose between. -->
     <nav class="topnav" aria-label="Surfaces">
       <a href="/" aria-current="page">Laboratory</a>
-      <a href="http://localhost:9003/">Inspector</a>
+      <a href="/inspector">Inspector</a>
       <a href="/leaderboard">Leaderboard</a>
     </nav>
     <!-- One button. What used to be three loose controls here — Settings,
@@ -226,7 +231,7 @@
     <!-- Retrieval on its own, over the questions the experiment beside it has
          selected. No answering and no judging, so it is the step you can afford
          to repeat while moving one knob — and it is what fills the Inspector's
-         retrieval window on :9003. -->
+         retrieval window. -->
     <div class="actions">
       <button class="step-action" id="retrieve-selected"
         title="Retrieve for the questions selected in 3 · Generation. No answers, no judging, no run file.">Retrieve selected questions</button>
@@ -264,15 +269,16 @@
       <label>Run label</label>
       <input type="text" id="label" placeholder="e.g. semantic + hybrid + gate">
     </div>
-    <!-- The lab measures; the Inspector shows why, on its own port — this is
-         the only door named to it. Opens in its own tab, meant to be read
-         beside this page. -->
+    <!-- The lab measures; the Inspector shows why. A run in progress is
+         polled from this page, so the door to the Inspector opens in its own
+         tab rather than navigating away — meant to be read beside this page,
+         not instead of it. -->
     <div class="actions">
       <button class="step-action" id="run">Run evaluation</button>
       <button class="ghost" id="cancel" disabled>Stop experiment</button>
       <button class="ghost" id="stopPoll">Refresh</button>
-      <a class="lab-link right" id="open-inspector" href="http://localhost:9003/"
-         target="_blank" rel="noopener">Inspector (:9003) &rarr;</a>
+      <a class="lab-link right" id="open-inspector" href="/inspector"
+         target="_blank" rel="noopener">Inspector &rarr;</a>
     </div>
     <div id="jobBox"></div>
   </section>
@@ -378,45 +384,13 @@
   </div>
 </footer>
 
-<!-- The LLM widget: a helper in the corner, not a pipeline stage — it wears
-     the chassis and no step ink. One module (raglab/widget.py), one route
-     (POST /api/widget). -->
-<button id="widget-launch" class="widget-launch" type="button" title="Ask about this lab">✳ Ask</button>
-<div id="widget-window" class="widget-window" hidden>
-  <div class="widget-head">
-    <span>Lab helper</span>
-    <span class="widget-head-actions">
-      <button id="widget-settings" class="widget-close" type="button" aria-label="Settings" title="Choose the model">⚙</button>
-      <button id="widget-close" class="widget-close" type="button" aria-label="Close">×</button>
-    </span>
-  </div>
-  <div id="widget-config" class="widget-config" hidden>
-    <label>model <select id="widget-model"></select></label>
-  </div>
-  <!-- Empty until the first question, and then a conversation. What fills it
-       while it is empty is built by panel.js from the served starters, so the
-       four example questions are a fixture rather than markup. -->
-  <div id="widget-log" class="widget-log"></div>
-  <form id="widget-form" class="widget-form">
-    <input id="widget-input" type="text" placeholder="Ask about this project…" autocomplete="off">
-    <button id="widget-send" type="submit">Send</button>
-  </form>
-  <!-- The two edges that grow, and their corner. The window is anchored
-       bottom-right, so gaining size is exactly what dragging the top and the
-       left outward looks like. Last in the DOM on purpose: the two focusable
-       ones then come after the input rather than in front of it, and where
-       they sit on screen is CSS's business, not document order's. -->
-  <div class="widget-grip widget-grip-corner" data-grip="corner" aria-hidden="true"></div>
-  <div class="widget-grip widget-grip-top" data-grip="top" role="separator"
-       aria-orientation="horizontal" tabindex="0"
-       aria-label="Resize the helper — up and down change its height"></div>
-  <div class="widget-grip widget-grip-left" data-grip="left" role="separator"
-       aria-orientation="vertical" tabindex="0"
-       aria-label="Resize the helper — left and right change its width"></div>
-</div>
-
 <script src="/archive_io.js"></script>
 <script src="/experiment_handoff.js"></script>
+<!-- The helper itself, which builds its own launcher and window into the
+     body — which is why there is no widget markup on this page. Before
+     panel.js, so the `Widget` global exists the moment panel.js is
+     parsed, and after lab.js (in the head), whose escapeHtml it uses. -->
+<script src="/widget.js"></script>
 <script src="/panel.js"></script>
 </body>
 </html>

@@ -1,10 +1,10 @@
-/* Design tokens shared by the panel (:9002) and the Inspector (:9003) — one
-   place a colour, a face or a step ink is defined so the two pages, written
-   months apart, cannot drift apart on what one of these means. Linked before
-   each page's own stylesheet, so a page's overrides still win. A property
-   only one page reads stays in that page's own sheet instead — `--good` on
-   the panel and `--farsi`/`--evidence`/`--row-plain`/`--ink-amber` and
-   siblings on the Inspector, among others.
+/* Design tokens shared by all three surfaces — the Laboratory, the Inspector
+   and the Leaderboard — one place a colour, a face or a step ink is defined
+   so pages written months apart cannot drift apart on what one of these
+   means. Linked before each page's own stylesheet, so a page's overrides
+   still win. A property only one page reads stays in that page's own sheet
+   instead — `--good` on the panel and `--farsi`/`--evidence`/`--row-plain`/
+   `--ink-amber` and siblings on the Inspector, among others.
 
    Two themes, Day and Night, and a third setting — Auto — that is the absence
    of a choice rather than a theme of its own. Day is what this bare `:root`

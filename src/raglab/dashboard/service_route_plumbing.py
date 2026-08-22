@@ -1,4 +1,5 @@
-"""Route plumbing shared by the two served apps (`panel_server.py` :9002, `inspector_server.py` :9003):
+"""Route plumbing shared by the panel and the Inspector (`panel_server.py`, `inspector_server.py`,
+composed as one app on :9002 by `served_lab.py`, the Inspector mounted at /inspector):
 job-acceptance responses, config screening, cancellation, progress. Nothing here may import
 either service — the dependency points one way, from the services into this module."""
 from fastapi import HTTPException

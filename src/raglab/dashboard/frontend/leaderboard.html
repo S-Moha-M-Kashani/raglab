@@ -9,6 +9,9 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/chrome.css">
 <link rel="stylesheet" href="/panel.css">
+<!-- The helper, shared with the other two surfaces. It writes no run, no
+     ledger row and no number, which is why a read-only surface may carry it. -->
+<link rel="stylesheet" href="/widget.css">
 <script src="/sorttable.js"></script>
 <script src="/filtertable.js"></script>
 <script src="/lab.js"></script>
@@ -23,7 +26,7 @@
     <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
     <nav class="topnav" aria-label="Surfaces">
       <a href="/">Laboratory</a>
-      <a href="http://localhost:9003/">Inspector</a>
+      <a href="/inspector">Inspector</a>
       <a href="/leaderboard" aria-current="page">Leaderboard</a>
     </nav>
     <div class="topbar-actions">
@@ -103,5 +106,8 @@
 </main>
 
 <script src="/leaderboard.js"></script>
+<!-- The helper, shared with the other two surfaces. It writes no run, no
+     ledger row and no number, which is why a read-only surface may carry it. -->
+<script src="/widget.js"></script>
 </body>
 </html>

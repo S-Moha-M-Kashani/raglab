@@ -16,19 +16,6 @@ from raglab.conftest import RAGLAB_DIR, _font_size_literals, _radius_literals
 PANEL_JS = RAGLAB_DIR / 'dashboard' / 'frontend' / 'panel.js'
 
 
-def _scope(text: str, anchor: str) -> str:
-    """Slice `text` from `anchor` onward, or hand back `''` if the anchor
-    itself is gone. A plain `text[text.index(anchor):]` raises `ValueError`
-    out of fixture setup the moment the anchor disappears — which would
-    error every row in CONVENTIONS at once, table-wide, with a message that
-    names neither the widget nor which row cares. Returning `''` instead
-    lets each row that reads this scope fail on its own, by its own
-    must_contain/must_not_contain and its own reason string — a removed
-    widget fails the widget rows by name, not the whole table opaquely."""
-    i = text.find(anchor)
-    return text[i:] if i >= 0 else ''
-
-
 # --- the served panel's conventions, as one table ---------------------------
 
 @pytest.fixture(scope='module')
@@ -80,16 +67,15 @@ def panel_texts(client):
         'panel.js': js,
         'index.html (embedding-model label)': embed_label.group(0),
         'index.html (modelCard section)': model_card.group(0),
-        # The widget's own CSS rules and script, sliced from a real selector
-        # / function name rather than the bare word "widget" — both files
-        # carry a header *comment* naming the widget first, and a check that
-        # started scanning there would still pass with the feature gutted.
-        'panel.css (widget block)': _scope(css, '.widget-launch'),
-        'panel.js (widget block)': _scope(js, 'widgetSay'),
-        # The shared script, over its own route for the same reason as
-        # tokens.css and chrome.css: all three surfaces link it, so what it
-        # holds is a claim about every surface rather than about this one.
-        'lab.js': client.get('/lab.js').text,
+        # The widget's own stylesheet and script — whole files, served from
+        # the root to all three surfaces, so what the rows below claim about
+        # the helper is a claim about these two files and nothing else. They
+        # were once slices carved out of panel.css/panel.js and kept those
+        # names for a while after they stopped being slices, which sent a
+        # maintainer chasing a widget failure into the Laboratory's own
+        # script; one key per file is what stops that.
+        'widget.css': client.get('/widget.css').text,
+        'widget.js': client.get('/widget.js').text,
         'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
     }
 
@@ -166,16 +152,16 @@ CONVENTIONS = [
     ('index.html', None, 'retrieving…',
      'the ask must run through the same job box as a build or a run, not a '
      'static note'),
-    ('index.html', 'localhost:9003', None,
-     'the panel must link to the Inspector, or :9003 is a port you have to '
-     'already know about'),
-    ('index.html', 'Inspector (:9003)', None,
-     'the panel must name the Inspector in its link text, not just point at '
-     'the port — checked against the link text itself rather than the bare '
-     'word "Inspector", which also appears in three unrelated HTML comments '
-     '(the shared-tokens note by the stylesheet links, the retrieval-window '
-     'note above the actions row, and the note beside the link itself) that '
-     'a rename of the visible link would not touch'),
+    ('index.html', 'href="/inspector"', None,
+     'the panel must link to the Inspector by path — all three surfaces are '
+     'one origin now, so a port is not something a reader ever has to know'),
+    ('index.html', 'Inspector &rarr;', None,
+     'the panel must still name the Inspector in its link text — checked '
+     'against the link text itself rather than the bare word "Inspector", '
+     'which also appears in unrelated HTML comments (the shared-tokens note '
+     'by the stylesheet links, the retrieval-window note above the actions '
+     'row, and the note beside the link itself) that a rename of the '
+     'visible link would not touch'),
     ('index.html', None, 'id="question"',
      'asking one question moved to the Inspector; a control left behind is '
      'how a retired feature quietly comes back'),
@@ -255,79 +241,96 @@ CONVENTIONS = [
     ('panel.js', 'restoreLastRun', None,
      'the remembered run must be re-read by id from the service, or a run '
      'file deleted between two visits would render a stale copy'),
-    ('index.html', 'id="widget-launch"', None,
+    # The launcher and the window are the two elements widget.js creates rather
+    # than writes as markup, so their ids are pinned in the form the file
+    # actually spells them. The claim is the one the markup rows make: the id is
+    # the hook, and it must not drift.
+    ('widget.js', "launcher.id = 'widget-launch'", None,
      'the widget launcher button must keep a stable id for its script hook'),
-    ('index.html', 'id="widget-window"', None,
+    ('widget.js', "win.id = 'widget-window'", None,
      'the widget window must keep a stable id — the launcher toggles it by id'),
-    ('index.html', 'id="widget-log"', None,
+    ('widget.js', 'id="widget-log"', None,
      'the widget must have somewhere to render the conversation'),
-    ('index.html', 'id="widget-input"', None,
+    ('widget.js', 'id="widget-input"', None,
      'the widget must have a text field to type a question into'),
-    ('index.html', 'id="widget-send"', None,
+    ('widget.js', 'id="widget-send"', None,
      'the widget must have a button that submits the question'),
-    ('index.html', 'id="widget-settings"', None,
+    ('widget.js', 'id="widget-settings"', None,
      'the gear that reveals the model row must keep a stable id'),
-    ('index.html', 'id="widget-config"', None,
+    ('widget.js', 'id="widget-config"', None,
      'the row the gear reveals must keep a stable id'),
-    ('index.html', 'id="widget-model"', None,
+    ('widget.js', 'id="widget-model"', None,
      'the served model list needs somewhere to render into'),
-    ('index.html', 'id="widget-close"', None,
-     'the close button must keep a stable id — panel.js binds it directly, '
+    ('widget.js', 'id="widget-close"', None,
+     'the close button must keep a stable id — widget.js binds it directly, '
      'and a missing id throws at script load and takes the whole panel down'),
-    ('index.html', 'id="widget-form"', None,
-     'the form must keep a stable id — panel.js binds its submit handler '
+    ('widget.js', 'id="widget-form"', None,
+     'the form must keep a stable id — widget.js binds its submit handler '
      'directly, and a missing id throws at script load and takes the whole '
      'panel down'),
-    ('panel.css (widget block)', 'position: fixed', None,
+    ('widget.js', 'id="widget-new"', None,
+     'the only control that ends a conversation must exist — without it the '
+     'thread is unresettable, which is the other half of "it never resets"'),
+    ('widget.js', "null, 'DELETE')", None,
+     'New Chat must actually forget the thread in widget.db, not merely blank '
+     'the log — a cleared screen over a remembered conversation is the widget '
+     "lying about what the model holds. Checked against api()'s real "
+     "three-argument shape (path, body, method) rather than the brief's "
+     "{ method: 'DELETE' } sketch, which this file's api() never took"),
+    ('widget.css', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '
-     'scoped to the widget rules so an unrelated `position: fixed` '
-     'elsewhere in the sheet cannot satisfy this'),
-    ('panel.css (widget block)',
+     "read against the widget's own sheet, so an unrelated `position: fixed` "
+     'in the Laboratory\'s stylesheet cannot satisfy it'),
+    ('widget.css',
      'right: var(--gutter); bottom: calc(var(--rail-h) + var(--s-2));', None,
      "the launcher's real anchor values, right down to the unit — not just "
      'the property names, which `.widget-config`\'s `border-bottom: 1px '
-     'solid var(--rule)` in the same scoped block would otherwise satisfy '
+     'solid var(--rule)` in this same sheet would otherwise satisfy '
      'even with both real anchors deleted. Measured off --rail-h because the '
      'status rail is fixed to the viewport floor: a literal offset would put '
      'the launcher underneath it'),
-    ('panel.css (widget block)',
+    ('widget.css',
      'bottom: calc(var(--rail-h) + var(--s-2) + 2.6rem);', None,
      "the window's real anchor values, distinct from the launcher's own — "
      'same collision this guards against as the launcher row above. The '
      "2.6rem is the launcher's own box, which has no ramp step"),
-    ('panel.css (widget block)', None, '--step-',
+    ('widget.css', None, '--step-',
      'the widget is a helper, not a pipeline stage, and must wear no step ink'),
-    ('panel.css (widget block)', 'background: var(--card)', None,
+    ('widget.css', 'background: var(--card)', None,
      "a reply's bubble must name a colour. It named var(--slab), which is the "
      'slab-serif font stack — an invalid background, so every reply the '
      'helper had ever given rendered on no bubble at all'),
-    ('panel.css (widget block)', None, 'background: var(--slab)',
+    ('widget.css', None, 'background: var(--slab)',
      'and the font stack must not come back as a colour'),
-    ('index.html', 'class="widget-grip widget-grip-top"', None,
+    ('widget.js', 'class="widget-grip widget-grip-top"', None,
      'the window grows from its top and left edges, because it is anchored '
      'bottom-right — the handles have to exist on those two edges'),
-    ('index.html', 'role="separator"', None,
+    ('widget.js', 'role="separator"', None,
      'the two straight handles take focus and answer the arrow keys, so a '
      'reader without a mouse can still size the window'),
     ('index.html', None, 'What you can ask',
      'the empty state is built from the served fixture, not written into the '
      'markup — a starter in two places is a starter that drifts'),
-    ('panel.js', None, 'Which ports do the lab',
+    ('widget.js', None, 'Which ports do the lab',
      'and not written into the script either: the starters are the message '
      'sent to the model, which makes them model-facing text and a fixture'),
-    ('panel.js', 'data.starters', None,
+    ('widget.js', 'data.starters', None,
      'the starters ride the /api/widget response the model list already '
      'ride, so the widget stays a sealed leaf with no new route'),
-    ('panel.js', 'widget-empty', None,
+    ('widget.js', 'widget-empty', None,
      'the empty log offers four questions and clears them on the first '
      'thing said'),
-    ('panel.js', 'lodestar:raglab-widget-size', None,
+    ('widget.js', 'lodestar:raglab-widget-size', None,
      'an adjusted window is a preference, not a gesture, and survives a '
      'reload under the same prefix as the settings and the last run'),
-    ('panel.js', 'setPointerCapture', None,
+    ('widget.js', 'setPointerCapture', None,
      'a drag off a six-pixel handle must keep going — without capture the '
      'resize stops the instant the cursor outruns the edge, which is at once'),
+    ('widget.js', 'raglab-widget-open', None,
+     'whether the window is open must outlive the page: a helper that closed '
+     'itself on every navigation is a helper the reader reopens on every '
+     'surface, which is the friction this change removes'),
     ('panel_server.py', "'starters': widget.STARTERS", None,
      'the four questions are served from the widget package, whose fixture '
      'they live in — a copy in the page would be text nothing pins'),
@@ -375,26 +378,29 @@ CONVENTIONS = [
      'separate spine track is gone'),
     ('panel.js', None, '.spine-seg',
      'nothing may still be reaching for the retired step strips'),
-    ('panel.css', '.widget-window[hidden] { display: none; }', None,
+    ('widget.css', '.widget-window[hidden] { display: none; }', None,
      "a rule setting `display` beats the browser's own `[hidden] { display: "
      'none }` — found live: the window stayed visible because nothing said '
      'so explicitly. Checked against the exact rule so a bare `[hidden]` '
      'selector with no `display: none` cannot satisfy it'),
-    ('panel.css', '.widget-config[hidden] { display: none; }', None,
+    ('widget.css', '.widget-config[hidden] { display: none; }', None,
      'same fix, for the model row the gear toggles'),
-    ('panel.js', "api('/api/widget'", None,
+    ('widget.js', "api('/api/widget'", None,
      "the widget's script must actually call its route — checked against "
      'the call site itself, not the bare string `/api/widget`, which also '
-     "names the route in this block's own header comment"),
-    ('panel.js (widget block)', 'escapeHtml', None,
+     "names the route in this file's own header comment"),
+    ('widget.js', 'escapeHtml', None,
      'a reply is model output rendered into the page, so it must go through '
      'the shared escaper like every other untrusted string'),
-    ('panel.js (widget block)', 'widget-model', None,
+    ('widget.js', 'widget-model', None,
      "the script must read the gear's model select"),
-    ('panel.js (widget block)', 'model:', None,
-     'the chosen model must travel with every message — scoped past the '
-     "header comment so `embed_model:`, elsewhere in the file, cannot "
-     'satisfy this by suffix collision'),
+    ('widget.js', '{ message, model, thread: intended }', None,
+     'the chosen model must travel with every message, in the same body as '
+     'the message and the thread. Pinned as the POST body itself: this used '
+     "to read `model:`, which was scoped past panel.js's `embed_model:` back "
+     'when the widget was a block of that file — and once the widget became '
+     'its own file the only `model:` left in it was a *comment*, so the row '
+     'would have passed with the model dropped from the request entirely'),
     # --- an experiment opened on the board ---------------------------------
     # The board's open button pins the Inspector to one experiment and makes
     # the same experiment's settings the Laboratory's. Every row below guards
@@ -422,10 +428,13 @@ CONVENTIONS = [
     ('panel.js', 'ExperimentHandoff.notice', None,
      'what could not be set must be said, and said by the module that '
      'worked out what could not be set'),
-    ('panel.js (widget block)', "widgetSay('note'", None,
+    ('widget.js', "widgetSayAfterDraw('note'", None,
      'the lab writes its own notices in its own voice: a line the page wrote '
-     "must never arrive as `bot`, which is the model's"),
-    ('panel.css (widget block)', '.widget-msg.note', None,
+     "must never arrive as `bot`, which is the model's. Pinned at the one "
+     'call site that writes one — a notice is said only once the redraw it '
+     'waited through has finished, so the kind and that wait travel '
+     'together'),
+    ('widget.css', '.widget-msg.note', None,
      "a message kind with no rule of its own inherits another kind's ink and "
      'reads as something the model said'),
     ('tokens.css', '--s-1: 0.25rem', None,
@@ -679,23 +688,25 @@ def test_the_smallest_controls_clear_the_target_floor(panel_texts):
     assert 'button.why::after' not in panel_texts['panel.css'], (
         'the lab must not carry a second copy of the mark — only what it adds '
         'to it, which is the dimmed variant on a locked knob')
-    widget = panel_texts['panel.css (widget block)']
+    widget = panel_texts['widget.css']
     assert 'min-width: 24px; min-height: 24px' in widget, (
-        "the widget's own header controls must clear the floor too — the "
-        'scoped read is what stops an unrelated 24px elsewhere in the sheet '
-        'from satisfying this')
+        "the widget's own header controls must clear the floor too — read "
+        "against the widget's own sheet, so a 24px in the Laboratory's "
+        'stylesheet cannot satisfy it')
 
 
 def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
     # this is a convention test
     """One chip built from the run on the Readings card, and nothing when there
     is no run — never a chip that refers to nothing. It is deliberately the
-    *lab's* last run rather than the last conversation: widget memory is an
-    in-process checkpointer keyed to a page-scoped session id, so a reload
-    genuinely forgets, and a chip implying otherwise would be a panel lying
-    about what produced it."""
+    *lab's* last run rather than the last conversation: the conversation is
+    already on screen — the widget redraws its thread's history from the lab
+    on load — so a chip naming it would repeat what the reader can read, while
+    the run it was about is the one thing the log says nothing of."""
     js = panel_texts['panel.js']
-    ask = js[js.index('function widgetRunAsk'):js.index('function widgetOffer')]
+    # The helper itself is widget.js now; what stays on the Laboratory is this
+    # one function, at the foot of the file, because it reads a *run*.
+    ask = js[js.index('function widgetRunAsk'):]
     assert 'result.started_at' in ask, (
         'the chip identifies the run by when it started, the same way the '
         "leaderboard's `when` column does")
@@ -708,10 +719,11 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
     assert 'DECISION_KEYS' in ask, (
         'the metric it names is one of the four that decide, so the chip and '
         'a ranking are asking about the same number')
-    assert 'WIDGET_RUN_ASK = widgetRunAsk(result' in js, (
+    assert 'Widget.offer(widgetRunAsk(result' in js, (
         'renderResult is the one place that holds the run, so it is where the '
-        'chip is set — reading it back off the DOM later would be a second '
-        'source for the same fact')
+        'chip is built — reading it back off the DOM later would be a second '
+        'source for the same fact — and it is handed to the helper through '
+        '`Widget.offer`, which is the whole of what a page may say to it')
 
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
@@ -736,8 +748,11 @@ def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
     """22 hand-set sizes in three units is why the panel read as cramped. Each
     must name a --t-* step instead, so a size is a decision recorded once
     rather than a number typed at the point of use. The Inspector's half of
-    this claim lives in test_inspector.py."""
-    assert _font_size_literals(panel_texts['panel.css']) == []
+    this claim lives in test_inspector.py; the widget's sheet is read here
+    beside the panel's, because it left panel.css and the guard has to follow
+    it or the rules it holds stop being checked at all."""
+    for sheet in ('panel.css', 'widget.css'):
+        assert _font_size_literals(panel_texts[sheet]) == [], sheet
 
 
 def test_font_size_literals_catches_shorthand_with_or_without_a_line_height():
@@ -778,8 +793,10 @@ def test_the_panel_rounds_every_corner_from_the_shared_scale(panel_texts):
     # this is a convention test
     """2px, 3px, 4px, 5px, 6px, 999px and 50% all appeared as literal radii.
     Each must name a --radius-* token, shorthand corners included, so the two
-    pages cannot round the same kind of thing differently."""
-    assert _radius_literals(panel_texts['panel.css']) == []
+    pages cannot round the same kind of thing differently. The widget's sheet
+    is read here for the same reason the type guard reads it."""
+    for sheet in ('panel.css', 'widget.css'):
+        assert _radius_literals(panel_texts[sheet]) == [], sheet
 
 
 def test_radius_literals_catches_shorthand_and_ignores_the_named_tokens():
@@ -856,7 +873,8 @@ def test_the_standalone_panel_reads_only_fields_the_lab_still_produces(client):
     # the Inspector, covered by test_inspector.py against a real trace.
     assert 'out.contexts' not in html, (
         'a contexts loop is back in the standalone panel — either restore the '
-        'field check above with it, or move it to :9003 where the rest went')
+        'field check above with it, or move it to test_inspector.py, where '
+        'the rest went')
 
 
 def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
@@ -1282,17 +1300,52 @@ def test_the_panels_no_backend_hint_names_every_backend_that_would_fix_it(client
             assert provider in hint[0], provider
 
 
-def test_the_widget_sends_one_session_id_per_page(panel_texts):
+def test_the_widget_is_two_shared_files_every_surface_can_load(client):
+    # this is an integration test
+    """The widget is a helper any surface gains by loading it, not a feature of
+    one page. Its rules and its script are served from the root like tokens.css
+    and lab.js, so there is one definition rather than three copies."""
+    css = client.get('/widget.css')
+    js = client.get('/widget.js')
+    assert css.status_code == 200
+    assert css.headers['content-type'].startswith('text/css')
+    assert js.status_code == 200
+    assert js.headers['content-type'].startswith('application/javascript')
+    assert '.widget-launch' in css.text
+    assert 'widgetSay' in js.text
+    assert '.widget-launch' not in client.get('/panel.css').text, (
+        'the widget rules must live in one sheet, not two')
+
+
+def test_every_surface_carries_the_widget(panel_texts):
     # this is a convention test
-    """The widget's memory is a browser page's: the client mints one id when
-    the script loads and sends it with every ask, so a follow-up lands in the
-    same thread and a reloaded page starts clean — nothing persisted, nothing
-    shared between tabs."""
-    block = panel_texts['panel.js (widget block)']
-    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bsession\b", block), (
-        'the widget POST must carry the session id')
-    assert 'crypto.randomUUID' in block, (
-        'one id, minted client-side, once per page load')
+    """One helper, three surfaces. A reader who can ask a question on the
+    Laboratory and not on the board is reading two different labs.
+
+    Built over `served_lab.app`, not the shared `client` fixture — that
+    fixture is `panel_server.create_app()` alone, and the Inspector is only
+    mounted where the three surfaces actually come together, the way
+    `test_inspector.py`'s own cross-surface checks already do."""
+    from fastapi.testclient import TestClient
+    from raglab.dashboard import served_lab
+
+    inspector = TestClient(served_lab.app).get('/inspector/').text
+    for name, page in (('index.html', panel_texts['index.html']),
+                       ('leaderboard.html', panel_texts['leaderboard.html']),
+                       ('inspector.html', inspector)):
+        assert 'src="/widget.js"' in page, f'{name} does not load the widget'
+        assert 'href="/widget.css"' in page, f'{name} does not style the widget'
+
+
+def test_the_widget_sends_the_thread_it_is_in(panel_texts):
+    # this is a convention test
+    """The widget's memory is a thread in widget.db, not a page's lifetime. The
+    POST must carry which thread, or every question lands in the same one."""
+    script = panel_texts['widget.js']
+    assert re.search(r"api\('/api/widget',\s*\{[^}]*\bthread\b", script), (
+        'the widget POST must carry the thread id')
+    assert 'crypto.randomUUID' not in script, (
+        'a per-page id is exactly the reset this change removed')
 
 
 def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
@@ -1300,11 +1353,119 @@ def test_the_widget_shows_the_token_account_under_a_reply(panel_texts):
     """The account travels with the reply and the page shows it — a faint
     meta line, only when the backend reported one: an unreported account
     renders nothing rather than a made-up zero."""
-    block = panel_texts['panel.js (widget block)']
-    assert 'input_tokens' in block, (
+    script = panel_texts['widget.js']
+    assert 'input_tokens' in script, (
         'the widget must read the served token account')
-    assert 'output_tokens' in block, (
+    assert 'output_tokens' in script, (
         'both directions of the account, not just one')
+
+
+def test_the_widget_serves_the_conversation_it_holds(client, monkeypatch):
+    # this is an integration test
+    """A refresh redraws the log from the lab, not from a copy in the browser:
+    what a reader sees is exactly what the model remembers, so the two cannot
+    drift apart. And what it serves about a thread — which experiment it is
+    about, when it began — must be what a turn actually wrote, not two empty
+    strings dressed as facts.
+
+    A question is put through the real route, the real `ask`, the real graph
+    and the real checkpointer; only the model is a fake, because the suite is
+    offline and no test here may reach OpenRouter. That is what makes this an
+    honest reading of what a reader would see: nothing between the POST and
+    the GET is stubbed."""
+    from langchain_core.language_models import GenericFakeChatModel
+    from langchain_core.messages import AIMessage
+    from langchain.agents import create_agent
+
+    from raglab.agents import widget
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.hooks import MIDDLEWARE
+
+    memory.forget('exp-route')
+    # A thread nobody has used says so with three empty answers rather than
+    # with an error — the empty log and its starters are the honest rendering
+    # of a conversation that has not happened yet.
+    read = client.get('/api/widget/history', params={'thread': 'exp-route'})
+    assert read.status_code == 200
+    assert read.json() == {'thread': 'exp-route', 'experiment_id': '',
+                           'started_at': '', 'turns': []}
+
+    def fake_agent(model):
+        # `_build_agent`'s own shape with the one part that needs a key and a
+        # network swapped out: same state schema, same middleware, same
+        # process-wide checkpointer, so what lands in widget.db is written by
+        # the graph exactly as it would be in production. No tools, because a
+        # fake chat model cannot bind them and a scripted reply calls none.
+        return create_agent(GenericFakeChatModel(messages=iter([
+                                AIMessage(content='four judged metrics decide')])),
+                            system_prompt='x', middleware=MIDDLEWARE,
+                            state_schema=memory.WidgetState,
+                            checkpointer=memory.saver())
+
+    widget.reset()
+    monkeypatch.setattr(widget.backends, '_build_agent', fake_agent)
+    try:
+        said = client.post('/api/widget', json={'message': 'which metrics decide?',
+                                                'model': 'openai/gpt-5-nano',
+                                                'thread': 'exp-route'})
+        assert said.status_code == 200, said.text
+    finally:
+        widget.reset()
+
+    read = client.get('/api/widget/history', params={'thread': 'exp-route'})
+    body = read.json()
+    assert body['turns'] == [
+        {'role': 'you', 'text': 'which metrics decide?'},
+        {'role': 'bot', 'text': 'four judged metrics decide'}]
+    # The two fields the route reports beside the turns. They were declared on
+    # `WidgetState`, written by nothing, and pinned here as empty strings — a
+    # route stating as fact about every thread the one thing it did not know.
+    assert body['experiment_id'] == 'exp-route'
+    assert body['started_at']
+
+
+def test_the_route_serves_a_turns_token_account_when_one_was_reported(client):
+    # this is an integration test
+    """The route is a thin pass-through over `conversation_memory.history`, so
+    what it proves here is that nothing between the checkpointer and the JSON
+    response strips the account back off — the same seeding helper the unit
+    tests use, read back through the actual FastAPI route rather than the
+    Python function directly."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    write_messages('exp-billed-route', [
+        HumanMessage(content='what did that cost?'),
+        AIMessage(content='1692 total', usage_metadata={
+            'input_tokens': 1630, 'output_tokens': 62, 'total_tokens': 1692})])
+
+    read = client.get('/api/widget/history', params={'thread': 'exp-billed-route'})
+    assert read.status_code == 200
+    assert read.json()['turns'] == [
+        {'role': 'you', 'text': 'what did that cost?'},
+        {'role': 'bot', 'text': '1692 total',
+         'input_tokens': 1630, 'output_tokens': 62}]
+
+
+def test_new_chat_empties_one_conversation_and_no_other(client):
+    # this is an integration test
+    """The only control that ends a conversation, and it ends exactly one."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    # Seeded through the real saver, the same helper
+    # `agents/widget/tests/test_conversation_memory.py` seeds its own threads
+    # with — one definition of what a checkpoint has to look like, not two
+    # that a langgraph upgrade could silently pull apart.
+    for thread in ('exp-a', 'exp-b'):
+        write_messages(thread, [HumanMessage(content='q'), AIMessage(content='a')])
+
+    gone = client.delete('/api/widget/history', params={'thread': 'exp-a'})
+    assert gone.status_code == 200
+    assert gone.json()['turns'] == []
+    kept = client.get('/api/widget/history', params={'thread': 'exp-b'})
+    assert kept.json()['turns'] == [{'role': 'you', 'text': 'q'},
+                                    {'role': 'bot', 'text': 'a'}]
 
 
 def test_every_served_script_actually_parses():
@@ -1428,7 +1589,7 @@ def test_the_night_palette_is_written_once_and_read_twice(panel_texts):
         'on Auto, or only for readers who picked Night, never for both')
 
 
-@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css'))
+@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css', 'widget.css'))
 def test_no_dark_block_outranks_an_explicit_choice(panel_texts, sheet):
     # this is a convention test
     """Every `prefers-color-scheme: dark` block on either surface has to carry
@@ -1535,3 +1696,28 @@ def test_a_hovered_row_lights_up_whole_and_in_one_direction(panel_texts):
         assert css.index(stripe) < css.index(frozen), (
             f'the hover rule must come after {stripe}, or that column keeps '
             'its stripe while the rest of the row lights up')
+
+
+def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
+    # this is a convention test
+    """Three surfaces on one origin reach each other by path. A hardcoded
+    http://localhost:9002 was how a second port had to be linked; it now
+    breaks the moment the lab is served anywhere but this machine, and
+    :9003 points at nothing at all."""
+    for name in ('index.html', 'leaderboard.html', 'leaderboard.js'):
+        assert 'localhost:900' not in panel_texts[name], (
+            f'{name} still links out to a port instead of a path')
+    # The board's row link is built at runtime from a template string rather
+    # than sitting in markup, so the loop above already covers it once
+    # `leaderboard.js` is in scope — this assertion additionally pins the
+    # replacement shape, so a fix that merely drops the origin without
+    # keeping `/inspector` as the mount path still fails here.
+    assert 'href="/inspector/?experiment=' in panel_texts['leaderboard.js'], (
+        'the board must open the Inspector by path, with the experiment id '
+        'still carried in the query string')
+    # The panel's own door to the Inspector, opened from 3 · Generation once a
+    # run exists: same requirement, same reason, a second place the origin
+    # could have been left behind.
+    assert 'id="open-inspector" href="/inspector"' in panel_texts['index.html'], (
+        "the panel's lab-link to the Inspector must be a path on this "
+        'origin, not a link to a port')

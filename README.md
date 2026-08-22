@@ -181,6 +181,17 @@ call with the knowledge base inlined and the skill names in the prompt, the
 bodies out of reach. Every reply carries its token account, or `None` where
 the backend reported nothing — "0 tokens" would be a claim about the bill.
 
+An answer is typed out as it is written: the two OpenRouter models stream, and
+the widget shows the pieces as they land, with a caret while the answer is
+still coming. The pieces are only how it arrived — the last thing the lab sends
+is the reply as its own conversation log now holds it, and the bubble adopts
+that, so what stays on screen is the transcript rather than a second private
+copy of it. A stream that dies part-way keeps what did arrive, marked as
+stopped with the reason beneath it, because a fragment must never be handed
+over as a whole answer. The two CLI options cannot stream: one subprocess
+reports one complete reply, so their answers land in a single piece, and their
+labels say so.
+
 Conversation memory is one thread per experiment, plus one `general` thread
 for whenever the lab has none open, shared by all three surfaces; each call
 sees the last twenty messages of the thread it lands on. Threads persist in

@@ -205,16 +205,30 @@
   //             the same silent absence this file refuses for a note.
   //   'here'  — nothing has moved; say it where it was asked.
   //
-  // `redrawPending` is handed in rather than read here because whether a draw
+  // `drawIntervened` is handed in rather than read here because whether a draw
   // has settled is state the DOM half owns; everything else this decides is
   // arithmetic on `DRAW_SEQ` and a string compare, which is what keeps the
   // decision itself testable without a page. It is a separate signal from
   // `supersedes` and both are needed: a question asked while the draw that
   // opened the widget is still in flight carries *that* draw's generation, so
   // nothing supersedes it, and yet that same draw is about to clear the log.
-  function replyFate(mine, intended, redrawPending) {
+  //
+  // It is named for what the caller must have established — that a draw stood
+  // between the question and its answer — and not for `drawPending`, the flag
+  // it is usually computed from, because reading that flag *here* (that is,
+  // after the await) is precisely the bug this argument exists to rule out.
+  // `drawPending` is true only while the newest draw is still running, and the
+  // normal ordering is that it stops running long before an answer comes back:
+  // a history GET is milliseconds and a model turn is seconds. A caller that
+  // only looked at the flag on the way out would therefore find it false in
+  // exactly the case it was meant to catch — the draw that erased the reader's
+  // question having already finished doing so. So the caller captures the flag
+  // synchronously before it posts and ORs that reading with the one it takes
+  // afterwards, and hands the answer in; `widgetAsk` is the only caller, and
+  // `widget_thread.test.js` pins that it still does it that way round.
+  function replyFate(mine, intended, drawIntervened) {
     if (!stillCurrent(intended)) return 'gone';
-    if (redrawPending || supersedes(mine)) return 'stale';
+    if (drawIntervened || supersedes(mine)) return 'stale';
     return 'here';
   }
   // --- end of the thread half -------------------------------------------------
@@ -512,6 +526,17 @@
   async function widgetAsk(message) {
     const intended = widgetThread();
     const mine = currentGeneration();
+    // Captured here, with the other two, and for the same reason: every
+    // writer to this log takes what it needs to judge itself by *before* it
+    // awaits anything. A draw already in flight when Send is pressed — the
+    // one New Chat starts, the one the launcher starts, the one a `storage`
+    // echo from another tab starts — will clear the log, and it will almost
+    // certainly have done so and finished by the time this answer lands, at
+    // which point `drawPending` reads false and says nothing happened. What
+    // did happen is that the reader's own question was wiped. This reading
+    // and the one taken after the await are ORed together below, so either
+    // end of the wait is enough to make the answer a `'stale'` one.
+    const wasPending = drawPending;
     widgetSay('you', message);
     const model = $('widget-model').value;
     if (!model) {
@@ -529,7 +554,7 @@
     widgetLock(true);
     try {
       const data = await api('/api/widget', { message, model, thread: intended });
-      const fate = replyFate(mine, intended, drawPending);
+      const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
       if (fate === 'stale') { widgetDraw(); return; }
       widgetSay('bot', data.reply);
@@ -539,7 +564,7 @@
         widgetSay('meta', `${data.input_tokens} in / ${data.output_tokens} out tokens`);
       }
     } catch (error) {
-      const fate = replyFate(mine, intended, drawPending);
+      const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
       if (fate === 'stale') { widgetSayAfterDraw('err', error.message, intended); return; }
       widgetSay('err', error.message);

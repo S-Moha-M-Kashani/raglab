@@ -13,6 +13,15 @@
 // screen is still waiting for. All of them are pure — no DOM, nothing but
 // `DRAW_SEQ`, a call to `widgetThread()` and their arguments — which is
 // exactly what makes them reachable from this storage-only sandbox at all.
+//
+// The last test is the exception, and deliberately so: it reads `widgetAsk`'s
+// source rather than running it. What it pins is an *ordering* — that the
+// answer's inputs are taken before the post, not after it — and an ordering
+// between a synchronous read and an await cannot be observed from a sandbox
+// with no DOM, no fetch and no scheduler; building all three to watch one
+// variable being read a tick earlier would replace this contract with a fake
+// browser. A decision that is only correct because of where it sits in a
+// function is fairly pinned by looking at where it sits.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -127,4 +136,35 @@ test('an answer a draw still in flight would erase is redrawn too', () => {
 test('an answer nothing has moved under is said where it was asked', () => {
   const page = load({ 'raglab-active-experiment': 'abc123' });
   assert.equal(page.replyFate(page.currentGeneration(), 'abc123', false), 'here');
+});
+
+// A right answer read at the wrong moment. `intended` and `mine` are captured
+// before the post because that is this file's whole discipline; `drawPending`
+// was not, and it is the one of the three that changes on its own while the
+// post is in flight. A draw running when Send is pressed clears the log — the
+// reader's own question with it — and then finishes, long before a model turn
+// comes back, so a `drawPending` read only on the way out reports false and
+// `replyFate` says `'here'`: the answer paints alone, under no question. The
+// reachable route is New Chat, which unlocks the controls in its `finally`
+// while the redraw it just started is still running, but the launcher's draw
+// and another tab's `storage` echo open the same window.
+//
+// Pinned as three claims, because each fails a different mistake: that the
+// flag is read at all before the post, that the read really does come before
+// the await rather than after it, and that both readings reach `replyFate`
+// together rather than the later one alone.
+test('a question captures whether a draw was already in flight before it posts', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  const captured = ask.indexOf('const wasPending = drawPending;');
+  const posted = ask.indexOf('await api(');
+  assert.ok(captured > -1,
+    'widgetAsk must read drawPending into a local, not at reply time');
+  assert.ok(posted > -1 && captured < posted,
+    'the capture must happen before the post, or it is not a capture');
+  const fates = ask.match(/replyFate\([^)]*\)/g) || [];
+  assert.deepEqual(fates, ['replyFate(mine, intended, wasPending || drawPending)',
+                           'replyFate(mine, intended, wasPending || drawPending)'],
+    'both the answer and the failure path must weigh the whole wait: a draw '
+    + 'in flight when the question was asked counts even once it has settled');
 });

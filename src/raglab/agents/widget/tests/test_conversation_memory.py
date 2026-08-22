@@ -92,3 +92,39 @@ def test_the_moment_the_model_calls_a_tool_is_not_a_turn():
     assert memory.history('exp-6')['turns'] == [
         {'role': 'you', 'text': 'how many sessions in the diary?'},
         {'role': 'bot', 'text': '167'}]
+
+
+def test_recall_reads_another_experiments_conversation():
+    """The gap thread-keying leaves: sitting on the board with nothing open,
+    "what did I conclude about abc123?" must still be answerable."""
+    _write('abc123', 'is the recall worth it?', 'the thread key already does it')
+    said = memory.recall_conversation.invoke({'experiment_id': 'abc123'})
+    assert 'is the recall worth it?' in said
+    assert 'the thread key already does it' in said
+
+
+def test_recall_says_so_when_there_is_no_conversation():
+    """An experiment nobody has discussed comes back saying so. Returning
+    nothing would read to the model as "there is nothing to say about it",
+    which is a different claim from "nothing was said about it"."""
+    said = memory.recall_conversation.invoke({'experiment_id': 'never-discussed'})
+    assert 'never-discussed' in said
+    assert 'no recorded conversation' in said.lower()
+
+
+def test_recall_caps_what_it_hands_the_model_and_says_it_capped():
+    """The cap is stated for the reason every other reader here states its own:
+    a truncation nobody mentions reads as the whole of it.
+
+    `write_messages` seeds one checkpoint per call, so building a long
+    conversation is one call with every turn's messages rather than a loop of
+    calls each overwriting the last — the same shape `write_messages`'s other
+    callers already use."""
+    long_thread = 'exp-long'
+    messages = []
+    for turn in range(memory.MAX_RECALLED + 5):
+        messages += [HumanMessage(content=f'question {turn}'),
+                     AIMessage(content=f'answer {turn}')]
+    _write_messages(long_thread, messages)
+    said = memory.recall_conversation.invoke({'experiment_id': long_thread})
+    assert str(memory.MAX_RECALLED) in said

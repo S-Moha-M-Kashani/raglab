@@ -21,6 +21,7 @@ from pathlib import Path
 from threading import RLock
 
 from langchain.agents import AgentState
+from langchain_core.tools import tool
 
 from raglab.configuration.env_settings import ROOT
 
@@ -137,3 +138,34 @@ def forget(thread: str) -> None:
     are in ends, and every other experiment's is untouched."""
     name = (thread or '').strip() or GENERAL
     saver().delete_thread(name)
+
+
+#: How many turns one recall hands the model. The same reasoning as
+#: `experiment_tools.MAX_LISTED`: a call that could return every turn of a long
+#: conversation would spend the context window on its tail.
+MAX_RECALLED = 20
+
+
+@tool
+def recall_conversation(experiment_id: str) -> str:
+    """What was said about one experiment before; the model-facing prompt is
+    fixtures/prompts/widget_tools.yaml's entry."""
+    name = (experiment_id or '').strip()
+    if not name:
+        return ('Name the experiment to recall. The conversation you are in '
+                'now needs no recalling — it is already the context.')
+    turns = history(name)['turns']
+    if not turns:
+        return (f'There is no recorded conversation about {name}. That is not '
+                'the same as nothing being true of it: the experiment may well '
+                'exist — read_experiment answers that — it has simply never '
+                'been discussed here.')
+    shown, dropped = turns[-MAX_RECALLED:], max(0, len(turns) - MAX_RECALLED)
+    lines = [f'The conversation about {name}, '
+             + (f'its last {len(shown)} turns; {dropped} earlier turn(s) are '
+                f'not shown, because one recall is capped at {MAX_RECALLED}.'
+                if dropped else f'all {len(shown)} turns of it.')]
+    for turn in shown:
+        lines.append(('reader: ' if turn['role'] == 'you' else 'you said: ')
+                     + turn['text'])
+    return '\n'.join(lines)

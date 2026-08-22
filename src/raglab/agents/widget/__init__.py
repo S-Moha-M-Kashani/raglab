@@ -52,9 +52,11 @@ from raglab.agents.widget.backends import (
     set_openrouter_key_resolver)
 from raglab.agents.widget.conversation_memory import (
     GENERAL,
+    MAX_RECALLED,
     WidgetState,
     forget,
-    history)
+    history,
+    recall_conversation)
 from raglab.agents.widget.hooks import (
     HOOK_LOG,
     MAX_HISTORY,

@@ -53,6 +53,21 @@ measure_bilingual_alignment: |-
           [["I slept badly.", "بد خوابیدم."], ["It rained.", "باران آمد."]].
           Pass sentences the user provides in this shape. Empty means the
           bundled diary-like pairs (fixtures/bilingual_probe_pairs.json).
+recall_conversation: |-
+  Read what was said about one experiment in an earlier conversation, by its
+  experiment id. Use it when the reader asks about an experiment that is not
+  the one open now — "what did I conclude about abc123?", "did we discuss
+  this corpus before?" — because each experiment keeps its own conversation
+  and you are only holding the current one.
+
+  This is memory, not evidence. It returns what was said, which may have been
+  wrong: nothing here is a measurement, and a claim recalled from a
+  conversation must never be reported as something the lab measured. For what
+  an experiment actually produced, read_experiment is the record.
+
+  At most 20 turns, the most recent, and the reply says when earlier ones were
+  left out. An experiment nobody has discussed says so rather than coming back
+  empty.
 list_experiments: |-
   List the experiments this lab has already recorded, newest first: the id,
   the corpus, what ran, the decision score with its error, the judge and the

@@ -241,6 +241,12 @@ CONVENTIONS = [
     ('panel.js', 'restoreLastRun', None,
      'the remembered run must be re-read by id from the service, or a run '
      'file deleted between two visits would render a stale copy'),
+    ('panel.js', "get('experiment')", None,
+     'the panel must take the experiment from its own address, not only from '
+     'the one-shot slot: the board now lands here, and a slot written by a '
+     'click cannot survive a reload, a bookmark, a copied link, or a new tab '
+     'that boots before the writing page has finished — each of which reads '
+     'as the open button doing nothing at all'),
     # The launcher and the window are the two elements widget.js creates rather
     # than writes as markup, so their ids are pinned in the form the file
     # actually spells them. The claim is the one the markup rows make: the id is
@@ -1734,10 +1740,12 @@ def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
     # than sitting in markup, so the loop above already covers it once
     # `leaderboard.js` is in scope — this assertion additionally pins the
     # replacement shape, so a fix that merely drops the origin without
-    # keeping `/inspector` as the mount path still fails here.
-    assert 'href="/inspector/?experiment=' in panel_texts['leaderboard.js'], (
-        'the board must open the Inspector by path, with the experiment id '
-        'still carried in the query string')
+    # carrying the experiment id on a path of this origin still fails here.
+    # *Which* surface it lands on is a different claim, pinned beside the
+    # handoff it belongs to in `board_handoff.test.js`.
+    assert 'href="/?experiment=' in panel_texts['leaderboard.js'], (
+        'the board must open the experiment by path on this origin, with the '
+        'id carried in the query string')
     # The panel's own door to the Inspector, opened from 3 · Generation once a
     # run exists: same requirement, same reason, a second place the origin
     # could have been left behind.

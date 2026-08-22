@@ -130,3 +130,16 @@ test('the open cell carries the experiment id the handler reads', () => {
   assert.ok(openCell.includes('data-experiment='),
     'the rendered open link must name the experiment it opens');
 });
+
+// This is a unit test.
+test('the open link lands on the Laboratory, where the knobs are', () => {
+  // The slot alone only reaches a Laboratory that is already open. A reader
+  // who has just the board up clicked "open" and watched the Inspector appear
+  // while the knobs they were promised stayed on another surface entirely.
+  const source = read('leaderboard.js');
+  const openCell = source.slice(source.indexOf("case 'open':"));
+  const href = /href="([^"]*)"/.exec(openCell);
+  assert.ok(href, 'the open cell must render an href');
+  assert.ok(href[1].startsWith('/?experiment='),
+    `the open link must go to the Laboratory, not ${href[1]}`);
+});

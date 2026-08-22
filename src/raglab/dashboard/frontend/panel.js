@@ -1266,8 +1266,14 @@ async function openHandedExperiment(experimentId) {
       + `(${error.message}). No knob was changed.`);
     return;
   }
+  // The served defaults are the floor, not what happens to be on screen. A knob
+  // this experiment does not name, or names with a value this lab cannot serve,
+  // would otherwise keep whatever the reader was last looking at — so the panel
+  // would be part one experiment and part another, and nothing on the page
+  // would say which half was which. Every such knob goes to its default (none,
+  // where that is what the default is) and is named in the notice below.
   const out = ExperimentHandoff.reconcile(
-    record.config || {}, readConfig(), servedKnobs());
+    record.config || {}, OPTIONS.defaults, servedKnobs());
   applyDefaults(out.config);
   keepUnshown(out.config);
   applyDependencies();
@@ -1306,13 +1312,38 @@ window.addEventListener('storage', (event) => {
   // is filtered out by the guard above rather than heard as a second handoff.
   ExperimentHandoff.taken(localStorage);
   if (offered && offered.experiment_id) {
-    openHandedExperiment(offered.experiment_id);
+    handOver(offered.experiment_id);
   }
 });
 
+// Both callers go through here, because neither may drop the failure. The slot
+// is consumed before the work starts — it has to be, or the next reload would
+// re-announce it — so a rejection nobody catches leaves the reader on knobs
+// that are partly one experiment, with the promise of a notice and no notice.
+// Silence is the one outcome this handoff must never have: it is indistinguish-
+// able from the button doing nothing at all, which is how it read.
+function handOver(experimentId) {
+  openHandedExperiment(experimentId).catch((error) => {
+    Widget.note(`Opening experiment ${experimentId} failed part-way `
+      + `(${error && error.message ? error.message : error}). The knobs may be `
+      + 'part this experiment and part what was here before — reload to start '
+      + 'from the settings this page remembers.');
+  });
+}
+
+// Two ways one experiment arrives here, and the address is the reliable one now
+// that the board's link lands on this page. A slot is written by a click and
+// read once; it cannot survive a reload, a bookmark, a copied link, or a click
+// whose new tab boots before the writing page has finished — and every one of
+// those looks to the reader like the button doing nothing. The slot is still
+// read, and still consumed either way so it cannot re-announce itself days
+// later, because it remains the only thing that reaches a Laboratory that was
+// already open in another tab: that one hears a `storage` event, not a URL.
 function takeHandedExperiment() {
+  const asked = new URLSearchParams(window.location.search).get('experiment');
   const offered = ExperimentHandoff.taken(localStorage);
-  if (offered) openHandedExperiment(offered.experiment_id);
+  const wanted = asked || (offered && offered.experiment_id);
+  if (wanted) handOver(wanted);
 }
 
 function renderResult(result, options = {}) {

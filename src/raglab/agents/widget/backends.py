@@ -37,14 +37,17 @@ TRACING_ENV = ('LANGSMITH_API_KEY', 'LANGSMITH_ENDPOINT',
                'LANGSMITH_PROJECT', 'LANGSMITH_TRACING')
 
 # The widget's own catalogue: value -> (kind, label). The two OpenRouter
-# models run the tool loop; the two CLIs cannot (`CliChat` has no
-# `bind_tools`), answer in one call with the knowledge base inlined, and
-# their labels say so — an option states what it can do.
+# models run the tool loop and are held by the checkpointer, so a thread
+# picks up where it left off; the two CLIs cannot run tools (`CliChat` has no
+# `bind_tools`) and keep nothing — a CLI call is one process with no graph and
+# no checkpointer, so it writes nothing to widget.db at all, and any earlier
+# OpenRouter turns on that thread stay put while the CLI's own turn is never
+# added. Their labels say all of this — an option states what it cannot do.
 WIDGET_MODELS = {
     'openai/gpt-5-nano': ('openrouter', 'gpt-5-nano · OpenRouter, tools'),
     'openai/gpt-5-mini': ('openrouter', 'gpt-5-mini · OpenRouter, tools'),
-    'claude': ('cli', 'claude · CLI, no key, no tools'),
-    'codex': ('cli', 'codex · CLI, no key, no tools'),
+    'claude': ('cli', 'claude · CLI, no key, no tools, no memory'),
+    'codex': ('cli', 'codex · CLI, no key, no tools, no memory'),
 }
 DEFAULT_MODEL = 'openai/gpt-5-nano'
 

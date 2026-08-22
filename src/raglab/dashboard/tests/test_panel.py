@@ -878,7 +878,8 @@ def test_the_standalone_panel_reads_only_fields_the_lab_still_produces(client):
     # the Inspector, covered by test_inspector.py against a real trace.
     assert 'out.contexts' not in html, (
         'a contexts loop is back in the standalone panel — either restore the '
-        'field check above with it, or move it to :9003 where the rest went')
+        'field check above with it, or move it to test_inspector.py, where '
+        'the rest went')
 
 
 def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):

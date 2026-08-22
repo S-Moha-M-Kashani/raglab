@@ -1,4 +1,4 @@
-"""Presentation helpers shared by the panel (:9002) and the Inspector (:9003).
+"""Presentation helpers shared by the panel and the Inspector — one served app on :9002, the Inspector mounted at /inspector.
 
 Live here rather than in `inspector_server.py`, which `panel_server.py` already imports
 from — `panel_server.py` importing back would be circular.

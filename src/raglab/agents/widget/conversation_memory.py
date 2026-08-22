@@ -165,6 +165,12 @@ def recall_conversation(experiment_id: str) -> str:
              + (f'its last {len(shown)} turns; {dropped} earlier turn(s) are '
                 f'not shown, because one recall is capped at {MAX_RECALLED}.'
                 if dropped else f'all {len(shown)} turns of it.')]
+    # Flipped on purpose from `_turns`'s own roles ('you' for the human, 'bot'
+    # for the model): this text is handed to the model about a conversation it
+    # was not just in, so "you" here has to mean the model, and the reader who
+    # asked the human turns belongs to becomes the third party, "reader". Do
+    # not "fix" this to match `_turns` — that would make the model refer to
+    # its own past words as someone else's.
     for turn in shown:
         lines.append(('reader: ' if turn['role'] == 'you' else 'you said: ')
                      + turn['text'])

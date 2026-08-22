@@ -297,6 +297,34 @@
   // claim is `widgetDrawThread`'s, drawn from the lab on every open.
   let WIDGET_RUN_ASK = '';
 
+  // One lock, for every control that can trigger `widgetAsk`'s POST or
+  // `widget-new`'s DELETE — the two backend calls that race each other on
+  // the same `thread_id` with no coordination on the lab's side (see the
+  // comments on `widgetAsk` and on the `widget-new` click handler). A
+  // starter chip is a third way to reach `widgetAsk`, not a decoration on
+  // top of it — `widgetLog`'s delegated click listener below calls it
+  // exactly the way the form's submit handler does — so a chip left live
+  // while `widget-send`/`widget-new` are disabled would be the one door
+  // this lock left open: clickable, and silently starting the very request
+  // the lock exists to keep from overlapping another. Disabling it outright,
+  // rather than merely leaving it clickable-but-ignored, is the honest
+  // choice `widgetOffer` already makes about the model list being missing —
+  // a live-looking control that does nothing on a click is its own small
+  // lie about what the reader can do right now.
+  //
+  // `widgetLocked` is read by `widgetOffer`'s own chip template, not just
+  // applied after the fact, because a chip can be *born* during the locked
+  // window — a run landing mid-delete or mid-ask calls `Widget.offer`,
+  // which rebuilds the chips from scratch — and a chip rendered live and
+  // then left unpatched would be exactly the gap this exists to close.
+  let widgetLocked = false;
+  function widgetLock(locked) {
+    widgetLocked = locked;
+    $('widget-send').disabled = locked;
+    $('widget-new').disabled = locked;
+    for (const chip of document.querySelectorAll('.widget-starter')) chip.disabled = locked;
+  }
+
   // Rendered only while the log is empty. Called again when a run lands, so a
   // widget left open and untouched picks up the chip for the run just finished.
   function widgetOffer() {
@@ -317,7 +345,8 @@
     if (widgetOptionsError) return;
     if (!WIDGET_STARTERS.length && !WIDGET_RUN_ASK) return;
     const chip = (text, extra = '') =>
-      `<button type="button" class="widget-starter${extra}">${escapeHtml(text)}</button>`;
+      `<button type="button" class="widget-starter${extra}"${widgetLocked ? ' disabled' : ''}>`
+      + `${escapeHtml(text)}</button>`;
     const standing = log.querySelector('.widget-empty');
     if (standing) standing.remove();
     // Inserted rather than assigned over the log, which would take any note with
@@ -401,7 +430,13 @@
     });
   }
 
-  // Delegated, because the offer is rebuilt whenever a run lands.
+  // Delegated, because the offer is rebuilt whenever a run lands. No lock
+  // check belongs here: a chip is a real `<button>`, `widgetLock` sets its
+  // `disabled` attribute exactly like the other two controls, and a
+  // disabled button never dispatches a click for a delegated ancestor
+  // listener to see in the first place — the same native behaviour already
+  // relied on for `widget-send`/`widget-new` themselves. Reaching this
+  // handler at all is proof the chip clicked was not locked.
   $('widget-log').addEventListener('click', (event) => {
     const starter = event.target.closest('.widget-starter');
     if (!starter) return;
@@ -458,19 +493,22 @@
   //
   // Asking and ending a conversation are mutually exclusive in meaning — you
   // cannot coherently be asking a question and ending the thread it belongs
-  // to at the same instant — so `widget-new` is disabled for the same
-  // stretch `widget-send` already is. Without this, `forget()` on the New
-  // Chat side calls `saver().delete_thread(name)` with no coordination
-  // against the checkpoint write this function's own `agent.invoke` (inside
+  // to at the same instant — so `widgetLock(true)` holds `widget-new` down
+  // for the same stretch `widget-send` already is, and every starter chip
+  // with it: a chip is a second way to reach this very function (see the
+  // delegated click listener on `widget-log`), not a decoration outside the
+  // lock. Without this, `forget()` on the New Chat side calls
+  // `saver().delete_thread(name)` with no coordination against the
+  // checkpoint write this function's own `agent.invoke` (inside
   // `api('/api/widget', ...)`, on the lab's side) makes to the very same
   // `thread_id`. If that write lands after the delete, the thread New Chat
   // just ended regrows exactly one turn — this function's own `'stale'`
   // branch would still redraw honestly from whatever the backend now holds,
   // so the screen never lies, but the substantive promise ("this
-  // conversation has ended") would be broken regardless. Disabling the
-  // other button before either request leaves this tick is what keeps the
-  // two from ever being in flight together on the one path a reader can
-  // actually reach — a slower click, not a second open tab.
+  // conversation has ended") would be broken regardless. Locking every one
+  // of those controls before either request leaves this tick is what keeps
+  // the two operations from ever being in flight together on any path a
+  // reader can actually reach — a slower click, not a second open tab.
   async function widgetAsk(message) {
     const intended = widgetThread();
     const mine = currentGeneration();
@@ -488,8 +526,7 @@
         + 'sent — the model list failed to load. Reopen the helper to retry.');
       return;
     }
-    $('widget-send').disabled = true;
-    $('widget-new').disabled = true;
+    widgetLock(true);
     try {
       const data = await api('/api/widget', { message, model, thread: intended });
       const fate = replyFate(mine, intended, drawPending);
@@ -507,8 +544,7 @@
       if (fate === 'stale') { widgetSayAfterDraw('err', error.message, intended); return; }
       widgetSay('err', error.message);
     } finally {
-      $('widget-send').disabled = false;
-      $('widget-new').disabled = false;
+      widgetLock(false);
       $('widget-input').focus();
     }
   }
@@ -683,15 +719,19 @@
   // than a second copy of it invented here.
   $('widget-new').addEventListener('click', async () => {
     const intended = widgetThread();
-    // Send is disabled for the same stretch, and for the same reason
-    // `widgetAsk` disables New Chat during its own request: the DELETE this
-    // triggers races `widgetAsk`'s own checkpoint write for this thread with
-    // no coordination on the lab's side, and a question that slips in
-    // between this click and the DELETE landing could regrow the thread
-    // this button just ended. See the comment on `widgetAsk` for the full
-    // shape of that race — this is the other half of the same guard.
-    $('widget-new').disabled = true;
-    $('widget-send').disabled = true;
+    // Send and every starter chip are locked down for the same stretch, and
+    // for the same reason `widgetAsk` locks New Chat down during its own
+    // request: the DELETE this triggers races `widgetAsk`'s own checkpoint
+    // write for this thread with no coordination on the lab's side, and a
+    // question that slips in between this click and the DELETE landing —
+    // typed, or a single click on a chip — could regrow the thread this
+    // button just ended. A chip is worth naming here specifically: the
+    // starters are only ever visible on an empty thread, which is exactly
+    // the state this button produces, so the invitation to ask is sitting
+    // right there under the button that just ended the conversation unless
+    // it is locked too. See the comment on `widgetAsk` for the full shape
+    // of that race — this is the other half of the same guard.
+    widgetLock(true);
     try {
       await api('/api/widget/history?thread='
                 + encodeURIComponent(intended), null, 'DELETE');
@@ -699,8 +739,7 @@
     } catch (error) {
       widgetSayAfterDraw('err', error.message, intended);
     } finally {
-      $('widget-new').disabled = false;
-      $('widget-send').disabled = false;
+      widgetLock(false);
     }
   });
 

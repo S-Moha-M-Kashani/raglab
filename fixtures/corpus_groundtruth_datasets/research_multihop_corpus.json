@@ -1,0 +1,527 @@
+{
+  "corpus_dataset_metadata": {
+    "dataset": "research-multihop",
+    "name": "Research notes — multi-hop",
+    "language": "en",
+    "description": "Synthetic English reading notes following one replication dispute across eight months. Deliberately weighted to multi-hop and aggregation: most answers need two or three sessions, so a pipeline that retrieves one perfect chunk still scores badly. All authors, institutions and findings are fictional.",
+    "label_fields": {
+      "recorded_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "The day this reading note was written.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "topics": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "What the note was about.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "threads": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "A storyline that runs across several notes.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "role": {
+        "type": "string",
+        "values": [
+          "user",
+          "assistant"
+        ],
+        "description": "Who produced the turn.",
+        "applies_to": [
+          "part",
+          "chunk",
+          "summary"
+        ]
+      }
+    }
+  },
+  "corpus_documents": [
+    {
+      "corpus_document_id": 1,
+      "document_content": [
+        {
+          "text": "Reading notes: the original 2014 study reported an effect size of 0.48, on 240 undergraduates at one university.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Noted. Worth checking what the confidence interval was before treating that as the reference value.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-09-02T00:00:00Z",
+        "topics": [
+          "effect-size"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 2,
+      "document_content": [
+        {
+          "text": "The replication: the 2019 replication found an effect size of 0.21, less than half the original. The interval excludes the original estimate.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "So the disagreement is not just about power. That is the part the commentaries will focus on.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-09-09T00:00:00Z",
+        "topics": [
+          "replication"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 3,
+      "document_content": [
+        {
+          "text": "Scale of the replication: the replication used 1,842 participants across nine sites.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Nine sites is enough to look at between-site variation, which the original could not.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-09-16T00:00:00Z",
+        "topics": [
+          "methods"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 4,
+      "document_content": [
+        {
+          "text": "Funding note: the Vestrand Foundation funded both the original study and the replication. That answers the obvious objection about adversarial replication.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Then the funding argument cuts the other way from how it is usually used.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-09-23T00:00:00Z",
+        "topics": [
+          "funding"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 5,
+      "document_content": [
+        {
+          "text": "Methods comparison: both studies used the same 14-item attention scale, administered in the same order.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "So an instrument difference cannot explain the gap.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-10-07T00:00:00Z",
+        "topics": [
+          "methods"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 6,
+      "document_content": [
+        {
+          "text": "Commentary: Ohlsson argues the replication changed the incentive structure of the task. His claim is that the payment schedule made the task easier to satisfice.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "That is testable against the per-site data, if they released it.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-10-14T00:00:00Z",
+        "topics": [
+          "critique"
+        ],
+        "threads": [
+          "ohlsson-exchange"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 7,
+      "document_content": [
+        {
+          "text": "Reply published: the replication authors answered that the incentive change was pre-registered and appears in the accepted protocol.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Then the objection is about whether the change was wise, not whether it was hidden.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-10-21T00:00:00Z",
+        "topics": [
+          "critique"
+        ],
+        "threads": [
+          "ohlsson-exchange"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 8,
+      "document_content": [
+        {
+          "text": "Site-level detail: the Bergen site alone reported an effect size of 0.51, close to the original.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "One site matching the original is what you would expect from sampling variation alone, so it is weak evidence on its own.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-11-04T00:00:00Z",
+        "topics": [
+          "sites"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 9,
+      "document_content": [
+        {
+          "text": "Also: three sites were excluded from the pooled estimate for protocol deviations. The pooled figure is over six sites, not nine.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "That is worth stating whenever the 0.21 is quoted.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-11-18T00:00:00Z",
+        "topics": [
+          "sites"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 10,
+      "document_content": [
+        {
+          "text": "Attrition: dropout was 11% in the replication and 4% in the original.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Higher but not alarming, and it is in the direction the online format would predict.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-12-02T00:00:00Z",
+        "topics": [
+          "methods"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 11,
+      "document_content": [
+        {
+          "text": "Meta-analysis: the 2022 meta-analysis pooled 31 studies and reported 0.26, with substantial heterogeneity.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "So the pooled estimate sits between the two, closer to the replication.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-12-16T00:00:00Z",
+        "topics": [
+          "meta"
+        ],
+        "threads": [
+          "meta-analysis"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 12,
+      "document_content": [
+        {
+          "text": "Context: pre-registration became a journal requirement in 2018, which is after the original and before the replication.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "That explains why only one of the two has an accepted protocol to point at.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-01-13T00:00:00Z",
+        "topics": [
+          "norms"
+        ],
+        "threads": [
+          "meta-analysis"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 13,
+      "document_content": [
+        {
+          "text": "Instrumentation: all sites ran the task in the same open-source presentation software, version-pinned.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Then timing differences between sites are hardware, not software.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-01-27T00:00:00Z",
+        "topics": [
+          "methods"
+        ],
+        "threads": [
+          "attention-effect"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 14,
+      "document_content": [
+        {
+          "text": "Draft argument: the original is the outlier, not the replication.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "The meta-analytic estimate supports that reading, and the single-site match does not undercut it.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-02-10T00:00:00Z",
+        "topics": [
+          "writing"
+        ],
+        "threads": [
+          "review-paper"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 15,
+      "document_content": [
+        {
+          "text": "New evidence: a 2025 registered report with 4,100 participants reported 0.19, the largest sample so far.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "That moves the pooled estimate down again and is hard to dismiss on power.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-03-03T00:00:00Z",
+        "topics": [
+          "effect-size"
+        ],
+        "threads": [
+          "meta-analysis"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 16,
+      "document_content": [
+        {
+          "text": "Reviewer question: how many participants in total across the replication and the 2025 registered report?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Add the two numbers reported in the notes rather than quoting either alone.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-03-17T00:00:00Z",
+        "topics": [
+          "writing"
+        ],
+        "threads": [
+          "review-paper"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 17,
+      "document_content": [
+        {
+          "text": "Decision: the review will report a range rather than a point estimate.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Given the heterogeneity that is the defensible choice.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-04-07T00:00:00Z",
+        "topics": [
+          "writing"
+        ],
+        "threads": [
+          "review-paper"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 18,
+      "document_content": [
+        {
+          "text": "Submitted. The funding and pre-registration notes are in the limitations section.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Good. Those are the two things a reader will otherwise ask about.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-04-21T00:00:00Z",
+        "topics": [
+          "writing"
+        ],
+        "threads": [
+          "review-paper"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,830 @@
+{
+  "groundtruth_dataset_metadata": {
+    "name": "Research notes — multi-hop — questions",
+    "corpus_ref": {
+      "dataset": "research-multihop"
+    },
+    "language": "en",
+    "description": "Synthetic English reading notes following one replication dispute across eight months. Deliberately weighted to multi-hop and aggregation: most answers need two or three sessions, so a pipeline that retrieves one perfect chunk still scores badly. All authors, institutions and findings are fictional.",
+    "default_question_asked_at": "2026-05-01T00:00:00Z",
+    "question_metadata_fields": {
+      "question_type": {
+        "type": "string",
+        "values": [
+          "single-hop",
+          "multi-hop",
+          "aggregation",
+          "temporal",
+          "entity",
+          "pattern",
+          "abstention",
+          "adversarial"
+        ],
+        "description": "Evaluation category.",
+        "applies_to": [
+          "question"
+        ]
+      },
+      "difficulty": {
+        "type": "string",
+        "values": [
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "description": "Human-assigned difficulty.",
+        "applies_to": [
+          "question"
+        ]
+      }
+    },
+    "evidence_role_values": {
+      "supporting": "The quote supports the expected answer."
+    }
+  },
+  "groundtruth_dataset": [
+    {
+      "groundtruth_question_id": 1,
+      "question": "What effect size did the original 2014 study report?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "0.48, on 240 undergraduates at a single university.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The original reported 0.48"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "the original 2014 study reported an effect size of 0.48",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-02T00:00:00Z",
+                "topics": [
+                  "effect-size"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 2,
+      "question": "What did the replication find?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "An effect size of 0.21, less than half the original.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The replication reported 0.21"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 2,
+          "evidence": [
+            {
+              "text": "the 2019 replication found an effect size of 0.21, less than half the original",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-09T00:00:00Z",
+                "topics": [
+                  "replication"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 3,
+      "question": "How far apart are the original and the replication, and can the instrument explain it?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "The original reported 0.48 and the replication 0.21. Both used the same 14-item attention scale, so the instrument cannot explain the gap.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "0.48 against 0.21"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Both used the same 14-item scale"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "the original 2014 study reported an effect size of 0.48",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-02T00:00:00Z",
+                "topics": [
+                  "effect-size"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 2,
+          "evidence": [
+            {
+              "text": "the 2019 replication found an effect size of 0.21, less than half the original",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-09T00:00:00Z",
+                "topics": [
+                  "replication"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 5,
+          "evidence": [
+            {
+              "text": "both studies used the same 14-item attention scale",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-10-07T00:00:00Z",
+                "topics": [
+                  "methods"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 4,
+      "question": "Does the funding of the replication give a reason to distrust it?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "No — the Vestrand Foundation funded both the original study and the replication, so the usual adversarial-funding objection does not apply.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The same foundation funded both studies"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 4,
+          "evidence": [
+            {
+              "text": "the Vestrand Foundation funded both the original study and the replication",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-23T00:00:00Z",
+                "topics": [
+                  "funding"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 5,
+      "question": "How many participants took part in the replication and the 2025 registered report together?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "5,942 — 1,842 in the replication and 4,100 in the 2025 registered report.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "1,842 in the replication"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "4,100 in the 2025 report"
+          },
+          {
+            "derived_fact_id": 3,
+            "fact": "The total is 5,942"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 3,
+          "evidence": [
+            {
+              "text": "the replication used 1,842 participants across nine sites",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-16T00:00:00Z",
+                "topics": [
+                  "methods"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                3
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 15,
+          "evidence": [
+            {
+              "text": "a 2025 registered report with 4,100 participants reported 0.19",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-03-03T00:00:00Z",
+                "topics": [
+                  "effect-size"
+                ],
+                "threads": [
+                  "meta-analysis"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2,
+                3
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "aggregation",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 6,
+      "question": "What is Ohlsson’s objection, and what did the authors say to it?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "He argues the replication changed the incentive structure of the task; the authors answered that the change was pre-registered and appears in the accepted protocol.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Ohlsson objects to the incentive change"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "The authors say it was pre-registered"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 6,
+          "evidence": [
+            {
+              "text": "Ohlsson argues the replication changed the incentive structure of the task",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-10-14T00:00:00Z",
+                "topics": [
+                  "critique"
+                ],
+                "threads": [
+                  "ohlsson-exchange"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 7,
+          "evidence": [
+            {
+              "text": "the replication authors answered that the incentive change was pre-registered",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-10-21T00:00:00Z",
+                "topics": [
+                  "critique"
+                ],
+                "threads": [
+                  "ohlsson-exchange"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 7,
+      "question": "When did pre-registration become a journal requirement, relative to the two studies?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "In 2018 — after the original 2014 study and before the replication.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Pre-registration became a requirement in 2018"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 12,
+          "evidence": [
+            {
+              "text": "pre-registration became a journal requirement in 2018",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-01-13T00:00:00Z",
+                "topics": [
+                  "norms"
+                ],
+                "threads": [
+                  "meta-analysis"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "temporal",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 8,
+      "question": "What did the 2022 meta-analysis report?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "0.26, pooling 31 studies, with substantial heterogeneity.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The meta-analysis reported 0.26"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "It pooled 31 studies"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 11,
+          "evidence": [
+            {
+              "text": "the 2022 meta-analysis pooled 31 studies and reported 0.26",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-12-16T00:00:00Z",
+                "topics": [
+                  "meta"
+                ],
+                "threads": [
+                  "meta-analysis"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 9,
+      "question": "What did the Bergen site report?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "An effect size of 0.51, close to the original.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Bergen reported 0.51"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 8,
+          "evidence": [
+            {
+              "text": "the Bergen site alone reported an effect size of 0.51",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-11-04T00:00:00Z",
+                "topics": [
+                  "sites"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "entity",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 10,
+      "question": "How many of the replication’s sites are in the pooled estimate?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Six of nine — three were excluded for protocol deviations.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Nine sites took part"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Three were excluded"
+          },
+          {
+            "derived_fact_id": 3,
+            "fact": "Six remain"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 3,
+          "evidence": [
+            {
+              "text": "the replication used 1,842 participants across nine sites",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-16T00:00:00Z",
+                "topics": [
+                  "methods"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                3
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 9,
+          "evidence": [
+            {
+              "text": "three sites were excluded from the pooled estimate for protocol deviations",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-11-18T00:00:00Z",
+                "topics": [
+                  "sites"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2,
+                3
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "aggregation",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 11,
+      "question": "Which way has the estimate moved as samples got larger?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Downwards: 0.48 on 240 participants, 0.21 on 1,842, and 0.19 on 4,100 in 2025.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The estimate falls as samples grow"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "the original 2014 study reported an effect size of 0.48",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-02T00:00:00Z",
+                "topics": [
+                  "effect-size"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 2,
+          "evidence": [
+            {
+              "text": "the 2019 replication found an effect size of 0.21, less than half the original",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-09-09T00:00:00Z",
+                "topics": [
+                  "replication"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 15,
+          "evidence": [
+            {
+              "text": "a 2025 registered report with 4,100 participants reported 0.19",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-03-03T00:00:00Z",
+                "topics": [
+                  "effect-size"
+                ],
+                "threads": [
+                  "meta-analysis"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "pattern",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 12,
+      "question": "What was the dropout in each study?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "11% in the replication and 4% in the original.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "11% against 4%"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 10,
+          "evidence": [
+            {
+              "text": "dropout was 11% in the replication and 4% in the original",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-12-02T00:00:00Z",
+                "topics": [
+                  "methods"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 13,
+      "question": "What p-value did the Bergen site report?",
+      "expected_answer": {
+        "behavior": "abstain"
+      },
+      "relevant_corpus_documents": [],
+      "question_metadata": {
+        "question_type": "abstention",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 14,
+      "question": "Why did the replication authors refuse to release the per-site data?",
+      "expected_answer": {
+        "behavior": "correct_premise"
+      },
+      "relevant_corpus_documents": [],
+      "question_metadata": {
+        "question_type": "adversarial",
+        "difficulty": "hard"
+      }
+    }
+  ]
+}

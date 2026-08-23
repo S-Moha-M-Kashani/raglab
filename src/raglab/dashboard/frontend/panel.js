@@ -151,8 +151,8 @@ function fillDatasets() {
   const found = OPTIONS.datasets || [];
   $('dataset').innerHTML = found.map((d) =>
     `<option value="${escapeHtml(datasetValue(d))}">`
-    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.sessions} `
-    + `sessions · ${d.questions} questions`
+    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.documents} `
+    + `documents · ${d.questions} questions`
     + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
   $('dataset').onchange = () => {
     describeDataset();
@@ -163,9 +163,86 @@ function fillDatasets() {
 const datasetOf = (id) => (OPTIONS.datasets || []).find(
   (d) => datasetValue(d) === id);
 
+// The declaration table (D4): one line per label the dataset's corpus and
+// ground truth declare — name, type, its closed set of levels, whether a
+// model extracted it, and the confidence rater that scores it, if any. Read
+// straight off the loaded files, never hardcoded, so a sparse corpus just
+// shows fewer rows rather than a placeholder for a label it lacks.
+function renderDatasetLabels(found) {
+  const rows = (found.label_declarations || []).map((row) => [row, 'corpus'])
+    .concat((found.question_label_declarations || [])
+      .map((row) => [row, 'question']));
+  renderTable('datasetLabels',
+    ['name', 'declared on', 'type', 'levels', 'extracted', 'confidence rater'],
+    rows.map(([row, scope]) => [safe(row.name), scope, safe(row.type),
+      safe((row.levels || []).join(', ')), row.extracted ? 'yes' : '',
+      safe(row.confidence_for)]),
+    { label: 'Declared labels', text: [0, 1, 2, 3, 5] });
+}
+
+// One switch-group per question label the dataset declares with a closed
+// set of values or a glossary (D7) — data-driven, since the labels are the
+// dataset's own, not a fixed vocabulary every corpus must share. `balance`
+// lists the same labels plus "even spread" for a plain stride. Rebuilt on
+// every dataset switch, so a stale label from the previous corpus cannot
+// linger on screen offering values the new one has never declared.
+function fillLabelFilters(labels) {
+  const names = Object.keys(labels).sort();
+  $('labelFilters').innerHTML = names.map((name) =>
+    `<div class="switches" data-label="${escapeHtml(name)}">`
+    + `<span class="muted">${escapeHtml(name)}</span>`
+    + labels[name].map((value) =>
+      `<label><input type="checkbox" value="${escapeHtml(value)}"> `
+      + `${escapeHtml(value)}</label>`).join('') + '</div>').join('');
+  $('balance').innerHTML = '<option value="">even spread</option>'
+    + names.map((name) =>
+      `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+}
+
+function selectedLabels() {
+  const labels = {};
+  for (const group of $('labelFilters').querySelectorAll('[data-label]')) {
+    const chosen = selected(group);
+    if (chosen.length) labels[group.dataset.label] = chosen;
+  }
+  return labels;
+}
+
+function applyWantedLabels(wanted) {
+  for (const group of $('labelFilters').querySelectorAll('[data-label]')) {
+    const values = new Set((wanted || {})[group.dataset.label] || []);
+    for (const input of group.querySelectorAll('input')) {
+      input.checked = values.has(input.value);
+    }
+  }
+}
+
+// The label vocabulary a run's `labels`/`balance` are checked against. The
+// installed catalogue answers this for any dataset served here; a view-only
+// archive names one that is not, and is only ever view-only because it
+// carries the completed evidence itself (`datasetDisposition` refuses
+// otherwise) — so its own embedded ground truth is read instead, the same
+// filtering `_question_vocab` applies server-side.
+function labelVocabFor(config, archive) {
+  const found = datasetOf(config.index.dataset);
+  if (found) return found.question_labels || {};
+  const groundTruth = ((((archive || {}).evaluation || {}).inspector || {})
+    .dataset || {}).ground_truth || {};
+  const fields = (groundTruth.groundtruth_dataset_metadata || {})
+    .question_metadata_fields || {};
+  const labels = {};
+  for (const [name, declaration] of Object.entries(fields)) {
+    const values = declaration.values
+      || (declaration.glossary ? Object.keys(declaration.glossary) : null);
+    if (values) labels[name] = values;
+  }
+  return labels;
+}
+
 // One line about the corpus in force, in the header where the corpus has always
 // been described — switching datasets has to move that line, or the page says
-// 167 sessions while measuring twenty.
+// 167 documents while measuring twenty. Also rebuilds the declaration table
+// and the label filters below, since both are this dataset's own.
 function describeDataset() {
   const found = datasetOf($('dataset').value);
   if (!found) return;
@@ -175,34 +252,44 @@ function describeDataset() {
   // the census sits in the popover, because nobody reads a stats strip twice.
   $('corpusName').textContent = found.id || $('dataset').value;
   $('corpus').textContent =
-    `${found.sessions} sessions · ${found.messages} messages · ${period}`
+    `${found.documents} documents · ${found.parts} parts · ${period}`
     + `${found.questions} questions`
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
   $('datasetInfo').textContent = found.description;
+  renderDatasetLabels(found);
+  fillLabelFilters(found.question_labels || {});
 }
 
-// Import: the file is read here and posted as JSON, so the service checks it
-// against the contract rather than the browser guessing. Every problem comes
-// back at once — fixing a corpus is a slow loop if each attempt reports one
-// broken quote out of nine.
-$('dataset-file').onchange = async () => {
-  const file = $('dataset-file').files[0];
-  if (!file) return;
-  $('importInfo').textContent = `reading ${file.name}…`;
+// Import: a dataset is two files, paired by id (D1) — read here and posted as
+// JSON, so the service checks the pair against the contract rather than the
+// browser guessing. Every problem comes back at once — fixing a corpus is a
+// slow loop if each attempt reports one broken quote out of nine.
+$('dataset-import').onclick = async () => {
+  const corpusFile = $('dataset-corpus-file').files[0];
+  const groundTruthFile = $('dataset-groundtruth-file').files[0];
+  if (!corpusFile || !groundTruthFile) {
+    $('importInfo').innerHTML = '<div class="note">a dataset is two files: '
+      + 'pick both the corpus and its ground truth</div>';
+    return;
+  }
+  $('importInfo').textContent =
+    `reading ${corpusFile.name} and ${groundTruthFile.name}…`;
   try {
-    const payload = JSON.parse(await file.text());
-    const added = await api('/api/datasets', payload);
+    const corpus = JSON.parse(await corpusFile.text());
+    const ground_truth = JSON.parse(await groundTruthFile.text());
+    const added = await api('/api/datasets', { corpus, ground_truth });
     await refreshOptions();
     $('dataset').value = added.id;
     describeDataset();
     $('importInfo').innerHTML =
-      `<b>${escapeHtml(added.name)}</b> imported · ${added.sessions} sessions, `
+      `<b>${escapeHtml(added.name)}</b> imported · ${added.documents} documents, `
       + `${added.questions} questions. Build the index to measure against it.`;
   } catch (e) {
     $('importInfo').innerHTML =
       `<div class="note">${escapeHtml(e.message)}</div>`;
   } finally {
-    $('dataset-file').value = '';
+    $('dataset-corpus-file').value = '';
+    $('dataset-groundtruth-file').value = '';
   }
 };
 
@@ -290,6 +377,12 @@ function selected(host) {
   return [...host.querySelectorAll('input:checked')].map((el) => el.value);
 }
 
+// Escaped and never null/undefined — the one guard every table cell and
+// declaration row goes through, so a table added later cannot forget it.
+function safe(value) {
+  return escapeHtml(String(value ?? ''));
+}
+
 async function api(path, body, method = body ? 'POST' : 'GET') {
   const options = method === 'GET' ? undefined : {
     method,
@@ -347,7 +440,7 @@ function readShownConfig() {
       summary_levels: $('summary_levels').value,
     },
     generation: {
-      answerer: $('answerer').value, key_facts_judge: $('key_facts_judge').checked,
+      answerer: $('answerer').value, fact_judge: $('fact_judge').checked,
     },
   };
   // Each role writes into the config group whose stage uses it, so the index
@@ -399,6 +492,13 @@ function dependencyState(rules, cfg) {
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
   const cfg = readConfig();
+  // The new source D5/D6 gave this mechanism: a dataset fact rather than
+  // another knob, read off the served catalogue under a synthetic `dataset`
+  // group beside the three real config groups — resolved by the exact same
+  // rule shape every other entry uses.
+  const dataset = datasetOf(cfg.index.dataset) || {};
+  cfg.dataset = { date_label: dataset.date_label || '',
+                 ranks_label: dataset.ranks_label || '' };
   const state = dependencyState(rules, cfg);
   for (const path of Object.keys(rules)) {
     const el = controlFor(path);
@@ -462,7 +562,7 @@ function applyDefaults(d) {
   $('grader').value = d.retrieval.grader;
   $('grade_threshold').value = d.retrieval.grade_threshold;
   $('answerer').value = d.generation.answerer;
-  $('key_facts_judge').checked = d.generation.key_facts_judge;
+  $('fact_judge').checked = d.generation.fact_judge;
   for (const select of document.querySelectorAll('.rag-model')) {
     const [group, field] = select.dataset.field.split('.');
     select.value = (d[group] || {})[field] || '';
@@ -540,7 +640,6 @@ async function boot() {
   fill($('reranker'), o.rerankers);
   fill($('grader'), o.graders);
   fill($('answerer'), o.answerers);
-  checkboxes($('types'), o.question_types, []);
   document.addEventListener('change', applyDependencies);
   fillModels();
   fillModes();
@@ -561,7 +660,8 @@ async function boot() {
     for (const event of ['change', 'input']) {
       experimentControls.addEventListener(event, (change) => {
         if (!CURRENT_ARCHIVE || !change.target.matches('input, select, textarea')
-            || change.target.id === 'dataset-file') return;
+            || change.target.id === 'dataset-corpus-file'
+            || change.target.id === 'dataset-groundtruth-file') return;
         CURRENT_ARCHIVE = null;
         setArchiveStatus(
           'Readings belong to the previous settings; export will contain settings only.',
@@ -809,7 +909,8 @@ $('run').onclick = async () => {
     ragas_mode: requested.settings.ui.ragas_mode,
     limit: requested.settings.ui.limit || null,
     ragas_limit: requested.settings.ui.ragas_limit || null,
-    types: requested.settings.ui.types,
+    labels: requested.settings.ui.labels,
+    balance: requested.settings.ui.balance,
   });
   try {
     const { job_id } = await api('/api/evaluations', body);
@@ -836,11 +937,12 @@ $('run').onclick = async () => {
 };
 
 // Exactly the questions "Run evaluation" would score — the same limit and the
-// same type filter, read from the same controls. A different selection here
+// same label filters, read from the same controls. A different selection here
 // would put questions in the Inspector's retrieval window that no score was
 // ever about, which is the one thing this view must not do.
 function selectionBody() {
-  return { limit: +$('limit').value || null, types: selected($('types')) };
+  return { limit: +$('limit').value || null, labels: selectedLabels(),
+           balance: $('balance').value };
 }
 
 // The same job `poll` already drives, awaited, so one click can chain a build
@@ -903,7 +1005,8 @@ function archiveSettings() {
     ragas_mode: $('ragas_mode').value,
     limit: +$('limit').value,
     ragas_limit: +$('ragas_limit').value,
-    types: selected($('types')),
+    labels: selectedLabels(),
+    balance: $('balance').value,
   });
 }
 
@@ -1013,10 +1116,28 @@ function validateAgainstPanelOptions(imported) {
   if (![...$('ragas_mode').options].some((option) => option.value === ui.ragas_mode)) {
     throw new Error(`settings.ui.ragas_mode: ${ui.ragas_mode} is not available`);
   }
-  const questionTypes = new Set(OPTIONS.question_types || []);
-  for (const type of ui.types) {
-    if (!questionTypes.has(type)) {
-      throw new Error(`settings.ui.types: ${type} is not served by this lab`);
+  // D7: a question filter is one switch-group per label the *dataset*
+  // declares, not a fixed vocabulary every corpus shares — so `labels` and
+  // `balance` are checked against that dataset's own declaration rather
+  // than a served list. A view-only archive names a dataset this
+  // installation does not have installed at all; `labelVocabFor` falls back
+  // to the archive's own embedded ground truth for exactly that case.
+  const declared = labelVocabFor(config, imported);
+  if (ui.balance && !(ui.balance in declared)) {
+    throw new Error(`settings.ui.balance: ${ui.balance} is not a label this `
+      + 'dataset declares');
+  }
+  for (const [name, values] of Object.entries(ui.labels || {})) {
+    if (!(name in declared)) {
+      throw new Error(`settings.ui.labels: ${name} is not a label this `
+        + 'dataset declares');
+    }
+    const allowed = new Set(declared[name]);
+    for (const value of values) {
+      if (!allowed.has(value)) {
+        throw new Error(`settings.ui.labels.${name}: ${value} is not a `
+          + 'value this dataset declares');
+      }
     }
   }
   // The two numbers that are the run's and not the config's, so they are not in
@@ -1085,16 +1206,20 @@ function writeArchiveSettings(imported, restoration = null) {
   fillModels();
   applyDefaults(config);
   keepUnshown(config);
+  // A dataset this installation serves gets its own declaration and label
+  // filters rebuilt by `describeDataset`; a view-only one has no files to
+  // read here, so its label vocabulary comes off the archive's own embedded
+  // ground truth instead (`labelVocabFor`) — either way the filters exist
+  // before the checkboxes below are set.
+  if (!disposition.viewOnly) describeDataset();
+  else fillLabelFilters(labelVocabFor(config, value));
   $('ragas_mode').value = ui.ragas_mode;
   $('limit').value = ui.limit;
   $('ragas_limit').value = ui.ragas_limit;
-  const wantedTypes = new Set(ui.types);
-  for (const input of $('types').querySelectorAll('input')) {
-    input.checked = wantedTypes.has(input.value);
-  }
+  $('balance').value = ui.balance || '';
+  applyWantedLabels(ui.labels);
   applyDependencies();
   setArchiveViewOnly(disposition.viewOnly);
-  if (!disposition.viewOnly) describeDataset();
 
   const expected = ArchiveIO.settings(config, ui);
   if (!ArchiveIO.equal(archiveSettings(), expected)) {
@@ -1372,7 +1497,6 @@ function takeHandedExperiment() {
 }
 
 function renderResult(result, options = {}) {
-  const safe = (value) => escapeHtml(String(value ?? ''));
   const metricCatalogue = options.metric_catalogue || measures();
   // Held evidence follows the run on display: an older leaderboard or ledger
   // row changes no control, so the settings-change invalidation never fires —
@@ -1410,13 +1534,26 @@ function renderResult(result, options = {}) {
         <span class="muted">${escapeHtml(m.short)}</span>${bar}</div>`;
     }).join('');
 
-  const t = result.summary.by_type;
+  // `behavior` is the one question-classification field every ground truth
+  // carries (D2/D7 retired the fixed `type`/`difficulty` vocabularies every
+  // corpus used to share) — grouped here, client-side, rather than added
+  // back to `metrics.aggregate`, which no longer breaks scores down by any
+  // question label since the set of labels is now the dataset's own.
+  const byBehavior = {};
+  for (const row of result.rows) {
+    (byBehavior[row.behavior || ''] = byBehavior[row.behavior || ''] || []).push(row);
+  }
+  const meanOf = (rows, field) => {
+    const values = rows.map((r) => r[field]).filter((v) => v !== null && v !== undefined);
+    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  };
   renderTable('byType',
-    ['type', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
-    Object.entries(t).map(([name, row]) => [safe(name), safe(row.n), safe(fmt(row.recall)),
-      safe(fmt(row.quote_recall)), safe(fmt(row.ndcg)), safe(fmt(row.hit)),
-      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]),
-    { label: 'Scores by question type', text: [0] });
+    ['behavior', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
+    Object.entries(byBehavior).map(([name, rows]) => [safe(name), safe(rows.length),
+      safe(fmt(meanOf(rows, 'recall'))), safe(fmt(meanOf(rows, 'quote_recall'))),
+      safe(fmt(meanOf(rows, 'ndcg'))), safe(fmt(meanOf(rows, 'hit'))),
+      safe(fmt(meanOf(rows, 'abstained_correctly'))), safe(fmt(meanOf(rows, 'false_abstention')))]),
+    { label: 'Scores by behavior', text: [0] });
 
   const r = result.ragas || {};
   const metrics = r.metrics || {};
@@ -1441,10 +1578,17 @@ function renderResult(result, options = {}) {
       `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
   }
 
-  renderTable('extras', ['difficulty', 'n', 'recall'],
-    Object.entries(result.summary.by_difficulty)
-      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]),
-    { label: 'Scores by difficulty', text: [0] });
+  // What this run actually sampled: `by_<balance>` only exists when a run
+  // was balanced on a question label (D7); a plain stride reports the raw
+  // selection instead, since there is no band to report a breakdown by.
+  const selection = result.selection || {};
+  const balance = selection.balance || '';
+  const bandCounts = balance ? selection[`by_${balance}`] : null;
+  renderTable('extras', bandCounts ? [balance, 'n'] : ['selection', 'value'],
+    bandCounts ? Object.entries(bandCounts).map(([k, v]) => [safe(k), safe(v)])
+      : [['limit', safe(selection.limit ?? 'all')], ['n', safe(selection.n)],
+         ['balance', 'stride (no label balance)']],
+    { label: balance ? `Selection by ${balance}` : 'Selection', text: [0] });
 
   // The run on screen becomes a question the helper can be asked about it. Built
   // here rather than read out of the DOM later, because this is the one place
@@ -1453,12 +1597,12 @@ function renderResult(result, options = {}) {
   Widget.offer(widgetRunAsk(result, metricCatalogue));
 
   renderTable('rows',
-    ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
-    result.rows.map((row) => [safe(row.id), safe(row.type), safe(row.difficulty),
+    ['id', 'behavior', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
+    result.rows.map((row) => [safe(row.id), safe(row.behavior),
       safe(fmt(row.recall, 2)), safe(fmt(row.quote_recall, 2)), safe(fmt(row.ndcg, 2)),
       safe(row.n_contexts), row.abstained ? 'yes' : '',
       safe(Math.round(row.latency_ms))]),
-    { label: 'Every question, one row each', text: [0, 1, 2] });
+    { label: 'Every question, one row each', text: [0, 1] });
 }
 
 // One table inside the shared scroll region (chrome.css), which both surfaces

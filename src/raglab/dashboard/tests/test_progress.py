@@ -5,7 +5,6 @@ import time
 
 import pytest
 
-from raglab.configuration import lab_config as config
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.configuration import explainer_assembly as explain
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
@@ -44,12 +43,11 @@ def test_progress_reports_which_question_it_is_on(registry, ground_truth,
     scoring = [row for row in seen if row[0] == 'scoring']
     assert len(scoring) == 4, seen
     # The count is the point: "question 3/4" is checkable against the sample the
-    # row itself records, where a bare fraction is not.
+    # row itself records, where a bare fraction is not. `_question_note` reports
+    # only the count, deliberately (D7): no question label is guaranteed to
+    # exist on every dataset, so a band cannot be shown here in general.
     assert scoring[2][2].startswith('question 3/4'), scoring
     assert scoring[-1][2].startswith('question 4/4'), scoring
-    # And the band, because a slow phase on hard questions is a different fact
-    # from a slow phase overall.
-    assert any(band in scoring[0][2] for band in config.DIFFICULTIES), scoring
     # A run reports a terminal ('done', 1.0) too — without it, a poller has
     # no way to tell "still running" from "finished and stopped reporting".
     assert seen[-1][:2] == ('done', 1.0), seen
@@ -198,6 +196,9 @@ def test_the_expected_judge_call_count_scales_with_k():
 def test_the_balance_control_is_explained_like_every_other_knob():
     # this is a convention test
     """`explain.missing()` covers config fields; a run-level control has to be
-    added to the same registry by hand or it reaches the panel unexplained."""
+    added to the same registry by hand or it reaches the panel unexplained.
+    `run.difficulty` retired with the fixed vocabulary it named — `balance`
+    now names any question label the dataset declares (D7), and the label
+    filters themselves are `run.labels`."""
     assert 'run.balance' in explain.topics()
-    assert 'run.difficulty' in explain.topics()
+    assert 'run.labels' in explain.topics()

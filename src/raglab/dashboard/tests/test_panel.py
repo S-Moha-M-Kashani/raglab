@@ -923,7 +923,10 @@ def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
                 '/api/credentials'))
     render = source[source.index('function renderResult'):
                     source.index('function table')]
-    for value in ('row.id', 'row.type', 'row.difficulty', 'name'):
+    # 'row.type'/'row.difficulty' retired with the fixed question vocabulary
+    # they came from (D2/D7); 'row.behavior' is the one classification field
+    # every ground truth still carries.
+    for value in ('row.id', 'row.behavior', 'name'):
         assert f'safe({value})' in render
 
 

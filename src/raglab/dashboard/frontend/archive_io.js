@@ -35,7 +35,7 @@ const ArchiveIO = (() => {
       summary_boost: 1, summary_levels: '',
     },
     generation: {
-      answerer: 'extractive', model: '', key_facts_judge: false,
+      answerer: 'extractive', model: '', fact_judge: false,
       judge_model: '', ragas_model: '',
     },
     label: '',
@@ -185,7 +185,8 @@ const ArchiveIO = (() => {
     object(body.config, 'settings.config');
     validateConfig(body.config);
     const ui = object(body.ui, 'settings.ui');
-    keys(ui, ['mode', 'ragas_mode', 'limit', 'ragas_limit', 'types'], 'settings.ui');
+    keys(ui, ['mode', 'ragas_mode', 'limit', 'ragas_limit', 'labels', 'balance'],
+      'settings.ui');
     string(ui.mode, 'settings.ui.mode');
     if (!['', 'local', 'openrouter', 'claude', 'codex'].includes(ui.mode)) {
       fail(`settings.ui.mode: unsupported mode ${JSON.stringify(ui.mode)}`);
@@ -196,9 +197,16 @@ const ArchiveIO = (() => {
     }
     integer(ui.limit, 'settings.ui.limit', 0, 200);
     integer(ui.ragas_limit, 'settings.ui.ragas_limit', 0, 200);
-    array(ui.types, 'settings.ui.types').forEach((type, index) => {
-      string(type, `settings.ui.types[${index}]`);
-      if (!TYPES.includes(type)) fail(`settings.ui.types[${index}]: unknown question type ${type}`);
+    string(ui.balance, 'settings.ui.balance');
+    // D7: a question filter is one switch-group per label the *dataset*
+    // declares — an open vocabulary, so there is no fixed list to check
+    // `labels`/`balance` against here. The panel checks them against the
+    // dataset the config names, which is where that vocabulary lives.
+    const labels = object(ui.labels, 'settings.ui.labels');
+    Object.entries(labels).forEach(([label, values]) => {
+      array(values, `settings.ui.labels.${label}`).forEach((value, index) => {
+        string(value, `settings.ui.labels.${label}[${index}]`, true);
+      });
     });
   };
 
@@ -509,8 +517,18 @@ const ArchiveIO = (() => {
       fail(`archive.version ${JSON.stringify(value.version)}: expected version ${VERSION}`);
     }
     object(value.settings, 'settings');
-    if (value.settings.ui && Array.isArray(value.settings.ui.types)) {
-      value.settings.ui.types = Array.from(new Set(value.settings.ui.types)).sort();
+    // Canonical order before the equality check `ArchiveIO.equal` runs
+    // elsewhere: object keys sort themselves there, but an array's order is
+    // part of the comparison, and which checkbox a browser reports first
+    // among several checked ones is not a fact this archive should carry.
+    if (value.settings.ui && value.settings.ui.labels
+        && typeof value.settings.ui.labels === 'object') {
+      const labels = value.settings.ui.labels;
+      Object.keys(labels).forEach(name => {
+        if (Array.isArray(labels[name])) {
+          labels[name] = Array.from(new Set(labels[name])).sort();
+        }
+      });
     }
     validateSettings(value.settings);
     if (Object.prototype.hasOwnProperty.call(value, 'evaluation')) {

@@ -242,7 +242,10 @@ HELP = {
         'search to it, which is what stops a question about one month '
         'retrieving the whole year. A question in any other language matches '
         'nothing here, so the filter simply never fires and the search is '
-        'unrestricted.'),
+        'unrestricted. Greyed out on a corpus with no label typed date-time '
+        '(D5): with no dates on a chunk there is no span to restrict to, and '
+        'the same absence leaves the recency reranker inert and a summary\'s '
+        'date span blank.'),
     'retrieval.multi_query': (
         DATASET_SPECIFIC + ' It searches several rule-based rewrites of the '
         'question — the question itself, a keyword-only form with the '
@@ -277,14 +280,17 @@ HELP = {
     'retrieval.recency_half_life_days': (
         'How fast the recency reranker forgets. At 180 days an entry from six '
         'months ago counts half as much as today — right for "how am I doing '
-        'lately", wrong for "what happened last summer".'),
+        'lately", wrong for "what happened last summer". Greyed out on a '
+        'corpus that declares no date-time label (D5): with no date on a '
+        'chunk there is nothing to weigh by age.'),
     'retrieval.agentic_weights': (
         'The three weights of the agentic reranker: relevance, recency, '
-        'importance. Importance is emotional intensity read off the session\'s '
-        'declared mood — high arousal, or a valence far from neutral — as a '
-        'proxy for what a person would remember. A corpus that declares no '
-        'mood gives every chunk the same importance, so that third weight '
-        'shifts all scores equally and changes no ranking.'),
+        'importance. Importance is the corpus\'s own numeric label declaring '
+        'ranks: true (D6), rescaled to 0–1 by its declared minimum/maximum — '
+        'a rating, a severity, whatever that corpus chose to rank chunks by. A '
+        'corpus that declares no ranks label gives every chunk 0.0 importance, '
+        'so that third weight shifts all scores equally and changes no '
+        'ranking; the knob greys out for the same reason.'),
     'retrieval.grader': (
         'The gate that makes abstention possible: chunks scoring below the '
         'threshold are dropped, and if nothing survives the pipeline refuses '

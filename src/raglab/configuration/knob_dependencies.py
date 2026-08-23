@@ -70,12 +70,22 @@ DEPENDENCIES = {
     'retrieval.reranker_model': {
         'field': 'retrieval.reranker', 'on': ['llm'],
         'reason': 'only the llm reranker calls a model'},
+    # The two below read a *dataset* fact, not another knob — the new source
+    # this table gains for D5/D6: a corpus with no declared date label has no
+    # time behaviour at all, and one with no declared ranks label drives no
+    # importance, whichever reranker is picked. `dependency_state` is handed
+    # this fact under a synthetic `dataset` group beside `index`/`retrieval`/
+    # `generation`, resolved by the same `on_true` rule every boolean knob
+    # above uses — the mechanism does not change, only what it is told.
+    'retrieval.time_filter': {
+        'field': 'dataset.date_label', 'on_true': True,
+        'reason': 'this corpus declares no date label'},
     'retrieval.recency_half_life_days': {
-        'field': 'retrieval.reranker', 'on': ['recency', 'agentic'],
-        'reason': 'only the recency and agentic rerankers weigh age'},
+        'field': 'dataset.date_label', 'on_true': True,
+        'reason': 'this corpus declares no date label'},
     'retrieval.agentic_weights': {
-        'field': 'retrieval.reranker', 'on': ['agentic'],
-        'reason': 'only the agentic reranker has weights to balance'},
+        'field': 'dataset.ranks_label', 'on_true': True,
+        'reason': 'this corpus declares no ranks label'},
     'retrieval.grade_threshold': {
         'field': 'retrieval.grader', 'on': [g for g in GRADERS if g != 'none'],
         'reason': 'the gate is off, so nothing is scored to threshold'},

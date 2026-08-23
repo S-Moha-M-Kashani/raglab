@@ -606,7 +606,10 @@ def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     from raglab.dashboard.panel_server import STATIC
     html = (STATIC / 'panel.html').read_text(encoding='utf-8')
     js = (STATIC / 'panel.js').read_text(encoding='utf-8')
-    assert 'id="dataset"' in html and 'id="dataset-file"' in html
+    # A dataset is two files, paired by id (D1): a corpus and its ground
+    # truth, so the import control is two file inputs, not one.
+    assert ('id="dataset"' in html and 'id="dataset-corpus-file"' in html
+            and 'id="dataset-groundtruth-file"' in html)
     assert '/api/datasets' in js
     rows = [{'dataset': 'diary-fa', 'label': 'a',
              'selection': {'question_ids': ['q1']}, 'judge': {'model': 'm'}},

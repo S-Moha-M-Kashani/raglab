@@ -133,9 +133,18 @@
       <select id="dataset"></select>
       <div id="datasetInfo" class="muted"></div>
     </div>
+    <!-- The declaration table: every label this dataset's corpus and ground
+         truth declare, read straight off the loaded files (D4) — never
+         hardcoded, so a sparse corpus just shows fewer rows. Rebuilt on every
+         dataset switch and again on a successful import, from the one
+         reading (`/api/options` -> datasets[].label_declarations) both paths
+         share. -->
+    <div id="datasetLabels"></div>
     <div class="field">
-      <label>Import a dataset <span class="muted">· one JSON file</span></label>
-      <input type="file" id="dataset-file" accept="application/json,.json">
+      <label>Import a dataset <span class="muted">· two JSON files, paired by id (D1)</span></label>
+      <input type="file" id="dataset-corpus-file" accept="application/json,.json">
+      <input type="file" id="dataset-groundtruth-file" accept="application/json,.json">
+      <button class="ghost" id="dataset-import" type="button">Import</button>
       <div id="importInfo" class="muted"></div>
     </div>
     <div class="field">
@@ -247,7 +256,7 @@
       <select id="answerer"></select>
     </div>
     <div class="switches">
-      <label><input type="checkbox" id="key_facts_judge"> LLM key-facts judge</label>
+      <label><input type="checkbox" id="fact_judge"> LLM fact judge</label>
     </div>
     <div class="field">
       <label>RAGAS mode</label>
@@ -262,8 +271,12 @@
       <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="200" value="0"></div>
     </div>
     <div class="field">
-      <label>Question types (none = all)</label>
-      <div class="switches" id="types"></div>
+      <label>Balance sample by <span class="muted">· a declared question label, or an even spread</span></label>
+      <select id="balance"></select>
+    </div>
+    <div class="field">
+      <label>Question label filters <span class="muted">· none checked = all</span></label>
+      <div id="labelFilters"></div>
     </div>
     <div class="field">
       <label>Run label</label>

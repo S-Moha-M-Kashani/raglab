@@ -39,7 +39,8 @@
       }
     },
     "evidence_role_values": {
-      "supporting": "The quote supports the expected answer."
+      "supporting": "The quote supports the expected answer.",
+      "contradicting": "The quote contradicts the question's false premise."
     }
   },
   "groundtruth_dataset": [
@@ -818,9 +819,77 @@
       "groundtruth_question_id": 14,
       "question": "Why did the replication authors refuse to release the per-site data?",
       "expected_answer": {
-        "behavior": "correct_premise"
+        "behavior": "correct_premise",
+        "text": "The per-site data was not withheld — site-level detail is discussed directly: the Bergen site alone reported an effect size of 0.51, and three of the nine sites were excluded from the pooled estimate for protocol deviations.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "false premise: the replication authors did not refuse to release per-site data"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "the truth: per-site detail is on record, including the Bergen site's own effect size and which three sites were excluded"
+          }
+        ]
       },
-      "relevant_corpus_documents": [],
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 8,
+          "evidence": [
+            {
+              "text": "the Bergen site alone reported an effect size of 0.51",
+              "fidelity": "verbatim",
+              "role": "contradicting",
+              "document_metadata": {
+                "recorded_at": "2025-11-04T00:00:00Z",
+                "topics": [
+                  "sites"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 9,
+          "evidence": [
+            {
+              "text": "three sites were excluded from the pooled estimate for protocol deviations",
+              "fidelity": "verbatim",
+              "role": "contradicting",
+              "document_metadata": {
+                "recorded_at": "2025-11-18T00:00:00Z",
+                "topics": [
+                  "sites"
+                ],
+                "threads": [
+                  "attention-effect"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
       "question_metadata": {
         "question_type": "adversarial",
         "difficulty": "hard"

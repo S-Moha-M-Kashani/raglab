@@ -55,7 +55,8 @@
       }
     },
     "evidence_role_values": {
-      "supporting": "The quote supports the expected answer."
+      "supporting": "The quote supports the expected answer.",
+      "contradicting": "The quote contradicts the question's false premise."
     }
   },
   "groundtruth_dataset": [
@@ -669,9 +670,76 @@
       "groundtruth_question_id": 12,
       "question": "Warum wurde der Umzug in die Bahnhofstraße abgesagt?",
       "expected_answer": {
-        "behavior": "correct_premise"
+        "behavior": "correct_premise",
+        "text": "Es gab keinen Umzug in die Bahnhofstraße, der abgesagt wurde. Der geplante Umzug ging in die Sonnenstraße und wurde am 15. März 2026 durchgeführt.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "false premise: no move to Bahnhofstraße was planned or cancelled"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "the truth: the planned move went to the Sonnenstraße office on 15 March 2026 and was carried out"
+          }
+        ]
       },
-      "relevant_corpus_documents": [],
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 4,
+          "evidence": [
+            {
+              "text": "Der Umzug in das neue Büro in der Sonnenstraße findet am 15. März statt",
+              "fidelity": "verbatim",
+              "role": "contradicting",
+              "document_metadata": {
+                "meeting_date": "2026-02-03T00:00:00Z",
+                "topics": [
+                  "umzug"
+                ],
+                "threads": [
+                  "bueroumzug"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 8,
+          "evidence": [
+            {
+              "text": "Der Umzug ist durch",
+              "fidelity": "verbatim",
+              "role": "contradicting",
+              "document_metadata": {
+                "meeting_date": "2026-03-17T00:00:00Z",
+                "topics": [
+                  "umzug"
+                ],
+                "threads": [
+                  "bueroumzug"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
       "question_metadata": {
         "question_type": "adversarial",
         "difficulty": "hard",

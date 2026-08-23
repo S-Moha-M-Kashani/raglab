@@ -468,19 +468,31 @@ function readConfig() {
 // happen per keystroke without a round trip; the two copies must agree — pinned
 // by `test_the_panel_resolves_a_dependency_chain_the_way_the_service_does` —
 // including transitively, so a control whose owner is itself dead is dead.
+function checkDependencyCondition(condition, cfg) {
+  const [group, name] = condition.field.split('.');
+  const current = (cfg[group] || {})[name];
+  const enabled = condition.on_true ? Boolean(current)
+    : (condition.on || []).indexOf(current) !== -1;
+  return { enabled, reason: enabled ? '' : condition.reason };
+}
+
 function dependencyState(rules, cfg) {
   const state = {};
   const resolve = (path, seen) => {
     if (state[path]) return state[path];
     const rule = rules[path];
-    const [group, name] = rule.field.split('.');
-    const current = (cfg[group] || {})[name];
-    let enabled = rule.on_true ? Boolean(current)
-      : (rule.on || []).indexOf(current) !== -1;
-    let reason = enabled ? '' : rule.reason;
+    let { enabled, reason } = checkDependencyCondition(rule, cfg);
     if (enabled && rules[rule.field] && seen.indexOf(path) === -1) {
       const above = resolve(rule.field, seen.concat([path]));
       if (!above.enabled) { enabled = false; reason = above.reason; }
+    }
+    // `also`: a second, independent condition of the same shape a rule may
+    // carry (D5/D6, composed with the reranker-based rule rather than
+    // replacing it) — both must hold, checked after the primary condition
+    // and its chain, so a control killed by its owner keeps that reason.
+    if (enabled && rule.also) {
+      const also = checkDependencyCondition(rule.also, cfg);
+      if (!also.enabled) { enabled = false; reason = also.reason; }
     }
     state[path] = { enabled, reason };
     return state[path];

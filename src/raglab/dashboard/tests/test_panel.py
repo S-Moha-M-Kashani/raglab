@@ -641,6 +641,27 @@ def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
             'how #ragas and #extras came to look sortable and do nothing')
 
 
+def test_the_readings_headings_describe_what_the_tables_actually_group_by(
+        panel_texts):
+    # this is a convention test
+    """`#byType` groups by `row.behavior` and `#extras` by the run's own
+    selection (D2/D7 retired the fixed `type`/`difficulty` question
+    vocabulary both used to name) — a static "By question type"/"By
+    difficulty" heading over either table would describe a column that no
+    longer exists. The per-run specifics ("Scores by behavior", "Selection
+    by <balance>") are the table's own caption, read off the run rather than
+    hardcoded, so the heading above it stays generic."""
+    html = panel_texts['index.html']
+    js = panel_texts['panel.js']
+    assert '<h3>By behavior</h3>' in html
+    assert '<h3>Selection</h3>' in html
+    for retired in ('By question type', 'By difficulty'):
+        assert retired not in html, f'{retired!r} is a retired heading'
+        assert retired not in js, f'{retired!r} is a retired label'
+    assert "'Scores by behavior'" in js
+    assert 'Selection by ${balance}' in js
+
+
 def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
     # this is a convention test
     """The board's identity is at the left edge and its way into the Inspector

@@ -70,22 +70,36 @@ DEPENDENCIES = {
     'retrieval.reranker_model': {
         'field': 'retrieval.reranker', 'on': ['llm'],
         'reason': 'only the llm reranker calls a model'},
-    # The two below read a *dataset* fact, not another knob — the new source
-    # this table gains for D5/D6: a corpus with no declared date label has no
-    # time behaviour at all, and one with no declared ranks label drives no
-    # importance, whichever reranker is picked. `dependency_state` is handed
-    # this fact under a synthetic `dataset` group beside `index`/`retrieval`/
-    # `generation`, resolved by the same `on_true` rule every boolean knob
-    # above uses — the mechanism does not change, only what it is told.
+    # `time_filter` reads a *dataset* fact, not another knob — the new source
+    # this table gains for D5: a corpus with no declared date label has no
+    # time behaviour at all, whatever else is set. `dependency_state` is
+    # handed this fact under a synthetic `dataset` group beside `index`/
+    # `retrieval`/`generation`, resolved by the same `on_true` rule every
+    # boolean knob above uses — the mechanism does not change, only what it
+    # is told.
     'retrieval.time_filter': {
         'field': 'dataset.date_label', 'on_true': True,
         'reason': 'this corpus declares no date label'},
+    # The two below keep their original reranker-based rule — the pipeline
+    # (question_to_answer_pipeline.py) reads `recency_half_life_days` and
+    # `agentic_weights` only inside the branches for the rerankers named
+    # there, so a knob nothing reads must grey out regardless of the corpus —
+    # and gain a second, independent condition on top of it: `also`, a
+    # second `{field, on_true/on, reason}` check of exactly the same shape,
+    # which must *also* hold. Composed rather than replaced, since either
+    # fact alone makes the knob meaningless: a dated corpus with the lexical
+    # reranker greys for the reranker reason, and the recency reranker over a
+    # dateless corpus greys for the dataset reason.
     'retrieval.recency_half_life_days': {
-        'field': 'dataset.date_label', 'on_true': True,
-        'reason': 'this corpus declares no date label'},
+        'field': 'retrieval.reranker', 'on': ['recency', 'agentic'],
+        'reason': 'only the recency and agentic rerankers weigh age',
+        'also': {'field': 'dataset.date_label', 'on_true': True,
+                 'reason': 'this corpus declares no date label'}},
     'retrieval.agentic_weights': {
-        'field': 'dataset.ranks_label', 'on_true': True,
-        'reason': 'this corpus declares no ranks label'},
+        'field': 'retrieval.reranker', 'on': ['agentic'],
+        'reason': 'only the agentic reranker has weights to balance',
+        'also': {'field': 'dataset.ranks_label', 'on_true': True,
+                 'reason': 'this corpus declares no ranks label'}},
     'retrieval.grade_threshold': {
         'field': 'retrieval.grader', 'on': [g for g in GRADERS if g != 'none'],
         'reason': 'the gate is off, so nothing is scored to threshold'},
@@ -105,12 +119,28 @@ DEPENDENCIES = {
 }
 
 
+def _check(cfg_dict: dict, condition: dict) -> tuple[bool, str]:
+    """One `{field, on_true|on, reason}` condition against a config dict:
+    whether the named field's current value satisfies it, and the reason if
+    not. The one piece every entry in `DEPENDENCIES` shares, whether it is a
+    rule's primary condition or its `also`."""
+    group, _, name = condition['field'].partition('.')
+    current = (cfg_dict.get(group) or {}).get(name)
+    enabled = (bool(current) if condition.get('on_true')
+               else current in condition.get('on', ()))
+    return enabled, ('' if enabled else condition['reason'])
+
+
 def dependency_state(cfg_dict: dict) -> dict:
     """For one config, `{'<group>.<field>': {'enabled': bool, 'reason': str}}` for every dependent field.
 
     A control whose owner is itself dead is dead, and reports the owner's
-    reason rather than its own — resolved transitively, not as a special case,
-    since a two-deep chain has the same defect."""
+    reason rather than its own — resolved transitively, not as a special
+    case, since a two-deep chain has the same defect. A rule's `also` is a
+    second, independent condition of the same shape: both must hold, and the
+    primary condition (and its transitive chain) is checked first, so a
+    control killed by its owner keeps reporting the owner's reason rather
+    than the second condition's."""
     state: dict = {}
 
     def resolve(key: str, seen: frozenset) -> dict:
@@ -118,17 +148,17 @@ def dependency_state(cfg_dict: dict) -> dict:
             return state[key]
         rule = DEPENDENCIES[key]
         owner = rule['field']
-        group, _, name = owner.partition('.')
-        current = (cfg_dict.get(group) or {}).get(name)
-        enabled = (bool(current) if rule.get('on_true')
-                   else current in rule.get('on', ()))
-        reason = '' if enabled else rule['reason']
+        enabled, reason = _check(cfg_dict, rule)
         # A cycle would be a bug in the table above, not a runtime condition;
         # the guard stops it taking the whole panel down with it.
         if enabled and owner in DEPENDENCIES and owner not in seen:
             above = resolve(owner, seen | {key})
             if not above['enabled']:
                 enabled, reason = False, above['reason']
+        if enabled and 'also' in rule:
+            also_enabled, also_reason = _check(cfg_dict, rule['also'])
+            if not also_enabled:
+                enabled, reason = False, also_reason
         state[key] = {'enabled': enabled, 'reason': reason}
         return state[key]
 

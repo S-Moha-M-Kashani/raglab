@@ -348,9 +348,14 @@
     <div id="resultBody" hidden>
       <div class="scores" id="scores"></div>
       <div class="breakdown">
-        <div><h3>By question type</h3><div id="byType"></div></div>
+        <div><h3>By behavior</h3><div id="byType"></div></div>
         <div><h3>RAGAS</h3><div id="ragas"></div></div>
-        <div><h3>By difficulty</h3><div id="extras"></div></div>
+        <!-- The table's own caption (renderTable's `label`) says what this
+             run was actually balanced on ("Selection by difficulty", or
+             plain "Selection" for a stride) — this heading stays generic on
+             purpose, since which label a run balances on is the dataset's
+             own choice, not a fixed vocabulary this page can name in advance. -->
+        <div><h3>Selection</h3><div id="extras"></div></div>
       </div>
       <details class="rowdump"><summary>Per-question rows</summary>
         <div id="rows"></div></details>

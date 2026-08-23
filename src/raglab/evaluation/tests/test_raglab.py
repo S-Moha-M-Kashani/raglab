@@ -879,14 +879,66 @@ def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something
                  )['generation.model']['enabled']
 
 
+def test_a_reranker_choice_and_a_dataset_fact_both_gate_the_same_knob():
+    # this is a unit test
+    """`question_to_answer_pipeline.py` reads `recency_half_life_days` only
+    inside the recency/agentic branches and `agentic_weights` only inside
+    the agentic one, so a rule composed of two conditions (D5/D6's `also`)
+    has to keep the original reranker-based reason live, not replace it —
+    either fact alone already makes the field inert, and the primary
+    condition is checked first."""
+    def state(reranker, date_label='', ranks_label=''):
+        cfg = LabConfig(retrieval=RetrievalConfig(reranker=reranker)).to_dict()
+        cfg['dataset'] = {'date_label': date_label, 'ranks_label': ranks_label}
+        return config.dependency_state(cfg)
+
+    # (a) a dated corpus with the default lexical reranker: the pipeline
+    # never reads the field regardless of what the corpus declares, so the
+    # reranker reason wins.
+    lexical = state('lexical', date_label='recorded_at')
+    assert not lexical['retrieval.recency_half_life_days']['enabled']
+    assert lexical['retrieval.recency_half_life_days']['reason'] == \
+        'only the recency and agentic rerankers weigh age'
+
+    # (b) a dateless corpus with the recency reranker active: the reranker
+    # condition is satisfied, so the dataset reason surfaces instead.
+    recency = state('recency')
+    assert not recency['retrieval.recency_half_life_days']['enabled']
+    assert recency['retrieval.recency_half_life_days']['reason'] == \
+        'this corpus declares no date label'
+
+    # Both conditions satisfied: live.
+    assert state('recency', date_label='recorded_at'
+                 )['retrieval.recency_half_life_days']['enabled']
+
+    # (c) the agentic reranker active over a corpus with no ranks label:
+    # agentic_weights greys for the dataset reason.
+    agentic = state('agentic')
+    assert not agentic['retrieval.agentic_weights']['enabled']
+    assert agentic['retrieval.agentic_weights']['reason'] == \
+        'this corpus declares no ranks label'
+    assert state('agentic', ranks_label='severity'
+                 )['retrieval.agentic_weights']['enabled']
+
+    # `time_filter` carries only the dataset condition — no reranker involved.
+    assert not state('lexical')['retrieval.time_filter']['enabled']
+    assert state('lexical', date_label='recorded_at'
+                 )['retrieval.time_filter']['enabled']
+
+
 def test_every_disabled_control_says_why():
     # this is a convention test
     """A greyed-out control with no reason is indistinguishable from a broken
-    one. Every rule carries the sentence the panel shows."""
+    one. Every rule carries the sentence the panel shows — a rule's `also`
+    (D5/D6's second, independent condition) is a `{field, on_true|on,
+    reason}` of exactly the same shape and carries the same promise."""
     for key, rule in config.DEPENDENCIES.items():
-        assert rule['reason'], f'{key} has no reason'
-        assert not rule['reason'].endswith('.'), (
-            f'{key}: the panel completes "disabled because …", so no full stop')
+        for condition in (rule, rule.get('also')):
+            if condition is None:
+                continue
+            assert condition['reason'], f'{key} has no reason'
+            assert not condition['reason'].endswith('.'), (
+                f'{key}: the panel completes "disabled because …", so no full stop')
 
 
 # That both frontends are *served* these rules rather than each keeping a copy

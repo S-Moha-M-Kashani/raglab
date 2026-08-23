@@ -29,6 +29,21 @@ Runs the lab's tests, then starts the lab on :{serve.PANEL_PORT}.
 """
 
 
+def _surfaces() -> str:
+    """The three addresses one lab process serves, as one block.
+
+    Both callers below print it, because a reader who lands on either — a lab
+    starting, or a lab already up — wants the same three lines. It was a single
+    Panel line while the Inspector was a second process on its own port; one
+    command starts all three now, so naming only the panel would under-report
+    what just came up. Built from PANEL_PORT rather than a typed-in number, so
+    it cannot drift if that ever moves."""
+    base = f'http://localhost:{serve.PANEL_PORT}'
+    return (f'  Panel:        {base}/\n'
+            f'  Inspector:    {base}/inspector\n'
+            f'  Leaderboard:  {base}/leaderboard')
+
+
 def _free(port: int) -> bool:
     with socket.socket() as probe:
         probe.settimeout(0.2)
@@ -67,11 +82,11 @@ def main() -> None:
         # running, and the useful thing to print is where it is.
         print(f'\n\033[33m:{serve.PANEL_PORT} is already in use — a lab is '
               f'likely already up.\033[0m')
-        print(f'  Panel:  http://localhost:{serve.PANEL_PORT}/\n')
+        print(f'{_surfaces()}\n')
         return
 
     print('\n\033[1m▸ starting the RAG lab\033[0m')
-    print(f'  Panel:  http://localhost:{serve.PANEL_PORT}/')
+    print(_surfaces())
     print('  First build downloads the embedding model (~2.2 GB) on first')
     print('  retrieval, not at boot.\n')
     serve.panel()

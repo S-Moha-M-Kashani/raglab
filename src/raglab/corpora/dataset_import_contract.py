@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from raglab.configuration.lab_config import DIFFICULTIES, ROOT
+from raglab.corpora import corpus_store as corpora
 from raglab.corpora.diary_corpus_loader import (
     DIARY_PATH,
     load_diary,
@@ -48,13 +49,21 @@ class Dataset:
     questions: int = 0
     query_date: str = ''
     period: dict = field(default_factory=dict)
+    # Which row of `databases/corpora.db` holds this corpus as it entered the
+    # lab — assigned by the database on insert, never carried in the file. Set
+    # by `import_dataset`, which is the one place a dataset enters; `0` on a
+    # listing, which reads files and looks nothing up, and means "this listing
+    # did not ask" rather than "there is no such row". A local storage id, so
+    # it means nothing on another machine — the portable address is the
+    # fingerprint, which is what an archive carries.
+    id_corpora: int = 0
 
     def as_dict(self) -> dict:
         return {'id': self.id, 'name': self.name, 'description': self.description,
                 'language': self.language, 'source': self.source, 'path': self.path,
                 'sessions': self.sessions, 'messages': self.messages,
                 'questions': self.questions, 'query_date': self.query_date,
-                'period': self.period}
+                'period': self.period, 'id_corpora': self.id_corpora}
 
 
 def imported_dir() -> Path:
@@ -103,7 +112,12 @@ def _builtin() -> Dataset:
         period=diary['meta'].get('period', {}))
 
 
-def describe(payload: dict, source: str, path: Path) -> Dataset:
+def describe(payload: dict, source: str, path: Path,
+             id_corpora: int = 0) -> Dataset:
+    """One dataset file as the panel lists it. `id_corpora` is passed only by
+    the import that just stored the corpus and got a row id back; a listing
+    leaves it 0, because a listing reads files and asks the corpus store
+    nothing."""
     meta = payload.get('dataset') or {}
     sessions = payload.get('sessions') or []
     dates = sorted(s.get('date', '') for s in sessions if s.get('date'))
@@ -119,7 +133,8 @@ def describe(payload: dict, source: str, path: Path) -> Dataset:
         messages=sum(len(s.get('messages') or []) for s in sessions),
         questions=len(payload.get('questions') or []),
         query_date=meta.get('query_date', ''),
-        period={'from': dates[0], 'to': dates[-1]} if dates else {})
+        period={'from': dates[0], 'to': dates[-1]} if dates else {},
+        id_corpora=int(id_corpora))
 
 
 def catalogue() -> list[Dataset]:
@@ -395,9 +410,28 @@ def _is_date(value) -> bool:
 
 
 def import_dataset(payload: dict) -> Dataset:
-    """Validate and write one dataset into the imported directory. Refuses
-    rather than repairs — a silently repaired dataset measures something
-    nobody described."""
+    """Validate and keep one dataset: the two objects in the corpus store, the
+    file in the imported directory. Refuses rather than repairs — a silently
+    repaired dataset measures something nobody described.
+
+    A dataset entering the lab is stored as content, once, the moment it
+    arrives: `_split` is exactly the two objects `databases/corpora.db` holds,
+    so the row written here is the row every experiment on this corpus will
+    later reference, rather than one written again per archive. The incoming
+    file carries no id and cannot — the id is storage identity, assigned by the
+    database on insert, and a file that named one would be claiming a row it
+    knows nothing about.
+
+    Content-addressed, so re-importing the same bytes is the same row and the
+    same id, and an *edited* dataset under the same id is a new row beside the
+    old one rather than an overwrite of it. That is what keeps an archive of an
+    earlier run resolving to the corpus that run actually saw.
+
+    The corpus goes in before the file does, the order
+    `experiment_archive_store.shrink` gives: a failure between the two leaves a
+    stored corpus nobody reads yet, where the other order would leave a
+    dataset this lab can build over but the store has never seen.
+    """
     problems = validate(payload)
     if problems:
         raise ValueError('; '.join(problems))
@@ -407,10 +441,12 @@ def import_dataset(payload: dict) -> Dataset:
             f'{BUILTIN!r} is the built-in corpus and cannot be replaced — every '
             'run already recorded was measured against it. Give this one its '
             'own id.')
+    corpus, ground_truth = _split(payload)
+    id_corpora = corpora.put(dataset_id, corpus, ground_truth)
     folder = imported_dir()
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f'{dataset_id}.json'
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
                     encoding='utf-8')
     forget()
-    return describe(payload, 'imported', path)
+    return describe(payload, 'imported', path, id_corpora)

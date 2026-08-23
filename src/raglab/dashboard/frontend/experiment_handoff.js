@@ -150,6 +150,30 @@ const ExperimentHandoff = (() => {
   // things can be true at once and each is a separate sentence: how much of the
   // panel is now this experiment, which knobs this installation could not serve,
   // and whether the record itself was ever complete.
+  // The knobs the reader still has to set, grouped by the stage that would run
+  // them and in the order the pipeline runs. A flat list of dotted paths makes
+  // the reader work out for themselves which card each one is on; the group
+  // name is the card, so the sentence is a route through the panel. Each knob
+  // keeps the value it recorded and the reason this lab refused it — dropping
+  // those would leave a list of names with no way to tell a missing model from
+  // a number out of range.
+  const STAGE_NAMES = Object.freeze(
+    { index: 'Index', retrieval: 'Retrieve', generation: 'Generation' });
+
+  function toSet(unserved) {
+    const said = [];
+    for (const group of GROUPS) {
+      const here = unserved.filter((row) => row.path.startsWith(`${group}.`));
+      // A stage with nothing to set is left out rather than shown empty: an
+      // empty pair of brackets reads as a stage whose knobs went missing.
+      if (!here.length) continue;
+      said.push(`${STAGE_NAMES[group]} (` + here.map((row) =>
+        `${row.path.slice(group.length + 1)} = ${String(row.value)} — `
+        + `${row.reason}`).join('; ') + ')');
+    }
+    return `To set: ${said.join(', ')}.`;
+  }
+
   function notice(record, out) {
     const when = String(record.started_at || '').slice(0, 16);
     const named = [record.kind || 'experiment', when].filter(Boolean).join(' · ');
@@ -166,9 +190,9 @@ const ExperimentHandoff = (() => {
     const said = [head, moved];
     if (out.unserved.length) {
       const count = out.unserved.length;
-      said.push(`${count} could not be set here and ${count === 1
-        ? 'is' : 'are'} unchanged: ` + out.unserved.map((row) =>
-        `${row.path} = ${String(row.value)} (${row.reason})`).join('; ') + '.');
+      said.push(`${count} knob${count === 1 ? '' : 's'} could not be set here `
+        + `and ${count === 1 ? 'is' : 'are'} at ${count === 1
+          ? 'its' : 'their'} default. ${toSet(out.unserved)}`);
     }
     // Why the panel is only partly this experiment can be the record rather than
     // the installation, and the two must never be told in one sentence: an index
@@ -177,7 +201,7 @@ const ExperimentHandoff = (() => {
     if (record.source === 'ledger' && out.set.length) {
       said.push('This row has no run file, so the ledger recorded only the '
         + `${out.set.length} knob${out.set.length === 1 ? '' : 's'} it names; `
-        + 'every other knob is unchanged.');
+        + 'every other knob is at its default.');
     }
     return said.join(' ');
   }

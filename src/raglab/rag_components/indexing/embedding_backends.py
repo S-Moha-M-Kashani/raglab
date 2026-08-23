@@ -193,30 +193,36 @@ class EmbedderHint:
 EMBEDDER_HINTS = (
     EmbedderHint('sentence-transformers',
                  'sentence-transformers — any HuggingFace model', BY_MODEL, True,
-                 'The lab default, because it is the only backend that can reach '
-                 'a Persian-tuned encoder: fastembed does not serve '
-                 'heydariAI/persian-embeddings. Needs the local-embeddings extra '
-                 'and downloads the weights once.'),
+                 'The lab default, because it is the only backend that can '
+                 'load an arbitrary HuggingFace checkpoint — which is how you '
+                 'reach an encoder tuned for one language, such as the Persian '
+                 'one the bundled diary needs and fastembed does not serve. '
+                 'Needs the local-embeddings extra and downloads the weights '
+                 'once.'),
     EmbedderHint('fastembed', 'fastembed — a real transformer', BY_MODEL, True,
-                 'Embeds meaning rather than letters (0.612 recall measured), '
-                 'from its own short ONNX list. Which languages it covers is '
-                 'decided by the model below — pick a multilingual one or this '
-                 'becomes an English model reading a Farsi diary.'),
+                 'Embeds meaning rather than letters, from its own short ONNX '
+                 'list; 0.612 session recall measured on the bundled diary. '
+                 'Which languages it covers is decided by the model below — '
+                 'pick one that covers your corpus, or this is an English '
+                 'model reading text it cannot read.'),
     EmbedderHint('ascii-hash', 'ascii-hash — the reference baseline',
                  LATIN_ONLY, False,
-                 'tokenises [a-z0-9]+, so a Farsi sentence has no tokens and '
-                 'every vector is zero: measured 0.014 session recall here, i.e. '
-                 'chance. Kept as the baseline that makes the point.'),
+                 'tokenises [a-z0-9]+, so a non-Latin sentence has no tokens '
+                 'at all and every vector is zero — 0.014 session recall on the '
+                 'bundled diary, i.e. chance. Kept as the baseline that makes '
+                 'the point, not as a working option.'),
     EmbedderHint('token-hash', 'token-hash — hashed Persian words', ANY_SCRIPT,
                  True,
-                 'Unicode-aware bag of normalised words. Sees the language but '
-                 'not the meaning, and misses «نمیخوام» against «میخواستم».'),
+                 'Unicode-aware bag of normalised words. Sees any script but '
+                 'not the meaning, so two inflections of one word are two '
+                 'unrelated tokens and a paraphrase is invisible.'),
     EmbedderHint('char-hash', 'char-hash — hashed character 4-grams', ANY_SCRIPT,
                  True,
-                 'Recovers Persian stems across affixes, which is why it is the '
-                 'strongest option that downloads nothing: 0.386 recall against '
-                 'ascii-hash\'s 0.014. Still lexical — a paraphrase with no '
-                 'shared letters is invisible to it.'),
+                 'Character n-grams recover a stem across its affixes, which '
+                 'is why it is the strongest option that downloads nothing: '
+                 '0.386 recall against ascii-hash\'s 0.014 on the bundled '
+                 'diary. Still lexical — a paraphrase sharing no letters is '
+                 'invisible to it.'),
 )
 
 _HINTS = {hint.kind: hint for hint in EMBEDDER_HINTS}

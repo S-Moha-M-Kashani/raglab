@@ -15,6 +15,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from raglab.corpora import corpus_store as corpora
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import leaderboard
 from raglab.configuration.lab_config import IndexConfig
@@ -312,6 +313,111 @@ def test_a_dataset_is_imported_through_the_panel_and_becomes_selectable(client,
     # and it can be measured against straight away
     body = client.get('/api/questions?dataset=tiny-test').json()
     assert [q['id'] for q in body['questions']] == ['q-1']
+
+
+# --- a dataset entering the lab is stored as content ------------------------
+
+@pytest.fixture
+def corpora_here(tmp_path, monkeypatch):
+    """This test's own corpus store. The suite's autouse redirect already keeps
+    every test off the developer's file; this narrows it to one file per test,
+    so counting rows means counting *this* test's rows."""
+    monkeypatch.setenv('RAGLAB_CORPORA_DB', str(tmp_path / 'corpora.db'))
+    return tmp_path / 'corpora.db'
+
+
+def _stored_rows(path) -> list[dict]:
+    with corpora.connect(path) as db:
+        return [dict(row) for row in db.execute(
+            'SELECT id, dataset, corpus, ground_truth FROM corpora ORDER BY id')]
+
+
+def test_an_imported_dataset_is_stored_as_content_under_an_id_the_file_never_carried(
+        imports_here, corpora_here):
+    # this is an integration test
+    """A dataset entering the lab enters the corpus store, once, on arrival.
+
+    The two objects stored are exactly `_split`'s — the corpus and the ground
+    truth the pipeline reads — so the row written on import is the row every
+    later experiment on this corpus references, rather than one written again
+    per archive. The id is the database's to give: the file carries none and
+    could not, because an id is storage identity on this machine and a file
+    that named one would be claiming a row it knows nothing about.
+    """
+    payload = _valid()
+    assert 'id_corpora' not in json.dumps(payload), (
+        'the incoming file carries no database id of any kind')
+    found = datasets.import_dataset(payload)
+
+    assert isinstance(found.id_corpora, int) and found.id_corpora > 0
+    assert found.as_dict()['id_corpora'] == found.id_corpora
+    rows = _stored_rows(corpora_here)
+    assert [row['id'] for row in rows] == [found.id_corpora]
+    assert rows[0]['dataset'] == 'tiny-test'
+    # What the store holds is what the lab loads: the same two objects, not a
+    # second reading of the file that could differ from the one that runs.
+    assert corpora.get(found.id_corpora) == datasets.load('tiny-test')
+    # And the file path still works exactly as it did.
+    assert (imports_here / 'tiny-test.json').exists()
+
+
+def test_importing_the_same_dataset_twice_stores_one_corpus(imports_here,
+                                                            corpora_here):
+    # this is an integration test
+    """Idempotent, because the content decides. Re-importing a file that has
+    not changed is not a new corpus, and a second row would make it look like
+    one to everything that later joins on the id."""
+    first = datasets.import_dataset(_valid())
+    second = datasets.import_dataset(_valid())
+    assert first.id_corpora == second.id_corpora
+    assert len(_stored_rows(corpora_here)) == 1
+
+
+def test_an_edited_dataset_under_the_same_id_is_a_new_row_beside_the_old_one(
+        imports_here, corpora_here):
+    # this is an integration test
+    """The claim an older archive depends on.
+
+    A corpus edited between runs is a *different* corpus. The file at
+    `.datasets/tiny-test.json` is replaced — that is what the reader asked for
+    — but the stored text is not: the edit is a new row with a new id, and the
+    row the earlier experiment referenced is left exactly as it was. Keyed by
+    dataset id instead, the newest edit would answer for every run that ever
+    named it, which is a row lying about what produced it.
+    """
+    before = datasets.import_dataset(_valid())
+    edited = _valid()
+    edited['sessions'][0]['messages'][0]['content'] = (
+        'Actually the roof was fixed on 3 March, twice over.')
+    edited['questions'][0]['evidence'][0]['quote'] = 'the roof was fixed on 3 March'
+    after = datasets.import_dataset(edited)
+
+    assert after.id_corpora != before.id_corpora
+    rows = _stored_rows(corpora_here)
+    assert [row['id'] for row in rows] == [before.id_corpora, after.id_corpora]
+    old_corpus, _ = corpora.get(before.id_corpora)
+    new_corpus, _ = corpora.get(after.id_corpora)
+    assert old_corpus['sessions'][0]['messages'][0]['content'].startswith('Good news')
+    assert new_corpus['sessions'][0]['messages'][0]['content'].startswith('Actually')
+    assert {version['id'] for version in corpora.versions('tiny-test')} == \
+        {before.id_corpora, after.id_corpora}
+
+
+def test_a_listing_says_it_did_not_look_the_corpus_row_up(imports_here,
+                                                          corpora_here):
+    # this is an integration test
+    """`id_corpora` on a catalogue row is 0, and that means "not asked".
+
+    A listing reads files; it resolves nothing against the corpus store. The
+    honest value for a lookup that never happened is the one no corpora row can
+    ever have — `AUTOINCREMENT` starts at 1 — so a reader cannot mistake it for
+    a row that says there is no stored corpus.
+    """
+    stored = datasets.import_dataset(_valid())
+    assert stored.id_corpora > 0
+    listed = next(d for d in datasets.catalogue() if d.id == 'tiny-test')
+    assert listed.id_corpora == 0
+    assert datasets.find('tiny-test').id_corpora == 0
 
 
 def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(client):

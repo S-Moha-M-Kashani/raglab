@@ -224,6 +224,84 @@ def test_computed_evidence_needs_a_relevant_metadata_source():
         problems)
 
 
+def test_relevant_metadata_naming_a_value_the_document_does_not_carry_is_refused():
+    # this is a unit test
+    """x-cross-file #6: a value named in relevant_metadata has to be one the
+    document actually holds under that label — not merely a label the
+    document happens to declare somewhere."""
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'topic': {'type': 'string', 'description': 'subject',
+                         'applies_to': ['document']}}}})
+    corpus['corpus_documents'][0]['document_metadata'] = {'topic': 'roofing'}
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'evidence'][0]['relevant_metadata'] = {'topic': 'plumbing'}
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('question 1' in p and "'topic'='plumbing'" in p
+              and 'does not match' in p for p in problems), problems
+
+
+def test_a_copied_document_metadata_that_disagrees_with_the_corpus_is_refused():
+    # this is a unit test
+    """x-cross-file: 'where a piece of evidence copies the document_metadata,
+    the copy must equal what the corpus holds for that document.'"""
+    corpus, ground_truth = _valid_pair()
+    corpus['corpus_documents'][0]['document_metadata'] = {'topic': 'roofing'}
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'evidence'][0]['document_metadata'] = {'topic': 'plumbing'}
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('question 1' in p and 'document_metadata does not match'
+              in p for p in problems), problems
+
+
+def test_verbatim_evidence_with_no_part_labels_is_refused():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'evidence'][0]['part_labels'] = []
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('question 1' in p and 'needs part_labels' in p
+              for p in problems), problems
+
+
+def test_computed_evidence_with_part_labels_is_refused():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair()
+    evidence = ground_truth['groundtruth_dataset'][0][
+        'relevant_corpus_documents'][0]['evidence'][0]
+    evidence['fidelity'] = 'computed'
+    evidence['relevant_metadata'] = {'topic': 'roofing'}
+    evidence['part_labels'] = [{}]
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('question 1' in p and 'part_labels must be empty' in p
+              for p in problems), problems
+
+
+def test_a_derived_facts_relevant_metadata_naming_an_uncarried_value_is_refused():
+    # this is a unit test
+    """The x-cross-file #6 placement D9 also names: a derived fact's own
+    `relevant_metadata` — not tied to one document the way a piece of
+    evidence is — still has to name a value some document the question cites
+    actually carries."""
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'topic': {'type': 'string', 'description': 'subject',
+                         'applies_to': ['document']}}}})
+    corpus['corpus_documents'][0]['document_metadata'] = {'topic': 'roofing'}
+    question = ground_truth['groundtruth_dataset'][0]
+    question['expected_answer']['derived_facts'] = [
+        {'derived_fact_id': 1, 'fact': 'The roof was fixed',
+         'relevant_metadata': {'topic': 'plumbing'}}]
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('question 1' in p and 'derived_fact 1' in p
+              and "'topic'='plumbing'" in p and 'not carried by any document' in p
+              for p in problems), problems
+
+
 def test_an_abstention_question_needs_no_evidence():
     # this is a unit test
     """Abstention questions are the ones the corpus deliberately cannot

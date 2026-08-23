@@ -434,10 +434,11 @@ def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
     for question in ground_truth.get('groundtruth_dataset') or []:
         where = f'question {question.get("groundtruth_question_id")}'
         expected = question.get('expected_answer') or {}
-        derived_facts = {fact['derived_fact_id']
-                         for fact in expected.get('derived_facts') or []
+        derived_fact_list = expected.get('derived_facts') or []
+        derived_facts = {fact['derived_fact_id'] for fact in derived_fact_list
                          if 'derived_fact_id' in fact}
         covered: set = set()
+        cited_documents: list[dict] = []
         for relevant in question.get('relevant_corpus_documents') or []:
             document_id = relevant.get('corpus_document_id')
             document = documents.get(document_id)
@@ -446,6 +447,7 @@ def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
                     f'{where}: cites corpus_document_id {document_id}, which '
                     'is not in this corpus')
                 continue
+            cited_documents.append(document)
             doc_text = ' \n'.join(part.get('text', '')
                                   for part in document.get('document_content') or [])
             for evidence in relevant.get('evidence') or []:
@@ -499,6 +501,10 @@ def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
                 problems.extend(
                     _relevant_metadata_problems(where, document, key, value))
 
+        for fact in derived_fact_list:
+            problems.extend(
+                _derived_fact_metadata_problems(where, cited_documents, fact))
+
         if derived_facts and expected.get('behavior') != 'abstain':
             missing = derived_facts - covered
             if missing:
@@ -509,25 +515,59 @@ def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
     return problems
 
 
+def _metadata_matches(document: dict, key: str, value) -> bool:
+    """Whether `document`'s own `document_metadata` actually carries `value`
+    under `key` — a scalar must match exactly, a list-valued label must
+    contain every value named (a bare, non-list value counts as one to look
+    for). Absent entirely (`key` not on the document at all) is never a
+    match."""
+    actual = (document.get('document_metadata') or {}).get(key)
+    if actual is None:
+        return False
+    if isinstance(actual, list):
+        wanted = value if isinstance(value, list) else [value]
+        return all(v in actual for v in wanted)
+    return actual == value
+
+
 def _relevant_metadata_problems(where: str, document: dict, key: str,
                                 value) -> list[str]:
+    """x-cross-file #6 on a document or a piece of evidence, both already
+    tied to exactly one document: the value named has to be one that
+    document actually carries."""
     actual = (document.get('document_metadata') or {}).get(key)
     document_id = document.get('corpus_document_id')
     if actual is None:
         return [f'{where}: relevant_metadata names {key!r}, which document '
                 f'{document_id} does not carry']
-    if isinstance(actual, list):
-        wanted = value if isinstance(value, list) else [value]
-        missing = [v for v in wanted if v not in actual]
-        if missing:
+    if not _metadata_matches(document, key, value):
+        if isinstance(actual, list):
+            wanted = value if isinstance(value, list) else [value]
+            missing = [v for v in wanted if v not in actual]
             return [f'{where}: relevant_metadata {key!r}={missing} is not '
                     f'among what document {document_id} actually carries']
-        return []
-    if actual != value:
         return [f'{where}: relevant_metadata {key!r}={value!r} does not '
                 f'match what document {document_id} actually carries '
                 f'({actual!r})']
     return []
+
+
+def _derived_fact_metadata_problems(where: str, documents: list[dict],
+                                    fact: dict) -> list[str]:
+    """x-cross-file #6 on a derived fact — the same rule, but a derived fact
+    is not tied to one document the way a piece of evidence is (it names a
+    claim, not a citation), so a value counts as real if *any* of the
+    question's own `relevant_corpus_documents` actually carries it."""
+    problems: list[str] = []
+    fact_id = fact.get('derived_fact_id')
+    for key, value in (fact.get('relevant_metadata') or {}).items():
+        if not any(_metadata_matches(document, key, value)
+                  for document in documents):
+            problems.append(
+                f'{where}: derived_fact {fact_id} relevant_metadata '
+                f'{key!r}={value!r} is not carried by any document this '
+                'question cites')
+    return problems
 
 
 def import_dataset(corpus: dict, ground_truth: dict) -> Dataset:

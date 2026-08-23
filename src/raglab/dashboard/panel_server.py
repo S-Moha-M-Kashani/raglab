@@ -26,6 +26,7 @@ from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import experiment_archive as archive
 from raglab.configuration import explainer_assembly as explain
 from raglab.evaluation import service_experiment_ledger as ledger
+from raglab.evaluation import experiment_archive_store as archive_store
 from raglab.evaluation import leaderboard
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.llm_backends import model_role_catalogue as models
@@ -89,6 +90,31 @@ def _relative(path: Path) -> str:
 def _with_backend(cfg: LabConfig, run_settings) -> dict:
     """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
     return cfg.to_dict() | {'provider': run_settings.provider}
+
+
+def _archive_ui(payload: dict) -> dict:
+    """The panel controls of one run request, in the shape an archive records
+    them (`settings.ui`).
+
+    The knobs are a `LabConfig` and travel as one; these five are not — they
+    are how much of the corpus was scored and by which backend, which the
+    config cannot say. Read back off the request that carried them rather than
+    off the result, because the result never held them.
+
+    `mode` is the panel's dropdown, and the request carries the *provider* that
+    dropdown resolved to, so it is resolved back through the same table
+    (`models.MODES`) rather than guessed at. A provider no mode offers leaves
+    it blank, which is what a run started outside the panel honestly is.
+    """
+    provider = payload.get('provider') or ''
+    return {
+        'mode': next((mode.key for mode in models.MODES
+                      if mode.provider == provider), ''),
+        'ragas_mode': payload.get('ragas_mode', 'offline'),
+        'limit': int(payload.get('limit') or 0),
+        'ragas_limit': int(payload.get('ragas_limit') or 0),
+        'types': list(payload.get('types') or []),
+    }
 
 
 def _catalogue_vocab() -> dict:
@@ -233,7 +259,16 @@ class Jobs:
         self.jobs: dict[str, dict] = {}
         self.current: str | None = None
 
-    def start(self, kind: str, target, config: dict | None = None) -> str:
+    def start(self, kind: str, target, config: dict | None = None,
+              archive=None) -> str:
+        """`archive(job)` is called once, and only for a job that finished.
+
+        Per job rather than per instance, because only the route that started
+        the work knows what an archive of it would have to say — the panel
+        controls a result cannot be read back off. A cancelled or errored job
+        never reaches it: an archive is a record of an experiment that ran, and
+        there is no honest archive of work that stopped half way.
+        """
         with self.lock:
             if self.current and self.jobs[self.current]['state'] in ('running', 'cancelling'):
                 # One message per state: wait, versus wait then retry.
@@ -251,7 +286,8 @@ class Jobs:
                                  'detail': '', 'config': config,
                                  'result': None, 'error': None,
                                  'cancel_requested': False,
-                                 '_cancel': threading.Event()}
+                                 '_cancel': threading.Event(),
+                                 '_archive': archive}
             self.current = job_id
 
         cancel = self.jobs[job_id]['_cancel']
@@ -295,6 +331,16 @@ class Jobs:
                 # A ledger records the work; it is never a condition of it —
                 # reported on the job rather than swallowed.
                 job['ledger_error'] = f'{type(error).__name__}: {error}'
+            # The archive, on the ledger's terms exactly: written here, before
+            # the state goes terminal, and never able to fail the job that
+            # produced it. Only a job that *finished* has one — a cancelled or
+            # errored run measured nothing whole, and an archive of it would be
+            # a record of an experiment that never happened.
+            try:
+                if outcome == 'done' and job.get('_archive') is not None:
+                    job['_archive'](job)
+            except Exception as error:
+                job['archive_error'] = f'{type(error).__name__}: {error}'
             job['state'] = outcome
             if outcome == 'done':
                 job['progress'] = 1.0
@@ -309,8 +355,11 @@ class Jobs:
         job = self.jobs.get(job_id)
         if not job:
             raise HTTPException(404, 'unknown job')
-        # The event is an implementation detail, not JSON the browser can read.
-        return {key: value for key, value in job.items() if key != '_cancel'}
+        # The event and the archive hook are implementation details, not JSON
+        # the browser can read — every private key is dropped by one rule
+        # rather than by a list that has to be remembered.
+        return {key: value for key, value in job.items()
+                if not key.startswith('_')}
 
     def list(self) -> list[dict]:
         """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
@@ -531,6 +580,7 @@ def create_app() -> FastAPI:
             'models': models.resolve(cfg, run_settings).as_dict(),
         }
         metric_catalogue = explain.measures()
+        archive_ui = _archive_ui(payload)
 
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
@@ -573,7 +623,35 @@ def create_app() -> FastAPI:
                         },
                     }}
 
-        return _accepted(jobs.start('run', work, config=_with_backend(cfg, run_settings)))
+        def keep_archive(job: dict) -> None:
+            """One finished evaluation, written down as the archive a reader
+            would have downloaded.
+
+            The evidence is already assembled for the browser; all this adds is
+            the knob surface it was produced under — the config off the result
+            itself, so the two can never disagree, and the panel controls this
+            request carried. Handed to the store as a whole object rather than
+            column by column: `build_completed` is the export codec's own
+            server-side twin, so an experiment on record and an experiment
+            exported are the same thing said twice.
+
+            Reached only from `Jobs.run`, and only for a job that finished:
+            unfinished work is not saved, and a failure here is reported on the
+            job rather than failing it.
+            """
+            result = job.get('result')
+            evidence = result.get('archive_evidence') if isinstance(result, dict) else None
+            if not isinstance(evidence, dict):
+                return
+            canonical = {key: value for key, value in result.items()
+                         if key != 'archive_evidence'}
+            archive_store.store_completed(
+                {'config': canonical['config'], 'ui': archive_ui}, canonical,
+                evidence)
+
+        return _accepted(jobs.start('run', work,
+                                    config=_with_backend(cfg, run_settings),
+                                    archive=keep_archive))
 
     @app.post('/api/retrievals')
     def start_retrieval(payload: dict):
@@ -678,6 +756,37 @@ def create_app() -> FastAPI:
         # carries the whole job result for a row it recorded, and the run file
         # itself for an evaluation older than the ledger.
         return found | {'detail': (row or {}).get('detail') or run or {}}
+
+    @app.get('/api/experiments/{experiment_id}/archive')
+    def experiment_archive_route(experiment_id: str):
+        """One experiment as the portable archive the export button writes.
+
+        Its own route rather than a shape change to `/api/experiments/{id}`,
+        because that one has a second reader: the Inspector's recorded mode
+        reads `detail`, `state`, `kind` and `error` off it, and would go blank
+        if it started receiving an archive instead.
+
+        This is what the board's open button hands to the panel, and it is the
+        *same object* a downloaded file carries — so opening a row and importing
+        its export are one path with one strictness, not two that can drift.
+
+        The corpus is spliced back in on the way out (`archive_store.serve`)
+        from the content-addressed corpus store, and a version that store does
+        not hold is a refusal rather than a substitution: 409, because the
+        archive is intact and it is this installation that has moved.
+        """
+        db = archive_store.connect(ledger.db_path())
+        try:
+            found = archive_store.serve(db, experiment_id)
+        except archive_store.ArchiveStoreError as error:
+            raise HTTPException(409, str(error))
+        finally:
+            db.close()
+        if found is None:
+            raise HTTPException(
+                404, f'{experiment_id} has no complete archive: only '
+                'experiments whose evidence survives in full are archived')
+        return found
 
     @app.post('/api/imported-archives')
     def import_archive(payload: dict):

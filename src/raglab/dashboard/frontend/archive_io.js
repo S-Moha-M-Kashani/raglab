@@ -453,8 +453,28 @@ const ArchiveIO = (() => {
     if (stable(questionIds) !== stable(rowIds)) {
       fail(`evaluation.result.rows ids ${JSON.stringify(rowIds)} must equal ordered selection.question_ids ${JSON.stringify(questionIds)}`);
     }
-    if (stable(questionIds) !== stable(traceIds)) {
-      fail(`evaluation.inspector.traces question ids ${JSON.stringify(traceIds)} must equal ordered selection.question_ids ${JSON.stringify(questionIds)}`);
+    // Rows are the measurement; a trace is a recording of how retrieval reached
+    // one. Evidence may legitimately be absent — an evaluation recorded before
+    // the export route existed kept its rows, its judged metrics and its
+    // selection, but never stored a trace or a chunk — while a measurement may
+    // never be invented, which is why `questionIds === rowIds` above stays
+    // exact. So the traces are a *subset* of the rows: an archive with rows and
+    // no traces reads "scored, trace not retained", which is the truth about
+    // those runs. The relaxation goes no further than absence. A trace that is
+    // present is held to everything it was held to before — its question is one
+    // the run selected, every candidate resolves to an archived chunk or
+    // summary and is byte-equal to it (checked above) — and the traces that are
+    // present must still run in the selection's order, so a trace list cannot
+    // silently reorder the run it recorded. The Python codec's
+    // `_validate_completed` reads it exactly this way; the two must not drift.
+    const traced = new Set(traceIds);
+    const rowIdSet = new Set(rowIds);
+    const outside = traceIds.filter((traceId) => !rowIdSet.has(traceId));
+    if (outside.length) {
+      fail(`evaluation.inspector.traces question ids ${JSON.stringify(outside)} are outside ordered selection.question_ids ${JSON.stringify(questionIds)}`);
+    }
+    if (stable(traceIds) !== stable(questionIds.filter((questionId) => traced.has(questionId)))) {
+      fail(`evaluation.inspector.traces question ids ${JSON.stringify(traceIds)} must follow ordered selection.question_ids ${JSON.stringify(questionIds)}`);
     }
     const count = questionIds.length;
     if (integer(selection.n, 'evaluation.result.selection.n', 0) !== count) {

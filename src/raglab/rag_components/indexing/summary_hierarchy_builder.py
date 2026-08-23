@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
-from raglab.rag_components.indexing.chunking_strategies import Chunk
+from raglab.rag_components.indexing.chunking_strategies import Chunk, is_present
 
 # One seed for everything that would otherwise wander. Not a knob: two builds of
 # one fingerprint must produce one index, and a seed in the config would be a
@@ -267,35 +267,67 @@ def _by_label(labels, k: int) -> list[list[int]]:
     return [g for g in groups if g]
 
 
-def _grouping_label(label_fields: dict) -> str:
+def _recurrence(chunks: list[Chunk], name: str) -> float:
+    """How much one array label's own values repeat across this leaf set:
+    total occurrences over distinct values. A storyline that spans many
+    documents scores high; a fine-grained, mostly one-off vocabulary scores
+    low. Purely data-driven — no label name is ever hardcoded — so it works
+    on whatever a corpus happens to call its two array labels."""
+    counts: dict = defaultdict(int)
+    for chunk in chunks:
+        value = chunk.labels.get(name)
+        items = value if isinstance(value, list) else ([value] if is_present(value) else [])
+        for item in items:
+            if is_present(item):
+                counts[item] += 1
+    distinct = len(counts)
+    return (sum(counts.values()) / distinct) if distinct else 0.0
+
+
+def _grouping_label(label_fields: dict, chunks: list[Chunk]) -> str:
     """Which array label the `metadata` control groups by: the corpus's own
-    storyline vocabulary, in declaration order — an array label declared to
-    reach `chunk`, preferring one a person authored (no `extracted`) over one
-    a model derived, since the point of the control is to be the *less*
-    noisy rollup. `''` when the corpus declares no array label at all, so the
-    control groups nothing rather than guessing a name."""
+    storyline vocabulary. Two stages, both generic — neither ever names a
+    label: first, among the array labels declared to reach `chunk`, prefer
+    the ones a person authored (no `extracted`) over ones a model derived,
+    since the whole point of this control is to be the *less* noisy rollup.
+    That alone resolves diary-fa (`topics` is `extracted`, `recurring_threads`
+    is not). When it does not resolve anything — meetings-de, research-
+    multihop and support-en each declare *two* authored array labels — the
+    tie is broken on the corpus's own data: `_recurrence`, the label whose
+    values repeat most across this leaf set, since a storyline recurring
+    across many documents is exactly what makes a label a storyline rather
+    than a topic. A further tie (or no candidate at all) falls back to
+    declaration order, deterministically. `''` when the corpus declares no
+    array label at all, so the control groups nothing rather than guessing."""
     candidates = [name for name, definition in (label_fields or {}).items()
                  if definition.get('type') == 'array'
                  and 'chunk' in (definition.get('applies_to') or [])]
+    if not candidates:
+        return ''
     authored = [name for name in candidates if not label_fields[name].get('extracted')]
-    ordered = authored or candidates
-    return ordered[0] if ordered else ''
+    pool = authored or candidates
+    if len(pool) == 1:
+        return pool[0]
+    # `sorted` is stable, so a tie in recurrence keeps declaration order.
+    return sorted(pool, key=lambda name: -_recurrence(chunks, name))[0]
 
 
 def _metadata_groups(chunks: list[Chunk], label_fields: dict) -> list[list[int]]:
     """One group per distinct value of the corpus's own storyline label
     (`_grouping_label`) — a control against the old, deleted rollups: one
     group per declared storyline, not per topic, which is per-document and
-    noisier."""
-    name = _grouping_label(label_fields)
+    noisier. A value that carries nothing (`is_present` says so) groups
+    nothing, the same rule `contextual_prefix` renders by."""
+    name = _grouping_label(label_fields, chunks)
     if not name:
         return []
     by_value: dict[str, list[int]] = defaultdict(list)
     for i, chunk in enumerate(chunks):
         value = chunk.labels.get(name)
-        values = value if isinstance(value, list) else ([value] if value else [])
+        values = value if isinstance(value, list) else ([value] if is_present(value) else [])
         for v in values:
-            by_value[v].append(i)
+            if is_present(v):
+                by_value[v].append(i)
     return [members for _, members in sorted(by_value.items())]
 
 

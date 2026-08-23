@@ -90,6 +90,17 @@ class Chunk:
         return self.text[len(self.prefix):] if self.prefix else self.text
 
 
+def is_present(value) -> bool:
+    """Whether a label's own value is something to show or group by, not
+    nothing recorded — the one presence rule `contextual_prefix` and
+    `summary_hierarchy_builder._metadata_groups` both defer to, so neither
+    can silently disagree with the other about what "absent" means. `None`
+    (a nullable label recorded absent, D4) and an empty string carry
+    nothing; `0`, `False`, and any other real value — including one item
+    already pulled out of a list — do."""
+    return value is not None and value != ''
+
+
 def _flattened(value):
     """One label value, made chroma-safe: a list space-joined, an object (a
     keyed confidence, or a rolled-up date range) a JSON string, a scalar as
@@ -156,8 +167,14 @@ def contextual_prefix(document: dict, label_fields: dict, language: str) -> str:
         if name not in meta:
             continue
         value = meta[name]
+        # A nullable label recorded `null` (D4: absence, never "recorded as
+        # nothing") is skipped here rather than rendered as the literal word
+        # "None" — the same presence rule `is_present` states once for every
+        # reader of a label value.
+        if not is_present(value):
+            continue
         if isinstance(value, (list, tuple)):
-            shown = comma.join(str(v) for v in value)
+            shown = comma.join(str(v) for v in value if is_present(v))
         elif isinstance(value, dict):
             shown = json.dumps(value, ensure_ascii=False, sort_keys=True)
         else:

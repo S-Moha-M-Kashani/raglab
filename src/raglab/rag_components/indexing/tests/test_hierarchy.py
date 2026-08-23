@@ -274,6 +274,215 @@ def test_the_card_summariser_states_the_count_rather_than_implying_it():
     assert '2026-04-01' in card and '2026-04-04' in card
 
 
+# --- label rollup, in isolation -------------------------------------------
+# Each rule of `_rolled_up_labels` gets its own test with synthetic
+# declarations and values, so a regression in one rule (a max silently
+# becoming a mean, say) fails a test that names the rule rather than only
+# ever showing up as a fuzzy difference somewhere inside a 167-document
+# integration build.
+
+from raglab.rag_components.indexing.chunking_strategies import Chunk as _Chunk
+
+
+def _leaf(labels: dict, document_id: str = '') -> _Chunk:
+    return _Chunk(id=f'leaf:{document_id or labels}', text='x',
+                  document_id=document_id, labels=labels)
+
+
+def test_rollup_array_label_unions_across_members():
+    # this is a unit test
+    label_fields = {'topics': {'type': 'array', 'description': 'x',
+                               'applies_to': ['chunk', 'summary']}}
+    block = [_leaf({'topics': ['a', 'b']}), _leaf({'topics': ['b', 'c']})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {
+        'topics': ['a', 'b', 'c']}
+
+
+def test_rollup_scalar_string_label_keeps_the_single_value_when_all_agree():
+    # this is a unit test
+    label_fields = {'role': {'type': 'string', 'description': 'x',
+                             'applies_to': ['chunk', 'summary']}}
+    block = [_leaf({'role': 'user'}), _leaf({'role': 'user'})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {'role': 'user'}
+
+
+def test_rollup_scalar_string_label_becomes_the_list_when_members_disagree():
+    # this is a unit test
+    label_fields = {'role': {'type': 'string', 'description': 'x',
+                             'applies_to': ['chunk', 'summary']}}
+    block = [_leaf({'role': 'user'}), _leaf({'role': 'assistant'})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {
+        'role': ['user', 'assistant']}
+
+
+def test_rollup_date_time_label_becomes_a_from_to_range():
+    # this is a unit test
+    label_fields = {'recorded_at': {'type': 'string', 'format': 'date-time',
+                                    'description': 'x',
+                                    'applies_to': ['chunk', 'summary']}}
+    block = [_leaf({'recorded_at': '2026-03-05T00:00:00Z'}),
+             _leaf({'recorded_at': '2026-01-11T00:00:00Z'}),
+             _leaf({'recorded_at': '2026-02-01T00:00:00Z'})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {
+        'recorded_at': {'from': '2026-01-11T00:00:00Z',
+                        'to': '2026-03-05T00:00:00Z'}}
+
+
+def test_rollup_date_time_label_tolerates_a_member_already_rolled_up():
+    # this is a unit test
+    """A level-2 grouping over level-1 summaries hands `_rolled_up_labels` a
+    member whose own value is already a `{from, to}` dict, not a raw
+    timestamp — both its endpoints count as points in the wider range."""
+    label_fields = {'recorded_at': {'type': 'string', 'format': 'date-time',
+                                    'description': 'x',
+                                    'applies_to': ['chunk', 'summary']}}
+    block = [_leaf({'recorded_at': {'from': '2026-01-11T00:00:00Z',
+                                    'to': '2026-02-01T00:00:00Z'}}),
+             _leaf({'recorded_at': '2026-03-05T00:00:00Z'})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {
+        'recorded_at': {'from': '2026-01-11T00:00:00Z',
+                        'to': '2026-03-05T00:00:00Z'}}
+
+
+def test_rollup_number_label_averages():
+    # this is a unit test
+    label_fields = {'mood_valence': {'type': 'number', 'minimum': 0,
+                                     'maximum': 10, 'description': 'x',
+                                     'applies_to': ['chunk', 'summary']}}
+    block = [_leaf({'mood_valence': 2.0}), _leaf({'mood_valence': 8.0})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {
+        'mood_valence': 5.0}
+
+
+def test_rollup_confidence_for_scalar_label_takes_the_max_not_the_mean():
+    # this is a unit test
+    """A regression this test exists to catch by name: a `confidence_for`
+    rater is never averaged (mean would blur a well-supported label under a
+    badly-supported one), it is maxed."""
+    label_fields = {
+        'feeling': {'type': 'string', 'description': 'x',
+                   'applies_to': ['chunk', 'summary'], 'extracted': True},
+        'feeling_confidence': {'type': 'number', 'description': 'x',
+                               'applies_to': ['chunk', 'summary'],
+                               'confidence_for': 'feeling'},
+    }
+    block = [_leaf({'feeling_confidence': 0.2}),
+             _leaf({'feeling_confidence': 0.9})]
+    rolled = hierarchy._rolled_up_labels(label_fields, block)
+    assert rolled['feeling_confidence'] == 0.9
+    assert rolled['feeling_confidence'] != pytest.approx((0.2 + 0.9) / 2)
+
+
+def test_rollup_confidence_for_keyed_object_label_takes_the_max_per_key():
+    # this is a unit test
+    label_fields = {
+        'topics': {'type': 'array', 'description': 'x',
+                  'applies_to': ['chunk', 'summary'], 'extracted': True},
+        'topics_confidence': {'type': 'object', 'description': 'x',
+                              'applies_to': ['chunk', 'summary'],
+                              'confidence_for': 'topics'},
+    }
+    block = [_leaf({'topics_confidence': {'tax': 0.9, 'heat': 0.3}}),
+             _leaf({'topics_confidence': {'tax': 0.4, 'rain': 0.7}})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {
+        'topics_confidence': {'tax': 0.9, 'heat': 0.3, 'rain': 0.7}}
+
+
+def test_rollup_label_not_declared_for_summary_is_not_rolled_up():
+    # this is a unit test
+    """A label whose `applies_to` never names `summary` is an identity of
+    the leaf it labelled, not a property of the group, and is dropped
+    entirely — not defaulted, not carried through unioned."""
+    label_fields = {'internal_row_id': {'type': 'string', 'description': 'x',
+                                        'applies_to': ['chunk']}}
+    block = [_leaf({'internal_row_id': 'r1'}), _leaf({'internal_row_id': 'r2'})]
+    assert hierarchy._rolled_up_labels(label_fields, block) == {}
+
+
+# --- the metadata control's grouping label, in isolation --------------------
+
+def test_grouping_label_prefers_the_authored_label_over_the_extracted_one():
+    # this is a unit test
+    """Resolves without ever touching the data: one candidate is
+    `extracted` (model-derived), the other is not, so the authored one wins
+    regardless of which one recurs more."""
+    label_fields = {
+        'topics': {'type': 'array', 'description': 'x',
+                  'applies_to': ['chunk'], 'extracted': True},
+        'threads': {'type': 'array', 'description': 'x',
+                   'applies_to': ['chunk']},
+    }
+    chunks = [_leaf({'topics': ['a'], 'threads': ['x']}, document_id='1'),
+             _leaf({'topics': ['b'], 'threads': ['x']}, document_id='2')]
+    assert hierarchy._grouping_label(label_fields, chunks) == 'threads'
+
+
+def test_grouping_label_breaks_a_tie_between_two_authored_labels_by_recurrence():
+    # this is a unit test
+    """Neither label is `extracted`, so declaration alone cannot resolve it
+    — the corpus's own data does: `threads`' two values each cover two
+    documents (recurring), `topics`' four values are each their own document
+    (one-off), so `threads` wins purely on how much its values repeat, with
+    no label name ever hardcoded."""
+    label_fields = {
+        'topics': {'type': 'array', 'description': 'x', 'applies_to': ['chunk']},
+        'threads': {'type': 'array', 'description': 'x', 'applies_to': ['chunk']},
+    }
+    chunks = [
+        _leaf({'topics': ['t1'], 'threads': ['storyline-a']}, document_id='1'),
+        _leaf({'topics': ['t2'], 'threads': ['storyline-a']}, document_id='2'),
+        _leaf({'topics': ['t3'], 'threads': ['storyline-b']}, document_id='3'),
+        _leaf({'topics': ['t4'], 'threads': ['storyline-b']}, document_id='4'),
+    ]
+    assert hierarchy._grouping_label(label_fields, chunks) == 'threads'
+
+
+def test_grouping_label_falls_back_to_declaration_order_on_a_full_tie():
+    # this is a unit test
+    label_fields = {
+        'first': {'type': 'array', 'description': 'x', 'applies_to': ['chunk']},
+        'second': {'type': 'array', 'description': 'x', 'applies_to': ['chunk']},
+    }
+    chunks = [_leaf({'first': ['a'], 'second': ['x']}, document_id='1'),
+             _leaf({'first': ['b'], 'second': ['y']}, document_id='2')]
+    assert hierarchy._grouping_label(label_fields, chunks) == 'first'
+
+
+def test_grouping_label_is_empty_without_any_array_label():
+    # this is a unit test
+    assert hierarchy._grouping_label({}, []) == ''
+
+
+@pytest.mark.parametrize('dataset', ['meetings-de', 'research-multihop',
+                                     'support-en'])
+def test_grouping_label_avoids_topics_on_every_bundled_corpus_with_two_authored_array_labels(
+        dataset):
+    # this is an integration test
+    """The controller ruling this test exists for: on every bundled corpus
+    that declares two equally-authored array labels, the choice must be
+    generic and data-driven, not diary-fa's own shape in disguise. None of
+    these three declare `extracted` on either candidate, so the tie is
+    resolved by `_recurrence` alone — and on every one of them that picks
+    the storyline label over `topics`, the one the deleted docstring called
+    noisier, without this test (or `_grouping_label`) ever naming which
+    label that is."""
+    corpus, _ = datasets.load(dataset)
+    meta = corpus['corpus_dataset_metadata']
+    label_fields = meta['label_fields']
+    array_chunk_labels = [name for name, d in label_fields.items()
+                          if d.get('type') == 'array'
+                          and 'chunk' in (d.get('applies_to') or [])]
+    assert len(array_chunk_labels) == 2, (
+        dataset, 'this corpus is expected to declare exactly two candidates')
+    assert not any(label_fields[name].get('extracted') for name in array_chunk_labels), (
+        dataset, 'this corpus is expected to leave both candidates authored, '
+        'so the tie is broken by data, not by declaration')
+    chunks = [_leaf({name: (doc.get('document_metadata') or {}).get(name)
+                    for name in array_chunk_labels}, document_id=str(i))
+             for i, doc in enumerate(corpus['corpus_documents'])]
+    assert hierarchy._grouping_label(label_fields, chunks) != 'topics'
+
+
 # --- retrieval over an index that has summaries ----------------------------
 
 def _question(ground_truth):

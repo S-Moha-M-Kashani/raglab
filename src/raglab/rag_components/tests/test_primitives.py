@@ -228,6 +228,53 @@ def test_contextual_prefix_never_shows_a_confidence_label():
     assert 'feeling_confidence' not in prefix
 
 
+def test_contextual_prefix_never_renders_a_nullable_labels_null_as_the_word_none():
+    # this is a unit test
+    """D4: a nullable label recorded `null` means "not recorded", never
+    "recorded as nothing" — it must be skipped, not rendered as the literal
+    string `'None'` (what plain `str(None)` would have written here)."""
+    document = {'corpus_document_id': 1, 'document_content': [{'text': 'x'}],
+                'document_metadata': {'feeling': None, 'topics': ['office']}}
+    label_fields = {
+        'feeling': {'type': 'string', 'nullable': True, 'description': 'x',
+                   'applies_to': ['document', 'chunk']},
+        'topics': {'type': 'array', 'items': {'type': 'string'},
+                  'description': 'x', 'applies_to': ['document', 'chunk']},
+    }
+    prefix = chunking.contextual_prefix(document, label_fields, 'en')
+    assert 'feeling' not in prefix
+    assert 'None' not in prefix
+    assert 'topics: office' in prefix
+
+
+def test_contextual_prefix_drops_an_empty_item_inside_a_list_value():
+    # this is a unit test
+    """A list carrying a recorded-empty item alongside real ones renders
+    only the real ones — `is_present` is the one rule both the per-value
+    skip and the per-item join defer to, so an empty string never becomes a
+    bare, confusing comma in the joined text."""
+    document = {'corpus_document_id': 1, 'document_content': [{'text': 'x'}],
+                'document_metadata': {'topics': ['office', '', 'deliveries']}}
+    label_fields = {'topics': {'type': 'array', 'items': {'type': 'string'},
+                               'description': 'x',
+                               'applies_to': ['document', 'chunk']}}
+    prefix = chunking.contextual_prefix(document, label_fields, 'en')
+    assert 'topics: office, deliveries' in prefix
+
+
+def test_is_present_treats_none_and_empty_string_as_absent_and_everything_else_as_present():
+    # this is a unit test
+    """The one presence rule shared by `contextual_prefix` and
+    `summary_hierarchy_builder._metadata_groups` — pinned directly so the two
+    functions can never silently drift apart about what "absent" means."""
+    assert not chunking.is_present(None)
+    assert not chunking.is_present('')
+    assert chunking.is_present(0)
+    assert chunking.is_present(False)
+    assert chunking.is_present('x')
+    assert chunking.is_present([])   # an empty list is a recorded value, not absence
+
+
 def test_contextual_prefix_is_empty_without_any_document_level_label():
     # this is a unit test
     """D4: absence stays absence — no bracket at all when the document

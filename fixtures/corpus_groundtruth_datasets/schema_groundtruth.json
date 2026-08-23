@@ -77,6 +77,10 @@
       "No abstention questions, so a system that answers everything confidently scores best."
     ]
   },
+  "x-raglab-uses": {
+    "description": "What the lab does with what you declare, so a declaration is a decision rather than paperwork.",
+    "labels_become_panel_filters": "A question label declared in question_metadata_fields with a values list or a glossary becomes one switch-group in the panel's filter row, one entry per allowed value. That same label's name may be given to balance, the sampling axis that spreads what gets sampled evenly across the label's values instead of a plain stride. A label with neither values nor a glossary is free text and renders no filter."
+  },
   "x-cross-file": [
     "corpus_ref.dataset must equal the corpus's corpus_dataset_metadata.dataset.",
     "Every corpus_document_id cited must exist in that corpus.",

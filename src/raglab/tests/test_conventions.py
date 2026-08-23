@@ -18,6 +18,7 @@ imports chromadb (here), a build opens no socket (test_store_index.py
 (here, via tomllib rather than string slicing).
 """
 import importlib
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -574,3 +575,147 @@ def test_every_path_env_example_names_is_a_path_that_exists():
         elif not (ROOT / ref).exists():
             missing.append(ref)
     assert not missing, f'.env.example names {missing}, which do not exist'
+
+
+# --- The sanctioned duplication: two readable templates mirror the two JSON
+# schemas that are the corpus/ground-truth contract's real source of truth.
+# The duplication is deliberate (an author reads the template, a machine
+# reads the schema) so it needs a guard that pins it the way the widget's
+# prompt fixtures are pinned against the code that reads them — not
+# byte-equal, since a schema and its template are two different documents,
+# but key for key: every property a schema declares under "properties" must
+# have a same-named counterpart in the template, at every depth an object,
+# an array-of-one-example or an additionalProperties-map can be walked into,
+# and nothing may appear in one and not the other. ---
+
+_DATASETS = ROOT / 'fixtures' / 'corpus_groundtruth_datasets'
+
+
+def _descend_schema(schema_node):
+    """How to walk one level further into a schema node: ('object', the
+    properties dict), ('array', the items schema), ('map', the
+    additionalProperties schema — only when that schema itself declares
+    properties, i.e. a label-declaration table), or (None, None) for a leaf
+    or an opaque additionalProperties:true/string blob, which carries no
+    fixed key set to mirror."""
+    if not isinstance(schema_node, dict):
+        return None, None
+    if 'properties' in schema_node:
+        return 'object', schema_node['properties']
+    if schema_node.get('type') == 'array' and 'items' in schema_node:
+        return 'array', schema_node['items']
+    additional = schema_node.get('additionalProperties')
+    if isinstance(additional, dict) and 'properties' in additional:
+        return 'map', additional
+    return None, None
+
+
+def _template_keys(node):
+    """A template dict's real declared keys: its own documentation
+    (_read_me, _note) and the single <placeholder> key standing in for an
+    additionalProperties map are markers, not properties."""
+    return {k for k in node
+            if not k.startswith('_') and not (k.startswith('<') and k.endswith('>'))}
+
+
+def _template_placeholder_value(node):
+    for key, value in node.items():
+        if key.startswith('<') and key.endswith('>'):
+            return value
+    return None
+
+
+def _mirror_mismatches(schema_node, template_node, path, exceptions):
+    """Every place the schema and the template disagree about which keys
+    exist at some depth, as human-readable strings; [] means they mirror
+    each other fully from this node down. `exceptions` names paths (by the
+    same dotted/bracketed spelling this function builds) where a template is
+    allowed to abbreviate rather than restate a schema in full — the one
+    case here is documented beside its own entry, not a blanket escape."""
+    kind, child = _descend_schema(schema_node)
+    if kind is None or path in exceptions:
+        return []
+    if kind == 'object':
+        if not isinstance(template_node, dict):
+            return [f'{path}: schema declares an object, template does not']
+        schema_keys, template_keys = set(child), _template_keys(template_node)
+        problems = []
+        if schema_keys - template_keys:
+            problems.append(f'{path}: in the schema, missing from the '
+                             f'template: {sorted(schema_keys - template_keys)}')
+        if template_keys - schema_keys:
+            problems.append(f'{path}: in the template, missing from the '
+                             f'schema: {sorted(template_keys - schema_keys)}')
+        for key in schema_keys & template_keys:
+            problems += _mirror_mismatches(child[key], template_node[key],
+                                            f'{path}.{key}', exceptions)
+        return problems
+    if kind == 'array':
+        if not isinstance(template_node, list) or not template_node:
+            return [f'{path}: schema declares an array, template gives no '
+                    'example item to mirror against']
+        return _mirror_mismatches(child, template_node[0], f'{path}[]', exceptions)
+    # kind == 'map'
+    if not isinstance(template_node, dict):
+        return [f'{path}: schema declares a keyed table, template is not an object']
+    placeholder = _template_placeholder_value(template_node)
+    if placeholder is None:
+        return [f'{path}: template names no <placeholder> key for this table']
+    return _mirror_mismatches(child, placeholder, path, exceptions)
+
+
+def test_the_template_mirror_detector_sees_added_and_missing_keys():
+    # this is a convention test
+    """Proves the walker above actually notices drift in both directions
+    before it is trusted on the real schemas: a key the schema declares and
+    the template omits, and a key the template invents that the schema does
+    not — one nested under an ordinary object, to exercise the recursive
+    case a shallow key-set diff would miss."""
+    schema = {'properties': {
+        'a': {'type': 'string'},
+        'b': {'type': 'object', 'properties': {'x': {'type': 'string'}}},
+    }}
+    matching = {'a': '...', 'b': {'x': '...'}}
+    assert _mirror_mismatches(schema, matching, 'root', set()) == []
+
+    missing_in_template = {'a': '...', 'b': {}}
+    assert _mirror_mismatches(schema, missing_in_template, 'root', set()) != []
+
+    extra_in_template = {'a': '...', 'b': {'x': '...', 'y': 'surprise'}}
+    assert _mirror_mismatches(schema, extra_in_template, 'root', set()) != []
+
+
+def test_corpus_template_mirrors_corpus_schema_key_for_key():
+    # this is a convention test
+    """The sanctioned duplication, pinned: a key added to schema_corpus.json
+    (such as the ranks label the agentic retriever's importance weight
+    reads) with nothing added to corpus_template.json — or the reverse —
+    fails here rather than reaching an author copying the template by hand."""
+    schema = json.loads((_DATASETS / 'schema_corpus.json').read_text(encoding='utf-8'))
+    template = json.loads((_DATASETS / 'corpus_template.json').read_text(encoding='utf-8'))
+    problems = _mirror_mismatches(schema, template, 'root', set())
+    assert problems == [], '\n'.join(problems)
+
+
+# groundtruth_template.json abbreviates one node on purpose: a question
+# label's own declaration (question_metadata_fields's entries) is the same
+# twelve-key table label_fields uses in the corpus schema, and the template
+# says so in its own "_note" ("Same shape as the corpus's label_fields")
+# rather than restating the whole table a second time. That single,
+# documented abbreviation is named here so it cannot silently grow a second
+# one beside it.
+_GROUNDTRUTH_MIRROR_EXCEPTIONS = {
+    'root.groundtruth_dataset_metadata.question_metadata_fields',
+}
+
+
+def test_groundtruth_template_mirrors_groundtruth_schema_key_for_key():
+    # this is a convention test
+    """The same pin as the corpus pair, for the ground-truth schema and its
+    template — including the D7 sentence that names a question label as a
+    panel filter, which is prose in x-raglab-uses and therefore outside what
+    this structural check walks (see the docstring on _descend_schema)."""
+    schema = json.loads((_DATASETS / 'schema_groundtruth.json').read_text(encoding='utf-8'))
+    template = json.loads((_DATASETS / 'groundtruth_template.json').read_text(encoding='utf-8'))
+    problems = _mirror_mismatches(schema, template, 'root', _GROUNDTRUTH_MIRROR_EXCEPTIONS)
+    assert problems == [], '\n'.join(problems)

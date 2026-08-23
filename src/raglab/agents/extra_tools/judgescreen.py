@@ -132,8 +132,16 @@ def build_items(ground_truth: dict, sessions: dict, pairs: int = 6) -> list[Item
     a degenerate judge then scores exactly 0.5 rather than a misleadingly
     respectable accuracy. A question yielding no anchored sentence or clean
     mutation is skipped whole, so the classes stay equal in size and wording."""
-    usable = [q for q in ground_truth['questions']
-              if q.get('answerable') and q.get('evidence') and q.get('answer_fa')]
+    # NOTE (raglab task-5): `answerable`/`answer_fa` renamed mechanically to
+    # `behavior`/`expected_answer.text` below, but `dated_context()` above
+    # still reads the old session/message shape (`evidence[].session_id` /
+    # `.message_indices`) against the new corpus's document/part shape — a
+    # deeper rewrite than a field rename, left for the task that reworks this
+    # tool's broader logic against the new corpus schema.
+    usable = [q for q in ground_truth['groundtruth_dataset']
+              if q['expected_answer']['behavior'] != 'abstain'
+              and q.get('relevant_corpus_documents')
+              and q['expected_answer'].get('text')]
     items: list[Item] = []
     for question in usable:
         if len(items) >= pairs * 2:
@@ -141,16 +149,17 @@ def build_items(ground_truth: dict, sessions: dict, pairs: int = 6) -> list[Item
         context = dated_context(sessions, question)
         if not context:
             continue
-        claim = _anchored_sentence(question['answer_fa'], context)
+        claim = _anchored_sentence(question['expected_answer']['text'], context)
         if not claim:
             continue
         mutated = _mutate_number(claim, context)
         if not mutated:
             continue
-        items.append(Item(id=f"{question['id']}-yes", question_id=question['id'],
+        question_id = question['groundtruth_question_id']
+        items.append(Item(id=f'{question_id}-yes', question_id=question_id,
                           context=context, claim=claim, supported=True,
                           overlap=_overlap(claim, context)))
-        items.append(Item(id=f"{question['id']}-no", question_id=question['id'],
+        items.append(Item(id=f'{question_id}-no', question_id=question_id,
                           context=context, claim=mutated, supported=False,
                           overlap=_overlap(mutated, context)))
     return items

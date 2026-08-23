@@ -144,11 +144,12 @@ def test_a_stage_with_no_model_choice_leaves_it_to_the_provider(index):
     assert provider.calls == ['']
 
 
-def test_the_key_facts_judge_uses_the_judge_model():
+def test_the_fact_judge_uses_the_judge_model():
     # this is a unit test
     provider = Recorder(reply='1: yes')
-    score = evaluate.judge_key_facts(provider, 'judge/model',
-                                     {'key_facts': ['he went to the gym']}, 'رفتم')
+    question = {'expected_answer': {'derived_facts': [
+        {'derived_fact_id': 1, 'fact': 'he went to the gym'}]}}
+    score = evaluate.judge_derived_facts(provider, 'judge/model', question, 'رفتم')
     assert provider.calls == ['judge/model']
     assert score == pytest.approx(1.0)
 

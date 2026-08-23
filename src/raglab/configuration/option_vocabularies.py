@@ -44,7 +44,3 @@ SUMMARY_SCOPES = ('mixed', 'leaves', 'summaries', 'drill-down')
 RERANKERS = ('lexical', 'none', 'recency', 'agentic', 'cross-encoder', 'llm')
 GRADERS = ('none', 'lexical', 'llm')
 ANSWERERS = ('extractive', 'none', 'llm')
-# Ascending, and the order a sample's uneven remainder is handed out in.
-DIFFICULTIES = ('easy', 'medium', 'hard')
-# How a limited run picks its questions. See evaluate.select_questions.
-BALANCES = ('stride', 'difficulty')

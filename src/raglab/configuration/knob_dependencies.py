@@ -90,8 +90,8 @@ DEPENDENCIES = {
         'field': 'generation.answerer', 'on': ['llm'],
         'reason': 'only the llm answerer calls a model'},
     'generation.judge_model': {
-        'field': 'generation.key_facts_judge', 'on_true': True,
-        'reason': 'the key-facts judge is off'},
+        'field': 'generation.fact_judge', 'on_true': True,
+        'reason': 'the fact judge is off'},
 }
 
 

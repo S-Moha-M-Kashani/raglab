@@ -19,8 +19,6 @@ from raglab.llm_backends import model_role_catalogue as models
 from raglab.rag_components import question_to_answer_pipeline as pipeline
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
 from raglab.configuration.lab_config import (
-    BALANCES,
-    DIFFICULTIES,
     RUNS_DIR,
     LabConfig,
     LabSettings)
@@ -36,23 +34,25 @@ from raglab.dashboard.service_presentation import (
     normalised_chunks,
     summary_rows)
 
-KEY_FACTS_PROMPT = (
-    'You check whether an answer contains specific facts. The answer is in '
-    'Persian; the facts are in English. For each numbered fact reply on its own '
-    'line with "<number>: yes" if the answer states or clearly implies it, '
-    'otherwise "<number>: no". Output nothing else.')
+DERIVED_FACTS_PROMPT = (
+    'You check whether an answer contains specific facts. The answer and the '
+    'facts may be in different languages; translate as you check. For each '
+    'numbered fact reply on its own line with "<number>: yes" if the answer '
+    'states or clearly implies it, otherwise "<number>: no". Output nothing '
+    'else.')
 
 
-def judge_key_facts(llm, model: str, question: dict, answer: str) -> float:
-    """Share of the ground truth's key facts present in the answer. Facts are
-    English, answers are Farsi, so lexical overlap can't score this — a judge
-    that translates as it checks is the only option."""
-    facts = question.get('key_facts') or []
+def judge_derived_facts(llm, model: str, question: dict, answer: str) -> float:
+    """Share of the ground truth's derived_facts present in the answer. The
+    facts and the answer may be in different languages, so lexical overlap
+    can't score this — a judge that translates as it checks is the only
+    option."""
+    facts = question['expected_answer'].get('derived_facts') or []
     if not facts or not answer:
         return float('nan')
-    listing = '\n'.join(f'{i + 1}. {fact}' for i, fact in enumerate(facts))
+    listing = '\n'.join(f'{i + 1}. {fact["fact"]}' for i, fact in enumerate(facts))
     try:
-        turn = lab_chat(llm, [{'role': 'system', 'content': KEY_FACTS_PROMPT},
+        turn = lab_chat(llm, [{'role': 'system', 'content': DERIVED_FACTS_PROMPT},
                               {'role': 'user',
                                'content': f'Answer:\n{answer}\n\nFacts:\n{listing}'}],
                         model)
@@ -156,22 +156,47 @@ def _stride(questions: list[dict], limit: int) -> list[dict]:
     return [questions[i * total // limit] for i in range(limit)]
 
 
-def _balanced(questions: list[dict], limit: int) -> list[dict]:
-    """`limit` questions with the difficulty bands as equal as the count allows —
-    a plain stride hands medium roughly half of every sample, which would let one
-    band's pipeline stand in for the four deciding metrics' score. The remainder
-    when `limit` doesn't divide by three goes to the earlier bands in
-    DIFFICULTIES order, deterministically. Each band is itself strided."""
-    bands = [[q for q in questions if q['difficulty'] == name]
-             for name in DIFFICULTIES]
-    bands += [[q for q in questions
-               if q['difficulty'] not in set(DIFFICULTIES)]]
+def _label_value(question: dict, label: str):
+    return (question.get('question_metadata') or {}).get(label)
+
+
+def _bands(questions: list[dict], label: str, fields: dict) -> list[str]:
+    """The order to walk a label's values in, so a sample is deterministic and
+    a remainder always lands the same way twice. A declared `values` list or
+    `glossary` (its own key order) is preferred over the data, so the order is
+    the dataset's own choice rather than an accident of which value appeared
+    first among these particular rows."""
+    declared = fields.get(label) or {}
+    order = declared.get('values') or list((declared.get('glossary') or {}))
+    if order:
+        return order
+    seen: list[str] = []
+    for question in questions:
+        value = _label_value(question, label)
+        if value is not None and value not in seen:
+            seen.append(value)
+    return seen
+
+
+def _balanced(questions: list[dict], limit: int, label: str,
+             fields: dict) -> list[dict]:
+    """`limit` questions with `label`'s own bands as equal as the count allows —
+    a plain stride hands the most common band roughly half of every sample,
+    which would let one band's pipeline stand in for the four deciding
+    metrics' score. The remainder when `limit` doesn't divide evenly goes to
+    the earlier bands in the label's own declared order, deterministically.
+    Each band is itself strided."""
+    order = _bands(questions, label, fields)
+    bands = [[q for q in questions if _label_value(q, label) == name]
+             for name in order]
+    bands.append([q for q in questions if _label_value(q, label) not in order])
     quotas = _quotas(limit, [len(band) for band in bands])
-    picked_ids = {q['id'] for band, quota in zip(bands, quotas)
-                  for q in _stride(band, quota)}
+    picked_ids = {q['groundtruth_question_id']
+                 for band, quota in zip(bands, quotas)
+                 for q in _stride(band, quota)}
     # In the ground truth's own order, not band by band, so two runs' rows stay
     # diffable line by line.
-    return [q for q in questions if q['id'] in picked_ids]
+    return [q for q in questions if q['groundtruth_question_id'] in picked_ids]
 
 
 def _quotas(limit: int, sizes: list[int]) -> list[int]:
@@ -191,27 +216,29 @@ def _quotas(limit: int, sizes: list[int]) -> list[int]:
     return quotas
 
 
-def select_questions(ground_truth: dict, types: list[str] | None = None,
-                     limit: int | None = None,
-                     difficulty: list[str] | None = None,
-                     balance: str = 'stride') -> list[dict]:
-    """The questions one run is measured on. `balance='difficulty'` equalises the
-    easy/medium/hard bands; 'stride' (the default, for reproducibility against
-    `.runs/`) spreads across the set as it is."""
+def select_questions(ground_truth: dict, limit: int | None = None,
+                     labels: dict[str, list[str]] | None = None,
+                     balance: str = '') -> list[dict]:
+    """The questions one run is measured on (D7). `labels` keeps only questions
+    whose named `question_metadata` value is one of the given values — the
+    panel's per-label switch-groups. `balance` names a question label to
+    equalise the sample across that label's own bands; '' (the default, for
+    reproducibility against `.runs/`) spreads across the set as it is."""
+    fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
+             ).get('question_metadata_fields') or {}
     # Validated unconditionally, before the limit check below, so a bad config
     # raises on every run rather than only the ones where a limit is applied.
-    if balance not in BALANCES:
-        raise ValueError(f'unknown balance {balance!r}; expected one of '
-                         + ', '.join(repr(name) for name in BALANCES))
-    questions = ground_truth['questions']
-    if types:
-        questions = [q for q in questions if q['type'] in set(types)]
-    if difficulty:
-        questions = [q for q in questions if q['difficulty'] in set(difficulty)]
+    if balance and balance not in fields:
+        raise ValueError(f'unknown balance {balance!r}: no question label '
+                         'named that is declared in question_metadata_fields')
+    questions = ground_truth['groundtruth_dataset']
+    for name, wanted in (labels or {}).items():
+        wanted = set(wanted)
+        questions = [q for q in questions if _label_value(q, name) in wanted]
     if not limit or limit >= len(questions):
         return list(questions)
-    if balance == 'difficulty':
-        return _balanced(questions, limit)
+    if balance:
+        return _balanced(questions, limit, balance, fields)
     return _stride(questions, limit)
 
 
@@ -219,20 +246,26 @@ def selection_note(questions: list[dict], limit: int | None,
                    balance: str) -> dict:
     """What a run was actually measured on. The question ids travel with the row,
     because two rows are comparable only if they scored the same questions, and
-    nothing else on the row says which those were."""
-    counts: dict[str, int] = {}
-    for question in questions:
-        counts[question['difficulty']] = counts.get(question['difficulty'], 0) + 1
-    return {'balance': balance, 'limit': limit, 'n': len(questions),
-            'by_difficulty': {name: counts.get(name, 0)
-                              for name in DIFFICULTIES if counts.get(name)},
-            'question_ids': [question['id'] for question in questions]}
+    nothing else on the row says which those were. `by_<balance>` reports the
+    counts of whichever label the run was balanced on; there is nothing to
+    report by when a run was strided ('')."""
+    note = {'balance': balance, 'limit': limit, 'n': len(questions),
+            'question_ids': [question['groundtruth_question_id']
+                             for question in questions]}
+    if balance:
+        counts: dict[str, int] = {}
+        for question in questions:
+            value = _label_value(question, balance)
+            if value is not None:
+                counts[value] = counts.get(value, 0) + 1
+        note[f'by_{balance}'] = counts
+    return note
 
 
-def _question_note(done: int, questions: list[dict], difficulty: str) -> str:
-    """"question 16/30 · hard" — the band says whether a slow phase is slow
-    throughout or only on hard questions."""
-    return f'question {done}/{len(questions)} · {difficulty}'
+def _question_note(done: int, questions: list[dict]) -> str:
+    """"question 16/30" — a plain counter; no label is guaranteed to exist on
+    every question, so nothing more specific can be shown here in general."""
+    return f'question {done}/{len(questions)}'
 
 
 def _reporter(progress):
@@ -261,7 +294,7 @@ def trace_row(question: dict, trace: dict,
     was dropped is visible rather than hidden. `gold_present` is a property of
     the index the caller may not hold; without one the view shows no denominator
     rather than inventing one."""
-    quotes = [ev['quote'] for ev in question.get('evidence', [])]
+    quotes = metrics.verbatim_quotes(question)
     candidates = trace.get('candidates', [])
     for candidate, gold in zip(candidates,
                                mark_gold([c['text'] for c in candidates],
@@ -270,11 +303,9 @@ def trace_row(question: dict, trace: dict,
         # Computed for every candidate, not only gold ones, so a verbatim quote
         # can never sit in a row that was not marked gold.
         candidate['gold_spans'] = evidence_spans(candidate['text'], quotes)
-    return {'question_id': question['id'],
-            'question_fa': question['question_fa'],
-            'question_en': question.get('question_en', ''),
-            'type': question['type'], 'difficulty': question['difficulty'],
-            'answerable': bool(question.get('answerable')),
+    return {'question_id': question['groundtruth_question_id'],
+            'question': question['question'],
+            'behavior': question['expected_answer']['behavior'],
             'gold_available': gold_present,
             'trace': trace}
 
@@ -283,7 +314,7 @@ def _gold_trace_row(question: dict, trace: dict, index, norm_chunks: list) -> di
     """`trace_row`, with gold availability counted from this question's own
     evidence quotes against the index — the three lines `run_retrieval` and
     `run_eval` both repeated identically."""
-    quotes = [ev['quote'] for ev in question.get('evidence', [])]
+    quotes = metrics.verbatim_quotes(question)
     return trace_row(question, trace,
                      gold_present=gold_available(index, quotes, norm_chunks))
 
@@ -303,9 +334,19 @@ class _RunSetup:
     norm_chunks: list
 
 
+def _query_date(ground_truth: dict) -> str:
+    """The 'now' a relative time expression in a question resolves against —
+    the ground truth's own `default_question_asked_at`, sliced to a plain
+    date. There is no per-question override in the schema: one dataset, one
+    default."""
+    default = (ground_truth.get('groundtruth_dataset_metadata') or {}
+              ).get('default_question_asked_at', '2026-07-28T00:00:00Z')
+    return default[:10]
+
+
 def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
-                 settings: LabSettings, *, types: list[str] | None,
-                 limit: int | None, difficulty: list[str] | None, balance: str,
+                 settings: LabSettings, *, labels: dict[str, list[str]] | None,
+                 limit: int | None, balance: str,
                  progress, cancelled, need_norm_chunks: bool,
                  recheck_after_index: bool) -> _RunSetup:
     """The setup `run_retrieval` and `run_eval` both open with; `need_norm_chunks`/`recheck_after_index` are the two points where the two callers differ. `started` is read here, right after validation and before the index build, because `models.provider_problems` can be a network round trip — `run_eval`'s run id and `started_at` must be timestamped after that call resolves, not before it, or a slow or unreachable backend would stretch the recorded start time backwards."""
@@ -321,9 +362,9 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                          progress=lambda stage, f: report(stage, f * 0.4))
     if recheck_after_index:
         check_cancelled()
-    questions = select_questions(ground_truth, types, limit, difficulty, balance)
+    questions = select_questions(ground_truth, limit, labels, balance)
     selection = selection_note(questions, limit, balance)
-    query_date = ground_truth['meta'].get('query_date', '2026-07-28')
+    query_date = _query_date(ground_truth)
     llm = lab_llm(settings)
     roles = models.resolve(cfg, settings)
     # Normalised once: `gold_available` counts gold over every chunk in the
@@ -338,17 +379,18 @@ def _prepare_run(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
 
 
 def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
-                  settings: LabSettings, *, types: list[str] | None = None,
-                  limit: int | None = None, difficulty: list[str] | None = None,
-                  balance: str = 'stride', progress=None,
+                  settings: LabSettings, *,
+                  labels: dict[str, list[str]] | None = None,
+                  limit: int | None = None,
+                  balance: str = '', progress=None,
                   cancelled=None) -> dict:
     """Retrieval only, over the questions an experiment selected: build (or reuse)
     the index, retrieve with a full per-step trace, mark gold — and stop. Nothing
     is answered, scored or written to `.runs/`. Takes the same selection
     arguments as `run_eval`, deliberately, so what is shown is what the numbers
     were about."""
-    setup = _prepare_run(registry, ground_truth, cfg, settings, types=types,
-                         limit=limit, difficulty=difficulty, balance=balance,
+    setup = _prepare_run(registry, ground_truth, cfg, settings, labels=labels,
+                         limit=limit, balance=balance,
                          progress=progress, cancelled=cancelled,
                          need_norm_chunks=True, recheck_after_index=False)
     report, check_cancelled = setup.report, setup.check_cancelled
@@ -360,11 +402,11 @@ def run_retrieval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     for i, question in enumerate(questions):
         check_cancelled()
         _outcome, trace = pipeline.retrieve_traced(
-            index, cfg.retrieval, question['question_fa'],
-            question.get('query_date', query_date), llm=llm, models=roles)
+            index, cfg.retrieval, question['question'],
+            query_date, llm=llm, models=roles)
         rows.append(_gold_trace_row(question, trace, index, norm_chunks))
         report('retrieving', 0.4 + 0.6 * (i + 1) / len(questions),
-               _question_note(i + 1, questions, question['difficulty']))
+               _question_note(i + 1, questions))
     report('done', 1.0, 'done')
     return {'selection': setup.selection,
             'dataset': cfg.index.dataset or datasets.BUILTIN,
@@ -398,6 +440,11 @@ def _assemble_notes(index, cfg: LabConfig, settings: LabSettings) -> list[str]:
                                             or cfg.retrieval.hyde):
         notes.append('no OPENROUTER_API_KEY: LLM stages fell back to the offline '
                      'fake provider, so their numbers are meaningless')
+    # A real behaviour change (not a rename): quote recall only ever matches a
+    # `fidelity: verbatim` evidence entry — a paraphrase or a computed fact
+    # was never in the text, and a lexical match against it measures nothing.
+    notes.append('quote recall is measured only over verbatim evidence; '
+                 'paraphrase and computed entries are excluded from it')
     return notes
 
 
@@ -417,14 +464,13 @@ def _run_questions(questions: list[dict], handle: Callable, workers: int,
                 slots[landed] = future.result()
                 done_count += 1
                 report('scoring', 0.4 + 0.5 * done_count / len(questions),
-                       _question_note(done_count, questions,
-                                      questions[landed]['difficulty']))
+                       _question_note(done_count, questions))
         return [row for row in slots if row is not None]
     results = []
     for i, question in enumerate(questions):
         results.append(handle(question))
         report('scoring', 0.4 + 0.5 * (i + 1) / len(questions),
-               _question_note(i + 1, questions, question['difficulty']))
+               _question_note(i + 1, questions))
     return results
 
 
@@ -455,17 +501,18 @@ def _build_result(*, run_id: str, cfg: LabConfig, index, summary: dict,
 
 
 def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
-             settings: LabSettings, *, types: list[str] | None = None,
-             limit: int | None = None, difficulty: list[str] | None = None,
-             balance: str = 'stride',
+             settings: LabSettings, *,
+             labels: dict[str, list[str]] | None = None,
+             limit: int | None = None,
+             balance: str = '',
              ragas_mode: str = 'offline', ragas_limit: int | None = None,
              workers: int = 1, trace: bool = False,
              progress=None, cancelled=None) -> RunResult:
     """`trace=True` records each question's retrieval trace via `retrieve_traced`,
     which fills a dict the plain path never reads and returns the identical
     `Outcome` — so no score can move because tracing was asked for."""
-    setup = _prepare_run(registry, ground_truth, cfg, settings, types=types,
-                         limit=limit, difficulty=difficulty, balance=balance,
+    setup = _prepare_run(registry, ground_truth, cfg, settings, labels=labels,
+                         limit=limit, balance=balance,
                          progress=progress, cancelled=cancelled,
                          need_norm_chunks=trace, recheck_after_index=True)
     started = setup.started
@@ -482,13 +529,16 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     def handle(question: dict):
         check_cancelled()
         recorded = None
-        asked = question['question_fa']
-        when = question.get('query_date', query_date)
+        asked = question['question']
+        behavior = question['expected_answer']['behavior']
+        # 'correct_premise' must answer *and* contradict the false premise, so
+        # it is answerable exactly like 'answer' — only 'abstain' is not.
+        answerable = behavior != 'abstain'
         if trace:
             outcome, tr = pipeline.retrieve_traced(
-                index, cfg.retrieval, asked, when, llm=llm, models=roles)
+                index, cfg.retrieval, asked, query_date, llm=llm, models=roles)
         else:
-            outcome = pipeline.retrieve(index, cfg.retrieval, asked, when,
+            outcome = pipeline.retrieve(index, cfg.retrieval, asked, query_date,
                                         llm=llm, models=roles)
         if trace:
             recorded = _gold_trace_row(question, tr, index, norm_chunks)
@@ -497,10 +547,10 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
                                   models=roles)
         check_cancelled()
         row = metrics.score_question(question, outcome, cfg.retrieval.k)
-        if (cfg.generation.key_facts_judge and outcome.answer
-                and settings.llm_ready and question.get('answerable')):
+        if (cfg.generation.fact_judge and outcome.answer
+                and settings.llm_ready and answerable):
             check_cancelled()
-            row['key_fact_coverage'] = judge_key_facts(llm, roles.judge, question,
+            row['fact_coverage'] = judge_derived_facts(llm, roles.judge, question,
                                                        outcome.answer)
         return question, outcome, row, recorded
 
@@ -518,7 +568,8 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     ragas_report: dict = {}
     if ragas_mode != 'off':
         documents = corpus.documents_by_id(registry.corpus_for(cfg.index.dataset))
-        references = {q['id']: corpus.evidence_texts(documents, q) for q in questions}
+        references = {q['groundtruth_question_id']: corpus.evidence_texts(documents, q)
+                     for q in questions}
         ragas_report = ragas_eval.run(pairs, settings, index.embedder,
                                       mode=ragas_mode, sample_limit=ragas_limit,
                                       reference_texts=references,
@@ -666,20 +717,21 @@ def _matches(row: dict, only: str) -> bool:
 
 def _question_row(row: dict, asked: dict) -> dict:
     """One per-question row, joined to what the question actually was."""
+    question_metadata = asked.get('question_metadata') or {}
     return {
         'id': row.get('id', ''),
-        # The corpus's own language first, English beside it when the dataset
-        # carries one: `question_en` is optional and blank on most rows.
-        'question': asked.get('question_en') or asked.get('question_fa', ''),
-        'type': row.get('type') or asked.get('type', ''),
-        'difficulty': row.get('difficulty') or asked.get('difficulty', ''),
-        'answerable': row.get('answerable', asked.get('answerable')),
+        'question': asked.get('question', ''),
+        'type': question_metadata.get('question_type', ''),
+        'difficulty': question_metadata.get('difficulty', ''),
+        'behavior': row.get('behavior')
+                   or (asked.get('expected_answer') or {}).get('behavior', ''),
         'recall': row.get('recall'), 'precision': row.get('precision'),
         'mrr': row.get('mrr'), 'hit': row.get('hit'),
         'n_contexts': row.get('n_contexts'),
         'retrieved_sessions': list(row.get('retrieved_sessions') or []),
-        'expected_sessions': [ev.get('session_id', '')
-                              for ev in asked.get('evidence') or []],
+        'expected_sessions': [str(relevant.get('corpus_document_id', ''))
+                              for relevant
+                              in asked.get('relevant_corpus_documents') or []],
         'abstained': bool(row.get('abstained')),
         'false_abstention': bool(row.get('false_abstention')),
     }
@@ -690,7 +742,7 @@ def _questions(dataset: str) -> dict:
     is no longer loadable — an imported dataset can be gone while the runs it
     produced remain, and a digest of those runs is still worth reading."""
     try:
-        return {q.get('id'): q
-                for q in datasets.load(dataset)[1].get('questions') or []}
+        return {q.get('groundtruth_question_id'): q
+                for q in datasets.load(dataset)[1].get('groundtruth_dataset') or []}
     except (ValueError, OSError, KeyError):
         return {}

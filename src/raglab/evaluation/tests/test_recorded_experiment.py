@@ -171,14 +171,19 @@ def test_a_missed_question_is_named_by_its_own_text(tmp_path, monkeypatch):
     # this is an integration test
     """A run file's rows carry the question id and no text, so an id alone is
     all a reader would get. The dataset's ground truth is joined in, which is
-    what makes 'what can get better' answerable at all."""
+    what makes 'what can get better' answerable at all.
+
+    The row id is smoke-mini's real `groundtruth_question_id` (1 — "What
+    broke in the kitchen?"), not a fabricated string, because the join in
+    `run_evaluation._questions` is now by that integer id (D4); a made-up id
+    like the old 'mini-001' would simply fail to join under the new schema."""
     db = tmp_path / 'l.db'
     _run_file(tmp_path, monkeypatch, 'r1', dataset='smoke-mini',
-              rows=_rows(('mini-001', 0.0, False)))
+              rows=_rows((1, 0.0, False)))
     _ledger_row(db, 'r1')
     row = evaluate.question_rows('r1', db_path=db)['rows'][0]
     assert row['question'] == 'What broke in the kitchen?'
-    assert row['expected_sessions'] == ['mini-01']
+    assert row['expected_sessions'] == ['1']
     assert row['difficulty'] == 'easy'
 
 

@@ -27,8 +27,7 @@ from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKER
                       GRAPH_HIERARCHIES, CLUSTER_HIERARCHIES,
                       LEVELLED_HIERARCHIES, TUNED_HIERARCHIES, GRAPH_SOURCES,
                       KNN_SOURCES, SUMMARIZERS, RETRIEVERS, SUMMARY_SCOPES,
-                      RERANKERS, GRADERS, ANSWERERS,
-                      DIFFICULTIES, BALANCES)
+                      RERANKERS, GRADERS, ANSWERERS)
 
 # Re-exported: DEPENDENCIES lives in knob_dependencies.py, which now reads the
 # option tuples from option_vocabularies.py rather than from here, so this import carries
@@ -177,8 +176,8 @@ class RetrievalConfig:
 class GenerationConfig:
     answerer: str = 'extractive'
     model: str = ''                  # '' = LabSettings.llm_model
-    key_facts_judge: bool = False    # LLM check of ground-truth key_facts
-    judge_model: str = ''            # the key-facts judge
+    fact_judge: bool = False         # LLM check of the ground truth's derived_facts
+    judge_model: str = ''            # the fact judge
     ragas_model: str = ''            # RAGAS's own judge, kept separate on purpose
 
 

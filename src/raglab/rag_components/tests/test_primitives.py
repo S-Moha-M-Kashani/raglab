@@ -1,6 +1,8 @@
 """Text normalisation, embedders, chunking, habits, query understanding,
 retrieval primitives and metrics — the lab's building blocks, tested in
 isolation from any index or pipeline."""
+import math
+
 import numpy as np
 import pytest
 
@@ -507,30 +509,45 @@ def test_retrieval_metric_arithmetic():
 ])
 def test_quote_recall_needs_the_exact_sentence_and_tolerates_whitespace(answer, expected):
     # this is a unit test
-    question = {'evidence': [{'session_id': 's1', 'message_indices': [0],
-                              'quote': 'آذر تموم شد و از هیچ شرکتی هیچ خبری نیس'}]}
+    question = {'relevant_corpus_documents': [{'corpus_document_id': 1, 'evidence': [
+        {'text': 'آذر تموم شد و از هیچ شرکتی هیچ خبری نیس', 'fidelity': 'verbatim'}]}]}
     assert metrics.quote_recall(answer, question) == expected
 
 
-def test_latest_state_session_is_the_newest_evidence():
+def test_quote_recall_ignores_a_paraphrase_or_a_computed_entry():
     # this is a unit test
-    question = {'evidence': [{'session_id': '2025-12-01-a'},
-                             {'session_id': '2026-05-12-a'}]}
-    assert metrics.latest_state_session(question) == '2026-05-12-a'
+    """A lexical match against a non-verbatim entry measures nothing — the
+    schema change from `evidence[].quote` to `evidence[].fidelity`, and the
+    real behaviour change task-5 introduces: only `fidelity: verbatim` may be
+    scored lexically (replaces the deleted
+    test_latest_state_session_is_the_newest_evidence, which pinned a metric
+    tied to the now-deleted fixed `type` vocabulary — see aggregate() below)."""
+    question = {'relevant_corpus_documents': [{'corpus_document_id': 1, 'evidence': [
+        {'text': 'یک جمله که در متن نیست', 'fidelity': 'computed'}]}]}
+    # nothing to lexically match against a computed-only question: undefined
+    # (nan), not zero — even when the context text contains that exact string.
+    assert math.isnan(metrics.quote_recall('یک جمله که در متن نیست', question))
 
 
-def test_aggregate_reports_per_type_and_a_headline():
+def test_aggregate_reports_overall_means_and_a_headline():
     # this is a unit test
+    """`by_type`/`by_difficulty` are dropped here (not merely renamed): `type`
+    and `difficulty` are no longer guaranteed fields on a row — a corpus
+    declares whatever question labels it likes (D7) — so a fixed-vocabulary
+    breakdown cannot be substituted, only removed. `aggregate()`'s own
+    docstring explains what replaces it (nothing at this layer;
+    `selection_note`'s `by_<balance>` reports the run's own breakdown)."""
     rows = [
-        {'id': 'q1', 'type': 'single-hop', 'difficulty': 'easy', 'answerable': True,
+        {'id': 'q1', 'behavior': 'answer',
          'recall': 1.0, 'quote_recall': 1.0, 'ndcg': 1.0, 'hit': 1.0,
          'layers': ['chunk'], 'latency_ms': 5},
-        {'id': 'q2', 'type': 'abstention', 'difficulty': 'hard', 'answerable': False,
+        {'id': 'q2', 'behavior': 'abstain',
          'abstained_correctly': 1.0, 'layers': [], 'latency_ms': 5},
     ]
     summary = metrics.aggregate(rows)
     assert summary['n_questions'] == 2
-    assert summary['by_type']['single-hop']['recall'] == 1.0
+    assert 'by_type' not in summary and 'by_difficulty' not in summary
+    assert summary['overall']['recall'] == 1.0
     assert 0 < summary['overall']['headline'] <= 1.0
 
 

@@ -448,7 +448,7 @@ def test_a_mode_presets_the_full_pipeline_on_its_own_model(
     assert ret['grader_model'] == expected_model
     assert ret['grade_threshold'] == 0.4     # the measured gate setting
     assert gen['answerer'] == 'llm' and gen['model'] == expected_model
-    assert gen['key_facts_judge'] is True and gen['judge_model'] == expected_model
+    assert gen['fact_judge'] is True and gen['judge_model'] == expected_model
     assert gen['ragas_model'] == expected_model
 
 

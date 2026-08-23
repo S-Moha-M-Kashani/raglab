@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.rag_components import question_to_answer_pipeline as pipeline
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard import inspector_server as inspector
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.dashboard import service_presentation as present
@@ -87,8 +87,8 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     denominator is how many chunks in the whole index hold this question's
     evidence, not how many evidence quotes the fixture lists — one quote can
     split across chunks and one chunk can carry two quotes."""
-    gt = corpus.load_ground_truth()
-    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(
+    gt = datasets.load()[1]
+    index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
         IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
     question = next(q for q in gt['questions'] if q.get('evidence'))
@@ -122,8 +122,8 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
     """Every span on every candidate must slice out of that candidate's own
     text, and a candidate marked gold with a verbatim quote must carry at
     least one."""
-    gt = corpus.load_ground_truth()
-    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(
+    gt = datasets.load()[1]
+    index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
         IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none', grader='none',
@@ -152,8 +152,8 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
 # Real in-memory index, offline ascii-hash embedder.
 def test_retrieve_traced_records_ranks_and_dropped_candidates():
     # this is an integration test
-    diary = corpus.load_diary()
-    gt = corpus.load_ground_truth()
+    diary = datasets.load()[0]
+    gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, diary).get(
         IndexConfig(chunker='session', embedder='ascii-hash'))
     # rerank_depth(20) > k(3): mmr keeps 3, so at least 17 candidates are dropped.
@@ -1310,7 +1310,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     closure in inspector_server.py — was touched by nothing but the 404 check below,
     and a row measured under the wrong `k` or missing its `pipeline.answer`
     call would still have passed."""
-    gt = corpus.load_ground_truth()
+    gt = datasets.load()[1]
     gt_q = gt['questions'][0]
     query_date = gt['meta']['query_date']
     config = {'index': {'chunker': 'fixed-overlap', 'chunk_chars': 500,
@@ -1321,7 +1321,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
                             'time_filter': False, 'multi_query': False},
               'generation': {'answerer': 'extractive'}}
     cfg = LabConfig.from_dict(config)
-    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(cfg.index)
+    index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(cfg.index)
 
     # the run's own path: every evaluation retrieves with the plain,
     # untraced call, computed directly — the reference the route's own row
@@ -1411,7 +1411,7 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     without a strict partition, a multi-session summary is invisible while a
     single-session one leaks into the chunk view, indistinguishable from a
     diary entry."""
-    index = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(HIERARCHY_INDEX)
+    index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(HIERARCHY_INDEX)
     leaves = [c for c in index.chunks if c.layer != 'summary']
     summaries = present.summary_rows(index)
     groups = present.chunks_by_session(index)
@@ -1446,7 +1446,7 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     # a flat index has no summaries and says so with an empty list, not by
     # omitting the key — "no hierarchy" and "a hierarchy that found nothing" are
     # different facts, and only one of them is worth investigating
-    flat = IndexRegistry(LAB_SETTINGS, corpus.load_diary()).get(
+    flat = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
         IndexConfig(chunker='session', embedder='ascii-hash'))
     assert present.summary_rows(flat) == []
 

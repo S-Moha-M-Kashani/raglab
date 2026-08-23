@@ -55,7 +55,6 @@ from raglab.configuration.lab_config import (
     LabConfig,
     load_lab_settings,
     settings_for_provider)
-from raglab.corpora.diary_corpus_loader import load_diary, load_ground_truth
 from raglab.rag_components.indexing import (
     summary_hierarchy_builder as hierarchy)
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
@@ -400,8 +399,7 @@ def create_app() -> FastAPI:
         return credentials.apply(boot_settings)
 
     settings = boot_settings
-    diary = load_diary()
-    ground_truth = load_ground_truth()
+    diary, ground_truth = datasets.load()
 
     def questions_for(cfg: LabConfig) -> dict:
         """The ground truth of the corpus this config names — resolved by id, so index and questions match."""

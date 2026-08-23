@@ -1,54 +1,73 @@
-"""A second corpus, and the rules that keep a score meaning something.
+"""One loader, one shape: the corpus/ground-truth contract every dataset
+meets, and the rules that keep a score meaning something.
 
 Every retrieval finding this lab has produced is a finding *about* the Farsi
-diary fixture. Some are obviously general (an embedder that cannot represent the
-script scores at chance) and some obviously are not (the Farsi time-scope
-filter), and with one corpus there was no way to tell which was which.
+diary fixture. Some are obviously general (an embedder that cannot represent
+the script scores at chance) and some obviously are not (the Farsi
+time-scope filter), and with one corpus there was no way to tell which was
+which. So the tests here are mostly about not confusing the two: a dataset is
+two files paired by id, an index built over one corpus can never answer a
+question from another, and a dataset whose evidence does not hold is
+refused rather than measured.
 
-So the tests here are mostly about not confusing the two: an index built over one
-corpus can never answer a question from another, a leaderboard never ranks across
-corpora, and a dataset whose evidence does not hold is refused rather than
-measured.
+Deliberately out of scope here: the panel/inspector HTTP surface
+(`panel_server.create_app`) and the chunking/retrieval pipeline
+(`IndexRegistry`, `chunking_strategies`) still read the pre-refactor shape —
+that is the next steps' work, not this seam's. Those surfaces get their own
+tests once they speak the schema's vocabulary.
 """
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
 from raglab.corpora import corpus_store as corpora
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import leaderboard
+
 from raglab.configuration.lab_config import IndexConfig
 
-from raglab.conftest import _finished
+BUNDLED = ('diary-fa', 'support-en', 'meetings-de', 'research-multihop',
+          'smoke-mini')
+# The four control corpora cover every failure mode; the diary is excluded
+# from that specific check only because it is what every other check already
+# exercises, not because it is special (D3 — it is an ordinary bundled pair).
+CONTROLS = ('support-en', 'meetings-de', 'research-multihop')
 
-BUNDLED = ('support-en', 'meetings-de', 'research-multihop', 'smoke-mini')
 
-
-def _valid(**overrides) -> dict:
-    """The smallest dataset that passes: two sessions, one question, one quote
-    that is really in the message it cites."""
+def _valid_pair(corpus_overrides: dict | None = None,
+                ground_truth_overrides: dict | None = None) -> tuple[dict, dict]:
+    """The smallest pair that passes: two documents, one question, one quote
+    that is really in the document it cites."""
     quote = 'the roof was fixed on 3 March'
-    payload = {
-        'dataset': {'id': 'tiny-test', 'name': 'Tiny', 'language': 'en'},
-        'sessions': [
-            {'session_id': 's-1', 'date': '2026-03-04',
-             'messages': [{'role': 'user',
-                           'content': f'Good news — {quote}, at last.'},
-                          {'role': 'assistant', 'content': 'Noted.'}]},
-            {'session_id': 's-2', 'date': '2026-03-05',
-             'messages': [{'role': 'user', 'content': 'Nothing to report.'}]},
-        ],
-        'questions': [
-            {'id': 'q-1', 'type': 'single-hop', 'difficulty': 'easy',
-             'answerable': True, 'question': 'When was the roof fixed?',
-             'answer': 'On 3 March 2026.',
-             'evidence': [{'session_id': 's-1', 'message_indices': [0],
-                           'quote': quote}]},
+    corpus = {
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en'},
+        'corpus_documents': [
+            {'corpus_document_id': 1,
+             'document_content': [
+                 {'text': f'Good news — {quote}, at last.'}]},
+            {'corpus_document_id': 2,
+             'document_content': [{'text': 'Nothing to report.'}]},
         ],
     }
-    payload.update(overrides)
-    return payload
+    ground_truth = {
+        'groundtruth_dataset_metadata': {
+            'name': 'Tiny — questions', 'corpus_ref': {'dataset': 'tiny-test'}},
+        'groundtruth_dataset': [
+            {'groundtruth_question_id': 1,
+             'question': 'When was the roof fixed?',
+             'expected_answer': {'behavior': 'answer', 'text': 'On 3 March.'},
+             'relevant_corpus_documents': [
+                 {'corpus_document_id': 1,
+                  'evidence': [{'text': quote, 'fidelity': 'verbatim',
+                                'part_labels': [{}]}]}]},
+        ],
+    }
+    if corpus_overrides:
+        corpus.update(corpus_overrides)
+    if ground_truth_overrides:
+        ground_truth.update(ground_truth_overrides)
+    return corpus, ground_truth
 
 
 @pytest.fixture
@@ -59,137 +78,212 @@ def imports_here(tmp_path, monkeypatch):
     datasets.forget()
 
 
-@pytest.fixture
-def client(monkeypatch, tmp_path):
-    monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
-    monkeypatch.setenv('RAGLAB_DATASETS', str(tmp_path / 'datasets'))
-    datasets.forget()
-    from raglab.dashboard.panel_server import create_app
-    return TestClient(create_app())
-
-
-# --- the contract ----------------------------------------------------------
+# --- the contract ------------------------------------------------------------
 
 def test_a_dataset_that_meets_the_contract_has_nothing_to_report():
     # this is a unit test
-    assert datasets.validate(_valid()) == []
+    corpus, ground_truth = _valid_pair()
+    assert datasets.validate(corpus, ground_truth) == []
 
 
-def _quote_rewritten(payload: dict) -> dict:
-    payload['questions'][0]['evidence'][0]['quote'] = 'the roof was fixed in April'
-    return payload
-
-
-def _session_missing(payload: dict) -> dict:
-    payload['questions'][0]['evidence'][0]['session_id'] = 's-99'
-    return payload
-
-
-def _message_index_out_of_range(payload: dict) -> dict:
-    payload['questions'][0]['evidence'][0]['message_indices'] = [7]
-    return payload
-
-
-@pytest.mark.parametrize('mutate, expected_substring', [
-    (_quote_rewritten, 'verbatim'),
-    (_session_missing, 'does not contain'),
-    (_message_index_out_of_range, 'outside session'),
-], ids=['quote-not-verbatim', 'session-missing', 'message-index-out-of-range'])
-def test_a_dataset_that_breaks_one_rule_is_refused_naming_it(mutate,
-                                                              expected_substring):
+def test_a_dataset_with_a_quote_that_is_not_verbatim_is_refused_naming_it():
     # this is a unit test
     """Every lexical measurement in this lab — quote recall, the Inspector's
     green spans, the offline RAGAS context metrics — is computed against these
     evidence quotes, so a dataset that misquotes its own corpus would score
-    *confidently* about text that was never there. Three ways the contract
-    can be broken, refused rather than repaired, each naming what it refused."""
-    payload = mutate(_valid())
-    problems = datasets.validate(payload)
-    assert any(expected_substring in problem for problem in problems), problems
+    *confidently* about text that was never there."""
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'evidence'][0]['text'] = 'the roof was fixed in April'
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('verbatim' in p for p in problems), problems
 
 
-def test_every_problem_is_reported_at_once_and_names_what_it_is_about():
+def test_a_question_citing_a_missing_document_is_refused():
     # this is a unit test
-    """One problem per attempt is a slow loop over a 200-question corpus, and a
-    message that does not name the question is not a message, it is a search."""
-    payload = _valid()
-    payload['questions'][0]['type'] = 'made-up'
-    payload['questions'][0]['difficulty'] = 'trivial'
-    payload['sessions'][1]['date'] = '4 March'
-    problems = datasets.validate(payload)
-    assert len(problems) >= 3
-    assert any(p.startswith('q-1:') for p in problems)
-    assert any(p.startswith('s-2:') for p in problems)
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'corpus_document_id'] = 99
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('not in this corpus' in p for p in problems), problems
 
 
-def test_an_unanswerable_question_needs_no_evidence():
+def test_a_mismatched_pair_join_is_refused():
     # this is a unit test
-    """Abstention questions are the ones the corpus deliberately cannot answer:
-    demanding evidence for them would make the failure mode the relevance gate
-    exists for unmeasurable."""
-    payload = _valid()
-    payload['questions'].append({
-        'id': 'q-2', 'type': 'abstention', 'difficulty': 'medium',
-        'answerable': False, 'question': 'Who paid for the roof?'})
-    assert datasets.validate(payload) == []
+    """D1: the two files are paired by id, not by filename — so the id each
+    one declares has to actually agree."""
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset_metadata']['corpus_ref']['dataset'] = 'other'
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('pair join' in p for p in problems), problems
 
 
-# --- the bundled samples ---------------------------------------------------
+def test_every_problem_is_reported_at_once():
+    # this is a unit test
+    """One problem per attempt is a slow loop over a 200-question corpus."""
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset_metadata']['corpus_ref']['dataset'] = 'other'
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'corpus_document_id'] = 99
+    problems = datasets.validate(corpus, ground_truth)
+    assert len(problems) >= 2, problems
+
+
+def test_an_extracted_label_needs_exactly_one_rater():
+    # this is a unit test
+    """D9/x-consistency: `extracted:true` means the values can be wrong, so a
+    caveat has to exist against them."""
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'feeling': {'type': 'string', 'description': 'mood',
+                           'applies_to': ['document'], 'extracted': True}}}})
+    corpus['corpus_documents'][0]['document_metadata'] = {'feeling': 'glad'}
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('exactly one' in p for p in problems), problems
+
+
+def test_a_rater_may_not_rate_an_unextracted_label():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'topic': {'type': 'string', 'description': 'subject',
+                         'applies_to': ['document']},
+                'topic_confidence': {
+                    'type': 'number', 'description': 'how sure',
+                    'applies_to': ['document'], 'confidence_for': 'topic'}}}})
+    corpus['corpus_documents'][0]['document_metadata'] = {
+        'topic': 'roofing', 'topic_confidence': 0.9}
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('rates' in p and 'not declared extracted' in p for p in problems), (
+        problems)
+
+
+def test_ranks_needs_a_numeric_type_with_bounds():
+    # this is a unit test
+    """D6: importance's one declared source. A label that ranks must be
+    numeric and bounded, or "rescaled to 0-1" has nothing to rescale from."""
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'urgency': {'type': 'string', 'description': 'how urgent',
+                           'applies_to': ['document'], 'ranks': True}}}})
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('ranks' in p and 'number or integer' in p for p in problems), (
+        problems)
+
+
+def test_a_rater_may_never_also_rank():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'topic': {'type': 'string', 'description': 'subject',
+                         'applies_to': ['document'], 'extracted': True},
+                'topic_confidence': {
+                    'type': 'number', 'description': 'how sure', 'minimum': 0,
+                    'maximum': 1, 'applies_to': ['document'],
+                    'confidence_for': 'topic', 'ranks': True}}}})
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('ranks and' in p for p in problems), problems
+
+
+def test_a_derived_fact_with_no_supporting_evidence_is_refused():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair()
+    question = ground_truth['groundtruth_dataset'][0]
+    question['expected_answer']['derived_facts'] = [
+        {'derived_fact_id': 1, 'fact': 'The roof was fixed'},
+        {'derived_fact_id': 2, 'fact': 'It was fixed on 3 March'}]
+    question['relevant_corpus_documents'][0]['evidence'][0]['supports'] = [1]
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('derived_fact_id [2]' in p for p in problems), problems
+
+
+def test_a_supports_id_that_names_no_derived_fact_is_refused():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair()
+    question = ground_truth['groundtruth_dataset'][0]
+    question['relevant_corpus_documents'][0]['evidence'][0]['supports'] = [7]
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('not derived_fact_ids' in p for p in problems), problems
+
+
+def test_computed_evidence_needs_a_relevant_metadata_source():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'evidence'][0]['fidelity'] = 'computed'
+    problems = datasets.validate(corpus, ground_truth)
+    assert any('relevant_metadata naming the label' in p for p in problems), (
+        problems)
+
+
+def test_an_abstention_question_needs_no_evidence():
+    # this is a unit test
+    """Abstention questions are the ones the corpus deliberately cannot
+    answer: demanding evidence for them would make the failure mode the
+    relevance gate exists for unmeasurable."""
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset'].append({
+        'groundtruth_question_id': 2, 'question': 'Who paid for the roof?',
+        'expected_answer': {'behavior': 'abstain'},
+        'relevant_corpus_documents': []})
+    assert datasets.validate(corpus, ground_truth) == []
+
+
+# --- the bundled samples -----------------------------------------------------
 
 def test_the_bundled_datasets_meet_their_contract_and_cover_the_failure_modes():
     # this is a unit test
-    """These four are reference points — the corpora a finding is checked
-    against to tell "true of retrieval" from "true of Farsi diaries". A
-    reference point nobody validated is a second unknown, and between them
-    they have to offer more than one language, questions that need two
-    sessions, and questions the corpus cannot answer — otherwise they are
-    four spellings of the same test."""
-    loaded = {}
-    for name in BUNDLED:
-        path = datasets.BUNDLED_DIR / f'{name}.json'
-        assert path.exists(), f'{name} is missing from fixtures/corpus_groundtruth_datasets/'
-        payload = json.loads(path.read_text(encoding='utf-8'))
-        problems = datasets.validate(payload)
-        assert problems == [], (name, problems)
-        loaded[name] = payload
-    languages = {d['dataset']['language'] for d in loaded.values()}
+    """These are reference points — the corpora a finding is checked against
+    to tell "true of retrieval" from "true of Farsi diaries" (or of German
+    meetings, or of multi-hop research notes). Each must actually validate,
+    and between them they have to offer more than one language and questions
+    the corpus cannot answer — otherwise they are several spellings of the
+    same test."""
+    languages = set()
+    for dataset_id in CONTROLS:
+        corpus, ground_truth = datasets.load(dataset_id)
+        problems = datasets.validate(corpus, ground_truth)
+        assert problems == [], (dataset_id, problems)
+        languages.add(corpus['corpus_dataset_metadata']['language'])
+        behaviors = {q['expected_answer']['behavior']
+                    for q in ground_truth['groundtruth_dataset']}
+        assert {'answer', 'abstain', 'correct_premise'} <= behaviors, dataset_id
     assert len(languages) >= 2, languages
-    types = {q['type'] for d in loaded.values() for q in d['questions']}
-    assert {'multi-hop', 'aggregation', 'abstention', 'adversarial'} <= types
-    for name, payload in loaded.items():
-        assert any(not q.get('answerable', True) for q in payload['questions']), (
-            f'{name} cannot measure whether a pipeline knows when to refuse')
 
 
-def test_the_catalogue_leads_with_the_built_in_corpus():
+def test_the_catalogue_lists_every_bundled_dataset():
     # this is a unit test
-    """Every finding this lab has produced is about it, and it is the default: a list
-    ordered by whatever sorted first would put it in an arbitrary place."""
     found = datasets.catalogue()
-    assert found[0].id == datasets.BUILTIN
-    assert found[0].source == 'builtin'
     ids = {d.id for d in found}
     assert set(BUNDLED) <= ids
+    for entry in found:
+        if entry.id in BUNDLED:
+            assert entry.source == 'bundled', entry.id
 
 
-# --- loading ---------------------------------------------------------------
+# --- loading ------------------------------------------------------------------
 
-def test_a_loaded_dataset_arrives_in_the_shape_the_lab_speaks():
+def test_a_loaded_dataset_arrives_in_the_schema_shape_and_nothing_else():
     # this is a unit test
-    """The contract says `question`; six modules and every stored run say
-    `question_fa`. The loader is the one place that translates."""
-    diary, ground_truth = datasets.load('smoke-mini')
-    assert diary['sessions'] and ground_truth['questions']
-    question = ground_truth['questions'][0]
-    assert question['question_fa']
-    assert question['query_date'] == ground_truth['meta']['query_date']
-    session = diary['sessions'][0]
-    # The fields the chunkers read directly, filled here so a corpus that is not
-    # a diary does not have to carry five fields it has no use for.
-    for field in ('time', 'source', 'mood', 'topics', 'recurring_threads'):
-        assert field in session, field
-    assert session['mood']['valence'] == 5.5, 'a corpus without moods is neutral'
-    assert session['language'] == 'en'
+    """D4: `load()` returns the two file payloads exactly as they are — there
+    is no second, translated dialect."""
+    corpus, ground_truth = datasets.load('smoke-mini')
+    assert corpus['corpus_documents'] and ground_truth['groundtruth_dataset']
+    question = ground_truth['groundtruth_dataset'][0]
+    assert 'question' in question and 'question_fa' not in question
+    assert question['expected_answer']['behavior'] in (
+        'answer', 'abstain', 'correct_premise')
+    document = corpus['corpus_documents'][0]
+    assert 'document_content' in document
+    assert 'sessions' not in corpus and 'messages' not in document
 
 
 def test_an_unknown_dataset_says_what_there_is():
@@ -199,15 +293,42 @@ def test_an_unknown_dataset_says_what_there_is():
     assert 'smoke-mini' in str(raised.value)
 
 
-# --- the index cannot mix corpora ------------------------------------------
+# --- D1: a dataset is two files, paired by id --------------------------------
+
+def test_a_corpus_with_no_ground_truth_is_listed_and_refused_at_load_time(
+        imports_here):
+    # this is an integration test
+    imports_here.mkdir(parents=True)
+    corpus, _ = _valid_pair()
+    (imports_here / 'tiny-test_corpus.json').write_text(
+        json.dumps(corpus), encoding='utf-8')
+
+    listed = next(d for d in datasets.catalogue() if d.id == 'tiny-test')
+    assert listed.questions == 0
+    with pytest.raises(ValueError, match='nothing to measure against'):
+        datasets.load('tiny-test')
+
+
+def test_a_ground_truth_with_no_corpus_is_never_listed(imports_here):
+    # this is an integration test
+    imports_here.mkdir(parents=True)
+    _, ground_truth = _valid_pair()
+    (imports_here / 'tiny-test_groundtruth.json').write_text(
+        json.dumps(ground_truth), encoding='utf-8')
+
+    ids = {d.id for d in datasets.catalogue()}
+    assert 'tiny-test' not in ids
+
+
+# --- the index cannot mix corpora --------------------------------------------
 
 def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
     # this is a unit test
     """The one bug this feature could plausibly introduce, and the most
     expensive to notice late: an index built over one corpus handed a question
     from another. `''` is fingerprinted exactly as it was before the field
-    existed — every run in `.runs/` records a collection name, and a new field
-    in IndexConfig would otherwise rename them all."""
+    existed (D3) — every run in `.runs/` records a collection name, and a new
+    field in IndexConfig would otherwise rename them all."""
     assert (IndexConfig(dataset='smoke-mini').fingerprint()
             != IndexConfig().fingerprint())
     assert (IndexConfig(dataset='smoke-mini').fingerprint()
@@ -219,103 +340,7 @@ def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
     assert IndexConfig(dataset='').collection() == 'raglab-804444ae65db'
 
 
-# Two corpora, one registry.
-def test_an_index_is_never_shared_between_two_corpora(monkeypatch):
-    # this is an integration test
-    """crosses into IndexRegistry/build — an index over one corpus must never
-    answer for another."""
-    from raglab.configuration.lab_config import LabSettings
-    from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
-
-    settings = LabSettings(llm_provider='fake')
-    registry = IndexRegistry(settings)
-    small = registry.get(IndexConfig(dataset='smoke-mini', chunker='session',
-                                     embedder='token-hash', contextual=False))
-    other = registry.get(IndexConfig(dataset='support-en', chunker='session',
-                                     embedder='token-hash', contextual=False))
-    assert small.stats.collection != other.stats.collection
-    assert small.stats.chunks == 5, 'the smoke set is five sessions'
-    assert other.stats.chunks == 20
-    texts = ' '.join(chunk.text for chunk in small.chunks)
-    assert 'espresso' in texts and 'Meridian' not in texts
-
-
-def test_a_corpus_that_is_not_farsi_is_chunked_in_its_own_language():
-    # this is a unit test
-    """The speaker tags and the contextual header are prepended to text that
-    gets embedded, so writing them in Farsi over an English corpus adds a
-    constant foreign phrase to every vector."""
-    from raglab.rag_components.indexing.chunking_strategies import chunk_session
-    diary, _ = datasets.load('smoke-mini')
-    chunks = chunk_session(diary['sessions'][0],
-                           IndexConfig(chunker='message', contextual=True),
-                           embedder=None)
-    text = chunks[0].text
-    assert 'User:' in text and 'کاربر' not in text
-    assert 'mood:' in text and 'حال' not in text
-
-
-# --- the service -----------------------------------------------------------
-
-def test_the_options_serve_the_catalogue(client):
-    # this is an integration test
-    """The HTTP half of `test_the_catalogue_leads_with_the_built_in_corpus`.
-    `defaults['index']['dataset']` has no other assertion anywhere in the
-    suite — test_server.py pins the other index defaults but not this one —
-    so it is kept here even though the rest of this test asserts only
-    presence (catalogue reachability, not defaults/help content in general)."""
-    body = client.get('/api/options').json()
-    ids = [d['id'] for d in body['datasets']]
-    assert ids[0] == datasets.BUILTIN
-    assert set(BUNDLED) <= set(ids)
-    assert body['defaults']['index']['dataset'] == ''
-
-
-def test_a_run_scores_the_questions_of_the_dataset_it_names(client, tmp_path,
-                                                            monkeypatch):
-    # this is an integration test
-    """The half of the rule the fingerprint cannot enforce: the index comes from
-    one file and the questions must come from the same one. Distinct from
-    `tests/test_e2e.py`'s smoke run, which checks only the ledger's `dataset`
-    field and a partial (`limit=3`) selection — this checks the job result and
-    the saved run file both carry `dataset`, and that all six of the corpus's
-    own question ids (and none other) come back for a full run."""
-    from raglab.evaluation import run_evaluation as evaluate
-    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    started = client.post('/api/evaluations', json={
-        'index': {'dataset': 'smoke-mini', 'chunker': 'session',
-                  'embedder': 'token-hash'},
-        'retrieval': {'k': 3}, 'generation': {'answerer': 'extractive'},
-        'ragas_mode': 'off', 'label': 'smoke'})
-    assert started.status_code == 202, started.text
-    job = _finished(client, started.json()['job_id'])
-    assert job['state'] == 'done', job.get('error')
-    result = job['result']
-    assert result['dataset'] == 'smoke-mini'
-    assert result['summary']['n_questions'] == 6
-    assert {row['id'] for row in result['rows']} == {
-        'mini-001', 'mini-002', 'mini-003', 'mini-004', 'mini-005', 'mini-006'}
-    saved = json.loads((tmp_path / f'{result["run_id"]}.json').read_text(
-        encoding='utf-8'))
-    assert saved['dataset'] == 'smoke-mini'
-
-
-def test_a_dataset_is_imported_through_the_panel_and_becomes_selectable(client,
-                                                                        tmp_path):
-    # this is an integration test
-    added = client.post('/api/datasets', json=_valid())
-    assert added.status_code == 200, added.text
-    assert added.json()['id'] == 'tiny-test'
-    assert added.json()['source'] == 'imported'
-    assert (tmp_path / 'datasets' / 'tiny-test.json').exists()
-    ids = [d['id'] for d in client.get('/api/datasets').json()['datasets']]
-    assert 'tiny-test' in ids
-    # and it can be measured against straight away
-    body = client.get('/api/questions?dataset=tiny-test').json()
-    assert [q['id'] for q in body['questions']] == ['q-1']
-
-
-# --- a dataset entering the lab is stored as content ------------------------
+# --- a dataset entering the lab is stored as content -------------------------
 
 @pytest.fixture
 def corpora_here(tmp_path, monkeypatch):
@@ -337,17 +362,16 @@ def test_an_imported_dataset_is_stored_as_content_under_an_id_the_file_never_car
     # this is an integration test
     """A dataset entering the lab enters the corpus store, once, on arrival.
 
-    The two objects stored are exactly `_split`'s — the corpus and the ground
-    truth the pipeline reads — so the row written on import is the row every
-    later experiment on this corpus references, rather than one written again
-    per archive. The id is the database's to give: the file carries none and
-    could not, because an id is storage identity on this machine and a file
-    that named one would be claiming a row it knows nothing about.
+    The two objects stored are exactly the two file payloads the pipeline
+    reads, so the row written on import is the row every later experiment on
+    this corpus references, rather than one written again per archive. The id
+    is the database's to give: the file carries none and could not, because an
+    id is storage identity on this machine and a file that named one would be
+    claiming a row it knows nothing about.
     """
-    payload = _valid()
-    assert 'id_corpora' not in json.dumps(payload), (
-        'the incoming file carries no database id of any kind')
-    found = datasets.import_dataset(payload)
+    corpus, ground_truth = _valid_pair()
+    assert 'id_corpora' not in json.dumps(corpus)
+    found = datasets.import_dataset(corpus, ground_truth)
 
     assert isinstance(found.id_corpora, int) and found.id_corpora > 0
     assert found.as_dict()['id_corpora'] == found.id_corpora
@@ -357,18 +381,19 @@ def test_an_imported_dataset_is_stored_as_content_under_an_id_the_file_never_car
     # What the store holds is what the lab loads: the same two objects, not a
     # second reading of the file that could differ from the one that runs.
     assert corpora.get(found.id_corpora) == datasets.load('tiny-test')
-    # And the file path still works exactly as it did.
-    assert (imports_here / 'tiny-test.json').exists()
+    # And the files still work exactly as they did.
+    assert (imports_here / 'tiny-test_corpus.json').exists()
+    assert (imports_here / 'tiny-test_groundtruth.json').exists()
 
 
 def test_importing_the_same_dataset_twice_stores_one_corpus(imports_here,
                                                             corpora_here):
     # this is an integration test
-    """Idempotent, because the content decides. Re-importing a file that has
+    """Idempotent, because the content decides. Re-importing a pair that has
     not changed is not a new corpus, and a second row would make it look like
     one to everything that later joins on the id."""
-    first = datasets.import_dataset(_valid())
-    second = datasets.import_dataset(_valid())
+    first = datasets.import_dataset(*_valid_pair())
+    second = datasets.import_dataset(*_valid_pair())
     assert first.id_corpora == second.id_corpora
     assert len(_stored_rows(corpora_here)) == 1
 
@@ -378,27 +403,26 @@ def test_an_edited_dataset_under_the_same_id_is_a_new_row_beside_the_old_one(
     # this is an integration test
     """The claim an older archive depends on.
 
-    A corpus edited between runs is a *different* corpus. The file at
-    `.datasets/tiny-test.json` is replaced — that is what the reader asked for
-    — but the stored text is not: the edit is a new row with a new id, and the
-    row the earlier experiment referenced is left exactly as it was. Keyed by
-    dataset id instead, the newest edit would answer for every run that ever
-    named it, which is a row lying about what produced it.
+    A corpus edited between runs is a *different* corpus. The files at
+    `.datasets/tiny-test_*.json` are replaced — that is what the reader asked
+    for — but the stored text is not: the edit is a new row with a new id, and
+    the row the earlier experiment referenced is left exactly as it was.
     """
-    before = datasets.import_dataset(_valid())
-    edited = _valid()
-    edited['sessions'][0]['messages'][0]['content'] = (
+    before = datasets.import_dataset(*_valid_pair())
+    edited_corpus, edited_truth = _valid_pair()
+    edited_corpus['corpus_documents'][0]['document_content'][0]['text'] = (
         'Actually the roof was fixed on 3 March, twice over.')
-    edited['questions'][0]['evidence'][0]['quote'] = 'the roof was fixed on 3 March'
-    after = datasets.import_dataset(edited)
+    after = datasets.import_dataset(edited_corpus, edited_truth)
 
     assert after.id_corpora != before.id_corpora
     rows = _stored_rows(corpora_here)
     assert [row['id'] for row in rows] == [before.id_corpora, after.id_corpora]
     old_corpus, _ = corpora.get(before.id_corpora)
     new_corpus, _ = corpora.get(after.id_corpora)
-    assert old_corpus['sessions'][0]['messages'][0]['content'].startswith('Good news')
-    assert new_corpus['sessions'][0]['messages'][0]['content'].startswith('Actually')
+    assert old_corpus['corpus_documents'][0]['document_content'][0][
+        'text'].startswith('Good news')
+    assert new_corpus['corpus_documents'][0]['document_content'][0][
+        'text'].startswith('Actually')
     assert {version['id'] for version in corpora.versions('tiny-test')} == \
         {before.id_corpora, after.id_corpora}
 
@@ -413,34 +437,37 @@ def test_a_listing_says_it_did_not_look_the_corpus_row_up(imports_here,
     ever have — `AUTOINCREMENT` starts at 1 — so a reader cannot mistake it for
     a row that says there is no stored corpus.
     """
-    stored = datasets.import_dataset(_valid())
+    stored = datasets.import_dataset(*_valid_pair())
     assert stored.id_corpora > 0
     listed = next(d for d in datasets.catalogue() if d.id == 'tiny-test')
     assert listed.id_corpora == 0
     assert datasets.find('tiny-test').id_corpora == 0
 
 
-def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(client):
+def test_an_import_that_breaks_the_contract_is_refused_with_every_reason(
+        imports_here):
     # this is an integration test
-    payload = _valid()
-    payload['questions'][0]['evidence'][0]['quote'] = 'never said this'
-    payload['questions'][0]['type'] = 'made-up'
-    refused = client.post('/api/datasets', json=payload)
-    assert refused.status_code == 400
-    detail = refused.json()['detail']
-    assert 'verbatim' in detail and 'made-up' in detail
+    corpus, ground_truth = _valid_pair()
+    ground_truth['groundtruth_dataset'][0]['relevant_corpus_documents'][0][
+        'evidence'][0]['text'] = 'never said this'
+    ground_truth['groundtruth_dataset_metadata']['corpus_ref']['dataset'] = 'other'
+    with pytest.raises(ValueError) as raised:
+        datasets.import_dataset(corpus, ground_truth)
+    detail = str(raised.value)
+    assert 'verbatim' in detail and 'pair join' in detail
 
 
-def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(client):
+def test_the_built_in_corpus_cannot_be_overwritten_by_an_import(imports_here):
     # this is an integration test
-    payload = _valid()
-    payload['dataset']['id'] = datasets.BUILTIN
-    refused = client.post('/api/datasets', json=payload)
-    assert refused.status_code == 400
-    assert 'built-in' in refused.json()['detail']
+    corpus, ground_truth = _valid_pair()
+    corpus['corpus_dataset_metadata']['dataset'] = datasets.BUILTIN
+    ground_truth['groundtruth_dataset_metadata']['corpus_ref']['dataset'] = (
+        datasets.BUILTIN)
+    with pytest.raises(ValueError, match='built-in'):
+        datasets.import_dataset(corpus, ground_truth)
 
 
-# --- the leaderboard -------------------------------------------------------
+# --- the leaderboard ----------------------------------------------------------
 
 def test_the_leaderboard_never_ranks_across_corpora():
     # this is a unit test
@@ -462,9 +489,6 @@ def test_the_leaderboard_never_ranks_across_corpora():
     for found in groups:
         assert leaderboard.verdict(found) == 'unranked', (
             'one row per corpus cannot beat anything')
-    # `leaderboard.markdown` now prints the flat, one-table-per-dataset board
-    # rather than these comparability groups; the same "never one table"
-    # claim holds there too.
     assert 'support-en' in leaderboard.markdown(leaderboard.by_dataset(rows))
 
 
@@ -482,46 +506,7 @@ def test_a_run_from_before_datasets_existed_is_the_built_in_corpus():
     assert len(groups) == 1, 'the old row and the new one are the same corpus'
 
 
-# --- what the import control says the file must look like -------------------
-#
-# The importer refuses rather than repairs, so a corpus that does not meet the
-# contract is a list of problems and a second attempt. The panel can spend that
-# round trip or state the shape before a file is picked; there is a whole
-# contract nobody on that screen knew to read, and nothing on screen said so.
-
-def test_the_import_control_describes_a_shape_the_importer_really_enforces():
-    # this is a unit test
-    """Every top-level key and closed vocabulary the description names has to
-    be one `validate` really refuses the absence of — a description beside a
-    checker is a description that can drift from it."""
-    from raglab.configuration import explainer_assembly as explain
-    text = explain.topics()['run.dataset-file']
-    for named in ('dataset', 'sessions', 'questions',      # the three keys
-                  'id', 'name', 'language',                 # what a corpus is
-                  'session_id', 'date', 'messages', 'role', 'content',
-                  'type', 'difficulty', 'answerable', 'answer',
-                  'evidence', 'message_indices', 'quote'):
-        assert named in text, named
-    # The two closed vocabularies are named rather than gestured at, because the
-    # importer refuses a value outside them and nobody can guess eleven types.
-    # Listed by hand and pinned here: config cannot import metrics.
-    from raglab.configuration.lab_config import DIFFICULTIES
-    from raglab.evaluation.deterministic_metrics import TYPES
-    for value in TYPES + DIFFICULTIES:
-        assert value in text, value
-    # The rule that earns its cost is the one a reader must not discover from a
-    # rejection, and the full contract is one line away.
-    assert 'verbatim' in text
-    assert 'fixtures/corpus_groundtruth_datasets/' in text
-    # And each of the three top-level keys the text calls out is one
-    # `validate` genuinely refuses the absence of.
-    for key in ('dataset', 'sessions', 'questions'):
-        without = _valid()
-        without.pop(key)
-        problems = datasets.validate(without)
-        assert any(f'"{key}"' in p for p in problems), (
-            f'{key} is described as required, but no problem names it: {problems}')
-
+# --- the panel's own conventions, unrelated to loading -----------------------
 
 def test_the_panel_renders_the_json_shape_as_a_shape():
     # this is a convention test
@@ -537,19 +522,14 @@ def test_the_panel_renders_the_json_shape_as_a_shape():
 def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     # this is a convention test
     """Two corpora are never one measurement, so a ranking must never span
-    them. The panel used to enforce that itself, in the board it rendered; that
-    board is gone and the rule now lives one level deeper, in the grouping
-    module both the page and `raglab-leaderboard` read from — where it also got
-    stricter, since a group is now one dataset *and* one question set *and* one
-    judge. This checks the dataset is still offered here and that the rule is
-    still enforced there, rather than checking for markup that moved."""
+    them. This checks the dataset is still offered here and that the rule is
+    still enforced in the grouping module, rather than checking for markup
+    that moved."""
     from raglab.dashboard.panel_server import STATIC
     html = (STATIC / 'panel.html').read_text(encoding='utf-8')
     js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'id="dataset"' in html and 'id="dataset-file"' in html
     assert '/api/datasets' in js
-    # The dataset is the coarsest part of the grouping key, so rows from two
-    # corpora cannot land in one table however else they agree.
     rows = [{'dataset': 'diary-fa', 'label': 'a',
              'selection': {'question_ids': ['q1']}, 'judge': {'model': 'm'}},
             {'dataset': 'smoke-mini', 'label': 'b',

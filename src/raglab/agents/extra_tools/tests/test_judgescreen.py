@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
 from raglab.agents.extra_tools import judgescreen
 from raglab.agents.extra_tools.judgescreen import Call, score
@@ -22,7 +22,7 @@ def items(diary, ground_truth):
     the whole ground truth and its evidence to pair each answer with a
     fabricated one, and every test in this section is about that *same*
     six-pair screen, not a fresh one drawn per test."""
-    return judgescreen.build_items(ground_truth, corpus.sessions_by_id(diary),
+    return judgescreen.build_items(ground_truth, corpus.documents_by_id(diary),
                                    pairs=6)
 
 
@@ -109,7 +109,7 @@ def test_the_fabricated_number_is_one_the_context_never_states(items):
 def test_a_question_that_cannot_be_mutated_cleanly_is_skipped(diary):
     # this is a unit test
     """No mutation is better than a mislabelled one."""
-    sessions = corpus.sessions_by_id(diary)
+    sessions = corpus.documents_by_id(diary)
     # No numerals at all, so nothing can be fabricated.
     ground_truth = {'questions': [
         {'id': 'q-x', 'answerable': True, 'answer_fa': 'هیچ عددی اینجا نیست',

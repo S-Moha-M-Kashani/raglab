@@ -21,7 +21,7 @@ from raglab.configuration.lab_config import (
     LabConfig,
     LabSettings,
     RetrievalConfig)
-from raglab.corpora.diary_corpus_loader import load_diary, load_ground_truth
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
@@ -39,7 +39,7 @@ SMOKE_LEAVES = dict(dataset='smoke-mini', chunker='session',
 
 @pytest.fixture(scope='module')
 def diary():
-    return load_diary()
+    return datasets.load()[0]
 
 
 @pytest.fixture(scope='module')
@@ -280,7 +280,7 @@ def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
     """The control has to actually be a control: if `leaves` moved a single
     context, no row using it could say whether building the summaries cost
     anything."""
-    ground_truth = load_ground_truth()
+    ground_truth = datasets.load()[1]
     question = _question(ground_truth)
     flat = registry.get(IndexConfig(**LEAVES))
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
@@ -296,7 +296,7 @@ def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
 
 def test_the_summaries_scope_retrieves_only_summaries(registry):
     # this is an integration test
-    ground_truth = load_ground_truth()
+    ground_truth = datasets.load()[1]
     question = _question(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
     outcome = pipeline.retrieve(
@@ -313,7 +313,7 @@ def test_drill_down_expands_each_summary_to_the_members_it_stands_for(registry):
     """Summaries compete only against summaries, so being outnumbered by
     leaves cannot happen, and the members arrive as evidence the answerer
     can quote."""
-    ground_truth = load_ground_truth()
+    ground_truth = datasets.load()[1]
     question = _question(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
     outcome = pipeline.retrieve(
@@ -335,7 +335,7 @@ def test_a_boost_promotes_a_summary_into_the_candidate_cut(registry):
     """Applied before the cut, never after: there are far more leaves than
     summaries, so a summary that had not already survived the cut could not
     be promoted into it — that would be a no-op that looked like a knob."""
-    ground_truth = load_ground_truth()
+    ground_truth = datasets.load()[1]
     question = _question(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='metadata'))
     base = RetrievalConfig(reranker='none', k=5, rerank_depth=5)
@@ -435,7 +435,7 @@ def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
     different facts, and a row that scores flat is uninterpretable without
     the second."""
     from raglab.evaluation import run_evaluation as evaluate
-    ground_truth = load_ground_truth()
+    ground_truth = datasets.load()[1]
     registry = IndexRegistry(LAB_SETTINGS, diary)
     result = evaluate.run_eval(
         registry, ground_truth,

@@ -12,7 +12,8 @@ from pathlib import Path
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
 
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.configuration.lab_config import ROOT, load_lab_settings
 from raglab.llm_backends.chat_model_factory import judge_llm
 
@@ -254,9 +255,9 @@ def screen(models: list[str], pairs: int = 6) -> dict:
                  'this machine and need no key at all; RAGLAB_LLM=ollama runs a '
                  'model on it; RAGLAB_LLM=openrouter needs OPENROUTER_API_KEY '
                  'for a remote candidate')
-    diary = corpus.load_diary()
-    sessions = corpus.sessions_by_id(diary)
-    items = build_items(corpus.load_ground_truth(), sessions, pairs)
+    diary, ground_truth = datasets.load()
+    documents = corpus.documents_by_id(diary)
+    items = build_items(ground_truth, documents, pairs)
     signal = lexical_signal(items)
     print(f'{len(items)} items · {len(models)} models · via {settings.provider}')
     print(f'lexical signal: supported {signal["supported"]} vs unsupported '

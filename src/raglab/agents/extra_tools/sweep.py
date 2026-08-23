@@ -11,7 +11,8 @@ from dataclasses import replace
 
 from raglab.evaluation import leaderboard
 from raglab.llm_backends import cli_subprocess_chat as clichat
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
 from raglab.configuration.lab_config import (
     BALANCES,
@@ -170,8 +171,7 @@ def live(label: str, started: float, stream=sys.stdout):
 def sweep(limit: int, workers: int, only: list[str] | None = None,
           balance: str = SWEEP_BALANCE) -> list[tuple]:
     settings = judged_settings()
-    diary = corpus.load_diary()
-    ground_truth = corpus.load_ground_truth()
+    diary, ground_truth = datasets.load()
     registry = IndexRegistry(settings, diary)
 
     asked, workers = workers, capped_workers(workers, settings)
@@ -258,8 +258,7 @@ def final(limit: int | None, workers: int, label: str,
     """Re-run one candidate over the whole question set: the winner is decided
     on a subset for cost, but a per-type breakdown over two questions isn't one."""
     settings = judged_settings()
-    diary = corpus.load_diary()
-    ground_truth = corpus.load_ground_truth()
+    diary, ground_truth = datasets.load()
     registry = IndexRegistry(settings, diary)
     cfg = next(c for c in candidates() if c.label.split()[0] == label)
     cfg = replace(cfg, label=f'WINNER {cfg.label} · full set')

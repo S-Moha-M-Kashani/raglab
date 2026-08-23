@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
-from raglab.corpora.diary_corpus_loader import date_int, session_text
+from raglab.corpora.corpus_reading import date_int, document_text
 
 
 def chunk_text(text: str, max_chars: int = 500) -> list[str]:
@@ -197,7 +197,7 @@ def chunk_session(session: dict, cfg, embedder) -> list[Chunk]:
                          prefix=prefix, msg_start=start, msg_end=end, **base))
 
     if cfg.chunker == 'session':
-        emit(session_text(session), 0, 0, len(messages) - 1)
+        emit(document_text(session), 0, 0, len(messages) - 1)
     elif cfg.chunker == 'message':
         for i, m in enumerate(messages):
             emit(f"{_speaker(m['role'], language)}: {m['content']}", i, i, i)
@@ -221,10 +221,10 @@ def chunk_session(session: dict, cfg, embedder) -> list[Chunk]:
                            f"{messages[j]['content']}" for j in segment),
                  i, segment[0], segment[-1])
     elif cfg.chunker == 'fixed-overlap':
-        for i, piece in enumerate(_windows(session_text(session), cfg.chunk_chars,
+        for i, piece in enumerate(_windows(document_text(session), cfg.chunk_chars,
                                            cfg.overlap)):
             emit(piece, i, -1, -1)
     else:   # 'fixed' — the production baseline, called rather than reimplemented
-        for i, piece in enumerate(chunk_text(session_text(session), cfg.chunk_chars)):
+        for i, piece in enumerate(chunk_text(document_text(session), cfg.chunk_chars)):
             emit(piece, i, -1, -1)
     return out

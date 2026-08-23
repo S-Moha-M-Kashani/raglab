@@ -1,27 +1,41 @@
-"""The corpora this lab can measure against, and the contract a new one meets
-(`validate()` here is the contract; `config.HELP['run.dataset-file']` states it
-for the panel). `IndexConfig.dataset` lands in the
-fingerprint, so an index built over one corpus can never be handed a question
-from another; `''` means the built-in diary, and is also the leaderboard's
-coarsest grouping key. `validate()` requires every evidence quote to be verbatim
-in the message it cites, since every lexical metric here is computed against
-those quotes. On disk a dataset is one file; in the lab it is the two objects
-(`diary`, `ground_truth`) six other modules already speak, and `load()` is
-where the contract's `question`/`answer` become the lab's `question_fa`/`answer_fa`.
+"""The corpora this lab can measure against, and the contract a new pair
+meets (`validate()` here is the contract; `config.HELP['run.dataset-file']`
+states it for the panel). `IndexConfig.dataset` lands in the fingerprint, so
+an index built over one corpus can never be handed a question from another;
+`''` means the built-in diary (`diary-fa`), and is also the leaderboard's
+coarsest grouping key.
+
+A dataset is two files, paired by id (D1): `<name>_corpus.json` and
+`<name>_groundtruth.json`, joined by `corpus_dataset_metadata.dataset ==
+groundtruth_dataset_metadata.corpus_ref.dataset` — never by filename, since
+the bundled files' names (`diary_year_fa_corpus.json`) do not spell the id
+they declare (`diary-fa`). A corpus with no matching ground truth is listed
+and refused at run time ("nothing to measure against"); a ground truth with
+no corpus is never listed at all, since every listing is reached by scanning
+corpus files.
+
+`schema_corpus.json`/`schema_groundtruth.json` are the single source of
+structural truth (D9): `validate()` runs them with the `jsonschema` library
+and adds only what a JSON Schema cannot express — the `x-consistency` and
+`x-cross-file` rules the schemas themselves declare, since a label vocabulary
+is data, not shape, and whether a document obeys its own table is not
+knowable until the file is open.
+
+`load()` returns the two file payloads exactly as they are (D4) — there is no
+second, translated dialect. `document_content`, `text`, `labels`,
+`document_metadata`, `label_fields`, `derived_facts`, `evidence`, `fidelity`,
+`behavior`, `supports` are the names every consumer (chunker, harness,
+metrics, panel) reads.
 """
 import json
 import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from raglab.configuration.lab_config import DIFFICULTIES, ROOT
+import jsonschema
+
+from raglab.configuration.lab_config import ROOT
 from raglab.corpora import corpus_store as corpora
-from raglab.corpora.diary_corpus_loader import (
-    DIARY_PATH,
-    load_diary,
-    load_ground_truth)
-from raglab.evaluation.deterministic_metrics import TYPES
 
 # Shipped and read-only: a reference point that can be edited in place isn't one.
 BUNDLED_DIR = ROOT / 'fixtures' / 'corpus_groundtruth_datasets'
@@ -32,7 +46,18 @@ IMPORTED_DIR = ROOT / '.datasets'
 # and stored run keeps meaning what it meant.
 BUILTIN = 'diary-fa'
 
-ID_SHAPE = re.compile(r'^[a-z0-9][a-z0-9-]{1,39}$')
+CORPUS_SUFFIX = '_corpus.json'
+GROUNDTRUTH_SUFFIX = '_groundtruth.json'
+# The schemas themselves live beside the data they describe and happen to
+# share both files' suffixes (`schema_corpus.json`, `schema_groundtruth.json`)
+# — named explicitly rather than matched, since a suffix match alone would
+# read them as a nameless dataset.
+SCHEMA_FILES = {'schema_corpus.json', 'schema_groundtruth.json'}
+
+CORPUS_SCHEMA = json.loads(
+    (BUNDLED_DIR / 'schema_corpus.json').read_text(encoding='utf-8'))
+GROUNDTRUTH_SCHEMA = json.loads(
+    (BUNDLED_DIR / 'schema_groundtruth.json').read_text(encoding='utf-8'))
 
 
 @dataclass(frozen=True)
@@ -42,13 +67,16 @@ class Dataset:
     name: str
     description: str
     language: str
-    source: str                  # builtin | bundled | imported
+    source: str                  # bundled | imported
     path: str                    # repo-relative, for a reader who wants to look
-    sessions: int = 0
-    messages: int = 0
+    documents: int = 0
+    parts: int = 0
     questions: int = 0
     query_date: str = ''
     period: dict = field(default_factory=dict)
+    # The label names this corpus declares — what the panel renders one
+    # switch-group or filter per (D7's successor here: the listing side of it).
+    labels: list[str] = field(default_factory=list)
     # Which row of `databases/corpora.db` holds this corpus as it entered the
     # lab — assigned by the database on insert, never carried in the file. Set
     # by `import_dataset`, which is the one place a dataset enters; `0` on a
@@ -61,9 +89,10 @@ class Dataset:
     def as_dict(self) -> dict:
         return {'id': self.id, 'name': self.name, 'description': self.description,
                 'language': self.language, 'source': self.source, 'path': self.path,
-                'sessions': self.sessions, 'messages': self.messages,
+                'documents': self.documents, 'parts': self.parts,
                 'questions': self.questions, 'query_date': self.query_date,
-                'period': self.period, 'id_corpora': self.id_corpora}
+                'period': self.period, 'labels': self.labels,
+                'id_corpora': self.id_corpora}
 
 
 def imported_dir() -> Path:
@@ -79,79 +108,118 @@ def _read(path: Path) -> dict:
     return json.loads(path.read_text(encoding='utf-8'))
 
 
-def _files() -> list[tuple[str, Path]]:
-    """Every dataset file, bundled then imported, newest name order. An import
-    with the id of a bundled sample shadows it — it is the copy the user made
-    on purpose, and refusing the name would be refusing the edit."""
-    found: list[tuple[str, Path]] = []
+def _dataset_id(corpus: dict) -> str:
+    return (corpus.get('corpus_dataset_metadata') or {}).get('dataset', '')
+
+
+def _files() -> list[tuple[str, str, Path, Path | None]]:
+    """Every corpus this lab can be pointed at, paired with its ground truth
+    by the id each file declares (D1) — not by filename — bundled then
+    imported. An import with the id of a bundled sample shadows it: it is the
+    copy the user made on purpose, and refusing the name would be refusing
+    the edit. A corpus with no matching ground truth is still listed here,
+    with `None` in its place — `load()` is where that becomes a refusal. A
+    ground truth with no corpus is never reached at all, since this scans by
+    corpus file, never by ground-truth file."""
+    found: list[tuple[str, str, Path, Path | None]] = []
+    order: dict[str, int] = {}
     for source, folder in (('bundled', BUNDLED_DIR), ('imported', imported_dir())):
         if not folder.exists():
             continue
-        for path in sorted(folder.glob('*.json')):
-            # The built-in diary shares the folder but not the contract: its
-            # native schema would parse as a nameless bundled dataset and
-            # stand beside the builtin as a double.
-            if path == DIARY_PATH:
+        truths: dict[str, Path] = {}
+        for path in sorted(folder.glob(f'*{GROUNDTRUTH_SUFFIX}')):
+            if path.name in SCHEMA_FILES:
                 continue
-            found.append((source, path))
+            try:
+                payload = _read(path)
+            except Exception:
+                continue
+            meta = payload.get('groundtruth_dataset_metadata') or {}
+            dataset_id = (meta.get('corpus_ref') or {}).get('dataset', '')
+            if dataset_id:
+                truths[dataset_id] = path
+        for path in sorted(folder.glob(f'*{CORPUS_SUFFIX}')):
+            if path.name in SCHEMA_FILES:
+                continue
+            try:
+                payload = _read(path)
+            except Exception:
+                continue
+            dataset_id = _dataset_id(payload)
+            if not dataset_id:
+                continue
+            entry = (source, dataset_id, path, truths.get(dataset_id))
+            if dataset_id in order:
+                found[order[dataset_id]] = entry
+            else:
+                order[dataset_id] = len(found)
+                found.append(entry)
     return found
 
 
-def _builtin() -> Dataset:
-    diary = load_diary()
-    ground_truth = load_ground_truth()
-    return Dataset(
-        id=BUILTIN, name='Farsi diary — one year',
-        description=(diary['meta'].get('description') or '')[:200],
-        language=diary['meta'].get('language', 'fa'), source='builtin',
-        path=str(DIARY_PATH.relative_to(ROOT)),
-        sessions=len(diary['sessions']),
-        messages=sum(len(s['messages']) for s in diary['sessions']),
-        questions=len(ground_truth['questions']),
-        query_date=ground_truth['meta'].get('query_date', ''),
-        period=diary['meta'].get('period', {}))
+def _date_label(label_fields: dict) -> str:
+    """The one label typed `date-time` at the document level (D5) — what
+    `period` is read off. A corpus that declares none has no time behaviour,
+    and this returns ''."""
+    for name, definition in label_fields.items():
+        if (definition.get('format') == 'date-time'
+                and 'document' in (definition.get('applies_to') or [])):
+            return name
+    return ''
 
 
-def describe(payload: dict, source: str, path: Path,
+def describe(corpus: dict, ground_truth: dict | None, source: str, path: Path,
              id_corpora: int = 0) -> Dataset:
-    """One dataset file as the panel lists it. `id_corpora` is passed only by
-    the import that just stored the corpus and got a row id back; a listing
-    leaves it 0, because a listing reads files and asks the corpus store
-    nothing."""
-    meta = payload.get('dataset') or {}
-    sessions = payload.get('sessions') or []
-    dates = sorted(s.get('date', '') for s in sessions if s.get('date'))
+    """One dataset pair as the panel lists it. `ground_truth` is `None` for a
+    corpus with nothing to measure against (D1) — still listed, with zero
+    questions. `id_corpora` is passed only by the import that just stored the
+    corpus and got a row id back; a listing leaves it 0, because a listing
+    reads files and asks the corpus store nothing."""
+    meta = corpus.get('corpus_dataset_metadata') or {}
+    documents = corpus.get('corpus_documents') or []
+    label_fields = meta.get('label_fields') or {}
+    date_label = _date_label(label_fields)
+    dates = sorted(
+        value for value in (
+            (document.get('document_metadata') or {}).get(date_label)
+            for document in documents)
+        if value) if date_label else []
+    gt_meta = (ground_truth or {}).get('groundtruth_dataset_metadata') or {}
+    questions = (ground_truth or {}).get('groundtruth_dataset') or []
     try:
         shown = str(path.relative_to(ROOT))
     except ValueError:
         shown = str(path)
     return Dataset(
-        id=meta.get('id', path.stem), name=meta.get('name', path.stem),
+        id=meta.get('dataset', path.stem), name=meta.get('name', path.stem),
         description=meta.get('description', ''),
         language=meta.get('language', ''), source=source, path=shown,
-        sessions=len(sessions),
-        messages=sum(len(s.get('messages') or []) for s in sessions),
-        questions=len(payload.get('questions') or []),
-        query_date=meta.get('query_date', ''),
+        documents=len(documents),
+        parts=sum(len(document.get('document_content') or [])
+                  for document in documents),
+        questions=len(questions),
+        query_date=gt_meta.get('default_question_asked_at', ''),
         period={'from': dates[0], 'to': dates[-1]} if dates else {},
+        labels=sorted(label_fields),
         id_corpora=int(id_corpora))
 
 
 def catalogue() -> list[Dataset]:
-    """Every dataset this lab can be pointed at, the built-in one first since it
-    is the default. A file that will not parse is skipped, never fatal."""
-    out = [_builtin()]
-    seen = {BUILTIN}
-    for source, path in _files():
+    """Every dataset this lab can be pointed at. A file that will not parse is
+    skipped, never fatal."""
+    out: list[Dataset] = []
+    for source, dataset_id, corpus_path, truth_path in _files():
         try:
-            payload = _read(path)
+            corpus = _read(corpus_path)
         except Exception:
             continue
-        found = describe(payload, source, path)
-        if found.id in seen:
-            out = [d for d in out if d.id != found.id]
-        seen.add(found.id)
-        out.append(found)
+        ground_truth = None
+        if truth_path is not None:
+            try:
+                ground_truth = _read(truth_path)
+            except Exception:
+                ground_truth = None
+        out.append(describe(corpus, ground_truth, source, corpus_path))
     return out
 
 
@@ -160,293 +228,348 @@ def find(dataset_id: str) -> Dataset | None:
     return next((d for d in catalogue() if d.id == wanted), None)
 
 
-def _path_for(dataset_id: str) -> Path | None:
-    for source, path in _files():
-        try:
-            meta = (_read(path).get('dataset') or {})
-        except Exception:
-            continue
-        if meta.get('id', path.stem) == dataset_id:
-            return path
-    return None
-
-
 _CACHE: dict[str, tuple[dict, dict]] = {}
 
 
 def load(dataset_id: str = '') -> tuple[dict, dict]:
-    """`(diary, ground_truth)` for one dataset, in the shape the lab speaks.
-    Cached per id, read once per process; an import calls `forget()`."""
+    """`(corpus, ground_truth)` for one dataset, in the shape the schema
+    declares (D4) — no translation layer. Cached per id, read once per
+    process; an import calls `forget()`."""
     wanted = dataset_id or BUILTIN
-    if wanted == BUILTIN:
-        return load_diary(), load_ground_truth()
     if wanted in _CACHE:
         return _CACHE[wanted]
-    path = _path_for(wanted)
-    if path is None:
-        raise ValueError(
-            f'unknown dataset {wanted!r} — known: '
-            + ', '.join(d.id for d in catalogue()))
-    _CACHE[wanted] = _split(_read(path))
-    return _CACHE[wanted]
+    for source, found_id, corpus_path, truth_path in _files():
+        if found_id != wanted:
+            continue
+        if truth_path is None:
+            raise ValueError(
+                f'{wanted!r} has no ground truth — nothing to measure '
+                f'against. Add a {wanted}{GROUNDTRUTH_SUFFIX} whose '
+                'corpus_ref.dataset names it.')
+        _CACHE[wanted] = (_read(corpus_path), _read(truth_path))
+        return _CACHE[wanted]
+    raise ValueError(
+        f'unknown dataset {wanted!r} — known: '
+        + ', '.join(d.id for d in catalogue()))
 
 
 def forget() -> None:
-    """Drop the corpus cache, so a dataset replaced under the same id is the one
-    the next build reads."""
+    """Drop the corpus cache, so a dataset replaced under the same id is the
+    one the next build reads."""
     _CACHE.clear()
 
 
-def _split(payload: dict) -> tuple[dict, dict]:
-    """One dataset file → the two objects the pipeline takes. Every optional
-    session field is filled here, not defended against downstream, since the
-    chunkers read `mood`/`time`/`source`/`topics`/`recurring_threads` directly."""
-    meta = payload.get('dataset') or {}
-    language = meta.get('language', 'en')
-    sessions = [_session(raw, language) for raw in payload.get('sessions') or []]
-    dates = sorted(s['date'] for s in sessions if s.get('date'))
-    query_date = meta.get('query_date') or (dates[-1] if dates else '')
-    diary = {
-        'meta': {'description': meta.get('description', ''), 'language': language,
-                 'period': {'from': dates[0] if dates else '',
-                            'to': dates[-1] if dates else ''}},
-        'persona': meta.get('persona', {}),
-        'threads': meta.get('threads', []),
-        'sessions': sessions,
-        'habits': meta.get('habits', {}),
-    }
-    ground_truth = {
-        'meta': {'description': meta.get('description', ''),
-                 'corpus': meta.get('id', ''), 'query_date': query_date},
-        'questions': [_question(raw, query_date)
-                      for raw in payload.get('questions') or []],
-    }
-    return diary, ground_truth
+# --- the contract ------------------------------------------------------------
+
+def validate(corpus: dict, ground_truth: dict) -> list[str]:
+    """Everything wrong with a corpus/ground-truth pair, in the order a reader
+    would fix it — a list rather than an exception, and *all* of the problems
+    rather than the first. D9's composition: the two schemas run first, since
+    they are the structural truth; if either has anything to say, the checks
+    below (which assume a structurally sound pair) do not run at all, and only
+    once both are clean do the `x-consistency`/`x-cross-file` rules the
+    schemas declare get checked in Python — the only place a dynamic label
+    vocabulary can be checked, since its shape is data, not schema."""
+    problems = (_schema_problems(corpus, CORPUS_SCHEMA, 'corpus')
+               + _schema_problems(ground_truth, GROUNDTRUTH_SCHEMA, 'ground truth'))
+    if problems:
+        return problems
+    problems.extend(_consistency_problems(corpus))
+    problems.extend(_groundtruth_consistency_problems(ground_truth))
+    problems.extend(_cross_file_problems(corpus, ground_truth))
+    return problems
 
 
-def _session(raw: dict, language: str) -> dict:
-    mood = raw.get('mood') or {}
-    return {
-        'session_id': raw.get('session_id', ''), 'date': raw.get('date', ''),
-        'time': raw.get('time', '12:00'), 'source': raw.get('source', 'text'),
-        'language': language,
-        # Neutral midpoints rather than absent: `importance_of` is arithmetic
-        # over these, so a corpus that doesn't track mood contributes no signal
-        # in either direction rather than refusing.
-        'mood': {'label': mood.get('label', ''),
-                 'valence': mood.get('valence', 5.5),
-                 'arousal': mood.get('arousal', 5.5)},
-        'topics': list(raw.get('topics') or []),
-        'recurring_threads': list(raw.get('threads')
-                                  or raw.get('recurring_threads') or []),
-        'messages': [{'role': m.get('role', 'user'),
-                      'intent': m.get('intent', ''),
-                      'content': m.get('content', '')}
-                     for m in raw.get('messages') or []],
-    }
+def _schema_problems(payload: dict, schema: dict, label: str) -> list[str]:
+    validator = jsonschema.Draft202012Validator(schema)
+    errors = sorted(validator.iter_errors(payload),
+                    key=lambda error: [str(part) for part in error.absolute_path])
+    return [f'{".".join(str(part) for part in error.absolute_path) or label}: '
+            f'{error.message}' for error in errors]
 
 
-def _question(raw: dict, query_date: str) -> dict:
-    """The contract's `question`/`answer` under the names the lab reads:
-    `question_fa`/`answer_fa`, which hold the text in the corpus's own language."""
-    text = raw.get('question') or raw.get('question_fa') or ''
-    answer = raw.get('answer') or raw.get('answer_fa') or ''
-    return {
-        'id': raw.get('id', ''), 'type': raw.get('type', ''),
-        'difficulty': raw.get('difficulty', ''),
-        'query_date': raw.get('query_date') or query_date,
-        'question_fa': text, 'question_en': raw.get('question_en', ''),
-        'answer_fa': answer, 'answer_en': raw.get('answer_en', ''),
-        'time_scope': raw.get('time_scope'),
-        'answerable': bool(raw.get('answerable', True)),
-        'key_facts': list(raw.get('key_facts') or []),
-        'evidence': [{'session_id': ev.get('session_id', ''),
-                      'message_indices': list(ev.get('message_indices') or []),
-                      'quote': ev.get('quote', '')}
-                     for ev in raw.get('evidence') or []],
-        'threads': list(raw.get('threads') or []),
-    }
-
-
-# --- the contract ----------------------------------------------------------
-
-def validate(payload: dict) -> list[str]:
-    """Everything wrong with a dataset, in the order a reader would fix it — a
-    list rather than an exception, and *all* of the problems rather than the
-    first, so importing isn't a slow loop of one broken quote at a time. Each
-    message names the offending id."""
+def _consistency_problems(corpus: dict) -> list[str]:
+    """`schema_corpus.json`'s `x-consistency`, the parts a JSON Schema cannot
+    check because the vocabulary table is itself data: every used label is
+    declared at the level it is used, every extracted label has exactly one
+    rater and no rater rates an unextracted label, a confidence's own shape
+    matches what it rates, and `ranks` is legal only where declared."""
     problems: list[str] = []
-    if not isinstance(payload, dict):
-        return ['the dataset must be a JSON object']
-    meta = payload.get('dataset')
-    if not isinstance(meta, dict):
-        problems.append('"dataset" is missing: a corpus has to say what it is')
-        meta = {}
-    dataset_id = meta.get('id', '')
-    if not ID_SHAPE.match(str(dataset_id)):
-        problems.append(
-            f'dataset.id {dataset_id!r} must be 2–40 characters of lowercase '
-            'letters, digits and hyphens — it names a file and a config value')
-    if not meta.get('name'):
-        problems.append('dataset.name is missing: the panel lists it by name')
-    if not meta.get('language'):
-        problems.append('dataset.language is missing — an English-only embedder '
-                        'returns confident numbers on a corpus it cannot read, '
-                        'and the panel says so only if the corpus states its '
-                        'language')
+    dataset_id = _dataset_id(corpus)
+    meta = corpus.get('corpus_dataset_metadata') or {}
+    fields = meta.get('label_fields') or {}
+    documents = corpus.get('corpus_documents') or []
 
-    sessions = payload.get('sessions')
-    if not isinstance(sessions, list) or not sessions:
-        problems.append('"sessions" must be a non-empty list')
-        sessions = []
-    by_id: dict[str, dict] = {}
-    for i, session in enumerate(sessions):
-        where = session.get('session_id') or f'sessions[{i}]'
-        if not isinstance(session, dict):
-            problems.append(f'{where}: each session must be an object')
-            continue
-        if not session.get('session_id'):
-            problems.append(f'sessions[{i}]: session_id is required — evidence '
-                            'points at it')
-        elif session['session_id'] in by_id:
-            problems.append(f'{where}: duplicate session_id')
-        if not _is_date(session.get('date')):
-            problems.append(f'{where}: date must be YYYY-MM-DD — the time filter '
-                            'and every recency score read it as a number')
-        messages = session.get('messages')
-        if not isinstance(messages, list) or not messages:
-            problems.append(f'{where}: messages must be a non-empty list')
-            messages = []
-        for j, message in enumerate(messages):
-            if not isinstance(message, dict) or not (message.get('content') or '').strip():
-                problems.append(f'{where}: messages[{j}] has no content')
-            elif message.get('role') not in ('user', 'assistant'):
-                problems.append(f'{where}: messages[{j}].role must be "user" or '
-                                '"assistant"')
-        if session.get('session_id'):
-            by_id[session['session_id']] = session
+    used_at: dict[str, set[str]] = {}
+    for document in documents:
+        for key in (document.get('document_metadata') or {}):
+            used_at.setdefault(key, set()).add('document')
+        for part in document.get('document_content') or []:
+            for key in (part.get('labels') or {}):
+                used_at.setdefault(key, set()).add('part')
 
-    questions = payload.get('questions')
-    if not isinstance(questions, list) or not questions:
-        problems.append('"questions" must be a non-empty list — a corpus with no '
-                        'ground truth cannot be measured against')
-        questions = []
-    seen: set[str] = set()
-    for i, question in enumerate(questions):
-        if not isinstance(question, dict):
-            problems.append(f'questions[{i}]: each question must be an object')
-            continue
-        where = question.get('id') or f'questions[{i}]'
-        if not question.get('id'):
-            problems.append(f'questions[{i}]: id is required — it is what a run '
-                            'records to say which questions it scored')
-        elif question['id'] in seen:
-            problems.append(f'{where}: duplicate question id')
-        seen.add(question.get('id', ''))
-        if not (question.get('question') or question.get('question_fa') or '').strip():
-            problems.append(f'{where}: question is empty')
-        if question.get('type') not in TYPES:
-            problems.append(f'{where}: type {question.get("type")!r} is not one '
-                            f'of {", ".join(TYPES)} — the panel filters a run by '
-                            'type and reports a breakdown per type')
-        if question.get('difficulty') not in DIFFICULTIES:
-            problems.append(f'{where}: difficulty must be one of '
-                            f'{", ".join(DIFFICULTIES)} — a balanced sample is '
-                            'drawn from those three bands')
-        answerable = bool(question.get('answerable', True))
-        evidence = question.get('evidence') or []
-        if answerable and not evidence:
-            problems.append(f'{where}: an answerable question needs evidence — '
-                            'recall is measured against it')
-        if answerable and not (question.get('answer')
-                               or question.get('answer_fa') or '').strip():
-            problems.append(f'{where}: an answerable question needs an answer')
-        problems.extend(_evidence_problems(where, evidence, by_id))
-    return problems
-
-
-def _evidence_problems(where: str, evidence: list, by_id: dict) -> list[str]:
-    problems = []
-    for k, ev in enumerate(evidence):
-        if not isinstance(ev, dict):
-            problems.append(f'{where}: evidence[{k}] must be an object')
-            continue
-        session = by_id.get(ev.get('session_id', ''))
-        if session is None:
-            problems.append(f'{where}: evidence[{k}] cites session '
-                            f'{ev.get("session_id")!r}, which this corpus does '
-                            'not contain')
-            continue
-        messages = session.get('messages') or []
-        indices = ev.get('message_indices') or []
-        if not indices:
-            problems.append(f'{where}: evidence[{k}] names no message_indices')
-        bad = [n for n in indices
-               if not isinstance(n, int) or not 0 <= n < len(messages)]
-        if bad:
-            problems.append(f'{where}: evidence[{k}] message_indices {bad} are '
-                            f'outside session {ev.get("session_id")!r}, which has '
-                            f'{len(messages)} messages')
-        quote = (ev.get('quote') or '').strip()
-        if not quote:
-            problems.append(f'{where}: evidence[{k}] has no quote — the quote is '
-                            'what quote recall and every span highlight are '
-                            'measured against')
-            continue
-        cited = ' \n'.join((messages[n].get('content') or '')
-                           for n in indices
-                           if isinstance(n, int) and 0 <= n < len(messages))
-        if quote not in cited:
+    for key, levels in used_at.items():
+        if key not in fields:
             problems.append(
-                f'{where}: evidence[{k}] quotes text that is not in the messages '
-                'it cites — a quote must be verbatim, or every lexical score in '
-                'this lab is measured against something the corpus never said')
+                f'{dataset_id}: label {key!r} is used but never declared in '
+                'label_fields')
+            continue
+        declared = set(fields[key].get('applies_to') or [])
+        stray = levels - declared
+        if stray:
+            problems.append(
+                f'{dataset_id}: label {key!r} is used at '
+                f'{", ".join(sorted(stray))}, which its declared applies_to '
+                f'{sorted(declared)} does not name')
+
+    raters: dict[str, list[str]] = {}
+    for name, definition in fields.items():
+        rated = definition.get('confidence_for')
+        if rated:
+            raters.setdefault(rated, []).append(name)
+
+    for name, definition in fields.items():
+        if definition.get('extracted'):
+            names = raters.get(name, [])
+            if len(names) != 1:
+                problems.append(
+                    f'{dataset_id}: extracted label {name!r} needs exactly '
+                    f'one label declaring confidence_for {name!r}, found '
+                    f'{len(names)}')
+        rated = definition.get('confidence_for')
+        if rated and not (fields.get(rated) or {}).get('extracted'):
+            problems.append(
+                f'{dataset_id}: {name!r} declares confidence_for {rated!r}, '
+                'which is not declared extracted — a rater rates only what '
+                'was extracted')
+        if definition.get('ranks'):
+            if definition.get('type') not in ('number', 'integer'):
+                problems.append(
+                    f'{dataset_id}: {name!r} declares ranks but type '
+                    f'{definition.get("type")!r} is not number or integer')
+            if 'minimum' not in definition or 'maximum' not in definition:
+                problems.append(
+                    f'{dataset_id}: {name!r} declares ranks but is missing '
+                    'minimum or maximum')
+            if rated:
+                problems.append(
+                    f'{dataset_id}: {name!r} declares both ranks and '
+                    'confidence_for — a rater ranks nothing')
+
+    for document in documents:
+        doc_meta = document.get('document_metadata') or {}
+        where = f'{dataset_id}#{document.get("corpus_document_id")}'
+        for rated, names in raters.items():
+            rated_type = (fields.get(rated) or {}).get('type')
+            for name in names:
+                if name not in doc_meta:
+                    continue
+                value = doc_meta[name]
+                if rated_type == 'array':
+                    if not isinstance(value, dict):
+                        problems.append(
+                            f'{where}: confidence {name!r} for list label '
+                            f'{rated!r} must be an object keyed by its '
+                            'values, never a second list')
+                    else:
+                        carried = set(doc_meta.get(rated) or [])
+                        stray_keys = set(value) - carried
+                        if stray_keys:
+                            problems.append(
+                                f'{where}: confidence {name!r} rates '
+                                f'{sorted(stray_keys)}, which {rated!r} does '
+                                'not carry on this document')
+                elif not isinstance(value, (int, float)) or isinstance(value, bool):
+                    problems.append(
+                        f'{where}: confidence {name!r} must be a single '
+                        'number')
     return problems
 
 
-def _is_date(value) -> bool:
-    return bool(isinstance(value, str)
-                and re.match(r'^\d{4}-\d{2}-\d{2}$', value))
+def _groundtruth_consistency_problems(ground_truth: dict) -> list[str]:
+    """The same declared-before-used rule as a ground truth's own
+    vocabulary tables (`question_metadata_fields`, `evidence_role_values`) —
+    a JSON Schema cannot check a dynamic dict either."""
+    problems: list[str] = []
+    meta = ground_truth.get('groundtruth_dataset_metadata') or {}
+    fields = meta.get('question_metadata_fields') or {}
+    roles = meta.get('evidence_role_values') or {}
+    for question in ground_truth.get('groundtruth_dataset') or []:
+        where = f'question {question.get("groundtruth_question_id")}'
+        for key in (question.get('question_metadata') or {}):
+            if key not in fields:
+                problems.append(
+                    f'{where}: question_metadata {key!r} is used but never '
+                    'declared in question_metadata_fields')
+        for relevant in question.get('relevant_corpus_documents') or []:
+            for evidence in relevant.get('evidence') or []:
+                role = evidence.get('role')
+                if role and role not in roles:
+                    problems.append(
+                        f'{where}: evidence role {role!r} is used but never '
+                        'declared in evidence_role_values')
+    return problems
 
 
-def import_dataset(payload: dict) -> Dataset:
-    """Validate and keep one dataset: the two objects in the corpus store, the
-    file in the imported directory. Refuses rather than repairs — a silently
-    repaired dataset measures something nobody described.
+def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
+    """`schema_groundtruth.json`'s `x-cross-file`: the pair join, every cited
+    document exists, every verbatim quote is findable, every `supports` id is
+    valid and every derived fact is covered by one, a computed piece names its
+    source label, and a copied `document_metadata`/`relevant_metadata` is
+    real."""
+    problems: list[str] = []
+    corpus_id = _dataset_id(corpus)
+    gt_meta = ground_truth.get('groundtruth_dataset_metadata') or {}
+    ref = gt_meta.get('corpus_ref') or {}
+    if ref.get('dataset') != corpus_id:
+        problems.append(
+            f'{ref.get("dataset")!r}: corpus_ref.dataset does not match the '
+            f'corpus it is paired with ({corpus_id!r}) — the pair join is '
+            'broken')
+
+    documents = {document['corpus_document_id']: document
+                for document in corpus.get('corpus_documents') or []
+                if 'corpus_document_id' in document}
+
+    for question in ground_truth.get('groundtruth_dataset') or []:
+        where = f'question {question.get("groundtruth_question_id")}'
+        expected = question.get('expected_answer') or {}
+        derived_facts = {fact['derived_fact_id']
+                         for fact in expected.get('derived_facts') or []
+                         if 'derived_fact_id' in fact}
+        covered: set = set()
+        for relevant in question.get('relevant_corpus_documents') or []:
+            document_id = relevant.get('corpus_document_id')
+            document = documents.get(document_id)
+            if document is None:
+                problems.append(
+                    f'{where}: cites corpus_document_id {document_id}, which '
+                    'is not in this corpus')
+                continue
+            doc_text = ' \n'.join(part.get('text', '')
+                                  for part in document.get('document_content') or [])
+            for evidence in relevant.get('evidence') or []:
+                supports = evidence.get('supports') or []
+                bad = [s for s in supports if s not in derived_facts]
+                if bad:
+                    problems.append(
+                        f'{where}: evidence supports {bad}, which are not '
+                        'derived_fact_ids of this question')
+                covered.update(s for s in supports if s in derived_facts)
+                if not supports:
+                    # "supports the answer as a whole", per the schema.
+                    covered.update(derived_facts)
+
+                fidelity = evidence.get('fidelity')
+                text = evidence.get('text', '')
+                if fidelity == 'verbatim' and text not in doc_text:
+                    problems.append(
+                        f'{where}: evidence quotes text that is not in '
+                        f'document {document_id} — a verbatim quote must be '
+                        'findable character for character, or every lexical '
+                        'score in this lab is measured against something '
+                        'the corpus never said')
+                if fidelity == 'computed' and not evidence.get('relevant_metadata'):
+                    problems.append(
+                        f'{where}: a computed piece of evidence must carry '
+                        'relevant_metadata naming the label it was computed '
+                        'from')
+                part_labels = evidence.get('part_labels')
+                if fidelity == 'verbatim' and not part_labels:
+                    problems.append(
+                        f'{where}: verbatim evidence needs part_labels for '
+                        'the parts its text lies in')
+                if fidelity == 'computed' and part_labels:
+                    problems.append(
+                        f'{where}: computed evidence lies in no part, so '
+                        'part_labels must be empty')
+
+                copy = evidence.get('document_metadata')
+                actual = document.get('document_metadata') or {}
+                if copy is not None and copy != actual:
+                    problems.append(
+                        f'{where}: evidence.document_metadata does not match '
+                        f'what document {document_id} actually carries')
+
+                for key, value in (evidence.get('relevant_metadata') or {}).items():
+                    problems.extend(
+                        _relevant_metadata_problems(where, document, key, value))
+
+            for key, value in (relevant.get('relevant_metadata') or {}).items():
+                problems.extend(
+                    _relevant_metadata_problems(where, document, key, value))
+
+        if derived_facts and expected.get('behavior') != 'abstain':
+            missing = derived_facts - covered
+            if missing:
+                problems.append(
+                    f'{where}: derived_fact_id {sorted(missing)} is not '
+                    'named by any evidence — a claim no evidence carries is '
+                    'a claim the ground truth cannot back')
+    return problems
+
+
+def _relevant_metadata_problems(where: str, document: dict, key: str,
+                                value) -> list[str]:
+    actual = (document.get('document_metadata') or {}).get(key)
+    document_id = document.get('corpus_document_id')
+    if actual is None:
+        return [f'{where}: relevant_metadata names {key!r}, which document '
+                f'{document_id} does not carry']
+    if isinstance(actual, list):
+        wanted = value if isinstance(value, list) else [value]
+        missing = [v for v in wanted if v not in actual]
+        if missing:
+            return [f'{where}: relevant_metadata {key!r}={missing} is not '
+                    f'among what document {document_id} actually carries']
+        return []
+    if actual != value:
+        return [f'{where}: relevant_metadata {key!r}={value!r} does not '
+                f'match what document {document_id} actually carries '
+                f'({actual!r})']
+    return []
+
+
+def import_dataset(corpus: dict, ground_truth: dict) -> Dataset:
+    """Validate and keep one dataset pair: the two objects in the corpus
+    store, both files in the imported directory. Refuses rather than repairs
+    — a silently repaired dataset measures something nobody described.
 
     A dataset entering the lab is stored as content, once, the moment it
-    arrives: `_split` is exactly the two objects `databases/corpora.db` holds,
-    so the row written here is the row every experiment on this corpus will
-    later reference, rather than one written again per archive. The incoming
-    file carries no id and cannot — the id is storage identity, assigned by the
-    database on insert, and a file that named one would be claiming a row it
-    knows nothing about.
+    arrives: the two objects stored are exactly the two file payloads the
+    pipeline reads, so the row written here is the row every experiment on
+    this corpus will later reference, rather than one written again per
+    archive. Neither file carries an id and cannot — the id is storage
+    identity, assigned by the database on insert, and a file that named one
+    would be claiming a row it knows nothing about.
 
     Content-addressed, so re-importing the same bytes is the same row and the
     same id, and an *edited* dataset under the same id is a new row beside the
     old one rather than an overwrite of it. That is what keeps an archive of an
     earlier run resolving to the corpus that run actually saw.
 
-    The corpus goes in before the file does, the order
+    The corpus goes in before the files do, the order
     `experiment_archive_store.shrink` gives: a failure between the two leaves a
     stored corpus nobody reads yet, where the other order would leave a
     dataset this lab can build over but the store has never seen.
     """
-    problems = validate(payload)
+    problems = validate(corpus, ground_truth)
     if problems:
         raise ValueError('; '.join(problems))
-    dataset_id = payload['dataset']['id']
+    dataset_id = corpus['corpus_dataset_metadata']['dataset']
     if dataset_id == BUILTIN:
         raise ValueError(
             f'{BUILTIN!r} is the built-in corpus and cannot be replaced — every '
             'run already recorded was measured against it. Give this one its '
             'own id.')
-    corpus, ground_truth = _split(payload)
     id_corpora = corpora.put(dataset_id, corpus, ground_truth)
     folder = imported_dir()
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f'{dataset_id}.json'
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=1),
-                    encoding='utf-8')
+    corpus_path = folder / f'{dataset_id}{CORPUS_SUFFIX}'
+    truth_path = folder / f'{dataset_id}{GROUNDTRUTH_SUFFIX}'
+    corpus_path.write_text(json.dumps(corpus, ensure_ascii=False, indent=1),
+                           encoding='utf-8')
+    truth_path.write_text(json.dumps(ground_truth, ensure_ascii=False, indent=1),
+                          encoding='utf-8')
     forget()
-    return describe(payload, 'imported', path, id_corpora)
+    return describe(corpus, ground_truth, 'imported', corpus_path, id_corpora)

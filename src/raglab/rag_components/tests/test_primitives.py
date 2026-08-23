@@ -6,7 +6,7 @@ import pytest
 
 from raglab.rag_components.indexing import chunking_strategies as chunking
 from raglab.llm_backends import cli_subprocess_chat as clichat
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.rag_components import question_to_answer_pipeline as pipeline
@@ -162,7 +162,7 @@ def test_fixed_chunker_matches_the_production_packing(session):
     from raglab.rag_components.indexing.chunking_strategies import chunk_text
     cfg = IndexConfig(chunker='fixed', chunk_chars=500, contextual=False)
     ours = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))
-    theirs = chunk_text(corpus.session_text(session), 500)
+    theirs = chunk_text(corpus.document_text(session), 500)
     assert [c.text for c in ours] == theirs
 
 
@@ -212,7 +212,7 @@ def test_overlap_chunker_repeats_material_between_windows():
     chunks = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))
     assert len(chunks) >= 2, 'the synthetic session must be long enough to window'
     total = sum(len(c.text) for c in chunks)
-    assert total > len(corpus.session_text(session))
+    assert total > len(corpus.document_text(session))
     # Not just longer overall: the tail of each window has to reappear,
     # verbatim, at the head of the next one — every sentence here is
     # numbered uniquely, so this substring cannot be satisfied by chance.
@@ -342,7 +342,7 @@ def test_habit_questions_cite_verbatim_evidence_like_the_rest_of_the_set(
     # this is a unit test
     """The evidence quote is what quote-recall measures survival of, so a quote
     that is not literally in its cited message silently scores every config down."""
-    sessions = corpus.sessions_by_id(diary)
+    sessions = corpus.documents_by_id(diary)
     habit_questions = [q for q in ground_truth['questions']
                        if q['type'] == 'habit']
     assert len(habit_questions) >= 6

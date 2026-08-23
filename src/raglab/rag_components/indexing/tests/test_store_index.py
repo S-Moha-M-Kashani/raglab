@@ -6,7 +6,7 @@ import socket
 import numpy as np
 import pytest
 
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components import question_to_answer_pipeline as pipeline
 from raglab.rag_components.retrieval import query_understanding as query
@@ -192,7 +192,7 @@ def test_retrieval_finds_the_evidence_session_for_a_known_question(smoke_index):
     question collapsed to the same first-three-by-insertion-order answer)."""
     _, truth = datasets.load('smoke-mini')
     question = next(q for q in truth['questions'] if q['id'] == 'mini-004')
-    assert corpus.evidence_sessions(question) == ['mini-04']
+    assert corpus.evidence_documents(question) == ['mini-04']
 
     outcome = pipeline.retrieve(smoke_index.index,
                                 RetrievalConfig(retriever='hybrid-rrf', k=3,

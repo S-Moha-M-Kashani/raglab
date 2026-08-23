@@ -27,7 +27,6 @@ from raglab.configuration.lab_config import (
     load_lab_settings,
     settings_for_provider)
 from raglab.corpora import dataset_import_contract as datasets
-from raglab.corpora.diary_corpus_loader import load_diary, load_ground_truth
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.llm_backends.chat_model_factory import lab_llm
 from raglab.dashboard.service_presentation import (
@@ -177,8 +176,7 @@ def _followed_dataset(jobs_index: dict) -> str:
 
 def create_inspector_app() -> FastAPI:
     settings = load_lab_settings()
-    diary = load_diary()
-    ground_truth = load_ground_truth()
+    diary, ground_truth = datasets.load()
     def truth_for(cfg) -> dict:
         """The ground truth of the corpus a followed config names — same dataset as the index it built."""
         return ground_truth_for(cfg, ground_truth)

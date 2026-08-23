@@ -20,7 +20,7 @@ import pytest
 
 from raglab.evaluation import production_baseline_snapshot as baseline
 from raglab.configuration import lab_config as config
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.configuration import explainer_assembly as explain
@@ -190,7 +190,7 @@ def test_evidence_texts_are_the_cited_messages_not_the_short_quotes(
     the whole cited message, which must still contain the quote — and a
     citation naming a session the corpus does not hold falls back to the
     quote itself rather than dropping the evidence."""
-    sessions = corpus.sessions_by_id(diary)
+    sessions = corpus.documents_by_id(diary)
     question = next(q for q in ground_truth['questions'] if q['answerable'])
     texts = corpus.evidence_texts(sessions, question)
     assert texts

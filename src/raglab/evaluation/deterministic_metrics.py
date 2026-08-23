@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
 from raglab.configuration.lab_config import DIFFICULTIES
-from raglab.corpora.diary_corpus_loader import evidence_sessions
+from raglab.corpora.corpus_reading import evidence_documents
 
 TYPES = ('single-hop', 'temporal', 'multi-hop', 'aggregation', 'knowledge-update',
          'commitment', 'entity', 'pattern', 'habit', 'abstention', 'adversarial')
@@ -288,7 +288,7 @@ def token_f1(response: str, reference: str) -> float:
 
 def score_question(question: dict, outcome, k: int) -> dict:
     """Every per-question number the report needs, for one config."""
-    gold = evidence_sessions(question)
+    gold = evidence_documents(question)
     retrieved = outcome.sessions
     context_text = '\n'.join(c.text for c in outcome.contexts)
     answerable = bool(question.get('answerable'))

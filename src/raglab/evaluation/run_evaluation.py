@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.evaluation import deterministic_metrics as metrics
@@ -517,8 +517,8 @@ def run_eval(registry: IndexRegistry, ground_truth: dict, cfg: LabConfig,
     summary = metrics.aggregate(rows)
     ragas_report: dict = {}
     if ragas_mode != 'off':
-        sessions = corpus.sessions_by_id(registry.corpus_for(cfg.index.dataset))
-        references = {q['id']: corpus.evidence_texts(sessions, q) for q in questions}
+        documents = corpus.documents_by_id(registry.corpus_for(cfg.index.dataset))
+        references = {q['id']: corpus.evidence_texts(documents, q) for q in questions}
         ragas_report = ragas_eval.run(pairs, settings, index.embedder,
                                       mode=ragas_mode, sample_limit=ragas_limit,
                                       reference_texts=references,

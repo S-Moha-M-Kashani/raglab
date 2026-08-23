@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema_corpus.json",
+  "title": "RAG Corpus Dataset",
+  "description": "What gets measured against. A corpus is a list of documents, each an ordered list of text parts plus whatever metadata the dataset chose to record. Nothing here is specific to any one kind of corpus: a chat log, a set of meeting notes and a pile of articles all fit, because the fields a dataset uses are declared by the dataset rather than known by the code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "corpus_dataset_metadata",
+    "corpus_documents"
+  ],
+  "x-authoring": {
+    "description": "How to bring your own corpus. Start with the smallest thing that validates, run it, then add labels once you know what you want to filter and measure on. Nothing below is diary-specific; the field names in the bundled example are that corpus's choices, not this format's.",
+    "smallest_valid_corpus": {
+      "corpus_dataset_metadata": {
+        "dataset": "support-tickets",
+        "name": "Support tickets 2025",
+        "language": "en"
+      },
+      "corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "document_content": [
+            {
+              "text": "Customer reports the export button does nothing."
+            }
+          ]
+        }
+      ]
+    },
+    "steps": [
+      "Decide what one document is. Whatever a person would call one thing: a ticket, a meeting, a contract, a chat session. It is the unit a question gets answered from, and the unit a label describes.",
+      "Split each document into parts if it has any internal turns or sections. One part per speaker turn, per paragraph, per section — whatever the natural seam is. A document with no seam is one part, and that is fine. This choice decides which chunkers you can run: strategies that cut between parts have nothing to work with when there is only one.",
+      "Number the documents from 1. The number is an address and nothing more — not an order, not a date. Your ground truth will cite it.",
+      "List the labels you would want to filter or slice by, and declare each one in label_fields with the level it belongs to. A label about the whole document is \"document\"; one about a single turn is \"part\". Add \"chunk\" and \"summary\" to let it follow the text into what retrieval actually searches.",
+      "If any label holds a date or timestamp, give it format: \"date-time\". This is the one typed label, and several features switch on entirely from its presence — see x-raglab-uses.",
+      "Mark extracted:true on any label a model or classifier produced rather than a person, and declare a confidence against it. An industrial corpus is usually labelled by a model, so this is the normal case, not the exception.",
+      "Check the counts against x-acceptance before drawing any conclusion from a run."
+    ]
+  },
+  "x-raglab-uses": {
+    "description": "What the lab does with what you declare, so a declaration is a decision rather than paperwork.",
+    "labels_become_chunk_context": "With the context knob on, every label declared at \"chunk\" is written into the head of each chunk's text before it is embedded. A chunk saying \"it still fails after the update\" then retrieves for \"the export bug in March\". Declare labels that describe what the text is about; a label that is bookkeeping — an internal row id, an ingestion timestamp — adds noise to every vector and should stay off the chunk level.",
+    "labels_roll_up_into_summaries": "A summary the lab writes over several blocks carries what they carried: lists become the union, a date becomes a from/to range, and a scalar that disagreed becomes the list of what disagreed. So a label declared at \"summary\" keeps working above the leaf level, and one that is not simply stops there.",
+    "a_date_label_switches_on_time": "A label with format \"date-time\" is what the time filter resolves phrases like \"last quarter\" against, what the recency reranker weighs by, and what gives a summary the range that lets it be found by a dated question. A corpus that declares none can still be measured; it simply has no time behaviour at all.",
+    "confidences_are_caveats_not_signals": "A label declaring confidence_for is never written into chunk text and never ranks anything. It is there so a filter can require a label to be well supported, and so a low-confidence label can be told from an absent one.",
+    "parts_decide_your_chunkers": "Chunking strategies that cut between parts need parts to cut between. Documents given as a single part restrict you to strategies that cut inside text, which is a real restriction on what you can compare."
+  },
+  "x-consistency": [
+    "Every key used anywhere must be declared in label_fields, and must name the level it is used at in its applies_to. A label declared but never used is allowed; a label used but never declared is not.",
+    "Every label with extracted:true must have exactly one label declaring confidence_for against it, and no label may rate one that is not extracted.",
+    "A confidence on a scalar label is a single number. A confidence on a list label is an object keyed by the values of that list, never a second list running alongside: two lists can fall out of step and a key cannot. Every key must be a value the thing carries; a value may be left unrated.",
+    "A confidence rates the labelling and nothing else. It says how well the entry supports the label, never how strong, important or memorable the labelled thing was — so it must not be used as a ranking signal. Nothing prevents it being used as a filter.",
+    "A summary the pipeline writes is a retrieval block like any other, and is labelled by the same labeller from this same vocabulary — never by inheriting the union of its members' labels, which says what went in rather than what the summary is about.",
+    "These rules, and the types in label_fields, are checked on import and not by this schema. They cannot be: the field table is data, so the shape a document must satisfy is not known until the file is open. This schema validates the frame — that a table exists, that each entry in it is well formed, that documents and parts are where they should be. Whether a document obeys its own table is the importer's job, and a dataset that passes this schema is not yet a dataset that loads."
+  ],
+  "x-acceptance": {
+    "description": "The schema floor is one document. These are the thresholds above it, and what each one buys.",
+    "well_formed": {
+      "documents": 1,
+      "note": "Enough to validate the shape. Not enough to measure."
+    },
+    "measurable": {
+      "documents": 8,
+      "note": "Retrieval hands the answerer k contexts, default k=8. Below roughly that many chunks every retrieval returns the whole corpus, so context precision is 1.0 by accident and ranks nothing."
+    },
+    "comparable": {
+      "documents": 30,
+      "note": "Enough that moving one knob changes the retrieved set rather than reshuffling it."
+    }
+  },
+  "properties": {
+    "corpus_dataset_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataset",
+        "name",
+        "language"
+      ],
+      "properties": {
+        "dataset": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[a-z0-9][a-z0-9-]*$",
+          "description": "REQUIRED. The corpus id — the name a ground truth, a run and an archive all refer to it by. Never a file path."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "REQUIRED. Human-readable title."
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "description": "REQUIRED. BCP-47 tag of the document text. Load-bearing: it selects the text normaliser and tells the answerer which language to answer in."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional. What the corpus contains."
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional. When the corpus was assembled."
+        },
+        "excerpt_note": {
+          "type": "string",
+          "description": "Optional, and present only in an excerpt. Says what was left out. A complete corpus omits this rather than claiming to be complete."
+        },
+        "dataset_source": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "REQUIRED. Where the documents came from."
+            },
+            "type": {
+              "type": "string",
+              "description": "Optional. What kind of thing each document is."
+            },
+            "version": {
+              "type": "string",
+              "description": "Optional."
+            },
+            "license": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "Optional."
+            }
+          },
+          "description": "Optional. Facts true of every document, so they are recorded once here instead of on each one."
+        },
+        "label_fields": {
+          "type": "object",
+          "description": "Optional, but REQUIRED once anything in the corpus is labelled. One table for every level rather than one per level: the same labeller runs over a session, over a turn and over a summary, so the vocabulary is declared once and applies_to says where each entry may land. One entry per label, naming its shape, where it may be attached, and — when it is a closed set — its allowed values. Every key used anywhere in the data must appear here; a label declared but unused is allowed, so a dataset can ship a vocabulary it has not filled yet.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "description",
+              "applies_to"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "string",
+                  "integer",
+                  "number",
+                  "boolean",
+                  "array",
+                  "object"
+                ],
+                "description": "REQUIRED. The field's JSON type."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "REQUIRED. What the field means."
+              },
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "string",
+                      "integer",
+                      "number",
+                      "object"
+                    ]
+                  },
+                  "minimum": {
+                    "type": "number"
+                  },
+                  "maximum": {
+                    "type": "number"
+                  }
+                },
+                "description": "Required when type is \"array\": the shape of one element. Allowed when type is \"object\", where it describes each value the object holds — the keys are named by whatever the field documents."
+              },
+              "format": {
+                "type": "string",
+                "description": "Optional. A narrower reading of a string, e.g. \"date-time\"."
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "uniqueItems": true,
+                "description": "Optional. The closed set of allowed values. Absent means any value of the declared type is allowed."
+              },
+              "glossary": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minProperties": 1,
+                "description": "Optional. The allowed values *and* what each one means. Use this instead of \"values\" when a label needs prose to be usable; use \"values\" when the value speaks for itself."
+              },
+              "nullable": {
+                "type": "boolean",
+                "description": "Optional, default false. Whether null is a legal value, meaning \"not recorded\" — never \"recorded as nothing\"."
+              },
+              "minimum": {
+                "type": "number",
+                "description": "Optional. Numeric floor."
+              },
+              "maximum": {
+                "type": "number",
+                "description": "Optional. Numeric ceiling."
+              },
+              "applies_to": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "document",
+                    "part",
+                    "chunk",
+                    "summary",
+                    "question"
+                  ]
+                },
+                "description": "REQUIRED. Which levels this label may be attached to. \"document\" is the whole session, \"part\" is one turn inside it, \"chunk\" is a piece cut for retrieval, and \"summary\" is a block written over several of those. A label reaches a chunk by flowing down from the document or part it was cut from, and reaches a summary by rolling up from what went into it. One vocabulary spanning several levels is the point: a topic means the same thing whether it labels a session, a turn or a summary of both, and a filter that reads it does not care which it got. A corpus file carries the document and part levels only — summaries do not exist until index time, so the file declares the vocabulary and the pipeline applies it. \"question\" belongs to a ground-truth file, whose questions are labelled by the same mechanism; the level vocabulary is shared so that a label meaning the same thing on a session and on a question is declared the same way in both files."
+              },
+              "extracted": {
+                "type": "boolean",
+                "description": "Optional, default false. True when the values were produced by a model or classifier rather than authored, and can therefore be wrong. An extracted label must have a confidence declared against it."
+              },
+              "confidence_for": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Present only on a label that rates another one: the name of the label it rates. Its own values run 0 to 1. Declared rather than inferred from the name, so the link is checkable instead of a spelling habit."
+              }
+            }
+          }
+        }
+      }
+    },
+    "corpus_documents": {
+      "type": "array",
+      "minItems": 1,
+      "description": "REQUIRED. One entry per document. See x-acceptance for how many are enough to measure.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "corpus_document_id",
+          "document_content"
+        ],
+        "properties": {
+          "corpus_document_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "REQUIRED. Unique within the corpus, and the only id a ground truth cites. It addresses a document; it says nothing about order or date."
+          },
+          "document_content": {
+            "type": "array",
+            "minItems": 1,
+            "description": "REQUIRED. The document as ordered parts. A part is the smallest thing a chunker may keep whole: a chat turn, a paragraph, a speaker's stretch. A document with no internal structure is one part — the list is never collapsed to a plain string, because chunkers that cut *between* parts would have nothing to cut.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "text"
+              ],
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "REQUIRED. The part's text, and only that. No speaker prefix, no markup — anything an embedder should not read as content is a label."
+                },
+                "labels": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Optional. Labels on this part, e.g. who produced it. Keys must be declared in label_fields with \"part\" among their applies_to."
+                }
+              }
+            }
+          },
+          "document_metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional. Labels on the document as a whole. Keys must be declared in label_fields with \"document\" among their applies_to. A label holding a date-time is the one the time filter and the recency reranker read, so a corpus that wants either must record one."
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "_read_me": [
+    "A form, not a dataset. Copy it, replace every value, delete what you do not use.",
+    "Each value is: requirement | type | what goes here.",
+    "A key in <angle brackets> is one you name yourself; keep the shape, change the name.",
+    "Validate the result against schema_corpus.json, which is the same contract for a machine."
+  ],
+  "corpus_dataset_metadata": {
+    "dataset": "mandatory | string | The corpus id others refer to it by, lowercase with hyphens, e.g. support-tickets. Never a filename.",
+    "name": "mandatory | string | Human-readable title, e.g. Support tickets 2025.",
+    "language": "mandatory | string | Language of the document text: en, de, fa. Chooses the text normaliser and the language answers come back in.",
+    "description": "optional | string | What the corpus contains.",
+    "generated_at": "optional | date-time | When the corpus was assembled, e.g. 2026-01-31T00:00:00Z.",
+    "excerpt_note": "optional | string | Present only in a sample. Says what was left out. A complete corpus omits this.",
+    "dataset_source": {
+      "_note": "optional block | object | Facts true of every document, recorded once here instead of on each one.",
+      "name": "mandatory inside this block | string | Where the documents came from, e.g. zendesk-export.",
+      "type": "optional | string | What one document is, e.g. ticket, meeting, article.",
+      "version": "optional | string | Which export or revision.",
+      "license": "optional | string or null | Usage terms, or null."
+    },
+    "label_fields": {
+      "_note": "mandatory once anything is labelled | object | One entry per label you use anywhere. Declare it once here and use it at any level you list in applies_to.",
+      "<your_label_name>": {
+        "type": "mandatory | string | One of: string, integer, number, boolean, array, object.",
+        "description": "mandatory | string | What this label means. Shown to whoever fills the dataset in.",
+        "applies_to": [
+          "mandatory | list of levels | Any of: document (the whole thing), part (one turn or section), chunk (a piece cut for retrieval), summary (a block written over several). Add chunk and summary to let the label follow the text into what retrieval searches."
+        ],
+        "items": {
+          "type": "mandatory when type is array or object | string | The type of one element, or of each value: string, integer, number, object.",
+          "minimum": "optional | number | Lowest allowed value.",
+          "maximum": "optional | number | Highest allowed value."
+        },
+        "format": "optional | string | Use date-time on your date label. This is the one typed label: it switches on time filtering, recency ranking and summary date ranges. Declare none and the corpus has no time behaviour.",
+        "values": [
+          "optional | list of strings | The closed set of allowed values, when the value speaks for itself. Omit for a free field."
+        ],
+        "glossary": {
+          "<allowed_value>": "optional | string | Use instead of values when a label needs prose to be usable. The key is the value; this is what it means."
+        },
+        "nullable": "optional | boolean | Whether null is legal, meaning not recorded. Never meaning recorded as nothing.",
+        "minimum": "optional | number | Lowest allowed value, for a numeric label.",
+        "maximum": "optional | number | Highest allowed value, for a numeric label.",
+        "extracted": "optional | boolean | true when a model or classifier produced these values rather than a person. Then you must also declare a label rating it.",
+        "confidence_for": "optional | string | Present only on a label that rates another: the name of the label it rates. Its values run 0 to 1. A rater never enters chunk text and never ranks anything."
+      }
+    }
+  },
+  "corpus_documents": [
+    {
+      "corpus_document_id": "mandatory | integer >= 1 | Unique in this corpus. An address only: not an order, not a date. Your ground truth cites this number.",
+      "document_content": [
+        {
+          "text": "mandatory | non-empty string | The text of this part and nothing else. No speaker prefix, no markup: anything an embedder should not read as content belongs in labels.",
+          "labels": {
+            "<label_declared_with_applies_to_part>": "optional | matches its declared type | e.g. role: user. A label on this one part."
+          }
+        }
+      ],
+      "document_metadata": {
+        "<label_declared_with_applies_to_document>": "optional | matches its declared type | e.g. recorded_at, topics. A label on the whole document."
+      }
+    }
+  ]
+}

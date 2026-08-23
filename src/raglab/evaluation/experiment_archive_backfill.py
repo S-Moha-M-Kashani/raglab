@@ -69,7 +69,7 @@ from raglab.evaluation import run_evaluation as runs
 from raglab.evaluation import service_experiment_ledger as ledger
 from raglab.llm_backends import model_role_catalogue as models
 from raglab.rag_components.indexing import embedding_backends as embedding
-from raglab.rag_components.indexing.chunking_strategies import chunk_session
+from raglab.rag_components.indexing.chunking_strategies import chunk_document
 
 
 # The one chunker whose output depends on a model: `_semantic_segments` embeds
@@ -244,11 +244,19 @@ def replay_chunks(index: IndexConfig, corpus: dict, *,
     are not replayed: a grouping is not deterministic in the way a chunker is,
     and the run recorded its summary rows, so those are read rather than redone.
     """
+    # `corpus.get('sessions')` is the pre-generic-schema shape this function
+    # was written to replay; the generic corpus (D4) has no such key at all,
+    # so this loop now runs zero times on every dataset the lab can load —
+    # dead, on purpose, for exactly the old rows an already-finished archive
+    # was built from before the schema changed. Left in place rather than
+    # deleted here: TASK 4 NOTE (this plan's step 3 prerequisite) — a later
+    # step is where this whole function is meant to be marked historical or
+    # removed; for now it is only kept from crashing at import time.
     embedder = _embedder(index, embedder_factory)
     groups = []
     for session in corpus.get('sessions') or []:
         try:
-            leaves = [chunk for chunk in chunk_session(session, index, embedder)
+            leaves = [chunk for chunk in chunk_document(session, index, embedder)
                       if chunk.layer != 'summary']
         except Exception as error:
             raise _Refused(
@@ -257,7 +265,7 @@ def replay_chunks(index: IndexConfig, corpus: dict, *,
                 f'{type(error).__name__}: {error}')
         if not leaves:
             continue
-        groups.append({'session_id': leaves[0].session_id,
+        groups.append({'session_id': leaves[0].document_id,
                        'date': leaves[0].date,
                        'chunks': [{'id': chunk.id, 'text': chunk.text}
                                   for chunk in leaves]})

@@ -161,8 +161,19 @@ def index(registry):
 
 
 @pytest.fixture(scope='module')
-def session(diary):
-    return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
+def document(diary):
+    return next(d for d in diary['corpus_documents']
+               if len(d['document_content']) >= 6)
+
+
+@pytest.fixture(scope='module')
+def label_fields(diary):
+    return diary['corpus_dataset_metadata']['label_fields']
+
+
+@pytest.fixture(scope='module')
+def language(diary):
+    return diary['corpus_dataset_metadata']['language']
 
 
 # The smoke corpus (`fixtures/corpus_groundtruth_datasets/smoke_mini_corpus.json`

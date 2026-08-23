@@ -178,28 +178,28 @@ def test_different_configs_get_different_collections():
     assert a != b and a.startswith('raglab-')
 
 
-def test_retrieval_finds_the_evidence_session_for_a_known_question(smoke_index):
+def test_retrieval_finds_the_evidence_document_for_a_known_question(smoke_index):
     # this is an integration test
     """Replaces a statistical rate over the real corpus (>=4/10 single-hop
     questions found *any* evidence, one hard question away from flaking)
-    with one deterministic pin on the 5-session smoke set: `token-hash` has
-    no RNG, so a known question retrieves its single known evidence session
-    at rank 1, every run, on every process. `mini-004` rather than the
-    first-indexed session on purpose: a broken retriever that degenerates
-    to insertion order would still pass a check against session 1, and
-    session 4 is exactly what catches that (verified by mutating
-    `textnorm.tokens` to return `[]` and watching this fail while every
-    question collapsed to the same first-three-by-insertion-order answer)."""
+    with one deterministic pin on the 5-document smoke set: `token-hash` has
+    no RNG, so a known question retrieves its single known evidence document
+    at rank 1, every run, on every process. Document 4 rather than document
+    1 on purpose: a broken retriever that degenerates to insertion order
+    would still pass a check against the first document, and document 4 is
+    exactly what catches that."""
     _, truth = datasets.load('smoke-mini')
-    question = next(q for q in truth['questions'] if q['id'] == 'mini-004')
-    assert corpus.evidence_documents(question) == ['mini-04']
+    question = next(q for q in truth['groundtruth_dataset']
+                    if q['groundtruth_question_id'] == 4)
+    assert corpus.evidence_documents(question) == [4]
+    query_date = truth['groundtruth_dataset_metadata'][
+        'default_question_asked_at'][:10]
 
     outcome = pipeline.retrieve(smoke_index.index,
                                 RetrievalConfig(retriever='hybrid-rrf', k=3,
                                                 reranker='lexical'),
-                                question['question_fa'],
-                                truth['meta']['query_date'])
-    assert outcome.sessions[0] == 'mini-04'
+                                question['question'], query_date)
+    assert outcome.sessions[0] == '4'
 
 
 def test_time_filter_narrows_the_candidate_pool(index, ground_truth):

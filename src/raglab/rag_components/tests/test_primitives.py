@@ -125,60 +125,124 @@ def test_token_hash_is_normalised_and_nonzero_for_farsi():
 # --- chunking --------------------------------------------------------------
 
 @pytest.mark.parametrize('chunker', CHUNKERS)
-def test_every_chunker_yields_unique_nonempty_chunks_and_tracks_every_message(session, chunker):
+def test_every_chunker_yields_unique_nonempty_chunks_and_tracks_every_message(
+        document, label_fields, language, chunker):
     # this is a unit test
     """Every chunker, of every kind, must produce unique ids over nonempty
-    text. `message`, `turn-pair` and `semantic-drift` compute `msg_start`/
-    `msg_end` from where each chunk actually begins and ends, so no message
-    may be dropped from that span — the ground truth cites evidence by
-    message index — and the check below reads those fields back. `session`
-    hard-codes the full span (`msg_start=0, msg_end=len(messages)-1`) on its
-    one chunk regardless of what got emitted, so reading the same fields back
-    would compare the index against itself; instead this checks that every
-    message's own content actually landed in the emitted text. `fixed` and
+    text. `message`, `turn-pair` and `semantic-drift` compute `part_start`/
+    `part_end` from where each chunk actually begins and ends, so no part
+    may be dropped from that span — the ground truth cites evidence by part
+    — and the check below reads those fields back. `session` hard-codes the
+    full span (`part_start=0, part_end=len(parts)-1`) on its one chunk
+    regardless of what got emitted, so reading the same fields back would
+    compare the index against itself; instead this checks that every part's
+    own content actually landed in the emitted text. `fixed` and
     `fixed-overlap` chunk by character window and record no span at all
-    (`msg_start`/`msg_end` stay -1), so neither claim applies to them."""
+    (`part_start`/`part_end` stay -1), so neither claim applies to them."""
     cfg = IndexConfig(chunker=chunker, embedder='char-hash', contextual=False)
     embedder = embedding.make_embedder('char-hash')
-    chunks = chunking.chunk_session(session, cfg, embedder)
+    chunks = chunking.chunk_document(document, cfg, embedder, label_fields, language)
     assert chunks, chunker
     assert len({c.id for c in chunks}) == len(chunks), chunker
     assert all(c.text.strip() for c in chunks), chunker
+    parts = document['document_content']
     if chunker == 'session':
         assert len(chunks) == 1, chunker
-        for message in session['messages']:
-            assert message['content'] in chunks[0].text, chunker
+        for part in parts:
+            assert part['text'] in chunks[0].text, chunker
     elif chunker not in ('fixed', 'fixed-overlap'):
         covered = set()
         for chunk in chunks:
-            covered.update(range(chunk.msg_start, chunk.msg_end + 1))
-        assert covered == set(range(len(session['messages']))), chunker
+            covered.update(range(chunk.part_start, chunk.part_end + 1))
+        assert covered == set(range(len(parts))), chunker
 
 
-def test_fixed_chunker_matches_the_production_packing(session):
+def test_fixed_chunker_matches_the_production_packing(document):
     # this is a unit test
     """Same greedy 500-char packing the brain ships, or the comparison is
     against a straw man."""
     from raglab.rag_components.indexing.chunking_strategies import chunk_text
     cfg = IndexConfig(chunker='fixed', chunk_chars=500, contextual=False)
-    ours = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))
-    theirs = chunk_text(corpus.document_text(session), 500)
+    ours = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'))
+    theirs = chunk_text(corpus.document_text(document), 500)
     assert [c.text for c in ours] == theirs
 
 
-def test_contextual_prefix_situates_the_chunk(session):
+def test_contextual_prefix_situates_the_chunk():
     # this is a unit test
+    document = {
+        'corpus_document_id': 1,
+        'document_content': [{'text': 'hello', 'labels': {'role': 'user'}},
+                             {'text': 'hi', 'labels': {'role': 'assistant'}}],
+        'document_metadata': {'recorded_at': '2026-01-01T00:00:00Z',
+                              'mood_label': 'happy', 'topics': ['a', 'b']},
+    }
+    label_fields = {
+        'recorded_at': {'type': 'string', 'format': 'date-time', 'description': 'x',
+                        'applies_to': ['document', 'chunk']},
+        'mood_label': {'type': 'string', 'description': 'x',
+                       'applies_to': ['document', 'chunk']},
+        'topics': {'type': 'array', 'items': {'type': 'string'}, 'description': 'x',
+                  'applies_to': ['document', 'chunk']},
+        'role': {'type': 'string', 'description': 'x', 'applies_to': ['part', 'chunk']},
+    }
     cfg = IndexConfig(chunker='message', contextual=True)
-    chunk = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))[0]
-    assert session['date'] in chunk.prefix
-    assert session['mood']['label'] in chunk.prefix
+    chunk = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'),
+                                    label_fields, 'en')[0]
+    assert 'recorded_at: 2026-01-01T00:00:00Z' in chunk.prefix
+    assert 'mood_label: happy' in chunk.prefix
+    assert 'topics: a, b' in chunk.prefix
     assert chunk.body and not chunk.body.startswith('[')
 
 
-def _long_session() -> dict:
-    """A synthetic session with enough text to guarantee at least two
+def test_contextual_prefix_joins_list_values_by_the_corpus_language_comma():
+    # this is a unit test
+    """'the language's comma': derived from the corpus's own declared
+    language, Farsi's «،» rather than the ASCII comma every other language
+    (that declares no special one) gets."""
+    document = {'corpus_document_id': 1, 'document_content': [{'text': 'سلام'}],
+                'document_metadata': {'topics': ['كار', 'خونه']}}
+    label_fields = {'topics': {'type': 'array', 'items': {'type': 'string'},
+                               'description': 'x', 'applies_to': ['document', 'chunk']}}
+    fa = chunking.contextual_prefix(document, label_fields, 'fa')
+    en = chunking.contextual_prefix(document, label_fields, 'en')
+    assert 'topics: كار، خونه' in fa
+    assert 'topics: كار, خونه' in en
+
+
+def test_contextual_prefix_never_shows_a_confidence_label():
+    # this is a unit test
+    """A label declaring `confidence_for` is a caveat on another label, never
+    something to embed (schema `x-raglab-uses.confidences_are_caveats_not_signals`)."""
+    document = {'corpus_document_id': 1, 'document_content': [{'text': 'x'}],
+                'document_metadata': {'feeling': 'کلافه', 'feeling_confidence': 0.9}}
+    label_fields = {
+        'feeling': {'type': 'string', 'description': 'x',
+                   'applies_to': ['document', 'chunk'], 'extracted': True},
+        'feeling_confidence': {'type': 'number', 'description': 'x',
+                               'applies_to': ['document', 'chunk'],
+                               'confidence_for': 'feeling'},
+    }
+    prefix = chunking.contextual_prefix(document, label_fields, 'en')
+    assert 'feeling: کلافه' in prefix
+    assert 'feeling_confidence' not in prefix
+
+
+def test_contextual_prefix_is_empty_without_any_document_level_label():
+    # this is a unit test
+    """D4: absence stays absence — no bracket at all when the document
+    carries nothing declared at the document level, as smoke-mini's `role`
+    (a part-level-only label) leaves it."""
+    document = {'corpus_document_id': 1, 'document_content': [{'text': 'x'}]}
+    label_fields = {'role': {'type': 'string', 'description': 'x',
+                             'applies_to': ['part', 'chunk']}}
+    assert chunking.contextual_prefix(document, label_fields, 'en') == ''
+
+
+def _long_document() -> dict:
+    """A synthetic document with enough text to guarantee at least two
     fixed-overlap windows at chunk_chars=300/overlap=150 — the real corpus's
-    `session` fixture is not guaranteed to be long enough, which used to make
+    `document` fixture is not guaranteed to be long enough, which used to make
     the overlap assertion below skip itself instead of running. Every word
     in the body is its own unique token (`واژه0001`, `واژه0002`, …) rather
     than a fixed phrase with a leading numeral varying — a shared numeral
@@ -191,28 +255,25 @@ def _long_session() -> dict:
     from a window that genuinely spans the same stretch of source text."""
     words = [f'واژه{i:04d}' for i in range(1, 260)]
     midpoint = len(words) // 2
-    return {'session_id': 'long-1', 'date': '2026-01-01', 'time': '21:00',
-            'source': 'voice', 'mood': {'label': 'خسته', 'valence': 4, 'arousal': 5},
-            'topics': [], 'recurring_threads': [],
-            'messages': [{'role': 'user', 'intent': 'venting',
-                          'content': ' '.join(words[:midpoint])},
-                         {'role': 'assistant', 'content': ' '.join(words[midpoint:])}]}
+    return {'corpus_document_id': 1, 'document_content': [
+        {'text': ' '.join(words[:midpoint]), 'labels': {'role': 'user'}},
+        {'text': ' '.join(words[midpoint:]), 'labels': {'role': 'assistant'}}]}
 
 
 def test_overlap_chunker_repeats_material_between_windows():
     # this is a unit test
     """Adjacent windows must share material, or `fixed-overlap` is `fixed`
-    with extra config. Run over a synthetic session built long enough to
-    window at least twice, rather than skipping when the corpus session
+    with extra config. Run over a synthetic document built long enough to
+    window at least twice, rather than skipping when the corpus document
     handed to it happens to be short — a test that can skip itself is a test
     that can assert nothing."""
-    session = _long_session()
+    document = _long_document()
     cfg = IndexConfig(chunker='fixed-overlap', chunk_chars=300, overlap=150,
                       contextual=False)
-    chunks = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))
-    assert len(chunks) >= 2, 'the synthetic session must be long enough to window'
+    chunks = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'))
+    assert len(chunks) >= 2, 'the synthetic document must be long enough to window'
     total = sum(len(c.text) for c in chunks)
-    assert total > len(corpus.document_text(session))
+    assert total > len(corpus.document_text(document))
     # Not just longer overall: the tail of each window has to reappear,
     # verbatim, at the head of the next one — every sentence here is
     # numbered uniquely, so this substring cannot be satisfied by chance.
@@ -223,143 +284,48 @@ def test_overlap_chunker_repeats_material_between_windows():
 
 def test_semantic_drift_cuts_at_an_explicit_topic_shift():
     # this is a unit test
-    fake = {'session_id': 'x-1', 'date': '2026-01-01', 'time': '22:00',
-            'source': 'voice', 'mood': {'label': 'خسته', 'valence': 4, 'arousal': 5},
-            'topics': [], 'recurring_threads': [],
-            'messages': [
-                {'role': 'user', 'intent': 'venting',
-                 'content': 'امروز کل روز درگیر مالیات بودم و نامه اداره مالیات'},
-                {'role': 'assistant', 'content': 'سخت بوده. چی شد آخرش؟'},
-                {'role': 'user', 'intent': 'venting',
-                 'content': 'حالا اینا رو ولش کن، پریا سر کارهای خونه دوباره دعوا کرد'},
-                {'role': 'assistant', 'content': 'چه حسی داشتی؟'}]}
+    fake = {'corpus_document_id': 1, 'document_content': [
+        {'text': 'امروز کل روز درگیر مالیات بودم و نامه اداره مالیات',
+         'labels': {'role': 'user'}},
+        {'text': 'سخت بوده. چی شد آخرش؟', 'labels': {'role': 'assistant'}},
+        {'text': 'حالا اینا رو ولش کن، پریا سر کارهای خونه دوباره دعوا کرد',
+         'labels': {'role': 'user'}},
+        {'text': 'چه حسی داشتی؟', 'labels': {'role': 'assistant'}}]}
     cfg = IndexConfig(chunker='semantic-drift', chunk_chars=500, contextual=False)
-    chunks = chunking.chunk_session(fake, cfg, embedding.make_embedder('char-hash'))
+    chunks = chunking.chunk_document(fake, cfg, embedding.make_embedder('char-hash'))
     assert len(chunks) >= 2
     assert any('پریا' in c.text and 'مالیات' not in c.text for c in chunks)
 
 
-def test_chunk_metadata_is_chroma_safe(session):
+def test_chunk_metadata_is_chroma_safe(document, label_fields, language):
     # this is a unit test
+    """Exercises the diary document's own keyed confidence label
+    (`topics_confidence`, an object) alongside its lists and scalars — the
+    kind of value `metadata()` has to flatten, not just the easy ones."""
     cfg = IndexConfig(chunker='message')
-    chunk = chunking.chunk_session(session, cfg, embedding.make_embedder('char-hash'))[0]
+    chunk = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'),
+                                    label_fields, language)[0]
     for key, value in chunk.metadata().items():
         assert isinstance(value, (str, int, float, bool)), key
 
 
 def test_importance_rises_with_emotional_intensity():
     # this is a unit test
-    calm = {'mood': {'label': 'آروم', 'valence': 6, 'arousal': 2}}
-    wrecked = {'mood': {'label': 'داغون', 'valence': 1, 'arousal': 9}}
-    assert chunking.importance_of(wrecked) > chunking.importance_of(calm)
+    label_fields = {'mood_valence': {'type': 'number', 'minimum': 0, 'maximum': 10,
+                                     'description': 'x', 'applies_to': ['document'],
+                                     'ranks': True}}
+    calm = {'document_metadata': {'mood_valence': 2}}
+    wrecked = {'document_metadata': {'mood_valence': 9}}
+    assert (chunking.importance_of(wrecked, label_fields)
+            > chunking.importance_of(calm, label_fields))
 
 
-# --- habits: the card you repeat instead of finish -------------------------
-# A board habit card carries `habitCount` repetitions per `habitFreq` period
-# and a `habitHistory` of completions; the corpus declares them the same way.
-
-HABIT_FREQS = ('daily', 'weekly', 'monthly', 'yearly')
-
-
-def habit_period(freq: str, day: str) -> str:
-    """The board's period id for a date, reimplemented from the spec rather
-    than imported — a test that shares code with the thing it checks cannot
-    catch the two drifting apart."""
-    from datetime import date
-    d = date.fromisoformat(day)
-    if freq == 'yearly':
-        return f'{d.year}'
-    if freq == 'monthly':
-        return f'{d.year}-{d.month:02d}'
-    if freq == 'weekly':
-        year, week, _ = d.isocalendar()
-        return f'{year}-W{week:02d}'
-    return d.isoformat()
-
-
-def test_the_bundled_corpus_declares_consistent_habits(diary):
-    # this is a convention test
-    """Validates fixture data, not code: the habit corpus must be internally
-    consistent the way a board habit card is (freq/count/history agree with
-    each other), consistent with the sessions and thread the diarist's habit
-    tracking is woven into, and varied enough (three of four cadences) that
-    the period arithmetic for daily and monthly habits is exercised by every
-    run, not just weekly ones. Folds five formerly separate data-validation
-    tests, each of which validated fixture data rather than lab code."""
-    habits = diary['habits']
-    assert habits, 'the corpus must carry the habits the diarist tracks'
-    for slug, habit in habits.items():
-        assert habit['freq'] in HABIT_FREQS, slug
-        assert habit['count'] >= 1, slug
-        assert habit['title_fa'], slug
-        assert isinstance(habit['times'], list), slug
-        assert isinstance(habit['history'], dict), slug
-        for period, days in habit['history'].items():
-            # `habitHistory` is bucketed by period id, so a date filed under
-            # the wrong bucket would make every count wrong.
-            for day in days:
-                assert habit_period(habit['freq'], day) == period, f'{slug} {day}'
-            # The punch strip has exactly `count` boxes, so more completions
-            # than that in one period could not have come from the board.
-            assert len(days) <= habit['count'], f'{slug} {period}'
-            assert len(days) == len(set(days)), f'{slug} {period} has a repeat'
-    assert {h['freq'] for h in habits.values()} >= {'daily', 'weekly', 'monthly'}
-
-    # Additive on purpose: appended on dates the corpus had not used, so
-    # every pre-existing session stays exactly as it was.
-    sessions = diary['sessions']
-    ids = [s['session_id'] for s in sessions]
-    assert len(ids) == len(set(ids)), 'a session id was reused'
-    assert ids == sorted(ids), 'the corpus must stay chronological'
-    habit_sessions = [s for s in sessions if 'habit-tracking' in s['recurring_threads']]
-    assert len(habit_sessions) >= 8
-    period = diary['meta']['period']
-    for s in habit_sessions:
-        assert period['from'] <= s['date'] <= period['to'], s['session_id']
-
-    # thread_layer builds its digest title from this description; a thread
-    # with no entry gets an empty one, which reads as a bug in the digest.
-    assert diary['threads']['habit-tracking']
-
-
-def test_every_chunk_reports_a_habit_field_even_when_it_has_none(session):
+def test_importance_is_zero_without_a_declared_ranks_label():
     # this is a unit test
-    """Chroma metadata is a fixed shape per collection in practice: a field that
-    only some rows carry turns a `where` clause into a silent partial scan."""
-    assert 'habit-tracking' not in session['recurring_threads']
-    chunk = chunking.chunk_session(session, IndexConfig(chunker='session'),
-                                   None)[0]
-    meta = chunk.metadata()
-    assert meta['session_id'] == session['session_id']
-    # `threads` is where a habit-tracking session shows up; the key is present
-    # on every chunk even when, as here, the session tracks no habit.
-    assert 'threads' in meta
-    assert 'habit-tracking' not in meta['threads']
-
-
-def test_habit_questions_cite_verbatim_evidence_like_the_rest_of_the_set(
-        diary, ground_truth):
-    # this is a unit test
-    """The evidence quote is what quote-recall measures survival of, so a quote
-    that is not literally in its cited message silently scores every config down."""
-    sessions = corpus.documents_by_id(diary)
-    habit_questions = [q for q in ground_truth['questions']
-                       if q['type'] == 'habit']
-    assert len(habit_questions) >= 6
-    for question in habit_questions:
-        assert question['answer_fa'] and question['key_facts'], question['id']
-        for ev in question['evidence']:
-            messages = sessions[ev['session_id']]['messages']
-            cited = ' '.join(messages[i]['content'] for i in ev['message_indices'])
-            assert ev['quote'] in cited, f"{question['id']} {ev['session_id']}"
-
-
-def test_every_question_type_is_one_the_report_breaks_down(ground_truth):
-    # this is a unit test
-    """metrics.aggregate walks TYPES, so a question type missing from it is
-    dropped from the per-type table without any error — the breakdown just
-    quietly stops covering part of the set."""
-    assert {q['type'] for q in ground_truth['questions']} <= set(metrics.TYPES)
+    """D6: importance needs a declared source or it is zero — never a
+    neutral default invented in its place."""
+    document = {'document_metadata': {'mood_valence': 9}}
+    assert chunking.importance_of(document, {}) == 0.0
 
 
 # --- query understanding ---------------------------------------------------

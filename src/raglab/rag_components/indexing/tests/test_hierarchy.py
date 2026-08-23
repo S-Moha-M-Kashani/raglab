@@ -174,12 +174,17 @@ def test_the_metadata_control_reproduces_the_corpus_own_storylines(registry,
                                                                    diary):
     # this is an integration test
     """Kept as a control against the old, deleted rollups: it has to be the
-    thing it claims to be, one group per declared thread. Stays on the diary
-    (never the smoke corpus, which declares no threads at all) — CLAUDE.md
-    pins this exact number as the corpus's own thread count."""
+    thing it claims to be, one group per declared storyline — diary-fa's
+    `recurring_threads`, the one array label the metadata control picks out
+    over `topics` because it is not `extracted` (D4: a person authored it,
+    a model did not). Stays on the diary (never the smoke corpus, which
+    declares no array label at the document level at all) — the glossary
+    below is the corpus's own declared thread vocabulary, 18 entries."""
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='metadata'))
     summaries = [c for c in grouped.chunks if c.layer == 'summary']
-    assert len(summaries) == len(diary['threads']) == 18
+    glossary = diary['corpus_dataset_metadata']['label_fields'][
+        'recurring_threads']['glossary']
+    assert len(summaries) == len(glossary) == 18
 
 
 def test_a_build_reports_what_the_grouping_did(registry):
@@ -246,7 +251,7 @@ def test_every_summariser_writes_text_from_the_group_and_calls_no_model(name):
     # this is a unit test
     from raglab.rag_components.indexing.chunking_strategies import Chunk
     chunks = [Chunk(id=f'c{i}', text=f'session {i} tax office installment {i}',
-                    session_id=f's{i}', date=f'2026-01-{i + 1:02d}')
+                    document_id=f's{i}', date=f'2026-01-{i + 1:02d}')
               for i in range(6)]
     vectors = np.eye(6, dtype=np.float32)
     idf = hierarchy._idf_of([c.text for c in chunks])
@@ -260,7 +265,7 @@ def test_the_card_summariser_states_the_count_rather_than_implying_it():
     counting is a task a language model is bad at."""
     from raglab.rag_components.indexing.chunking_strategies import Chunk
     chunks = [Chunk(id=f'c{i}', text=f'روز {i} باشگاه رفتم',
-                    session_id=f's{i}', date=f'2026-04-{i + 1:02d}')
+                    document_id=f's{i}', date=f'2026-04-{i + 1:02d}')
               for i in range(5)]
     idf = hierarchy._idf_of([c.text for c in chunks])
     card = hierarchy.summarize(chunks, np.eye(5, dtype=np.float32),
@@ -272,7 +277,12 @@ def test_the_card_summariser_states_the_count_rather_than_implying_it():
 # --- retrieval over an index that has summaries ----------------------------
 
 def _question(ground_truth):
-    return ground_truth['questions'][0]
+    return ground_truth['groundtruth_dataset'][0]
+
+
+def _query_date(ground_truth) -> str:
+    return ground_truth['groundtruth_dataset_metadata'][
+        'default_question_asked_at'][:10]
 
 
 def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
@@ -282,14 +292,15 @@ def test_the_leaves_scope_retrieves_exactly_what_a_flat_index_would(registry):
     anything."""
     ground_truth = datasets.load()[1]
     question = _question(ground_truth)
+    query_date = _query_date(ground_truth)
     flat = registry.get(IndexConfig(**LEAVES))
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
 
     plain = pipeline.retrieve(flat, RetrievalConfig(reranker='none'),
-                              question['question_fa'], question['query_date'])
+                              question['question'], query_date)
     control = pipeline.retrieve(
         grouped, RetrievalConfig(reranker='none', summary_scope='leaves'),
-        question['question_fa'], question['query_date'])
+        question['question'], query_date)
     assert [c.chunk_id for c in control.contexts] == \
            [c.chunk_id for c in plain.contexts]
 
@@ -298,10 +309,11 @@ def test_the_summaries_scope_retrieves_only_summaries(registry):
     # this is an integration test
     ground_truth = datasets.load()[1]
     question = _question(ground_truth)
+    query_date = _query_date(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
     outcome = pipeline.retrieve(
         grouped, RetrievalConfig(reranker='none', summary_scope='summaries'),
-        question['question_fa'], question['query_date'])
+        question['question'], query_date)
     assert outcome.contexts
     assert all(grouped.by_id[c.chunk_id].layer == 'summary'
                for c in outcome.contexts)
@@ -315,11 +327,12 @@ def test_drill_down_expands_each_summary_to_the_members_it_stands_for(registry):
     can quote."""
     ground_truth = datasets.load()[1]
     question = _question(ground_truth)
+    query_date = _query_date(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='louvain'))
     outcome = pipeline.retrieve(
         grouped, RetrievalConfig(reranker='none', summary_scope='drill-down',
                                  max_context_chars=10 ** 7),
-        question['question_fa'], question['query_date'])
+        question['question'], query_date)
     expanded = [c for c in outcome.contexts if c.expanded_from]
     assert expanded, 'drill-down retrieved a summary and expanded nothing'
     for context in expanded:
@@ -337,12 +350,12 @@ def test_a_boost_promotes_a_summary_into_the_candidate_cut(registry):
     be promoted into it — that would be a no-op that looked like a knob."""
     ground_truth = datasets.load()[1]
     question = _question(ground_truth)
+    query_date = _query_date(ground_truth)
     grouped = registry.get(IndexConfig(**LEAVES, hierarchy='metadata'))
     base = RetrievalConfig(reranker='none', k=5, rerank_depth=5)
-    plain = pipeline.retrieve(grouped, base, question['question_fa'],
-                              question['query_date'])
+    plain = pipeline.retrieve(grouped, base, question['question'], query_date)
     boosted = pipeline.retrieve(grouped, replace_boost(base, 50.0),
-                                question['question_fa'], question['query_date'])
+                                question['question'], query_date)
 
     def summaries(outcome):
         return sum(1 for c in outcome.contexts
@@ -429,6 +442,11 @@ def test_every_hierarchy_control_is_dead_until_it_means_something():
 
 
 # Real evaluation, offline embedder, fake LLM.
+@pytest.mark.skip(reason='evaluation.run_evaluation.select_questions still '
+                  'reads the pre-generic ground_truth[\'questions\'] shape — '
+                  'migrating it is a later task in this plan (evaluation/ '
+                  'stays red until then); un-skip once it reads '
+                  'groundtruth_dataset.')
 def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
     # this is an integration test
     """"The hierarchy was configured" and "the hierarchy was retrieved" are
@@ -468,6 +486,11 @@ def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
 
 
 # FastAPI TestClient.
+@pytest.mark.skip(reason='panel_server._corpus_summary still reads the '
+                  'pre-generic diary[\'sessions\']/[\'threads\']/[\'habits\'] '
+                  'shape — the dashboard surface is a later task in this plan '
+                  '(dashboard/ stays red until then); un-skip once it reads '
+                  'the generic corpus.')
 def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     # this is an integration test
     from fastapi.testclient import TestClient

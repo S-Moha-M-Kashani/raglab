@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from raglab.corpora.corpus_reading import date_label, ranks_label
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.rag_components.indexing.chunking_strategies import (
     Chunk,
-    chunk_session)
+    chunk_document)
 from raglab.configuration.lab_config import IndexConfig, LabSettings
 from raglab.rag_components.indexing.in_memory_vector_store import MemoryVectors
 
@@ -32,6 +33,13 @@ class IndexStats:
     hierarchy: dict | None = None
     # Set by IndexRegistry: this process already had it.
     reused: bool = False
+    # '' means the corpus declares no such label (D5/D6): time filtering,
+    # recency ranking and summary date ranges are inert without one, and the
+    # agentic retriever's importance weight is inert without the other —
+    # reported here rather than guessed, since a row must say why a knob did
+    # nothing rather than leave it silent.
+    date_label: str = ''
+    ranks_label: str = ''
     notes: list = field(default_factory=list)
 
 
@@ -44,16 +52,16 @@ class LabIndex:
         self.chunks = chunks
         self.stats = stats
         self.by_id = {c.id: c for c in chunks}
-        self.by_session: dict[str, list[Chunk]] = {}
+        self.by_document: dict[str, list[Chunk]] = {}
         for chunk in chunks:
-            if chunk.session_id:
-                self.by_session.setdefault(chunk.session_id, []).append(chunk)
+            if chunk.document_id:
+                self.by_document.setdefault(chunk.document_id, []).append(chunk)
         self._bm25 = None
 
     # --- building ---------------------------------------------------------
 
     @classmethod
-    def build(cls, cfg: IndexConfig, diary: dict, settings: LabSettings,
+    def build(cls, cfg: IndexConfig, corpus: dict, settings: LabSettings,
               progress=None) -> 'LabIndex':
         """Always a full build; skipping the work is the registry's decision, not this one's."""
         started = time.time()
@@ -64,12 +72,18 @@ class LabIndex:
         stats.embed_dim = getattr(embedder, 'dim', 0)
         store = MemoryVectors(cfg.collection())
 
-        sessions = diary['sessions']
+        meta = corpus.get('corpus_dataset_metadata') or {}
+        label_fields = meta.get('label_fields') or {}
+        language = meta.get('language', '')
+        stats.date_label = date_label(label_fields)
+        stats.ranks_label = ranks_label(label_fields)
+        documents = corpus.get('corpus_documents') or []
         if progress:
             progress('chunking', 0.1)
         chunks: list[Chunk] = []
-        for session in sessions:
-            chunks.extend(chunk_session(session, cfg, embedder))
+        for document in documents:
+            chunks.extend(chunk_document(document, cfg, embedder, label_fields,
+                                         language))
 
         lengths = np.array([len(c.text) for c in chunks]) if chunks else np.array([0])
         stats.chunks = stats.leaves = len(chunks)
@@ -90,7 +104,7 @@ class LabIndex:
                 progress('grouping', 0.9)
             hierarchy_stats = hierarchy_mod.HierarchyStats()
             summaries = hierarchy_mod.build(chunks, leaf_vectors, cfg, embedder,
-                                            hierarchy_stats)
+                                            hierarchy_stats, label_fields)
             stats.hierarchy = hierarchy_stats.as_dict()
             for message in hierarchy_stats.notes:
                 note(message)
@@ -167,8 +181,8 @@ class LabIndex:
                          if cid in order], dtype=np.float32)
 
     def neighbors(self, chunk: Chunk) -> list[Chunk]:
-        """Chunks either side of this one inside the same session."""
-        siblings = list(self.by_session.get(chunk.session_id, []))
+        """Chunks either side of this one inside the same document."""
+        siblings = list(self.by_document.get(chunk.document_id, []))
         if chunk not in siblings:
             return []
         i = siblings.index(chunk)
@@ -182,19 +196,19 @@ class IndexRegistry:
     """Process-lifetime cache of built indexes, keyed by fingerprint; every
     index it built dies with the process."""
 
-    def __init__(self, settings: LabSettings, diary: dict | None = None):
+    def __init__(self, settings: LabSettings, corpus: dict | None = None):
         self.settings = settings
         # A caller that already holds the corpus (the suite, a booted service)
         # passes it; anything else is loaded per dataset below.
-        self.diary = diary
+        self.corpus = corpus
         self._indexes: dict[str, LabIndex] = {}
 
     def corpus_for(self, dataset: str = '') -> dict:
-        """The sessions one config indexes. Resolved per call, since dataset is
+        """The corpus one config indexes. Resolved per call, since dataset is
         a field of `IndexConfig` and the registry holds several corpora at once."""
         if not dataset:
-            if self.diary is not None:
-                return self.diary
+            if self.corpus is not None:
+                return self.corpus
             dataset = ''
         from raglab.corpora import dataset_import_contract as datasets
         return datasets.load(dataset)[0]

@@ -183,7 +183,7 @@ MISSED = {
     'experiment_id': 'r1', 'dataset': 'smoke-mini', 'filter': 'missed',
     'n_questions': 6, 'n_matched': 2, 'k': 3,
     'rows': [{'id': 'mini-002', 'question': 'What broke in the kitchen?',
-              'type': 'single-hop', 'difficulty': 'easy', 'answerable': True,
+              'type': 'single-hop', 'difficulty': 'easy', 'behavior': 'answer',
               'recall': 0.5, 'precision': 0.33, 'mrr': 0.5, 'hit': 1.0,
               'n_contexts': 3, 'retrieved_sessions': ['mini-01'],
               'expected_sessions': ['mini-01', 'mini-04'], 'abstained': False,
@@ -200,6 +200,20 @@ def test_the_failure_set_names_each_question_and_what_was_missed():
     assert 'What broke in the kitchen?' in reply
     assert 'mini-04' in reply
     assert '0.5' in reply
+
+
+def test_an_abstain_question_is_tagged_unanswerable():
+    # this is a unit test
+    """`behavior` is the row's own field (task-5 renamed `answerable` off it);
+    a row that abstains must read as unanswerable rather than silently
+    defaulting to answerable, which is exactly the regression a stale
+    `row.get('answerable', True)` produced — every row looked answerable
+    regardless of its real `behavior`."""
+    abstained = dict(MISSED, rows=[dict(MISSED['rows'][0], id='mini-006',
+                                        behavior='abstain', abstained=True)])
+    tools.set_experiment_reader(_Reader(question_rows=abstained))
+    reply = widget.read_experiment_questions.invoke({'experiment_id': 'r1'})
+    assert 'unanswerable' in reply
 
 
 def test_the_failure_set_says_how_many_it_left_out():

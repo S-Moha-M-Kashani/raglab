@@ -235,7 +235,7 @@ def read_experiment_questions(experiment_id: str, only: str = 'missed') -> str:
         lines.append(
             f"  {row.get('id')} [{row.get('type') or '?'}/"
             f"{row.get('difficulty') or '?'}]"
-            f"{'' if row.get('answerable', True) else ' unanswerable'}"
+            f"{' unanswerable' if row.get('behavior') == 'abstain' else ''}"
             f" recall {_number(row.get('recall'), 2)}"
             f" precision {_number(row.get('precision'), 2)}"
             f" mrr {_number(row.get('mrr'), 2)}"

@@ -1,0 +1,883 @@
+{
+  "groundtruth_dataset_metadata": {
+    "name": "Product support — one account, one year — questions",
+    "corpus_ref": {
+      "dataset": "support-en"
+    },
+    "language": "en",
+    "default_question_asked_at": "2026-07-29T00:00:00Z",
+    "question_metadata_fields": {
+      "question_type": {
+        "type": "string",
+        "applies_to": [
+          "question"
+        ],
+        "description": "Evaluation category."
+      },
+      "difficulty": {
+        "type": "string",
+        "applies_to": [
+          "question"
+        ],
+        "description": "Human-assigned difficulty."
+      }
+    },
+    "evidence_role_values": {
+      "supporting": "The quote supports the expected answer."
+    }
+  },
+  "groundtruth_dataset": [
+    {
+      "groundtruth_question_id": 1,
+      "question": "What went wrong with invoice INV-2291?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "It was charged twice on 4 November 2025.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Invoice INV-2291 was charged twice"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "The double charge happened on 4 November"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "Invoice INV-2291 was charged twice on 4 November",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-11-04T00:00:00Z",
+                "channel": "email",
+                "topics": [
+                  "billing"
+                ],
+                "recurring_threads": [
+                  "invoice-dispute"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 2,
+      "question": "How much was refunded for the duplicate charge, and when?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "The duplicate charge of $480 was refunded on 7 November 2025.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The refund was $480"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "It was refunded on 7 November"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 2,
+          "evidence": [
+            {
+              "text": "The duplicate charge of $480 was refunded on 7 November",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-11-07T00:00:00Z",
+                "channel": "email",
+                "topics": [
+                  "billing"
+                ],
+                "recurring_threads": [
+                  "invoice-dispute"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 3,
+      "question": "How long was the January outage and which region did it affect?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "The EU cluster was unavailable for 43 minutes on 12 January 2026.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The outage lasted 43 minutes"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "It affected the EU cluster"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 5,
+          "evidence": [
+            {
+              "text": "the EU cluster was unavailable for 43 minutes on 12 January",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-01-12T00:00:00Z",
+                "channel": "chat",
+                "mood": {
+                  "label": "tense",
+                  "valence": 3,
+                  "arousal": 7
+                },
+                "topics": [
+                  "incident"
+                ],
+                "recurring_threads": [
+                  "january-outage"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "temporal",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 4,
+      "question": "What caused the outage that hit the EU cluster, and was any data lost?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "A failed migration on the metrics database caused it; ingestion continued, so no data was lost — only the read path was affected.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "A failed migration on the metrics database was the cause"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "No data was lost because ingestion continued"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 5,
+          "evidence": [
+            {
+              "text": "the EU cluster was unavailable for 43 minutes on 12 January",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-01-12T00:00:00Z",
+                "channel": "chat",
+                "mood": {
+                  "label": "tense",
+                  "valence": 3,
+                  "arousal": 7
+                },
+                "topics": [
+                  "incident"
+                ],
+                "recurring_threads": [
+                  "january-outage"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 6,
+          "evidence": [
+            {
+              "text": "a failed migration on the metrics database caused the January outage",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-01-14T00:00:00Z",
+                "topics": [
+                  "incident",
+                  "post-mortem"
+                ],
+                "recurring_threads": [
+                  "january-outage"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 5,
+      "question": "How many seats does the Growth plan include?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Forty, since 1 April 2026. It included 25 before that.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The Growth plan now includes 40 seats"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "The increase took effect on 1 April"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 10,
+          "evidence": [
+            {
+              "text": "the Growth plan includes 25 seats",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-02-10T00:00:00Z",
+                "topics": [
+                  "billing",
+                  "plans"
+                ],
+                "recurring_threads": [
+                  "seat-limits"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 14,
+          "evidence": [
+            {
+              "text": "from 1 April the Growth plan includes 40 seats",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-04-01T00:00:00Z",
+                "topics": [
+                  "plans"
+                ],
+                "recurring_threads": [
+                  "seat-limits"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "knowledge-update",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 6,
+      "question": "Was the SSO promise kept?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Yes. Support promised SAML SSO before the end of Q2 in January, and it shipped on 18 June 2026.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "SSO was promised before the end of Q2"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "SAML SSO shipped on 18 June"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 7,
+          "evidence": [
+            {
+              "text": "we will ship SAML SSO before the end of Q2",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-01-21T00:00:00Z",
+                "topics": [
+                  "sso",
+                  "roadmap"
+                ],
+                "recurring_threads": [
+                  "sso-request"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 17,
+          "evidence": [
+            {
+              "text": "SAML SSO shipped on 18 June",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-06-18T00:00:00Z",
+                "mood": {
+                  "label": "relieved",
+                  "valence": 8,
+                  "arousal": 4
+                },
+                "topics": [
+                  "sso"
+                ],
+                "recurring_threads": [
+                  "sso-request"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "commitment",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 7,
+      "question": "Who is the account manager for Northwind, and since when?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Priya Raman, who took over the account in February 2026 after Tom left.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Priya Raman is the account manager"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "She took over in February"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 9,
+          "evidence": [
+            {
+              "text": "Priya Raman took over the Northwind account in February",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-02-04T00:00:00Z",
+                "topics": [
+                  "account"
+                ],
+                "recurring_threads": [
+                  "account-owner"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "entity",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 8,
+      "question": "How long are audit logs kept on the Growth plan?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Ninety days.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Audit logs are kept for 90 days on Growth"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 8,
+          "evidence": [
+            {
+              "text": "audit logs are kept for 90 days on the Growth plan",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-01-29T00:00:00Z",
+                "topics": [
+                  "security"
+                ],
+                "recurring_threads": [
+                  "security-review"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 9,
+      "question": "The export bug: what was it and when was it fixed?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "CSV exports over 50,000 rows truncated silently; it was fixed in release 4.8.2, reported to the customer on 15 April 2026.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Exports over 50,000 rows truncated silently"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "The fix shipped in release 4.8.2"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 3,
+          "evidence": [
+            {
+              "text": "CSV exports over 50,000 rows truncate silently",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-11-19T00:00:00Z",
+                "topics": [
+                  "exports",
+                  "bug"
+                ],
+                "recurring_threads": [
+                  "export-truncation"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 15,
+          "evidence": [
+            {
+              "text": "the export truncation was fixed in release 4.8.2",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-04-15T00:00:00Z",
+                "topics": [
+                  "exports"
+                ],
+                "recurring_threads": [
+                  "export-truncation"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 10,
+      "question": "How many separate billing issues were raised over the year?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Three: the duplicate charge in November, the mid-term seat question in March, and the renewal quote in July.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Three billing topics were raised"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "Invoice INV-2291 was charged twice on 4 November",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2025-11-04T00:00:00Z",
+                "channel": "email",
+                "topics": [
+                  "billing"
+                ],
+                "recurring_threads": [
+                  "invoice-dispute"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 13,
+          "evidence": [
+            {
+              "text": "charge us for the extra seats",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-03-18T00:00:00Z",
+                "topics": [
+                  "billing"
+                ],
+                "recurring_threads": [
+                  "seat-limits"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 18,
+          "evidence": [
+            {
+              "text": "Renewal quote please",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-07-02T00:00:00Z",
+                "topics": [
+                  "billing"
+                ],
+                "recurring_threads": [
+                  "renewal"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "aggregation",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 11,
+      "question": "How many times are failed webhooks retried?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Five attempts over 30 minutes, with exponential backoff.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Webhooks retry 5 times"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Retries span 30 minutes"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 11,
+          "evidence": [
+            {
+              "text": "webhook retries stop after 5 attempts over 30 minutes",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-02-25T00:00:00Z",
+                "topics": [
+                  "integrations"
+                ],
+                "recurring_threads": [
+                  "webhooks"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 12,
+      "question": "Did dashboard performance improve, and by how much?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Yes — p95 dashboard load time went from 3.1 s to 1.4 s after the caching change in March 2026.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "p95 load time fell from 3.1 s to 1.4 s"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 12,
+          "evidence": [
+            {
+              "text": "p95 dashboard load time went from 3.1 s to 1.4 s after the caching change",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-03-04T00:00:00Z",
+                "topics": [
+                  "performance"
+                ],
+                "recurring_threads": [
+                  "performance"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "pattern",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 13,
+      "question": "What discount did we get on the renewal?",
+      "expected_answer": {
+        "behavior": "abstain"
+      },
+      "relevant_corpus_documents": [],
+      "question_metadata": {
+        "question_type": "abstention",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 14,
+      "question": "Which customer data was lost in the January outage?",
+      "expected_answer": {
+        "behavior": "correct_premise"
+      },
+      "relevant_corpus_documents": [],
+      "question_metadata": {
+        "question_type": "adversarial",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 15,
+      "question": "When does the contract renew?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "On 31 July 2026.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The renewal date is 31 July"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 18,
+          "evidence": [
+            {
+              "text": "It renews on 31 July at the Growth rate",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "recorded_at": "2026-07-02T00:00:00Z",
+                "topics": [
+                  "billing"
+                ],
+                "recurring_threads": [
+                  "renewal"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "temporal",
+        "difficulty": "easy"
+      }
+    }
+  ]
+}

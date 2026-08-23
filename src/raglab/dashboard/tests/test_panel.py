@@ -10,6 +10,7 @@ from raglab.configuration import lab_config as config
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import deterministic_metrics as metrics
+from raglab.llm_backends import model_role_catalogue as model_roles
 
 from raglab.conftest import RAGLAB_DIR, _font_size_literals, _radius_literals
 
@@ -74,6 +75,10 @@ def panel_texts(client):
         # names for a while after they stopped being slices, which sent a
         # maintainer chasing a widget failure into the Laboratory's own
         # script; one key per file is what stops that.
+        # The codec, over its own route: what the two knob-coverage tests at
+        # the foot of this file claim about the export template is a claim
+        # about the file a browser is actually handed.
+        'archive_io.js': client.get('/archive_io.js').text,
         'widget.css': client.get('/widget.css').text,
         'widget.js': client.get('/widget.js').text,
         'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
@@ -241,6 +246,12 @@ CONVENTIONS = [
     ('panel.js', 'restoreLastRun', None,
      'the remembered run must be re-read by id from the service, or a run '
      'file deleted between two visits would render a stale copy'),
+    ('panel.js', "get('experiment')", None,
+     'the panel must take the experiment from its own address, not only from '
+     'the one-shot slot: the board now lands here, and a slot written by a '
+     'click cannot survive a reload, a bookmark, a copied link, or a new tab '
+     'that boots before the writing page has finished — each of which reads '
+     'as the open button doing nothing at all'),
     # The launcher and the window are the two elements widget.js creates rather
     # than writes as markup, so their ids are pinned in the form the file
     # actually spells them. The claim is the one the markup rows make: the id is
@@ -423,11 +434,16 @@ CONVENTIONS = [
      'reload, which is not what the button says it did'),
     ('panel.js', 'ExperimentHandoff.reconcile', None,
      'which knobs this installation can serve is decided in the one module '
-     'that decides it, so the archive import and the board handoff cannot '
-     'come to disagree about what this lab serves'),
-    ('panel.js', 'ExperimentHandoff.notice', None,
-     'what could not be set must be said, and said by the module that '
-     'worked out what could not be set'),
+     'that decides it. There is one reader of that rule now — the archive '
+     'import — because opening a board row goes through the same import, so '
+     'the disagreement this used to guard against cannot arise; what it '
+     'still pins is that the rule is not reimplemented in the page'),
+    ('panel.js', 'adoptArchive(ArchiveIO.normalize', None,
+     'opening an experiment on the board is importing its exported archive: '
+     'one path, one strictness. Written out twice, an experiment opened here '
+     'and the same experiment imported as a file would come to disagree '
+     'about what this lab accepts — which is the whole defect this replaced, '
+     'where open applied what it could and import refused outright'),
     ('widget.js', "widgetSayAfterDraw('note'", None,
      'the lab writes its own notices in its own voice: a line the page wrote '
      "must never arrive as `bot`, which is the model's. Pinned at the one "
@@ -880,7 +896,7 @@ def test_the_standalone_panel_reads_only_fields_the_lab_still_produces(client):
 def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
     # this is a convention test
     source = PANEL_JS.read_text()
-    exchange = source[source.index('async function importArchiveFile'):
+    exchange = source[source.index('async function adoptArchive'):
                       source.index('function renderResult')]
     assert 'ArchiveIO.transact' in exchange
     assert "api('/api/imported-archives'" in exchange
@@ -898,7 +914,7 @@ def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
 def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
     # this is a convention test
     source = PANEL_JS.read_text()
-    exchange = source[source.index('async function importArchiveFile'):
+    exchange = source[source.index('async function adoptArchive'):
                       source.index('function renderResult')]
     assert 'ArchiveIO.transact' in exchange
     assert "api('/api/imported-archives'" in exchange
@@ -976,7 +992,7 @@ def test_an_imported_archive_says_where_it_landed(panel_texts):
 def test_imported_results_render_their_archived_metric_catalogue():
     # this is a convention test
     source = PANEL_JS.read_text()
-    exchange = source[source.index('async function importArchiveFile'):
+    exchange = source[source.index('async function adoptArchive'):
                       source.index('function renderResult')]
     assert 'metric_catalogue: imported.evaluation.metric_catalogue' in exchange
     render = source[source.index('function renderResult'):
@@ -1734,13 +1750,169 @@ def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
     # than sitting in markup, so the loop above already covers it once
     # `leaderboard.js` is in scope — this assertion additionally pins the
     # replacement shape, so a fix that merely drops the origin without
-    # keeping `/inspector` as the mount path still fails here.
-    assert 'href="/inspector/?experiment=' in panel_texts['leaderboard.js'], (
-        'the board must open the Inspector by path, with the experiment id '
-        'still carried in the query string')
+    # carrying the experiment id on a path of this origin still fails here.
+    # *Which* surface it lands on is a different claim, pinned beside the
+    # handoff it belongs to in `board_handoff.test.js`.
+    assert 'href="/?experiment=' in panel_texts['leaderboard.js'], (
+        'the board must open the experiment by path on this origin, with the '
+        'id carried in the query string')
     # The panel's own door to the Inspector, opened from 3 · Generation once a
     # run exists: same requirement, same reason, a second place the origin
     # could have been left behind.
     assert 'id="open-inspector" href="/inspector"' in panel_texts['index.html'], (
         "the panel's lab-link to the Inspector must be a path on this "
         'origin, not a link to a port')
+
+
+# --- the knob surface, end to end -------------------------------------------
+# Three lists have to name the same knobs and are written in three places by
+# hand: the dataclasses in `configuration/lab_config.py`, the codec's
+# `CONFIG_TEMPLATE` in `archive_io.js`, and the controls the panel renders.
+# Nothing tied them together, so a knob added to one and forgotten in another
+# was found by a reader whose export threw or whose imported value silently
+# stayed at this lab's default. These two tests are that tie.
+
+# The knobs no control shows, carried through untouched by `UNSHOWN` so that
+# importing a config that sets them cannot quietly reset them to this lab's
+# defaults. Named here rather than derived, because that is the point: a knob
+# that joins this list joins it deliberately, in a diff someone reads.
+UNSHOWN_KNOBS = frozenset({
+    'retrieval.rrf_k', 'retrieval.agentic_weights', 'retrieval.max_context_chars',
+})
+
+
+def _config_knobs():
+    """Every knob the lab has, as `group.field`, from the definition itself."""
+    return {f'{group}.{field}'
+            for group, fields in config.LabConfig().to_dict().items()
+            if group != 'label'
+            for field in fields}
+
+
+def _function_body(js, name):
+    """One top-level function, from its `function` line to the `}` in column 0.
+
+    Slicing between two *named* functions instead would depend on the order
+    they happen to be written in, and `applyDefaults` sits below `keepUnshown`
+    — which is how an earlier draft of this file read an empty function body
+    and reported every knob in the lab as unwritten.
+    """
+    start = js.index(f'function {name}(')
+    return js[start:js.index('\n}', start)]
+
+
+def _archive_template_knobs(archive_js):
+    """The keys `CONFIG_TEMPLATE` promises, which the codec enforces exactly.
+
+    Brace-aware on purpose: the template closes `generation` and then names a
+    top-level `label`, so a scan that only looked for `name:` would file that
+    under whichever group it saw last and invent a knob nobody wrote.
+    """
+    body = archive_js[archive_js.index('const CONFIG_TEMPLATE'):
+                      archive_js.index('const VOCABULARIES')]
+    token = re.compile(r'(?P<group>\w+)\s*:\s*\{|(?P<close>\})'
+                       r'|(?P<field>\w+)\s*:')
+    knobs, outside, group = set(), set(), None
+    for match in token.finditer(body):
+        if match.group('group'):
+            group = match.group('group')
+        elif match.group('close'):
+            group = None
+        elif group:
+            knobs.add(f'{group}.{match.group("field")}')
+        else:
+            outside.add(match.group('field'))
+    assert outside == {'label'}, (
+        'the archive template grew a key outside the three config groups, '
+        f'which this reading would drop: {sorted(outside - {"label"})}')
+    return knobs
+
+
+def _controlled_knobs(panel_js):
+    """Knobs the panel reads back off a real control.
+
+    Two kinds. Most name their element inline (`chunker: $('chunker').value`);
+    the model roles are rendered from the served catalogue and read through
+    `data-field` in a loop, so their names live in `model_role_catalogue` and
+    not in this file — which is what keeps a role added there from having to
+    be added here too.
+    """
+    body = _function_body(panel_js, 'readShownConfig')
+    knobs, group = set(), None
+    for line in body.splitlines():
+        opened = re.match(r'\s*(index|retrieval|generation):\s*\{', line)
+        if opened:
+            group = opened.group(1)
+        for field in re.findall(r'(\w+):\s*\+?\$\(', line):
+            if group and field != 'label':
+                knobs.add(f'{group}.{field}')
+    return knobs | {role.field for role in model_roles.ROLES}
+
+
+def test_every_knob_reaches_the_export_file(panel_texts):
+    # this is a convention test
+    """Exporting is all of the config or none of it.
+
+    `exportArchive` hands `readConfig()` to `ArchiveIO.settings`, whose
+    `shape()` refuses a config with a missing *or* an extra key — so a knob
+    that fell out of the template does not quietly leave a gap in the file,
+    it stops every export on this installation. This asserts the three lists
+    agree before that can happen, and that the export path can actually
+    produce each one: a knob is either on a control or carried by `UNSHOWN`,
+    and a knob that is neither reaches `readConfig()` from nowhere.
+    """
+    defined = _config_knobs()
+    template = _archive_template_knobs(panel_texts['archive_io.js'])
+    assert template == defined, (
+        'the archive template and the lab config name different knobs — '
+        f'only in the config: {sorted(defined - template)}; '
+        f'only in the template: {sorted(template - defined)}')
+
+    reachable = _controlled_knobs(panel_texts['panel.js']) | UNSHOWN_KNOBS
+    assert defined <= reachable, (
+        'these knobs exist in the config but the export path can read them '
+        f'from neither a control nor UNSHOWN: {sorted(defined - reachable)}')
+    assert UNSHOWN_KNOBS <= defined, (
+        'UNSHOWN_KNOBS names a knob the config no longer has: '
+        f'{sorted(UNSHOWN_KNOBS - defined)}')
+
+
+def test_every_knob_can_be_set_by_an_import(panel_texts):
+    # this is a convention test
+    """Importing is the same promise read backwards.
+
+    `writeArchiveSettings` applies a config with `applyDefaults` and then
+    checks that reading the panel back reproduces it exactly, refusing the
+    import otherwise. That check is the guarantee at run time; this is the
+    same guarantee at build time, which is where a reader would rather meet
+    it. Every knob on a control must be written by `applyDefaults`, or an
+    imported value lands in an object nothing puts on screen; every knob
+    without one must be in `UNSHOWN_KNOBS`, which `keepUnshown` carries.
+    """
+    panel_js = panel_texts['panel.js']
+    applied = {f'{group}.{field}' for group, field in re.findall(
+        r'\bd\.(index|retrieval|generation)\.(\w+)',
+        _function_body(panel_js, 'applyDefaults'))}
+    # The model roles again: written by the same `data-field` loop that reads
+    # them, from `(d[group] || {})[field]`, so they carry no `d.<group>.<field>`
+    # for the pattern above to find.
+    applied |= {role.field for role in model_roles.ROLES}
+
+    controlled = _controlled_knobs(panel_js)
+    assert controlled <= applied, (
+        'these knobs have a control the panel reads but never writes, so an '
+        f'imported value would never reach it: {sorted(controlled - applied)}')
+
+    unreachable = _config_knobs() - applied - UNSHOWN_KNOBS
+    assert not unreachable, (
+        'these knobs can be neither adjusted nor carried through an import: '
+        f'{sorted(unreachable)}')
+
+    # And the run-time half, which is what makes a partial import impossible
+    # rather than merely unlikely: the panel refuses an import it cannot
+    # reproduce, instead of applying the knobs it understood and keeping quiet
+    # about the rest.
+    assert 'Imported settings could not be represented exactly by this panel' \
+        in panel_js, ('the import must verify it reproduced the config it was '
+                      'given, or a knob dropped here is a knob nobody is told '
+                      'about')

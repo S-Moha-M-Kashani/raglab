@@ -7,6 +7,7 @@ catalogue offers only models verified reachable on this account; the local
 from dataclasses import dataclass, fields
 
 from raglab.llm_backends import cli_subprocess_chat as clichat
+from raglab.configuration.knob_help_text import DATASET_SPECIFIC
 from raglab.configuration.lab_config import (
     LabConfig,
     LabSettings,
@@ -28,8 +29,9 @@ class ModelOption:
                 'note': self.note, 'available': self.verified or self.id in live}
 
 
-# Deliberately short. A dropdown of sixty slugs is not a choice either, and every
-# entry here is one somebody might reasonably want on Farsi diary text.
+# Deliberately short: a dropdown of sixty slugs is not a choice either. Each
+# note says what this lab measured, and on which corpus — never what the model
+# is generally reputed to be.
 CHAT_MODELS = (
     ModelOption('openai/gpt-5-nano', 'GPT-5 nano', 'closed', verified=True,
                 note='every grade in .runs/ so far was measured on this'),
@@ -130,10 +132,13 @@ class ModelRole:
 
 ROLES = (
     ModelRole('expand', 'Query rewriting (HyDE)', 'retrieval.expansion_model',
-              'Invents a plausible diary answer and searches with that instead '
-              'of the question, on the theory that an answer looks more like the '
+              'Writes a hypothetical answer and searches with that instead of '
+              'the question, on the theory that an answer looks more like the '
               'text you are hunting for than a question does. Only HyDE uses a '
-              'model; multi-query expansion is rule-based and free.',
+              'model; multi-query expansion is rule-based and free. '
+              + DATASET_SPECIFIC + ' The prompt asks in Persian for a '
+              'diary-style paragraph, so elsewhere it searches with text in the '
+              'wrong language rather than going quiet.',
               'HyDE is on'),
     ModelRole('rerank', 'Reranker', 'retrieval.reranker_model',
               'Reads the top candidates and scores each one against the '
@@ -142,22 +147,25 @@ ROLES = (
               'Reranker = llm'),
     ModelRole('grade', 'Relevance gate', 'retrieval.grader_model',
               'Decides whether a chunk is relevant at all. This is what lets '
-              'the lab abstain rather than answer from noise: measured here, an '
-              'LLM gate at 0.4 refused all five unanswerable questions while '
-              'wrongly refusing 3% of the answerable ones — the lexical gate had '
-              'no threshold that could do both.',
+              'the lab abstain rather than answer from noise: measured on the '
+              'bundled diary, an LLM gate at 0.4 refused all five unanswerable '
+              'questions while wrongly refusing 3% of the answerable ones — the '
+              'lexical gate had no threshold that could do both.',
               'Gate = llm'),
     ModelRole('answer', 'Answer', 'generation.model',
-              'Writes the Farsi answer from the retrieved context, cites session '
-              'ids, and is the stage that must refuse when the diary is silent. '
-              'Generation is the current bottleneck — faithfulness 0.743 against '
-              'key-fact coverage 0.261 — so this is the interesting dropdown.',
+              'Writes the answer from the retrieved context, cites session ids, '
+              'and is the stage that must refuse when the corpus is silent. On '
+              'the bundled diary generation is the bottleneck — faithfulness '
+              '0.743 against key-fact coverage 0.261 — so this is the '
+              'interesting dropdown.',
               'Answerer = llm'),
     ModelRole('judge', 'Key-facts judge', 'generation.judge_model',
-              'Checks a Farsi answer against the ground truth\'s English key '
-              'facts. It is translating as well as judging, which is why no '
-              'deterministic metric can replace it — and why a weak model here '
-              'produces confidently wrong scores.',
+              'Checks an answer against the ground truth\'s atomic key facts. '
+              'When the two are not in the same language — the bundled diary '
+              'answers in Farsi against English facts — it is translating as '
+              'well as judging, which is why no deterministic metric can '
+              'replace it, and why a weak model here produces confidently wrong '
+              'scores.',
               'the key-facts judge is on'),
     ModelRole('ragas', 'RAGAS judge', 'generation.ragas_model',
               'The model RAGAS uses for faithfulness, answer relevancy and '
@@ -362,9 +370,9 @@ MODES = (
                       'extractive answerer, lexical reranker, no gate'),
     ProviderMode('openrouter', 'OpenRouter', 'openrouter',
                  note='the full LLM pipeline on gpt-5-nano — HyDE, LLM '
-                      'reranker, relevance gate, answerer and both judges — '
-                      'while the embedder stays the local Persian-tuned '
-                      'encoder, the measured winner'),
+                      'reranker, relevance gate, answerer and both judges. No '
+                      'mode touches the index, so the embedder is left exactly '
+                      'where you set it'),
     ProviderMode('claude', 'Claude (CLI)', 'claude',
                  note='the full LLM pipeline on the Claude Code CLI already '
                       'logged in on this machine, so no API key is needed at '

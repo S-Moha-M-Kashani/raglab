@@ -57,8 +57,8 @@ const COLUMNS = [
   { key: 'state', label: 'state' },
   { key: 'seconds', label: 'seconds', title: 'wall clock' },
   { key: 'open', label: 'open', nosort: true, freeze: 'freeze-last',
-    title: 'read this experiment in the Inspector · its settings also become '
-      + 'the Laboratory’s' },
+    title: 'open this experiment in the Laboratory · its settings become the '
+      + 'knobs, and what this lab cannot serve is named there' },
 ];
 
 const fmt = (value, digits = 3) =>
@@ -117,15 +117,21 @@ function cell(row, key) {
           + ` aria-label="Why did this ${escapeHtml(row.state || 'fail')}?">!</button></span>`
         : `<b>${escapeHtml(row.state || '—')}</b>`;
     case 'seconds': return Math.round(row.seconds || 0);
-    // Two halves of one cell: the `href` the browser follows to the Inspector,
-    // and the id the handoff handler below reads to hand the same experiment to
-    // the Laboratory. Both name the experiment, because a link that navigated
-    // and a handler that read a row index would be two accounts of one click.
+    // Two halves of one cell: the `href` the browser follows to the Laboratory,
+    // and the id the handoff handler below writes into the slot for it. Both
+    // name the experiment, because a link that navigated and a handler that
+    // read a row index would be two accounts of one click.
+    //
+    // The Laboratory, not the Inspector. The slot alone only ever reached a
+    // Laboratory that happened to be open already, so a reader with just the
+    // board up clicked "open", got the Inspector, and never saw the knobs it
+    // promised. The evidence is still one link away, from the page that now
+    // holds this experiment's settings.
     case 'open': return `<a class="open-run" target="_blank" rel="noopener"`
-      + ` href="/inspector/?experiment=${encodeURIComponent(row.experiment_id)}"`
+      + ` href="/?experiment=${encodeURIComponent(row.experiment_id)}"`
       + ` data-experiment="${escapeHtml(row.experiment_id)}"`
-      + ` aria-label="Read ${escapeHtml(row.experiment_id)} in the Inspector`
-      + ` and load its settings into the Laboratory">↗</a>`;
+      + ` aria-label="Open ${escapeHtml(row.experiment_id)} in the Laboratory,`
+      + ` with its settings on the knobs">↗</a>`;
     // The four judged metrics, by their own keys, so a column cannot drift from
     // the metric it names.
     default: return fmt(metrics[key]);
@@ -527,15 +533,15 @@ document.addEventListener('click', (event) => {
 });
 
 // --- handing the experiment to the Laboratory -------------------------------
-// The open button opens the Inspector, and the same click makes that
-// experiment's settings the Laboratory's. The board cannot write those knobs
+// The open button opens the Laboratory, and the same click makes that
+// experiment's settings the knobs there. The board cannot write those knobs
 // itself: only the lab page holds `/api/options`, so only it can tell a knob
 // this installation serves from one this row merely recorded, and a value
 // written into a `<select>` with no such option reads back as ''. So what
 // crosses is an id, in one slot, and `experiment_handoff.js` says the rest.
 //
 // Nothing here prevents the default. The cell is an `<a>` so that middle-click,
-// ⌘-click and Enter on a focused link all still reach the Inspector; a handler
+// ⌘-click and Enter on a focused link all still reach the Laboratory; a handler
 // that navigated by script instead would look the same and cost all three.
 // Delegated at the document like every other listener on this page, because the
 // whole board is rebuilt on each dataset pick.

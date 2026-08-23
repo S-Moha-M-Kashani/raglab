@@ -24,6 +24,10 @@ __pycache__/
 *.db-shm
 *.db-wal
 
+# Safety copies of the ledger and runs, made before a destructive migration.
+# Real work product, machine-local like the originals.
+databases/backup-*/
+
 # Tooling scratch, none of it source.
 .claude
 .superpowers/
@@ -32,6 +36,7 @@ __pycache__/
 
 # Notes, plans and reports. Kept on this machine, not in the repository.
 docs/
+.plans/
 ARCHITECTURE.md
 
 # One JSON file per judge screen — the evidence for which model was allowed to
@@ -44,3 +49,4 @@ docs/
 # machine-local like the runs — kept out until it earns a place.
 graphify-out/
 .ruff_cache/
+.DS_Store

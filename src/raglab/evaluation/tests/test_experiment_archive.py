@@ -5,6 +5,7 @@ import json
 import pytest
 
 from raglab.evaluation import experiment_archive as archive
+from raglab.evaluation.tests import archive_examples as examples
 from raglab.evaluation.tests.archive_examples import completed_archive
 
 
@@ -160,3 +161,80 @@ def test_structural_limits_are_enforced_without_large_allocations(
     mutate(full)
     with pytest.raises(archive.ArchiveError, match=message):
         archive.validate_archive(full, limits=limits)
+
+
+# --- traces are evidence, and evidence may be absent -------------------------
+# The format used to require one trace per row, which made an evaluation that
+# was scored before traces were ever written down unarchivable: 166 real runs
+# held rows, judged metrics and a selection, and no recording of what retrieval
+# ranked. The rule relaxed in exactly one direction — trace ids are a subset of
+# the row ids, ordered as the selection is — and these are the four ways of
+# checking that it relaxed no further than that.
+
+
+def test_an_archive_scored_with_no_trace_at_all_is_accepted():
+    # this is a unit test
+    """Rows and metrics with an empty trace list read "scored, trace not kept".
+
+    The measurement is untouched — `selection.question_ids` still equals the
+    row ids exactly — so nothing here is invented; what is missing is only the
+    recording of how retrieval reached those rows.
+    """
+    full = completed_archive()
+    full['evaluation']['inspector']['traces'] = []
+    assert archive.validate_archive(full) == full
+
+
+def test_an_archive_traced_for_only_some_of_its_rows_is_accepted():
+    # this is a unit test
+    """A subset is a subset at any size, and the surviving trace still resolves."""
+    rung = examples.retrieved_rung()['archive']
+    kept = rung['evaluation']['inspector']['traces'][0]
+    rung['evaluation']['inspector']['traces'] = [copy.deepcopy(kept)]
+    assert archive.validate_archive(rung) == rung
+    assert len(rung['evaluation']['result']['rows']) == 2
+
+
+def test_traces_that_reorder_or_outrun_the_selection_are_refused():
+    # this is a unit test
+    """Subset, not free-for-all: order is still the run's, and rows still bound it.
+
+    A trace list that ran in a different order from the selection would be a
+    quiet claim that the run asked its questions in that order, and a trace for
+    a question the run never selected would be a reading with no row behind it.
+    """
+    rung = examples.retrieved_rung()['archive']
+    rung['evaluation']['inspector']['traces'].reverse()
+    with pytest.raises(archive.ArchiveError, match='traces.*must follow'):
+        archive.validate_archive(rung)
+
+    # The indexed rung asked nothing, so any trace at all is outside its rows.
+    indexed = examples.indexed_rung()['archive']
+    indexed['evaluation']['inspector']['traces'] = [
+        copy.deepcopy(examples.TRACES[0])]
+    with pytest.raises(archive.ArchiveError, match='traces.*outside'):
+        archive.validate_archive(indexed)
+
+
+def test_a_trace_that_is_present_is_still_held_to_the_archived_evidence():
+    # this is a unit test
+    """The relaxation is about absence only; a present trace loosened nothing.
+
+    A candidate naming a chunk the archive does not carry, or quoting text that
+    is not byte-equal to the chunk it names, is still refused — otherwise
+    dropping the equality would have bought "rows without traces" at the price
+    of "traces that cite whatever they like".
+    """
+    full = completed_archive()
+    full['evaluation']['inspector']['traces'][0]['trace']['candidates'][0][
+        'chunk_id'] = 'never-archived'
+    with pytest.raises(archive.ArchiveError, match='chunk_id.*never-archived'):
+        archive.validate_archive(full)
+
+    full = completed_archive()
+    candidate = full['evaluation']['inspector']['traces'][0]['trace'][
+        'candidates'][0]
+    candidate['text'] = candidate['text'] + ' '
+    candidate['gold_spans'] = []
+    with pytest.raises(archive.ArchiveError, match='text.*differs from archived'):
+        archive.validate_archive(full)

@@ -176,3 +176,41 @@ test('only a completed archive may preview an unavailable dataset', () => {
   assert.deepEqual(plain(ArchiveIO.datasetDisposition(FULL, ['smoke-mini'])),
     { dataset: 'smoke-mini', viewOnly: false });
 });
+
+// --- traces are evidence, and evidence may be absent -------------------------
+// The browser codec relaxed with the Python one, and in the same single
+// direction: trace ids are a subset of the row ids, in the selection's order.
+// The relaxation exists because 166 evaluations were scored before a trace was
+// ever written down, and refusing their archives would have thrown away real
+// judged scores to protect a recording nobody ever made.
+
+test('an archive scored with no trace at all is accepted', () => {
+  const value = plain(FULL);
+  value.evaluation.inspector.traces = [];
+  assert.doesNotThrow(() => ArchiveIO.normalize(value));
+  assert.equal(ArchiveIO.normalize(value).evaluation.result.rows.length, 1);
+});
+
+test('a trace outside the selection is refused, absent or not', () => {
+  const value = plain(FULL);
+  value.evaluation.result.selection.question_ids = [];
+  value.evaluation.result.selection.n = 0;
+  value.evaluation.result.rows = [];
+  value.evaluation.result.summary.n_questions = 0;
+  assert.throws(() => ArchiveIO.normalize(value), /traces.*outside/);
+});
+
+test('a present trace is still held to the archived evidence', () => {
+  // Dropping the equality bought "rows without traces", not "traces that cite
+  // whatever they like": an unarchived chunk id and a text that is not
+  // byte-equal to the chunk it names are both still refused.
+  const unarchived = plain(FULL);
+  unarchived.evaluation.inspector.traces[0].trace.candidates[0].chunk_id = 'never-archived';
+  assert.throws(() => ArchiveIO.normalize(unarchived), /chunk_id.*never-archived/);
+
+  const edited = plain(FULL);
+  const candidate = edited.evaluation.inspector.traces[0].trace.candidates[0];
+  candidate.text = `${candidate.text} `;
+  candidate.gold_spans = [];
+  assert.throws(() => ArchiveIO.normalize(edited), /text.*differs from archived/);
+});

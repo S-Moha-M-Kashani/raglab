@@ -1,0 +1,94 @@
+{
+  "_read_me": [
+    "A form, not a dataset. Copy it, replace every value, delete what you do not use.",
+    "Each value is: requirement | type | what goes here.",
+    "Two separate ground truths per question, and keeping them apart is the point:",
+    "  relevant_corpus_documents is what retrieval should find; expected_answer is what should be said.",
+    "Validate the result against schema_groundtruth.json."
+  ],
+  "groundtruth_dataset_metadata": {
+    "name": "mandatory | string | Human-readable title, e.g. Support tickets 2025 — questions.",
+    "corpus_ref": {
+      "dataset": "mandatory | string | The corpus id these questions were written against. Must equal that corpus's dataset field.",
+      "file_fingerprint": "optional, strongly advised | 16 hex characters | Which version of that corpus. An id says which corpus; only this says which version, so a corpus edited after the questions were written is caught instead of silently mis-scored."
+    },
+    "language": "optional | string | Only when the questions are not in the corpus's language.",
+    "description": "optional | string | What this question set covers.",
+    "generated_at": "optional | date-time | When the questions were written.",
+    "excerpt_note": "optional | string | Present only in a sample.",
+    "default_question_asked_at": "mandatory once any question says last month or similar | date-time | The now that a relative time phrase resolves against. Without it the same question has a different right answer every day.",
+    "question_metadata_fields": {
+      "_note": "mandatory once any question carries labels | object | Same shape as the corpus's label_fields, with applies_to: [question]. Descriptive only: nothing the scoring branches on lives here.",
+      "<your_question_label>": {
+        "type": "mandatory | string | As in the corpus's label_fields.",
+        "description": "mandatory | string | What this label means.",
+        "applies_to": [
+          "mandatory | list | question"
+        ],
+        "glossary": {
+          "<allowed_value>": "optional | string | What this value means."
+        }
+      }
+    },
+    "evidence_role_values": {
+      "_note": "mandatory once any evidence carries a role | object | Declare only the roles you use.",
+      "supporting": "optional | string | The evidence supports the expected answer.",
+      "contradicting": "optional | string | The evidence contradicts the question's premise.",
+      "current": "optional | string | States the latest value of a fact that changed.",
+      "superseded": "optional | string | States an earlier value of that same fact.",
+      "context": "optional | string | Needed to read the others, answers nothing alone. Never use it on the only evidence for a claim."
+    }
+  },
+  "groundtruth_dataset": [
+    {
+      "groundtruth_question_id": "mandatory | integer >= 1 | Unique in this question set.",
+      "question": "mandatory | non-empty string | Exactly as someone would put it to the system. This is the retrieval query; nothing else in this file may be handed to retrieval.",
+      "expected_answer": {
+        "behavior": "mandatory | one of answer, abstain, correct_premise | What the system should do. answer: answer from the corpus. abstain: say the corpus does not contain it. correct_premise: the question asserts something false, so correct it. Whether the question is answerable follows from this and is not stored twice.",
+        "text": "mandatory unless behavior is abstain | string | One correct answer in prose, in the corpus's language. Two of the four judged metrics are computed against it, so leaving it out costs half the decision.",
+        "derived_facts": [
+          {
+            "derived_fact_id": "mandatory | integer >= 1 | Unique in this question. Evidence points at it by this number.",
+            "fact": "mandatory | string | One claim a correct answer must contain. One claim each: never join two with and, because each is evidenced separately.",
+            "relevant_metadata": {
+              "<label_name>": "optional | matches its declared type | The corpus labels this claim rests on. A claim about when something happened rests on your date label."
+            }
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "_note": "mandatory list, may be empty | list | Empty when behavior is abstain: nothing in the corpus answers it. At least one entry otherwise.",
+          "corpus_document_id": "mandatory | integer >= 1 | A document in the referenced corpus.",
+          "evidence": [
+            {
+              "text": "mandatory | non-empty string | What this piece is. Read together with fidelity, which decides what the string is.",
+              "fidelity": "mandatory | one of verbatim, paraphrase, computed | verbatim: copied character for character, and checked to be findable. paraphrase: your words for something the document does say. computed: a fact worked out from a label, never written in the text, as a date resolved from a timestamp. Neither of the last two is checked for a verbatim match, which is why this cannot be omitted.",
+              "role": "optional, mandatory once two pieces must be told apart | string | What it does for the answer. Must be declared in evidence_role_values.",
+              "document_metadata": {
+                "<label_name>": "optional | matches its declared type | Every label the document carries, copied whole, not just the relevant ones. A label that looks irrelevant when the question is written may be what a retriever matched on, and a selection made in advance cannot be reconsidered later. Must equal what the corpus holds."
+              },
+              "part_labels": [
+                {
+                  "<part_label_name>": "optional, mandatory on verbatim | matches its declared type | The labels of each part this text lies in, in order. A list because a quote may run across two. Empty on computed, whose text lies in no part."
+                }
+              ],
+              "relevant_metadata": {
+                "<label_name>": "optional, mandatory on computed | matches its declared type | Of the labels above, the ones this piece rests on. On a computed piece it is the label the fact was worked out from, and the only place that is recorded."
+              },
+              "supports": [
+                "optional, mandatory once the question has 2+ derived_facts | list of integers | The derived_fact_ids this piece carries. Absent means it supports the answer as a whole."
+              ]
+            }
+          ],
+          "relevant_metadata": {
+            "<label_name>": "optional | matches its declared type | Which of this document's labels would let a filter find it. A different question from the same field on a piece of evidence, which says what that piece rests on."
+          }
+        }
+      ],
+      "question_metadata": {
+        "<label_declared_in_question_metadata_fields>": "optional | matches its declared type | e.g. difficulty, question_type. Descriptive only: nothing here changes a score, and nothing here may be handed to retrieval unless the system predicts it itself."
+      }
+    }
+  ]
+}

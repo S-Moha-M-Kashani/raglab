@@ -279,10 +279,33 @@ test('the notice names every knob it could not set, with its value and why', () 
   recorded.generation.model = 'gpt-4o';
   const said = Handoff.notice(RECORD,
     Handoff.reconcile(recorded, CURRENT, SERVED));
-  assert.match(said, /index\.chunker = turn-pair \(not served by this lab\)/);
-  assert.match(said, /generation\.model = gpt-4o \(not served in openrouter mode\)/);
-  assert.match(said, /unchanged/,
-    'a knob that could not be set is a knob left where the reader had it');
+  assert.match(said, /chunker = turn-pair — not served by this lab/);
+  assert.match(said, /model = gpt-4o — not served in openrouter mode/);
+  assert.match(said, /at their default/,
+    'a knob this lab cannot serve is left at the default, not at a value from '
+    + 'whatever the reader happened to be looking at');
+});
+
+test('what could not be set is grouped by the stage that would run it', () => {
+  // One line the reader can act on, in the order the pipeline runs: a list of
+  // dotted paths makes them work out for themselves which stage each belongs to.
+  const recorded = copy(CURRENT);
+  recorded.index.chunker = 'turn-pair';
+  recorded.retrieval.k = 500;
+  recorded.generation.model = 'gpt-4o';
+  const said = Handoff.notice(RECORD,
+    Handoff.reconcile(recorded, CURRENT, SERVED));
+  assert.match(said, /To set: Index \([^)]*chunker[^)]*\), Retrieve \([^)]*k[^)]*\), Generation \([^)]*model[^)]*\)/);
+});
+
+test('a stage with nothing to set is left out of the list, not shown empty', () => {
+  const recorded = copy(CURRENT);
+  recorded.generation.model = 'gpt-4o';
+  const said = Handoff.notice(RECORD,
+    Handoff.reconcile(recorded, CURRENT, SERVED));
+  assert.match(said, /To set: Generation \(/);
+  assert.doesNotMatch(said, /Index \(/);
+  assert.doesNotMatch(said, /Retrieve \(/);
 });
 
 test('a notice with nothing to report does not manufacture a caveat', () => {
@@ -301,7 +324,7 @@ test('a ledger-only row says the record itself is partial, not this lab', () => 
     Handoff.reconcile({ index: { chunker: 'session', embedder: 'token-hash' } },
       CURRENT, SERVED));
   assert.match(said, /no run file/);
-  assert.match(said, /every other knob is unchanged/);
+  assert.match(said, /every other knob is at its default/);
 });
 
 test('a record that carries no config at all says so rather than claiming two knobs', () => {
@@ -318,7 +341,7 @@ test('the notice puts the corpus first among what it could not set', () => {
   recorded.index.dataset = 'gone-fa';
   const said = Handoff.notice(RECORD,
     Handoff.reconcile(recorded, CURRENT, SERVED));
-  assert.ok(said.indexOf('index.dataset') < said.indexOf('index.chunker'),
+  assert.ok(said.indexOf('dataset') < said.indexOf('chunker'),
     'the corpus is named before the knobs measured against it');
 });
 

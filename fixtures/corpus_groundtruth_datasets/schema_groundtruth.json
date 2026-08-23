@@ -1,0 +1,445 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema_groundtruth.json",
+  "title": "RAG Ground-Truth Dataset",
+  "description": "What a run is scored against. Each question carries two separate ground truths, and keeping them apart is the point of this shape: relevant_corpus_documents is the ground truth for *retrieval* (which documents, and which words inside them), and expected_answer is the ground truth for *generation* (what the system should do, and what a right answer contains). Neither substitutes for the other.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "groundtruth_dataset_metadata",
+    "groundtruth_dataset"
+  ],
+  "x-acceptance": {
+    "description": "The schema floor is one question. These are the thresholds above it, and what each one buys.",
+    "well_formed": {
+      "questions": 1,
+      "note": "Enough to validate the shape, and enough for a smoke run."
+    },
+    "measurable": {
+      "questions": 8,
+      "note": "Every judged metric is a mean over questions. Below roughly this many, one bad question moves the mean more than the knob under test does."
+    },
+    "comparable": {
+      "questions": 30,
+      "note": "Enough that the spread across the four judged metrics is narrower than the gap between two candidates, which is what lets a winner be named at all."
+    },
+    "decisive": {
+      "questions": 100,
+      "note": "This project's own bar for keeping an experiment. Also roughly where per-type breakdowns stop being anecdotes."
+    }
+  },
+  "x-authoring": {
+    "description": "How to write questions for your own corpus. The questions are the measurement: a knob only looks better than another because these say so, and a careless set makes every comparison after it meaningless.",
+    "smallest_valid_question_set": {
+      "groundtruth_dataset_metadata": {
+        "name": "Support tickets — questions",
+        "corpus_ref": {
+          "dataset": "support-tickets"
+        }
+      },
+      "groundtruth_dataset": [
+        {
+          "groundtruth_question_id": 1,
+          "question": "What did the customer say the export button did?",
+          "expected_answer": {
+            "behavior": "answer",
+            "text": "Nothing happened when they pressed it."
+          },
+          "relevant_corpus_documents": [
+            {
+              "corpus_document_id": 1,
+              "evidence": [
+                {
+                  "text": "the export button does nothing",
+                  "fidelity": "verbatim"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "steps": [
+      "Write the question exactly as someone would put it to the system. It is the retrieval query; nothing else in the file may be handed to retrieval, or you are measuring a system that was given the answer.",
+      "Say what should happen in expected_answer.behavior. Include questions the corpus cannot answer (\"abstain\") and questions built on a false premise (\"correct_premise\") — a set of only answerable questions cannot tell a careful system from one that invents things.",
+      "Write one correct answer in prose as expected_answer.text. Two of the four judged metrics are computed against it, so leaving it out costs half the decision.",
+      "Break the answer into derived_facts, one claim each. Never join two claims with \"and\": each is evidenced separately, and a joined one cannot be half-supported.",
+      "For every document that answers the question, quote the words that carry it — one entry per distinct piece, not one block per document. A block cannot say which of its words carries which claim.",
+      "Mark each piece's fidelity. \"verbatim\" if you copied it exactly. \"paraphrase\" if the document says it in other words. \"computed\" if it is not in the text at all and you worked it out from a label — a date resolved from a timestamp is the usual case, and the one most often mislabelled as a quote.",
+      "Point each piece at the claims it carries with supports, and check every claim is carried by something. A claim nothing carries is a claim you cannot back.",
+      "Decide whether to copy each document's labels onto its evidence. It duplicates the corpus, and it is the only way to ask afterwards whether a retriever matched on a label nobody thought mattered at the time.",
+      "Check the count against x-acceptance. One question validates; it does not measure."
+    ],
+    "common_mistakes": [
+      "Handing retrieval a label the system would have to predict for itself — the scores come out high and mean nothing.",
+      "A quote that is nearly right. It is the only link from evidence to source, so an inexact one points nowhere and the check that would have caught it passes on a \"computed\" label.",
+      "Questions written by reading the documents in order, which produces a set that mirrors the corpus rather than what anyone would actually ask.",
+      "No abstention questions, so a system that answers everything confidently scores best."
+    ]
+  },
+  "x-cross-file": [
+    "corpus_ref.dataset must equal the corpus's corpus_dataset_metadata.dataset.",
+    "Every corpus_document_id cited must exist in that corpus.",
+    "Every evidence entry whose fidelity is \"verbatim\" must appear character for character in the document it is filed under. It is the only link from evidence to source, so an inexact one points nowhere. A \"paraphrase\" or \"derived\" entry is exempt, and must not be checked.",
+    "On a question that has relevant documents, every derived_fact_id must be named by the supports of at least one evidence entry. A claim no evidence carries is a claim the ground truth cannot back. A question whose behavior is \"abstain\" is exempt and can only be: it cites nothing by definition, and its facts say what a correct refusal states rather than what the corpus shows.",
+    "Every id in a supports list must be a derived_fact_id of that same question.",
+    "Every value in any relevant_metadata — on a document, on a piece of evidence, or on a derived fact — must be a value that document actually carries, under a label the corpus declares. What is not listed is not relevant, so the complement is never stored.",
+    "Every piece of evidence whose fidelity is \"computed\" must carry a relevant_metadata naming the label it was computed from. A computed fact with no source label cannot be checked by anyone.",
+    "Where a piece of evidence copies the document_metadata, the copy must equal what the corpus holds for that document, label for label and value for value. A copy is only worth having while it is still true.",
+    "A piece of evidence whose fidelity is \"verbatim\" must carry part_labels for the parts its text lies in; a \"computed\" one must carry none, since its text lies in no part.",
+    "A label declared in both files must carry the same meaning in both. Each file declares its own glossary so it can be read alone; that is why the two must agree."
+  ],
+  "properties": {
+    "groundtruth_dataset_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "corpus_ref"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "REQUIRED. Human-readable title."
+        },
+        "corpus_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "dataset"
+          ],
+          "properties": {
+            "dataset": {
+              "type": "string",
+              "minLength": 1,
+              "description": "REQUIRED. The corpus id these questions were written against. An id, never a filename."
+            },
+            "file_fingerprint": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$",
+              "description": "Optional but strongly advised: 16 hex characters of the SHA-256 of the corpus file's canonical JSON. An id says which corpus; only this says which version of it, so a corpus edited after the questions were written is detectable rather than silently mis-scored."
+            }
+          },
+          "description": "REQUIRED. Which corpus these questions belong to."
+        },
+        "language": {
+          "type": "string",
+          "minLength": 2,
+          "description": "Optional; the corpus's language is assumed. Set it when the questions are not in the corpus's language."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional."
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional. When the questions were written."
+        },
+        "excerpt_note": {
+          "type": "string",
+          "description": "Optional, and present only in an excerpt. Says what was left out."
+        },
+        "default_question_asked_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional in general, REQUIRED once any question contains a relative time expression (\"last month\", \"back then\"). It is the \"now\" such a phrase resolves against; without it the same question has a different right answer every day."
+        },
+        "question_metadata_fields": {
+          "type": "object",
+          "description": "Optional, but REQUIRED once any question carries metadata: every key used in a question_metadata object must be declared here. These are descriptive labels for slicing and analysing the question set — nothing the harness branches on lives here. One entry per label, naming its shape, where it may be attached, and — when it is a closed set — its allowed values. Every key used anywhere in the data must appear here; a label declared but unused is allowed, so a dataset can ship a vocabulary it has not filled yet.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "description",
+              "applies_to"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "string",
+                  "integer",
+                  "number",
+                  "boolean",
+                  "array",
+                  "object"
+                ],
+                "description": "REQUIRED. The field's JSON type."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "REQUIRED. What the field means."
+              },
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "enum": [
+                      "string",
+                      "integer",
+                      "number",
+                      "object"
+                    ]
+                  },
+                  "minimum": {
+                    "type": "number"
+                  },
+                  "maximum": {
+                    "type": "number"
+                  }
+                },
+                "description": "Required when type is \"array\": the shape of one element. Allowed when type is \"object\", where it describes each value the object holds — the keys are named by whatever the field documents."
+              },
+              "format": {
+                "type": "string",
+                "description": "Optional. A narrower reading of a string, e.g. \"date-time\"."
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "uniqueItems": true,
+                "description": "Optional. The closed set of allowed values. Absent means any value of the declared type is allowed."
+              },
+              "glossary": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "minProperties": 1,
+                "description": "Optional. The allowed values *and* what each one means. Use this instead of \"values\" when a label needs prose to be usable; use \"values\" when the value speaks for itself."
+              },
+              "nullable": {
+                "type": "boolean",
+                "description": "Optional, default false. Whether null is a legal value, meaning \"not recorded\" — never \"recorded as nothing\"."
+              },
+              "minimum": {
+                "type": "number",
+                "description": "Optional. Numeric floor."
+              },
+              "maximum": {
+                "type": "number",
+                "description": "Optional. Numeric ceiling."
+              },
+              "applies_to": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "document",
+                    "part",
+                    "chunk",
+                    "summary",
+                    "question"
+                  ]
+                },
+                "description": "REQUIRED. Which levels this label may be attached to. \"document\" is the whole session, \"part\" is one turn inside it, \"chunk\" is a piece cut for retrieval, and \"summary\" is a block written over several of those. A label reaches a chunk by flowing down from the document or part it was cut from, and reaches a summary by rolling up from what went into it. One vocabulary spanning several levels is the point: a topic means the same thing whether it labels a session, a turn or a summary of both, and a filter that reads it does not care which it got. A corpus file carries the document and part levels only — summaries do not exist until index time, so the file declares the vocabulary and the pipeline applies it. \"question\" belongs to a ground-truth file, whose questions are labelled by the same mechanism; the level vocabulary is shared so that a label meaning the same thing on a session and on a question is declared the same way in both files."
+              },
+              "extracted": {
+                "type": "boolean",
+                "description": "Optional, default false. True when the values were produced by a model or classifier rather than authored, and can therefore be wrong. An extracted label must have a confidence declared against it."
+              },
+              "confidence_for": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Present only on a label that rates another one: the name of the label it rates. Its own values run 0 to 1. Declared rather than inferred from the name, so the link is checkable instead of a spelling habit."
+              }
+            }
+          }
+        },
+        "evidence_role_values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minProperties": 1,
+          "description": "Optional, but REQUIRED once any quote carries a role: every role used must be declared here, with what it means."
+        }
+      }
+    },
+    "groundtruth_dataset": {
+      "type": "array",
+      "minItems": 1,
+      "description": "REQUIRED. One entry per question. See x-acceptance for how many are enough.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "groundtruth_question_id",
+          "question",
+          "expected_answer",
+          "relevant_corpus_documents"
+        ],
+        "properties": {
+          "groundtruth_question_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "REQUIRED. Unique within this question set."
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "description": "REQUIRED. The question exactly as it is put to the system. This string is the retrieval query; nothing else here may be handed to retrieval."
+          },
+          "expected_answer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "behavior"
+            ],
+            "description": "REQUIRED. The ground truth for generation. Its three parts are not three versions of the same thing: behavior is what the system should do, text is one correct phrasing, derived_facts are the claims any correct phrasing must contain.",
+            "properties": {
+              "behavior": {
+                "type": "string",
+                "enum": [
+                  "answer",
+                  "abstain",
+                  "correct_premise"
+                ],
+                "description": "REQUIRED. The one field the harness branches on, which is why it sits here and not among the descriptive labels. \"answer\": answer from the corpus. \"abstain\": say the corpus does not contain it. \"correct_premise\": the question asserts something false, so correct it using the corpus. Whether a question is answerable follows from it and is not stored separately: only \"answer\" is answerable."
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "description": "REQUIRED when behavior is \"answer\" or \"correct_premise\"; omitted when \"abstain\", where there is nothing to state. One correct answer in prose, in the corpus's language. It is the reference two of the four judged metrics are computed against — context recall and judged context precision — so an absent one costs half the decision."
+              },
+              "derived_facts": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Optional. The atomic claims a correct answer must contain, one per entry — one claim each, never two joined by \"and\", because each is evidenced separately. Scored by a judge that reads the answer for each claim, so they may be written in a different language from the answer. A reported metric — it does not vote in the decision — so a dataset may skip it.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "derived_fact_id",
+                    "fact"
+                  ],
+                  "properties": {
+                    "derived_fact_id": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "REQUIRED. Unique within this question. Exists so evidence can name which claim it carries; without it a question with two claims and one block of evidence cannot say which words support which claim."
+                    },
+                    "fact": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "REQUIRED. The claim itself."
+                    },
+                    "relevant_metadata": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "description": "Optional. The corpus labels this claim rests on, in the same shape the corpus writes them. A claim about what was discussed rests on a topic; a claim about when something happened rests on the label holding the date. Written here so a claim can be traced to a label without reading every piece of evidence under it."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "relevant_corpus_documents": {
+            "type": "array",
+            "description": "REQUIRED, and may be empty. The ground truth for retrieval. Exactly one entry per document that answers the question, so a quote never has to name its own source. Empty when behavior is \"abstain\" — the point of such a question is that nothing in the corpus answers it. At least one entry otherwise.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "corpus_document_id",
+                "evidence"
+              ],
+              "properties": {
+                "corpus_document_id": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "REQUIRED. A document in the referenced corpus."
+                },
+                "evidence": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "REQUIRED. What in this document carries the answer, one entry per distinct piece — never one long block covering several claims, since a block cannot say which of its words carries which claim. The verbatim entries are scored two ways: as the reference contexts a retrieved chunk is compared against, and as the spans a chunk is checked for.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "text",
+                      "fidelity"
+                    ],
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "REQUIRED. The evidence itself. What this string is depends entirely on fidelity, so the two are read together."
+                      },
+                      "fidelity": {
+                        "type": "string",
+                        "enum": [
+                          "verbatim",
+                          "paraphrase",
+                          "computed"
+                        ],
+                        "description": "REQUIRED. Whether the text is the document's own wording or the ground truth's. \"verbatim\": copied character for character from this document, and checked to be findable in it. \"paraphrase\": the ground truth's own words for something the document does say — a restatement, or a condensation of passages too far apart to quote as one span. \"computed\": a fact worked out from the document's labels or by reasoning over them, never stated in its text in any wording, as a date resolved from when the document was recorded. The last two part company at scoring time: a paraphrase can be matched against retrieved text, since the passage exists, while a derived fact cannot be matched against anything. Neither may be checked for a verbatim match, which is why the label cannot be omitted: an unmarked one either fails that check or passes a span check it was never entitled to."
+                      },
+                      "role": {
+                        "type": "string",
+                        "description": "Optional, and REQUIRED once a question needs two pieces told apart — a superseded value from the current one, a contradiction from a support. What the evidence does for the answer, where fidelity says where its wording came from; the two are independent. Must be declared in evidence_role_values."
+                      },
+                      "document_metadata": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Optional. Every label the document carries, copied whole — not the relevant ones, all of them. It is a copy, and a copy of something this file already points at, so it is worth including only for the reason it is here: a label that looks irrelevant when the question is written may turn out to be what a retriever matched on, and a selection made in advance cannot be reconsidered afterwards. With this, the evidence can be studied without opening the corpus at all. It must equal what the corpus holds for that document; corpus_ref's fingerprint is what makes a drifted copy detectable."
+                      },
+                      "part_labels": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        "description": "Optional. The labels of the parts this piece's text lies in, in order — who was speaking, and whatever else the corpus declares at the part level. A list because a quote may run across two turns. Empty on a \"computed\" piece, whose text lies in no part at all."
+                      },
+                      "relevant_metadata": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "description": "Optional. Of the labels above, the ones this piece actually rests on — the judgement, where document_metadata is the record. Kept alongside rather than replaced by it: the full set says what was true, this says what the author thought mattered, and only the second can be wrong. The corpus labels this one piece bears on — finer than the document's, since two pieces from one document often rest on different labels. On a \"computed\" piece it is the label the fact was worked out from, which is the only place that is recorded: without it a computed piece says what was concluded and never from what."
+                      },
+                      "supports": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "description": "Optional, and REQUIRED once the question has more than one key fact. The derived_fact_ids this piece carries. Absent means it supports the answer as a whole rather than one named claim."
+                      }
+                    }
+                  }
+                },
+                "relevant_metadata": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "description": "Optional. Which of this document's labels would let a filter *find* it — a different question from the same field on a piece of evidence, which says what that piece *rests on*. A date is rarely how you find a document and often what a claim rests on, so the two are not the same set. A selection, not a copy: a field holding a list keeps only the values that matter, a scalar field is either present or absent. Everything not listed is not relevant, so the complement is never stored. Use it to test metadata filtering; a dataset that does not filter can omit it."
+                }
+              }
+            }
+          },
+          "question_metadata": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Optional. Descriptive labels for slicing and reporting — difficulty, category, storyline, a translation. Nothing here changes how a question is scored, and nothing here may be handed to retrieval unless the system under test predicts it itself. Keys must be declared in question_metadata_fields."
+          }
+        }
+      }
+    }
+  }
+}

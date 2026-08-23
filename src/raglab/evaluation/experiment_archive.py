@@ -506,10 +506,31 @@ def _validate_completed(evaluation, settings: dict, limits: dict) -> None:
         raise ArchiveError(
             f'evaluation.result.rows ids {row_ids!r} must equal ordered '
             f'selection.question_ids {question_ids!r}')
-    if question_ids != trace_ids:
+    # Rows are the measurement; a trace is a recording of how retrieval reached
+    # one. Evidence may legitimately be absent — an evaluation recorded before
+    # the export route existed kept its rows, its judged metrics and its
+    # selection, but never stored a trace or a chunk — while a measurement may
+    # never be invented, which is why `question_ids == row_ids` above stays
+    # exact. So the traces are a *subset* of the rows: an archive with rows and
+    # no traces reads "scored, trace not retained", which is the truth about
+    # those runs. The relaxation goes no further than absence. A trace that is
+    # present is held to everything it was held to before — its question is one
+    # the run selected, every candidate resolves to an archived chunk or
+    # summary and is byte-equal to it (checked above) — and the traces that are
+    # present must still run in the selection's order, so a trace list cannot
+    # silently reorder the run it recorded.
+    traced = set(trace_ids)
+    measured = set(row_ids)
+    outside = [trace_id for trace_id in trace_ids if trace_id not in measured]
+    if outside:
+        raise ArchiveError(
+            f'evaluation.inspector.traces question ids {outside!r} are outside '
+            f'ordered selection.question_ids {question_ids!r}')
+    if trace_ids != [question_id for question_id in question_ids
+                     if question_id in traced]:
         raise ArchiveError(
             f'evaluation.inspector.traces question ids {trace_ids!r} must '
-            f'equal ordered selection.question_ids {question_ids!r}')
+            f'follow ordered selection.question_ids {question_ids!r}')
     count = len(question_ids)
     if _integer(selection.get('n'), 'evaluation.result.selection.n',
                 minimum=0) != count:

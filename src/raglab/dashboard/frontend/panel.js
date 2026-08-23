@@ -1150,16 +1150,37 @@ function databaseMessage(disposition) {
       + 'Inspector preview shows the selected file.';
 }
 
-async function importArchiveFile(file) {
-  try {
-    // Keep the policy visible at the integration boundary as well as in the
-    // codec: reading an oversized file is already too late.
-    const archiveByteLimit = 32 * 1024 * 1024;
-    if (ArchiveIO.MAX_BYTES !== archiveByteLimit) {
-      throw new Error('Archive size policy mismatch');
-    }
-    ArchiveIO.assertFileSize(file.size);
-    const imported = ArchiveIO.parse(await file.text());
+// --- one way in -------------------------------------------------------------
+// Every archive that reaches this dashboard arrives through here, whether the
+// reader chose a file or clicked open on the board. That is the whole change:
+// an experiment opened from the board *is* its exported file, so the two cannot
+// drift into disagreeing about what arriving means. The transaction is what
+// makes "or it does not arrive" true — a failure anywhere below puts the
+// dashboard back exactly as it was, rather than leaving it half one experiment.
+// What an archive is actually carrying, named rather than assumed. The line
+// used to be one fixed string ending "and traces", which was a claim the
+// archive itself often contradicted: an evaluation whose per-question traces
+// were never recorded carries rows and judged metrics and no recording at all,
+// and the banner announced traces it did not have. Same rule as a row's, one
+// layer up — the page may not describe evidence that is not there.
+function evidenceCarried(value) {
+  const inspector = (value.evaluation || {}).inspector || {};
+  const result = (value.evaluation || {}).result || {};
+  const held = [];
+  if ((inspector.dataset || {}).corpus) held.push('corpus');
+  if ((inspector.dataset || {}).ground_truth) held.push('ground truth');
+  if ((result.rows || []).some((row) => row.answer)) held.push('answers');
+  if ((inspector.chunks_by_session || []).length) held.push('chunks');
+  if ((inspector.summaries || []).length) held.push('summaries');
+  if ((inspector.traces || []).length) held.push('traces');
+  if (!held.length) return 'No private evidence included.';
+  const last = held.pop();
+  return `Private evidence included: ${held.length
+    ? `${held.join(', ')}, and ${last}` : last}.`;
+}
+
+async function adoptArchive(imported) {
+  {
     const before = snapshotDashboard();
     let savedArchive = null;
     try {
@@ -1188,8 +1209,8 @@ async function importArchiveFile(file) {
     CURRENT_ARCHIVE = imported.evaluation ? imported : null;
     remember(SAVED_CONFIG, readConfig());
     if (savedArchive) {
-      let message = databaseMessage(savedArchive.database)
-        + ' Private evidence included: corpus, ground truth, answers, chunks, and traces.';
+      let message = `${databaseMessage(savedArchive.database)} `
+        + evidenceCarried(imported);
       if (ARCHIVE_VIEW_ONLY) {
         message += ' Dataset unavailable here; completed evidence is view-only.';
       }
@@ -1197,6 +1218,21 @@ async function importArchiveFile(file) {
     } else {
       setArchiveStatus('Settings imported; no evaluation was run.', 'success');
     }
+  }
+}
+
+async function importArchiveFile(file) {
+  try {
+    // Keep the policy visible at the integration boundary as well as in the
+    // codec: reading an oversized file is already too late. A file is the only
+    // way in that has a size before it has a shape, so this stays here rather
+    // than in `adoptArchive`.
+    const archiveByteLimit = 32 * 1024 * 1024;
+    if (ArchiveIO.MAX_BYTES !== archiveByteLimit) {
+      throw new Error('Archive size policy mismatch');
+    }
+    ArchiveIO.assertFileSize(file.size);
+    await adoptArchive(ArchiveIO.parse(await file.text()));
   } finally {
     $('archive-file').value = '';
   }
@@ -1218,7 +1254,7 @@ function exportArchive() {
   link.remove();
   URL.revokeObjectURL(url);
   setArchiveStatus(includesEvidence
-    ? 'Private evidence included: corpus, ground truth, answers, chunks, and traces.'
+    ? evidenceCarried(exported)
     : 'Settings-only experiment exported; no corpus, ground truth, answers, chunks, or traces included.',
   includesEvidence ? 'warning' : 'success');
 }
@@ -1254,44 +1290,36 @@ $('archive-export').onclick = () => {
 // the settings on the *next* reload, which is not what it said it did.
 
 async function openHandedExperiment(experimentId) {
-  let record;
+  let archived;
   try {
-    record = await api('/api/experiments/' + encodeURIComponent(experimentId));
+    archived = await api(`/api/experiments/${encodeURIComponent(experimentId)}/archive`);
   } catch (error) {
-    // A row deleted from the ledger, a mistyped id, a lab that stopped between
-    // the click and the read. Said, and not one knob touched: settings half
-    // applied under a notice that never arrived is the only outcome worse than
-    // nothing happening.
-    Widget.note(`Could not read experiment ${experimentId} from the lab `
+    // A row with no complete archive, a corpus that has moved under its id, a
+    // lab that stopped between the click and the read. Said, and not one knob
+    // touched: settings half applied under a notice that never arrived is the
+    // only outcome worse than nothing happening. The route distinguishes these
+    // (404 incomplete, 409 moved corpus) and its message is the one worth
+    // repeating, so this adds the id rather than inventing a reason of its own.
+    Widget.note(`Could not open experiment ${experimentId} `
       + `(${error.message}). No knob was changed.`);
     return;
   }
-  const out = ExperimentHandoff.reconcile(
-    record.config || {}, readConfig(), servedKnobs());
-  applyDefaults(out.config);
-  keepUnshown(out.config);
-  applyDependencies();
-  // The corpus may have moved, and with it whether this panel is looking at an
-  // archived dataset it can only read.
-  syncArchiveViewOnlyFromDataset();
-  if (!ARCHIVE_VIEW_ONLY) describeDataset();
-  remember(SAVED_CONFIG, readConfig());
-  // Whatever is on the readings card was produced by the settings that were
-  // here a moment ago. This is the same caution the panel raises when a knob is
-  // changed by hand, in the same words, for the same reason — these controls
-  // were just changed by hand, at one remove. `applyDefaults` writes the
-  // controls without firing `change`, so the listener that normally says this
-  // never hears it.
-  if (CURRENT_ARCHIVE) {
-    CURRENT_ARCHIVE = null;
-    setArchiveStatus('Readings belong to the previous settings; export will '
-      + 'contain settings only.', 'warning');
+  try {
+    // The same object a downloaded export carries, taking the same path a
+    // chosen file takes — `normalize` rather than `parse` only because this
+    // arrived as JSON already parsed by `api()`; the validation either way is
+    // identical. Whatever this lab cannot serve is refused here, whole, exactly
+    // as it would be for a file: the experiment arrives or it does not.
+    await adoptArchive(ArchiveIO.normalize(archived));
+  } catch (error) {
+    Widget.note(`Experiment ${experimentId} was not opened `
+      + `(${error.message}). The panel is as it was.`);
+    return;
   }
   // The settings are this experiment's now, and so is the conversation: the
   // widget switches to the thread it kept for this id. Coming back to another
   // experiment brings that one's conversation back with it.
   Widget.about(experimentId);
-  Widget.note(ExperimentHandoff.notice(record, out));
 }
 
 window.addEventListener('storage', (event) => {
@@ -1306,13 +1334,41 @@ window.addEventListener('storage', (event) => {
   // is filtered out by the guard above rather than heard as a second handoff.
   ExperimentHandoff.taken(localStorage);
   if (offered && offered.experiment_id) {
-    openHandedExperiment(offered.experiment_id);
+    handOver(offered.experiment_id);
   }
 });
 
+// Both callers go through here, because neither may drop the failure. The slot
+// is consumed before the work starts — it has to be, or the next reload would
+// re-announce it — so a rejection nobody catches leaves the reader on knobs
+// that are partly one experiment, with the promise of a notice and no notice.
+// Silence is the one outcome this handoff must never have: it is indistinguish-
+// able from the button doing nothing at all, which is how it read.
+function handOver(experimentId) {
+  openHandedExperiment(experimentId).catch((error) => {
+    // Not "may be part one and part the other" any more: the archive arrives
+    // inside `ArchiveIO.transact`, which puts the dashboard back on any
+    // failure. What is left to say is that nothing happened — and to say it,
+    // because silence is indistinguishable from the button doing nothing.
+    Widget.note(`Opening experiment ${experimentId} failed `
+      + `(${error && error.message ? error.message : error}). `
+      + 'Nothing was changed.');
+  });
+}
+
+// Two ways one experiment arrives here, and the address is the reliable one now
+// that the board's link lands on this page. A slot is written by a click and
+// read once; it cannot survive a reload, a bookmark, a copied link, or a click
+// whose new tab boots before the writing page has finished — and every one of
+// those looks to the reader like the button doing nothing. The slot is still
+// read, and still consumed either way so it cannot re-announce itself days
+// later, because it remains the only thing that reaches a Laboratory that was
+// already open in another tab: that one hears a `storage` event, not a URL.
 function takeHandedExperiment() {
+  const asked = new URLSearchParams(window.location.search).get('experiment');
   const offered = ExperimentHandoff.taken(localStorage);
-  if (offered) openHandedExperiment(offered.experiment_id);
+  const wanted = asked || (offered && offered.experiment_id);
+  if (wanted) handOver(wanted);
 }
 
 function renderResult(result, options = {}) {

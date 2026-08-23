@@ -1,0 +1,618 @@
+{
+  "corpus_dataset_metadata": {
+    "dataset": "support-en",
+    "name": "Product support — one account, one year",
+    "language": "en",
+    "description": "Synthetic English support conversations between one customer and the support team of a fictional analytics product, over a year. A Latin-script corpus with short factual turns, dates and identifiers — the mirror of the Farsi diary, and the corpus where an ASCII embedder is genuinely competitive rather than scoring at chance. All names, products and events are fictional.",
+    "label_fields": {
+      "recorded_at": {
+        "type": "string",
+        "format": "date-time",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ],
+        "description": "The day the exchange happened."
+      },
+      "channel": {
+        "type": "string",
+        "values": [
+          "chat",
+          "email"
+        ],
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ],
+        "description": "How the customer got in touch. Recorded on some exchanges only; absent means not recorded, never a default channel."
+      },
+      "mood": {
+        "type": "string",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ],
+        "description": "How the customer sounded. Recorded on a few exchanges only."
+      },
+      "role": {
+        "type": "string",
+        "values": [
+          "user",
+          "assistant"
+        ],
+        "applies_to": [
+          "part",
+          "chunk",
+          "summary"
+        ],
+        "description": "Customer or support agent."
+      },
+      "topics": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ],
+        "description": "What the exchange was about."
+      },
+      "recurring_threads": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ],
+        "description": "A case that runs across several exchanges."
+      }
+    }
+  },
+  "corpus_documents": [
+    {
+      "corpus_document_id": 1,
+      "document_content": [
+        {
+          "text": "Hi — Invoice INV-2291 was charged twice on 4 November. We were billed the same amount by two different card attempts and the second one went through as well. Can you look into it?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "I can see both charges on the account. I've raised a refund request with billing; these usually clear within three working days.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-11-04T00:00:00Z",
+        "channel": "email",
+        "topics": [
+          "billing"
+        ],
+        "recurring_threads": [
+          "invoice-dispute"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 2,
+      "document_content": [
+        {
+          "text": "Any news on the double charge from Tuesday?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Yes — The duplicate charge of $480 was refunded on 7 November. It should appear on the card statement within two working days, under the original invoice number.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-11-07T00:00:00Z",
+        "channel": "email",
+        "topics": [
+          "billing"
+        ],
+        "recurring_threads": [
+          "invoice-dispute"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 3,
+      "document_content": [
+        {
+          "text": "Something is wrong with our reporting exports. CSV exports over 50,000 rows truncate silently — we compared a 62,000-row export against the dashboard and the file stopped at 50,000 with no warning.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Thank you, that is reproducible here. I've filed it as a data-loss bug rather than a limit, because nothing in the file says it was cut.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-11-19T00:00:00Z",
+        "topics": [
+          "exports",
+          "bug"
+        ],
+        "recurring_threads": [
+          "export-truncation"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 4,
+      "document_content": [
+        {
+          "text": "Is there a workaround for the export problem while we wait?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Export by month rather than by quarter, or use the API with pagination. Both return the full set.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2025-12-03T00:00:00Z",
+        "topics": [
+          "exports"
+        ],
+        "recurring_threads": [
+          "export-truncation"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 5,
+      "document_content": [
+        {
+          "text": "Our dashboards were down this morning. What happened?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "There was an incident: the EU cluster was unavailable for 43 minutes on 12 January. Ingestion continued throughout, so no data was lost — only the read path was affected.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-01-12T00:00:00Z",
+        "channel": "chat",
+        "mood": {
+          "label": "tense",
+          "valence": 3,
+          "arousal": 7
+        },
+        "topics": [
+          "incident"
+        ],
+        "recurring_threads": [
+          "january-outage"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 6,
+      "document_content": [
+        {
+          "text": "Can you send the post-mortem?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Published today: a failed migration on the metrics database caused the January outage. The migration has been rolled back and the replica promotion is now automatic.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-01-14T00:00:00Z",
+        "topics": [
+          "incident",
+          "post-mortem"
+        ],
+        "recurring_threads": [
+          "january-outage"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 7,
+      "document_content": [
+        {
+          "text": "We need SSO before we can roll Meridian out to the whole company.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Understood. It is on the roadmap and we will ship SAML SSO before the end of Q2. I'll keep this thread open so you hear it from us rather than from the changelog.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-01-21T00:00:00Z",
+        "topics": [
+          "sso",
+          "roadmap"
+        ],
+        "recurring_threads": [
+          "sso-request"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 8,
+      "document_content": [
+        {
+          "text": "How long do you keep audit logs? Our security review is asking.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "On your plan, audit logs are kept for 90 days on the Growth plan. Enterprise extends that to 400 days, and export to your own bucket is available on both.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-01-29T00:00:00Z",
+        "topics": [
+          "security"
+        ],
+        "recurring_threads": [
+          "security-review"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 9,
+      "document_content": [
+        {
+          "text": "Who is our account manager now? Our emails to Tom are bouncing.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Priya Raman took over the Northwind account in February, so she is your contact from now on. Tom left at the end of January.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-02-04T00:00:00Z",
+        "topics": [
+          "account"
+        ],
+        "recurring_threads": [
+          "account-owner"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 10,
+      "document_content": [
+        {
+          "text": "Quick check on plan limits: the Growth plan includes 25 seats, correct? We are at 24.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "That's right for the current term. If you add a 26th user the plan will prompt for an upgrade at renewal rather than blocking the invite.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-02-10T00:00:00Z",
+        "topics": [
+          "billing",
+          "plans"
+        ],
+        "recurring_threads": [
+          "seat-limits"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 11,
+      "document_content": [
+        {
+          "text": "Our webhooks to the warehouse fail sometimes. How many times do you retry?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Currently webhook retries stop after 5 attempts over 30 minutes, with exponential backoff. Failed deliveries stay in the queue view for seven days so you can replay them.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-02-25T00:00:00Z",
+        "topics": [
+          "integrations"
+        ],
+        "recurring_threads": [
+          "webhooks"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 12,
+      "document_content": [
+        {
+          "text": "Dashboards feel much faster this week. Did something change?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Yes — we shipped query caching for saved views. Measured across all customers, p95 dashboard load time went from 3.1 s to 1.4 s after the caching change.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-03-04T00:00:00Z",
+        "topics": [
+          "performance"
+        ],
+        "recurring_threads": [
+          "performance"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 13,
+      "document_content": [
+        {
+          "text": "Are you going to charge us for the extra seats we added mid-term?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "No. Mid-term additions are pro-rated at renewal, and nothing is charged before that date.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-03-18T00:00:00Z",
+        "topics": [
+          "billing"
+        ],
+        "recurring_threads": [
+          "seat-limits"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 14,
+      "document_content": [
+        {
+          "text": "We saw an email about plan changes. Does it affect us?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "It does, in your favour: from 1 April the Growth plan includes 40 seats, at the same price. Your renewal in July will show the new allowance.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-04-01T00:00:00Z",
+        "topics": [
+          "plans"
+        ],
+        "recurring_threads": [
+          "seat-limits"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 15,
+      "document_content": [
+        {
+          "text": "Is the export bug fixed? We are about to run the annual report.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "It is — the export truncation was fixed in release 4.8.2, which is on your workspace since Monday. The 62,000-row case now completes with a row count in the footer.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-04-15T00:00:00Z",
+        "topics": [
+          "exports"
+        ],
+        "recurring_threads": [
+          "export-truncation"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 16,
+      "document_content": [
+        {
+          "text": "Priya, can we get a rough date for SSO? The security review is asking again.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Still inside the quarter. The identity work is in staging now and we are testing against Okta and Entra.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-05-06T00:00:00Z",
+        "topics": [
+          "sso"
+        ],
+        "recurring_threads": [
+          "sso-request"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 17,
+      "document_content": [
+        {
+          "text": "The SSO announcement just landed. Is it on our workspace?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "SAML SSO shipped on 18 June, and your workspace is in the first wave. The setup guide is in the admin area under Authentication.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-06-18T00:00:00Z",
+        "mood": {
+          "label": "relieved",
+          "valence": 8,
+          "arousal": 4
+        },
+        "topics": [
+          "sso"
+        ],
+        "recurring_threads": [
+          "sso-request"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 18,
+      "document_content": [
+        {
+          "text": "Renewal quote please, with the new seat count.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Sent. It renews on 31 July at the Growth rate with the larger allowance, and no pro-rating is owed for the seats you added in March.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-07-02T00:00:00Z",
+        "topics": [
+          "billing"
+        ],
+        "recurring_threads": [
+          "renewal"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 19,
+      "document_content": [
+        {
+          "text": "One of our analysts says the API returns different totals than the UI.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "That is timezone rather than data: the API defaults to UTC and your workspace displays in Europe/Berlin. Pass tz=Europe/Berlin and they match.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-07-14T00:00:00Z",
+        "topics": [
+          "api"
+        ],
+        "recurring_threads": [
+          "api-questions"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 20,
+      "document_content": [
+        {
+          "text": "Thanks for the year — anything we should know before renewal?",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Only the seat change and SSO, both already on your workspace. Nothing else about your plan changes at renewal.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "recorded_at": "2026-07-28T00:00:00Z",
+        "topics": [
+          "renewal"
+        ],
+        "recurring_threads": [
+          "renewal"
+        ]
+      }
+    }
+  ]
+}

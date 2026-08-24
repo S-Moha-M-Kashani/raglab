@@ -404,12 +404,28 @@ let ARCHIVE_VIEW_ONLY = false;
 let ARCHIVE_EVENTS_BOUND = false;
 
 // Remember the parts of a config the controls cannot express, having applied it.
+//
+// `applied` is not always this installation's own config on its way back in
+// — an open board row hands this whatever it reconciled, and a config saved
+// to `localStorage` before this schema renamed a field can still be sitting
+// there. Either way, a name this lab's served defaults do not have at all
+// (`generation.key_facts_judge`, before `fact_judge` existed) is not an
+// unshown *knob* to carry through — it is nowhere on the schema this
+// installation runs, and keeping it here would let it reappear on every
+// `readConfig()` from now on, including the one the strict archive codec
+// validates on the next write. Filtered against `OPTIONS.defaults` — the
+// server's own current shape — rather than skipped when `OPTIONS` has not
+// loaded yet (`validNames.size` guards that one boot-ordering case only).
 function keepUnshown(applied) {
   const shown = readShownConfig();
+  const defaults = (OPTIONS && OPTIONS.defaults) || {};
   UNSHOWN = { index: {}, retrieval: {}, generation: {} };
   for (const group of ['index', 'retrieval', 'generation']) {
+    const validNames = new Set(Object.keys(defaults[group] || {}));
     for (const [key, value] of Object.entries(applied[group] || {})) {
-      if (!(key in shown[group])) UNSHOWN[group][key] = value;
+      if (key in shown[group]) continue;
+      if (validNames.size && !validNames.has(key)) continue;
+      UNSHOWN[group][key] = value;
     }
   }
 }
@@ -612,13 +628,27 @@ function remember(key, value) {
 // missing entirely, and every blank control in it would read as 0, which
 // validation then refuses. Same class of bug as `UNSHOWN`, same fix: the page
 // must not hold its own idea of what a config contains.
+//
+// And the opposite edge of the same rule: a saved config may carry a knob
+// this lab's schema *retired* since it was written (`generation.
+// key_facts_judge`, before `fact_judge` existed). Merged in unfiltered, that
+// name would sit on the config every control reads and writes from boot
+// onward — including the one the strict archive codec validates the moment
+// anything tries to save again — so only the keys `defaults[group]` still
+// has are kept from what was saved; everything else in it is left behind
+// exactly as an unservable knob from an opened archive is.
 function startingConfig(defaults) {
   const kept = saved(SAVED_CONFIG);
   if (!kept) return defaults;
   const merged = { label: kept.label || defaults.label || '' };
   for (const group of Object.keys(defaults)) {
     if (group === 'label') continue;
-    merged[group] = Object.assign({}, defaults[group], kept[group] || {});
+    const validNames = new Set(Object.keys(defaults[group] || {}));
+    const keptGroup = {};
+    for (const [key, value] of Object.entries(kept[group] || {})) {
+      if (validNames.has(key)) keptGroup[key] = value;
+    }
+    merged[group] = Object.assign({}, defaults[group], keptGroup);
   }
   return merged;
 }

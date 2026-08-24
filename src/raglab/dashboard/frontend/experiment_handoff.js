@@ -65,12 +65,38 @@ const ExperimentHandoff = (() => {
 
   // --- what this lab can serve ----------------------------------------------
 
+  // One corpus, two spellings. `''` is the built-in diary's *config
+  // identity* — the value `IndexConfig.fingerprint()` drops from its payload
+  // (D3), so every collection ever built under it stays reproducible, and the
+  // value the panel's own `<option>` for that corpus therefore carries.
+  // `ArchiveIO.BUILTIN_DATASET` is that same corpus's *id*, which is how a
+  // catalogue names it in prose. Resolving decides which corpus a value
+  // means, and what a reader is shown; it is never what gets written back
+  // into a config, because rewriting a recorded `''` to the id would
+  // fingerprint a rebuild away from the exact collection the record was
+  // built under — the one thing the empty string exists to promise.
+  // `ArchiveIO.BUILTIN_DATASET` is read rather than typed here so the two
+  // codecs share one mapping instead of each stating it. Read inside the
+  // function body, not at load: `leaderboard.html` loads this file without
+  // `archive_io.js` and calls nothing that reaches here.
+  function resolvedDataset(value) {
+    return value || ArchiveIO.BUILTIN_DATASET;
+  }
+
+  // So servability asks about the corpus, never about the spelling: a
+  // catalogue that lists the built-in corpus under either name serves a
+  // record that names it under either name.
+  function servesDataset(value, served) {
+    const wanted = resolvedDataset(value);
+    return (served.datasets || []).some((id) => resolvedDataset(id) === wanted);
+  }
+
   // One rule per knob the panel constrains, asked in the order that produces
   // the sentence a reader can act on: the corpus first, because a config
   // applied against the wrong corpus is not that experiment at all.
   function unservedReason(path, value, served) {
     if (path === 'index.dataset') {
-      return (served.datasets || []).includes(value) ? '' : 'not installed here';
+      return servesDataset(value, served) ? '' : 'not installed here';
     }
     const choices = (served.choices || {})[path];
     if (choices) {
@@ -126,11 +152,37 @@ const ExperimentHandoff = (() => {
     const set = [];
     for (const group of GROUPS) {
       const knobs = (recorded || {})[group] || {};
+      const known = current[group] || {};
       for (const [knob, value] of Object.entries(knobs)) {
         const path = `${group}.${knob}`;
+        // A name this lab's own config no longer has at all — most often a
+        // field renamed since the row was recorded (`key_facts_judge` ->
+        // `fact_judge`) — is unservable by definition: there is nowhere on
+        // the panel it could go. Named exactly like any other unservable
+        // knob and dropped rather than written onto a key nothing reads, so
+        // a retired field from an old archive never lands on the config this
+        // lab is about to run (CLAUDE.md: a row must never lie about what
+        // produced it — carrying a name this schema no longer has would be
+        // exactly that, one step removed). Checked before `unservedReason`,
+        // which has no rule for a path that names nothing here at all and
+        // would otherwise read it as unconstrained and so servable.
+        if (!(knob in known)) {
+          unserved.push({
+            path, value, reason: 'not a knob this lab reads any more',
+          });
+          continue;
+        }
         const reason = unservedReason(path, value, served);
         if (reason) unserved.push({ path, value, reason });
-        else { config[group][knob] = value; set.push(path); }
+        else {
+          // Written exactly as recorded, `index.dataset` included. A record
+          // naming the built-in corpus as `''` is adopted as `''`, which is
+          // the value the panel's own option for that corpus carries, so the
+          // reader sees the right corpus named while a rebuild under this
+          // config still lands on the collection the record was built under.
+          config[group][knob] = value;
+          set.push(path);
+        }
       }
     }
     // The corpus first, whatever order the record listed its knobs in. A config

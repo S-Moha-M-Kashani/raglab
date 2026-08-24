@@ -12,7 +12,8 @@ from pathlib import Path
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
 
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.configuration.lab_config import ROOT, load_lab_settings
 from raglab.llm_backends.chat_model_factory import judge_llm
 
@@ -94,22 +95,23 @@ def _mutate_number(claim: str, context: list[str]) -> str | None:
     return None
 
 
-def dated_context(sessions: dict, question: dict) -> list[str]:
-    """The cited evidence messages, each carrying the date of its session — as
-    `IndexConfig.contextual` does for the real pipeline."""
+def dated_context(documents: dict, question: dict, date_label: str = '') -> list[str]:
+    """The cited evidence's own text, one line per piece, dated from the
+    corpus's declared date-time label (D5) when it has one — as
+    `IndexConfig.contextual` dates a chunk for the real pipeline. A corpus
+    that declares no date label yields undated lines rather than inventing
+    one."""
     lines: list[str] = []
-    for evidence in question.get('evidence', []):
-        session = sessions.get(evidence['session_id'])
-        if not session:
-            continue
-        for index in evidence.get('message_indices', []):
-            if 0 <= index < len(session['messages']):
-                lines.append(f"[{session['date']}] "
-                             f"{session['messages'][index]['content']}")
-    if lines:
-        return lines
-    return [f"[{ev.get('session_id', '')[:10]}] {ev['quote']}"
-            for ev in question.get('evidence', [])]
+    for relevant in question.get('relevant_corpus_documents') or []:
+        document = documents.get(relevant.get('corpus_document_id')) or {}
+        date = ((document.get('document_metadata') or {}).get(date_label) or ''
+                if date_label else '')
+        for evidence in relevant.get('evidence') or []:
+            text = evidence.get('text', '')
+            if not text:
+                continue
+            lines.append(f'[{date[:10]}] {text}' if date else text)
+    return lines
 
 
 def _anchored_sentence(answer: str, context: list[str]) -> str | None:
@@ -126,30 +128,34 @@ def _anchored_sentence(answer: str, context: list[str]) -> str | None:
     return max(candidates, key=lambda s: _overlap(s, context))
 
 
-def build_items(ground_truth: dict, sessions: dict, pairs: int = 6) -> list[Item]:
+def build_items(ground_truth: dict, documents: dict, date_label: str = '',
+               pairs: int = 6) -> list[Item]:
     """`pairs` supported claims and `pairs` unsupported ones, perfectly balanced —
     a degenerate judge then scores exactly 0.5 rather than a misleadingly
     respectable accuracy. A question yielding no anchored sentence or clean
     mutation is skipped whole, so the classes stay equal in size and wording."""
-    usable = [q for q in ground_truth['questions']
-              if q.get('answerable') and q.get('evidence') and q.get('answer_fa')]
+    usable = [q for q in ground_truth['groundtruth_dataset']
+              if q['expected_answer']['behavior'] != 'abstain'
+              and q.get('relevant_corpus_documents')
+              and q['expected_answer'].get('text')]
     items: list[Item] = []
     for question in usable:
         if len(items) >= pairs * 2:
             break
-        context = dated_context(sessions, question)
+        context = dated_context(documents, question, date_label)
         if not context:
             continue
-        claim = _anchored_sentence(question['answer_fa'], context)
+        claim = _anchored_sentence(question['expected_answer']['text'], context)
         if not claim:
             continue
         mutated = _mutate_number(claim, context)
         if not mutated:
             continue
-        items.append(Item(id=f"{question['id']}-yes", question_id=question['id'],
+        question_id = question['groundtruth_question_id']
+        items.append(Item(id=f'{question_id}-yes', question_id=question_id,
                           context=context, claim=claim, supported=True,
                           overlap=_overlap(claim, context)))
-        items.append(Item(id=f"{question['id']}-no", question_id=question['id'],
+        items.append(Item(id=f'{question_id}-no', question_id=question_id,
                           context=context, claim=mutated, supported=False,
                           overlap=_overlap(mutated, context)))
     return items
@@ -254,9 +260,10 @@ def screen(models: list[str], pairs: int = 6) -> dict:
                  'this machine and need no key at all; RAGLAB_LLM=ollama runs a '
                  'model on it; RAGLAB_LLM=openrouter needs OPENROUTER_API_KEY '
                  'for a remote candidate')
-    diary = corpus.load_diary()
-    sessions = corpus.sessions_by_id(diary)
-    items = build_items(corpus.load_ground_truth(), sessions, pairs)
+    diary, ground_truth = datasets.load()
+    documents = corpus.documents_by_id(diary)
+    date_label = corpus.date_label(diary['corpus_dataset_metadata'].get('label_fields') or {})
+    items = build_items(ground_truth, documents, date_label, pairs)
     signal = lexical_signal(items)
     print(f'{len(items)} items · {len(models)} models · via {settings.provider}')
     print(f'lexical signal: supported {signal["supported"]} vs unsupported '

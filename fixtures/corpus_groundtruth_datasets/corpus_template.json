@@ -43,7 +43,8 @@
         "minimum": "optional | number | Lowest allowed value, for a numeric label.",
         "maximum": "optional | number | Highest allowed value, for a numeric label.",
         "extracted": "optional | boolean | true when a model or classifier produced these values rather than a person. Then you must also declare a label rating it.",
-        "confidence_for": "optional | string | Present only on a label that rates another: the name of the label it rates. Its values run 0 to 1. A rater never enters chunk text and never ranks anything."
+        "confidence_for": "optional | string | Present only on a label that rates another: the name of the label it rates. Its values run 0 to 1. A rater never enters chunk text and never ranks anything.",
+        "ranks": "optional | boolean | true marks this label as the importance source, rescaled to 0-1 for the agentic retriever's third weight. Requires type number or integer plus minimum and maximum above. Forbidden together with confidence_for: a rater ranks nothing."
       }
     }
   },

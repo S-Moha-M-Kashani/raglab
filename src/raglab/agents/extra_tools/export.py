@@ -4,13 +4,12 @@ This module only reports what the run stored; it never re-runs retrieval or re-d
 from pathlib import Path
 
 from raglab.evaluation import deterministic_metrics as metrics
-from raglab.configuration.lab_config import DIFFICULTIES
 
 # In the order a reader wants them. `metrics.MEASURES` supplies each one's
 # definition, so this list holds no wording of its own.
 GRADE_KEYS = ('recall', 'quote_recall', 'ndcg', 'mrr', 'precision', 'hit',
               'false_abstention', 'answer_similarity', 'answer_token_f1',
-              'key_fact_coverage', 'latency_ms')
+              'fact_coverage', 'latency_ms')
 
 
 def _num(value, places: int = 4) -> str:
@@ -31,24 +30,35 @@ def _numeric_mean(values: list) -> float | None:
 
 def answered_correctly(row: dict) -> bool:
     """Evidence-based correctness: answerable means not refused and retrieval
-    reached a gold session; unanswerable means refused. Claims less than
-    "correct" since no judged per-question grade exists in a run file."""
-    if not row.get('answerable', True):
+    reached a gold document; unanswerable (behavior == 'abstain') means
+    refused. Claims less than "correct" since no judged per-question grade
+    exists in a run file."""
+    if row.get('behavior') == 'abstain':
         return bool(row.get('abstained'))
     return not row.get('abstained') and bool(row.get('hit'))
 
 
-def difficulty_rates(rows: list[dict]) -> list[dict]:
-    """One row per difficulty, with the count beside every share. `evidence_found`
-    and `quotes_in_context` stay separate from `answered`, since retrieval
+def _label(questions: dict, row: dict, name: str):
+    """A question label's value for one row, joined through the ground truth
+    a row's `id` names — a run file's rows carry no label of their own."""
+    question = questions.get(row.get('id')) or {}
+    return (question.get('question_metadata') or {}).get(name)
+
+
+def difficulty_rates(rows: list[dict], questions: dict) -> list[dict]:
+    """One row per value of a 'difficulty' question label, in the order the
+    ground truth's own values first appear — a corpus that declares none
+    names no bands, rather than one invented for it. `evidence_found` and
+    `quotes_in_context` stay separate from `answered`, since retrieval
     reaching the evidence and the answer using it are different failures; both
-    are `None` where the difficulty holds only unanswerable questions."""
+    are `None` where the band holds only unanswerable questions."""
     out = []
-    for name in DIFFICULTIES:
-        group = [row for row in rows if row.get('difficulty') == name]
-        if not group:
+    for name in dict.fromkeys(_label(questions, row, 'difficulty')
+                              for row in rows):
+        if name is None:
             continue
-        answerable = [row for row in group if row.get('answerable', True)]
+        group = [row for row in rows if _label(questions, row, 'difficulty') == name]
+        answerable = [row for row in group if row.get('behavior') != 'abstain']
         out.append({
             'difficulty': name,
             'n': len(group),
@@ -67,12 +77,16 @@ def difficulty_rates(rows: list[dict]) -> list[dict]:
     return out
 
 
-def type_rates(rows: list[dict]) -> list[dict]:
-    """The same table by question type: an aggregate hides a change that helps
-    one kind of question and hurts another."""
+def type_rates(rows: list[dict], questions: dict) -> list[dict]:
+    """The same table by a 'question_type' question label: an aggregate hides
+    a change that helps one kind of question and hurts another."""
     out = []
-    for name in dict.fromkeys(row.get('type') for row in rows):
-        group = [row for row in rows if row.get('type') == name]
+    for name in dict.fromkeys(_label(questions, row, 'question_type')
+                              for row in rows):
+        if name is None:
+            continue
+        group = [row for row in rows
+                 if _label(questions, row, 'question_type') == name]
         out.append({
             'type': name, 'n': len(group),
             'answered': round(
@@ -92,10 +106,16 @@ def _table(header: list[str], body: list[list[str]]) -> str:
 def question_page(run: dict, question: dict, row: dict) -> str:
     """One question: what was asked, what the truth is, what came back, what it
     replied, and what graded it."""
-    gold = {item['session_id'] for item in question.get('evidence', [])}
+    gold = {str(relevant['corpus_document_id'])
+            for relevant in question.get('relevant_corpus_documents') or []}
     measures = {measure.key: measure for measure in metrics.MEASURES}
+    question_metadata = question.get('question_metadata') or {}
+    expected = question['expected_answer']
+    behavior = expected['behavior']
     parts = [
-        f"# {question['id']} — {question['type']} / {question['difficulty']}",
+        f"# {question['groundtruth_question_id']} — "
+        f"{question_metadata.get('question_type', '—')} / "
+        f"{question_metadata.get('difficulty', '—')}",
         '',
         f"Run `{run['run_id']}` · **{run.get('label', '')}** · "
         f"k={run['config']['retrieval'].get('k')} · "
@@ -104,30 +124,28 @@ def question_page(run: dict, question: dict, row: dict) -> str:
         '',
         '## Asked',
         '',
-        f"> {question['question_fa']}",
+        f"> {question['question']}",
         '',
-        f"*{question.get('question_en', '')}*",
-        '',
-        f"Answerable: **{'yes' if question.get('answerable') else 'no'}** · "
-        f"query date {question.get('query_date', '')} · "
-        f"declared time scope {question.get('time_scope') or '—'} · "
+        f"Behavior: **{behavior}** · "
+        f"declared time scope {question_metadata.get('resolved_time_scope') or '—'} · "
         f"detected time scope {row.get('time_scope') or '—'}",
         '',
         '## Reference',
         '',
     ]
-    if question.get('answer_fa'):
-        parts += [f"> {question['answer_fa']}", '']
-    if question.get('key_facts'):
-        parts += ['Key facts the answer has to contain:', '']
-        parts += [f'- {fact}' for fact in question['key_facts']] + ['']
-    if question.get('evidence'):
-        parts += ['Evidence, with the sentence the ground truth cites:', '']
-        parts += [f"- `{item['session_id']}` messages "
-                  f"{item.get('message_indices', [])} — «{item['quote']}»"
-                  for item in question['evidence']] + ['']
+    if expected.get('text'):
+        parts += [f"> {expected['text']}", '']
+    if expected.get('derived_facts'):
+        parts += ['Derived facts the answer has to contain:', '']
+        parts += [f'- {fact["fact"]}' for fact in expected['derived_facts']] + ['']
+    if question.get('relevant_corpus_documents'):
+        parts += ['Evidence, with what the ground truth cites:', '']
+        parts += [f"- `{relevant['corpus_document_id']}` [{ev.get('fidelity')}] "
+                  f"— «{ev['text']}»"
+                  for relevant in question['relevant_corpus_documents']
+                  for ev in relevant.get('evidence') or []] + ['']
     else:
-        parts += ['No evidence: this question is unanswerable from the diary, '
+        parts += ['No evidence: this question is unanswerable from the corpus, '
                   'and the correct response is a refusal.', '']
 
     retrieved = row.get('retrieved_sessions') or []
@@ -195,8 +213,13 @@ def question_page(run: dict, question: dict, row: dict) -> str:
     return '\n'.join(parts) + '\n'
 
 
-def index_page(run: dict, rows: list[dict]) -> str:
-    """The folder's own front page: how to read it, and the two rate tables."""
+def index_page(run: dict, rows: list[dict], questions: dict) -> str:
+    """The folder's own front page: how to read it, and the two rate tables.
+    `questions` joins a row's bare `id` back to its `question_metadata`,
+    since a run file's own rows carry no label — the two rate tables read
+    whichever question labels the ground truth happens to declare as
+    'difficulty' and 'question_type' and stay empty on a corpus that
+    declares neither, rather than assuming every corpus shares them (D7)."""
     spread = (run.get('ragas') or {}).get('decision_spread') or {}
     decision = (run.get('ragas') or {}).get('decision')
     parts = [
@@ -211,7 +234,7 @@ def index_page(run: dict, rows: list[dict]) -> str:
            else ' (no measured spread)'),
         '',
         'One file per question, each showing what was asked, what the ground '
-        'truth says, which sessions came back, what the pipeline replied, and '
+        'truth says, which documents came back, what the pipeline replied, and '
         'every grade with its own arithmetic beside it.',
         '',
         '## What "answered" means here',
@@ -219,7 +242,7 @@ def index_page(run: dict, rows: list[dict]) -> str:
         'A run file stores no judged grade per question, so this column is '
         'evidence-based and deliberately claims less than "correct": an '
         'answerable question counts when the pipeline did **not** refuse and '
-        'retrieval reached a session the ground truth cites; an unanswerable '
+        'retrieval reached a document the ground truth cites; an unanswerable '
         'one counts when it **did** refuse. Inventing an answer that was not '
         'there and refusing one that was are the two failures that matter, and '
         'both are counted. Whether the wording of a non-refused answer is right '
@@ -233,13 +256,13 @@ def index_page(run: dict, rows: list[dict]) -> str:
                  f"**{row['answered'] * 100:.0f}%**",
                  _num(row['evidence_found']), _num(row['quotes_in_context']),
                  _num(row['recall']), _num(row['answer_overlap'])]
-                for row in difficulty_rates(rows)]),
+                for row in difficulty_rates(rows, questions)]),
         '',
         '## By question type',
         '',
         _table(['Type', 'n', 'Answered', 'Recall@k'],
                [[row['type'], str(row['n']), f"{row['answered'] * 100:.0f}%",
-                 _num(row['recall'])] for row in type_rates(rows)]),
+                 _num(row['recall'])] for row in type_rates(rows, questions)]),
         '',
         '## Questions',
         '',
@@ -247,7 +270,8 @@ def index_page(run: dict, rows: list[dict]) -> str:
     for row in rows:
         mark = '✓' if answered_correctly(row) else '·'
         parts.append(f"- {mark} [{row['id']}]({row['id']}.md) — "
-                     f"{row.get('type')} / {row.get('difficulty')}")
+                     f"{_label(questions, row, 'question_type') or ''} / "
+                     f"{_label(questions, row, 'difficulty') or ''}")
     return '\n'.join(parts) + '\n'
 
 
@@ -255,10 +279,11 @@ def write_run(run: dict, ground_truth: dict, out_dir) -> list[Path]:
     """Write the index and one page per question. Returns the paths written."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    questions = {q['id']: q for q in ground_truth['questions']}
+    questions = {q['groundtruth_question_id']: q
+                for q in ground_truth['groundtruth_dataset']}
     rows = [row for row in run['rows'] if row['id'] in questions]
     written = [out / 'README.md']
-    written[0].write_text(index_page(run, rows), encoding='utf-8')
+    written[0].write_text(index_page(run, rows, questions), encoding='utf-8')
     for row in rows:
         path = out / f"{row['id']}.md"
         path.write_text(question_page(run, questions[row['id']], row),

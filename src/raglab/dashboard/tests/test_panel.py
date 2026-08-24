@@ -79,6 +79,10 @@ def panel_texts(client):
         # the foot of this file claim about the export template is a claim
         # about the file a browser is actually handed.
         'archive_io.js': client.get('/archive_io.js').text,
+        # The handoff, over its own route for the same reason: it reads the
+        # codec's own `BUILTIN_DATASET` rather than keeping a second copy of
+        # that id, which is a claim about this served file.
+        'experiment_handoff.js': client.get('/experiment_handoff.js').text,
         'widget.css': client.get('/widget.css').text,
         'widget.js': client.get('/widget.js').text,
         'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
@@ -179,6 +183,25 @@ CONVENTIONS = [
     ('panel_server.py', 'api/queries', None,
      "the route itself must stay: the Inspector's followed query view reads "
      'whatever runs through it'),
+    ('panel_server.py', 'api/dataset-templates/corpus', None,
+     'the panel must serve the corpus template so the import section can '
+     'link to it, read from the fixture rather than duplicated into code'),
+    ('panel_server.py', 'api/dataset-templates/groundtruth', None,
+     'the panel must serve the ground-truth template on the same terms as '
+     'the corpus template beside it'),
+    ('index.html', 'start from the templates', None,
+     'the import section must guide an author to the templates, not only to '
+     'the schema help text — the templates are the readable path'),
+    ('index.html', 'href="/api/dataset-templates/corpus"', None,
+     'the corpus template link must point at the served route, not a local '
+     'copy of the fixture'),
+    ('index.html', 'href="/api/dataset-templates/groundtruth"', None,
+     'the ground-truth template link must point at the served route'),
+    ('index.html', 'download="corpus_template.json"', None,
+     'the corpus template link must offer the file under its real name'),
+    ('index.html', 'download="groundtruth_template.json"', None,
+     'the ground-truth template link must offer the file under its real '
+     'name'),
     ('index.html', 'id="mode"', None,
      'the mode dropdown must read the served modes rather than a local copy'),
     ('index.html', 'id="retrieve-selected"', None,
@@ -434,16 +457,28 @@ CONVENTIONS = [
      'reload, which is not what the button says it did'),
     ('panel.js', 'ExperimentHandoff.reconcile', None,
      'which knobs this installation can serve is decided in the one module '
-     'that decides it. There is one reader of that rule now — the archive '
-     'import — because opening a board row goes through the same import, so '
-     'the disagreement this used to guard against cannot arise; what it '
-     'still pins is that the rule is not reimplemented in the page'),
-    ('panel.js', 'adoptArchive(ArchiveIO.normalize', None,
-     'opening an experiment on the board is importing its exported archive: '
-     'one path, one strictness. Written out twice, an experiment opened here '
-     'and the same experiment imported as a file would come to disagree '
-     'about what this lab accepts — which is the whole defect this replaced, '
-     'where open applied what it could and import refused outright'),
+     'that decides it, never reimplemented in the page. Two readers now, in '
+     "the two directions the module's own header documents: the archive "
+     'import (`validateAgainstPanelOptions`) reads it strictly, refusing on '
+     'the first knob it cannot serve, because a file either arrives intact '
+     'or it does not; opening a row of this lab’s own board '
+     '(`adoptHandedSettings`) reads it leniently, applying what it can and '
+     'naming the rest — which is the only way an experiment recorded before '
+     'a field was renamed (`generation.key_facts_judge`, before '
+     '`fact_judge`) still opens at all'),
+    ('panel.js', 'adoptHandedSettings(archived)', None,
+     'opening an experiment on the board must not be importing its exported '
+     'archive: that row already has a job and a ledger entry, so nothing '
+     'about it is re-posted to `/api/imported-archives`, and a knob this '
+     'installation cannot serve — or a name this schema no longer has at '
+     'all — is left at the panel’s own value and named rather than refusing '
+     'the whole handoff, which is what the shared strict path used to do to '
+     'every experiment recorded before this schema'),
+    ('panel.js', 'not a knob this lab reads any more', None,
+     'a retired field name (`key_facts_judge`) is unservable by definition — '
+     'there is nowhere on this panel it could go — and must be named exactly '
+     'like any other knob this installation cannot serve, never silently '
+     'copied onto a config key nothing here reads'),
     ('widget.js', "widgetSayAfterDraw('note'", None,
      'the lab writes its own notices in its own voice: a line the page wrote '
      "must never arrive as `bot`, which is the model's. Pinned at the one "
@@ -571,6 +606,17 @@ CONVENTIONS = [
     ('leaderboard.html', None, 'Inspector <span class="port">:9003</span>',
      'and the leaderboard drops it for the same reason — the two surfaces '
      'wear one switcher, so a port shown on one and not the other is drift'),
+    # --- the panel's default backend and the time-scope label ------------
+    ("panel.js", "const DEFAULT_MODE = 'codex';", None,
+     "the panel's first-visit backend default is the codex CLI — the widget "
+     'keeps its own OpenRouter default, untouched by this row'),
+    ('panel.js', 'saved(SAVED_CONFIG) === null', None,
+     'the codex preset applies only on a first visit, when nothing is saved '
+     'at all — a preset must never overwrite a saved config'),
+    ('index.html', 'id="time_filter"', 'Farsi time-scope',
+     'the time-scope label makes no language claim: which knobs are '
+     "dataset-specific is the served help text's claim "
+     "(retrieval.time_filter), not the markup's"),
 ]
 
 
@@ -588,18 +634,56 @@ def test_the_panel_spells_the_built_in_corpus_one_way(panel_texts):
     in the list — and an experiment opened from the board announced the lab's
     own default corpus as *not installed here* while quietly leaving the knob
     alone. A fabricated discrepancy in the one notice whose entire job is to
-    report real ones."""
+    report real ones.
+
+    What this test can honestly claim is the *one place* half: no served script
+    may carry the built-in corpus's id as a literal of its own, because the
+    mapping is read from `ArchiveIO.BUILTIN_DATASET` (`archive_io.js`, the one
+    file allowed to say it). Whether the mapping still *works* is behaviour,
+    not text — this test used to count the source of the branch that decided
+    it, and counting text is exactly what let that branch rot: it tested a
+    `source === 'builtin'` field the service stopped sending, so the count
+    stayed at one while every fresh selection of the diary sent the explicit
+    id. `panel_open.test.js` asks the served page for its own option values
+    instead, and `test_the_open_path_maps_the_built_in_corpus_by_id` below
+    runs it."""
     js = panel_texts['panel.js']
-    spelling = js.count("'builtin' ? '' : ")
-    assert spelling == 1, (
-        'the built-in corpus must be spelled in one place and read from there '
-        f'({spelling} copies of the rule found in panel.js)')
+    for name, text in panel_texts.items():
+        if not name.endswith('.js') or name == 'archive_io.js':
+            continue
+        for literal in (f"'{datasets.BUILTIN}'", f'"{datasets.BUILTIN}"'):
+            assert literal not in text, (
+                f'{name} spells the built-in corpus id as a literal of its '
+                'own; the one statement of that mapping is '
+                'ArchiveIO.BUILTIN_DATASET, and a second copy is what drifts')
     served = re.search(r'function servedKnobs\(.*?\n}', js, re.S)
     assert served, 'servedKnobs must exist for the handoff to ask what is served'
     assert 'datasetValues()' in served.group(0), (
         'what servedKnobs calls a served corpus must be the same value the '
         'dataset select offers, or the empty string that means the built-in '
         'corpus reads as a corpus this installation does not have')
+
+
+def test_the_open_path_maps_the_built_in_corpus_by_id():
+    # this is an integration test
+    """The behaviour the convention test above cannot claim, and the one thing
+    a text check demonstrably could not keep: what the dataset dropdown's
+    option *values* actually are, and what the config a page submits after
+    opening a recorded experiment actually carries.
+
+    `panel_open.test.js` boots the served `panel.js` itself over the real
+    `/api/options` and real archive responses saved beside it, so it sees the
+    option values the browser would see and the `readConfig()` a build would
+    be launched with. Run from here because the panel's served frontend is
+    asserted on in this file, and skipped rather than failed where `node` is
+    absent, like every other JavaScript suite in this folder."""
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('no node on PATH to boot the served panel with')
+    done = subprocess.run([node, '--test', 'panel_open.test.js'],
+                          cwd=RAGLAB_DIR / 'dashboard' / 'tests',
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
 
 
 @pytest.mark.parametrize('file, must_contain, must_not_contain, reason', CONVENTIONS)
@@ -639,6 +723,27 @@ def test_every_table_on_the_lab_page_is_built_by_one_component(panel_texts):
             f'#{host} must be written through renderTable, which wires the '
             'column sorter after insertion — building it with innerHTML is '
             'how #ragas and #extras came to look sortable and do nothing')
+
+
+def test_the_readings_headings_describe_what_the_tables_actually_group_by(
+        panel_texts):
+    # this is a convention test
+    """`#byType` groups by `row.behavior` and `#extras` by the run's own
+    selection (D2/D7 retired the fixed `type`/`difficulty` question
+    vocabulary both used to name) — a static "By question type"/"By
+    difficulty" heading over either table would describe a column that no
+    longer exists. The per-run specifics ("Scores by behavior", "Selection
+    by <balance>") are the table's own caption, read off the run rather than
+    hardcoded, so the heading above it stays generic."""
+    html = panel_texts['index.html']
+    js = panel_texts['panel.js']
+    assert '<h3>By behavior</h3>' in html
+    assert '<h3>Selection</h3>' in html
+    for retired in ('By question type', 'By difficulty'):
+        assert retired not in html, f'{retired!r} is a retired heading'
+        assert retired not in js, f'{retired!r} is a retired label'
+    assert "'Scores by behavior'" in js
+    assert 'Selection by ${balance}' in js
 
 
 def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
@@ -911,6 +1016,40 @@ def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
     assert html.index('src="/archive_io.js"') < html.index('src="/panel.js"')
 
 
+def test_opening_a_board_row_never_reimports_it_and_can_only_leave_no_trace():
+    # this is a convention test
+    """The open path's own strictness/leniency split, pinned at the source —
+    the fix round the shared `adoptArchive` path (above) used to collapse.
+
+    An experiment opened from this lab's own board already has a job and a
+    ledger row; it is not entering the lab, so nothing here may post it to
+    `/api/imported-archives` — that route, and `ArchiveIO.transact`'s
+    strict-refuse-outright reading of `ExperimentHandoff.reconcile`, are the
+    import path's alone (`adoptArchive`, checked above). And the two ways a
+    refused open could stop being atomic are both named directly: a snapshot
+    taken before anything is written and a restore on the one path that can
+    fail, so "the panel is as it was" is never a claim this file makes
+    without having just made it true.
+    """
+    source = PANEL_JS.read_text()
+    handoff = source[source.index('function reconcileUi'):
+                     source.index("window.addEventListener('storage'")]
+    assert "api('/api/imported-archives'" not in handoff, (
+        'an experiment already on this ledger must never be re-posted to it '
+        'as if it were a freshly imported file')
+    assert 'ArchiveIO.normalize(archived)' not in handoff, (
+        'the open path must not hand the recorded settings to the same '
+        'exact-key-set check the archive import uses — that is the strict '
+        'reading this fix round replaces')
+    assert 'adoptArchive(' not in handoff, (
+        'opening a board row must not share the import path’s all-or-'
+        'nothing transaction any more')
+    for needed in ('ExperimentHandoff.reconcile', 'reconcileUi(',
+                  'snapshotDashboard()', 'restoreDashboard(before)',
+                  'CURRENT_ARCHIVE = null'):
+        assert needed in handoff, f'{needed!r} missing from the open path'
+
+
 def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
     # this is a convention test
     source = PANEL_JS.read_text()
@@ -923,7 +1062,10 @@ def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():
                 '/api/credentials'))
     render = source[source.index('function renderResult'):
                     source.index('function table')]
-    for value in ('row.id', 'row.type', 'row.difficulty', 'name'):
+    # 'row.type'/'row.difficulty' retired with the fixed question vocabulary
+    # they came from (D2/D7); 'row.behavior' is the one classification field
+    # every ground truth still carries.
+    for value in ('row.id', 'row.behavior', 'name'):
         assert f'safe({value})' in render
 
 
@@ -1916,3 +2058,48 @@ def test_every_knob_can_be_set_by_an_import(panel_texts):
         in panel_js, ('the import must verify it reproduced the config it was '
                       'given, or a knob dropped here is a knob nobody is told '
                       'about')
+
+
+# --- the templates are the guided path, not the schemas ---------------------
+
+@pytest.mark.parametrize('route, filename', [
+    ('/api/dataset-templates/corpus', 'corpus_template.json'),
+    ('/api/dataset-templates/groundtruth', 'groundtruth_template.json'),
+])
+def test_dataset_template_routes_serve_the_fixture_byte_for_byte(
+        client, route, filename):
+    # this is a convention test
+    """One author per artifact: the route reads the fixture at request time
+    rather than a copy baked into code, so a byte comparison against the
+    file on disk is the whole claim — anything less would let the served
+    copy drift from the file the mirror test actually guards."""
+    response = client.get(route)
+    assert response.status_code == 200
+    on_disk = (datasets.BUNDLED_DIR / filename).read_bytes()
+    assert response.content == on_disk, (
+        f'{route} must serve {filename} byte-identical to the fixture, not '
+        'a duplicate or a stale copy')
+    assert filename in (response.headers.get('content-disposition') or ''), (
+        f'{route} must offer the file under its real name ({filename}), so '
+        'a download or a save keeps the name the templates are written under'
+    )
+
+
+def test_dataset_help_text_leads_with_the_templates():
+    # this is a convention test
+    """The user's complaint was concrete: the schema document is confusing
+    and complex. The fix is not deleting the schema help — it is the
+    contract validate() actually runs — but making it the second thing
+    read, not the first. 'Start from the two templates' must come before
+    the schema files are named at all."""
+    text = config.HELP['run.dataset-file']
+    templates_at = text.index('Start from the two templates')
+    schema_at = text.index('schema_corpus.json')
+    assert templates_at < schema_at, (
+        'run.dataset-file must lead with the templates as the way to start '
+        'and name the schemas only afterwards, as the formal contract '
+        'behind them')
+    assert 'corpus_template.json' in text and 'groundtruth_template.json' in text
+    assert 'formal contract' in text, (
+        'the schemas must be named as the contract behind the templates, '
+        'not as a second starting point')

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import raglab
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.llm_backends import model_role_catalogue as models
 from raglab.configuration.lab_config import IndexConfig, LabSettings
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
@@ -141,12 +141,12 @@ def client():
 
 @pytest.fixture(scope='module')
 def diary():
-    return corpus.load_diary()
+    return datasets.load()[0]
 
 
 @pytest.fixture(scope='module')
 def ground_truth():
-    return corpus.load_ground_truth()
+    return datasets.load()[1]
 
 
 @pytest.fixture(scope='module')
@@ -161,12 +161,24 @@ def index(registry):
 
 
 @pytest.fixture(scope='module')
-def session(diary):
-    return next(s for s in diary['sessions'] if len(s['messages']) >= 6)
+def document(diary):
+    return next(d for d in diary['corpus_documents']
+               if len(d['document_content']) >= 6)
 
 
-# The smoke corpus (`fixtures/corpus_groundtruth_datasets/smoke-mini.json`, 5
-# sessions, 6 questions) with `token-hash`, which needs no model download —
+@pytest.fixture(scope='module')
+def label_fields(diary):
+    return diary['corpus_dataset_metadata']['label_fields']
+
+
+@pytest.fixture(scope='module')
+def language(diary):
+    return diary['corpus_dataset_metadata']['language']
+
+
+# The smoke corpus (`fixtures/corpus_groundtruth_datasets/smoke_mini_corpus.json`
+# + `smoke_mini_groundtruth.json`, 5 documents, 6 questions) with `token-hash`,
+# which needs no model download —
 # every integration test that needs *an* index rather than specifically the
 # 167-session Farsi diary reaches for this instead of building the big one.
 SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',

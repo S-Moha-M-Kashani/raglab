@@ -1,3 +1,4 @@
-"""What gets measured against: the built-in Farsi diary and the import
-contract every other corpus satisfies (`dataset_import_contract.validate`)."""
-from . import dataset_import_contract, diary_corpus_loader  # noqa: F401
+"""What gets measured against: the import contract every dataset satisfies
+(`dataset_import_contract.validate`) and the small readers over an
+already-loaded pair (`corpus_reading`)."""
+from . import corpus_reading, dataset_import_contract  # noqa: F401

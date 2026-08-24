@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.24.0"
+version = "0.25.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -68,6 +68,11 @@ dependencies = [
   # then raise AttributeError the first time anyone pressed the button. 3.1.1 is
   # the version that method was verified present on here.
   "langgraph-checkpoint-sqlite>=3.1.1",
+  # The two dataset schemas (schema_corpus.json, schema_groundtruth.json) are
+  # the single source of structural truth (D9); this is what `validate()`
+  # runs them with, instead of restating their rules in Python. Small and
+  # pure — no compiled wheels, no transitive surprise.
+  "jsonschema>=4.23",
 ]
 
 [project.optional-dependencies]

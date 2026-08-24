@@ -51,6 +51,7 @@
     "Every label with extracted:true must have exactly one label declaring confidence_for against it, and no label may rate one that is not extracted.",
     "A confidence on a scalar label is a single number. A confidence on a list label is an object keyed by the values of that list, never a second list running alongside: two lists can fall out of step and a key cannot. Every key must be a value the thing carries; a value may be left unrated.",
     "A confidence rates the labelling and nothing else. It says how well the entry supports the label, never how strong, important or memorable the labelled thing was — so it must not be used as a ranking signal. Nothing prevents it being used as a filter.",
+    "A label declaring ranks:true must declare type \"number\" or \"integer\" and both minimum and maximum; a label declaring confidence_for may never also declare ranks. Importance is a property of what a chunk is about, never of how well it was labelled, so the two mechanisms cannot share one label.",
     "A summary the pipeline writes is a retrieval block like any other, and is labelled by the same labeller from this same vocabulary — never by inheriting the union of its members' labels, which says what went in rather than what the summary is about.",
     "These rules, and the types in label_fields, are checked on import and not by this schema. They cannot be: the field table is data, so the shape a document must satisfy is not known until the file is open. This schema validates the frame — that a table exists, that each entry in it is well formed, that documents and parts are where they should be. Whether a document obeys its own table is the importer's job, and a dataset that passes this schema is not yet a dataset that loads."
   ],
@@ -247,6 +248,10 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Present only on a label that rates another one: the name of the label it rates. Its own values run 0 to 1. Declared rather than inferred from the name, so the link is checkable instead of a spelling habit."
+              },
+              "ranks": {
+                "type": "boolean",
+                "description": "Optional, default false. True marks this label as the importance source: rescaled to 0-1, it is what the agentic retriever's third weight reads. Requires type \"number\" or \"integer\" plus both minimum and maximum declared; forbidden on a label that carries confidence_for, since a rater ranks nothing. Checked in x-consistency, not by this schema."
               }
             }
           }

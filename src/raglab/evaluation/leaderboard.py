@@ -320,6 +320,31 @@ def _metrics(ragas: dict) -> dict:
             if found.get(name) is not None}
 
 
+def selection_text(row: dict) -> str:
+    """The `questions` column's own reading of one board row: the run's
+    recorded selection identity (`run_evaluation.selection_note`'s
+    `balance`/`n`/`by_<balance>` counts) when the row carries one, the bare
+    count otherwise. `markdown()` and the board's `/api/leaderboard` route
+    both read this row shape, so the CLI and the page cannot describe the
+    same row two different ways.
+
+    Never both, and never a count reinterpreted as an identity a row's own
+    record never claimed: a ledger-only row (an index build, a retrieval, an
+    imported archive) never scored a question at all, and a run predating
+    `selection_note` recorded none either — both leave `selection` empty and
+    fall through to `n_questions`."""
+    selection = row.get('selection') or {}
+    n = selection.get('n')
+    if n is None:
+        return str(row.get('n_questions', 0))
+    balance = selection.get('balance') or ''
+    counts = selection.get(f'by_{balance}') if balance else None
+    if counts:
+        parts = ', '.join(f'{value}={count}' for value, count in counts.items())
+        return f'{n} ({parts})'
+    return f'{n}, {balance}' if balance else str(n)
+
+
 # `ledger.experiments()` returns the flat columns `service_experiment_ledger`
 # stores — `chunker`, `embedder`, `retriever`, `reranker`, `grader`,
 # `answerer` — never a nested config dict; only a run file carries one. A
@@ -415,6 +440,15 @@ def experiment_record(row: dict | None, run: dict | None) -> dict:
         'provider': row.get('provider') or '',
         'n_questions': (summary.get('n_questions')
                         or row.get('n_questions') or 0),
+        # The run's own record of *which* questions, not merely how many —
+        # `run_evaluation.selection_note`'s `balance`/`limit`/`n`/`by_<balance>`
+        # counts, verbatim. Only a run file ever carries one: a ledger-only row
+        # (an index build, a retrieval, an imported archive) never scored a
+        # question at all, and a run recorded before `selection_note` existed
+        # carries none either — both land here as `{}`, which the board reads
+        # as "no identity beyond the count", never as a stand-in the count
+        # itself already gives.
+        'selection': run.get('selection') or {},
         # The run file wins where both carry it: that file is where the number
         # was computed and the one a reader can open to check it.
         'decision': ragas.get('decision') if run else row.get('decision'),
@@ -534,7 +568,7 @@ def markdown(boards: list['Board']) -> str:
                 f'| {(row.get("started_at") or "")[:16] or "—"} '
                 f'| {_cell(_decision(row), 4)} '
                 f'| {_cell(row.get("decision_stderr"), 3)} '
-                f'| {named} | {row.get("n_questions", 0)} '
+                f'| {named} | {selection_text(row)} '
                 f'| {round(row.get("seconds", 0))} '
                 f'| `{row.get("experiment_id", "")}` |')
         out.append('')

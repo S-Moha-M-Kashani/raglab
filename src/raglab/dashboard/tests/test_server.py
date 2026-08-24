@@ -53,20 +53,21 @@ def test_a_build_starts_without_any_service_running(client):
 
 def test_options_describe_the_corpus_the_knobs_and_the_metrics(client):
     # this is an integration test
-    """Corpus counts, question types incl. habit, help for every knob key, the
-    metric definitions block, the steps/colour map, dependency rules — one
-    GET, one dict, grouped asserts."""
+    """Corpus counts, question labels incl. habit, help for every knob key,
+    the metric definitions block, the steps/colour map, dependency rules —
+    one GET, one dict, grouped asserts."""
     body = client.get('/api/options').json()
 
     # --- the corpus: pinned rather than derived, so a change to its size has
-    # to be stated here on purpose. The habit ledger is only as good as the
-    # habits behind it, and the per-type breakdown is where habit retrieval
-    # either shows up or hides inside the aggregation bucket.
+    # to be stated here on purpose. `habit` is one *value* of the diary's own
+    # `question_type` label (D7) rather than a fixed lab-wide vocabulary, so
+    # it is read off the served label filters instead of a retired
+    # `question_types`/`habits` count.
     corpus = body['corpus']
-    assert corpus['sessions'] == 167
+    assert corpus['documents'] == 167
+    assert corpus['parts'] == 998
     assert corpus['questions'] == 112
-    assert corpus['habits'] == 5
-    assert 'habit' in body['question_types']
+    assert 'habit' in body['question_labels']['question_type']
     assert 'semantic-drift' in body['chunkers']
 
     # --- help text for every knob key, and the new metadata/deciding-score
@@ -399,10 +400,12 @@ def test_ragas_takes_its_own_judge_model(smoke_index):
     from raglab.corpora import dataset_import_contract as datasets
     from raglab.evaluation import ragas_judged_metrics as ragas_eval
     _, ground_truth = datasets.load('smoke-mini')
-    question = next(q for q in ground_truth['questions'] if q['answerable'])
+    query_date = ground_truth['groundtruth_dataset_metadata'][
+        'default_question_asked_at'][:10]
+    question = next(q for q in ground_truth['groundtruth_dataset']
+                    if q['expected_answer']['behavior'] != 'abstain')
     pairs = [(question, pipeline.retrieve(smoke_index.index, RetrievalConfig(k=3),
-                                          question['question_fa'],
-                                          question['query_date']))]
+                                          question['question'], query_date))]
     report = ragas_eval.run(pairs, LAB_SETTINGS, smoke_index.index.embedder,
                             mode='offline', judge_model='judge/model')
     assert report['n_samples'] == 1, report['notes']

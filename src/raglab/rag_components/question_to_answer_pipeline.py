@@ -28,7 +28,9 @@ REFUSAL_MARKERS = ('پیدا نکردم', 'چیزی ثبت نشده', 'اطلا�
 class Context:
     chunk_id: str
     text: str
-    session_id: str
+    session_id: str    # a chunk's `document_id` — the field name is unchanged
+                        # here (and in the API payload it feeds) pending the
+                        # panel/evaluation surfaces that read it
     date: str
     score: float
     stages: dict = field(default_factory=dict)
@@ -206,7 +208,7 @@ def retrieve(index, cfg: RetrievalConfig, question: str, query_date: str,
     for i in order:
         chunk = chunks[i]
         contexts.append(Context(chunk_id=chunk.id, text=chunk.text,
-                                session_id=chunk.session_id, date=chunk.date,
+                                session_id=chunk.document_id, date=chunk.date,
                                 score=float(final[i]),
                                 stages=stage_scores[chunk.id]))
 
@@ -246,7 +248,7 @@ def _trace_candidates(chunks, dense_ranked, bm25_ranked, base, relevance,
         grade = grade_by_id.get(cid)
         candidates.append({
             'chunk_id': cid, 'text': chunk.text,
-            'session_id': chunk.session_id, 'date': chunk.date,
+            'session_id': chunk.document_id, 'date': chunk.date,
             # Layer is a different axis from rank: a summary that ranked
             # first but expanded to irrelevant leaves must be visible as that, not as a score.
             'layer': chunk.layer, 'level': chunk.level,
@@ -370,7 +372,7 @@ def _drill_down(index, cfg, question: str, contexts):
                         key=lambda c: -lexical_grade(index, question, c.text))
         for member in ranked[:max(1, cfg.k)]:
             out.append(Context(chunk_id=member.id, text=member.text,
-                               session_id=member.session_id, date=member.date,
+                               session_id=member.document_id, date=member.date,
                                score=context.score,
                                stages=dict(context.stages),
                                expanded_from=chunk.id))

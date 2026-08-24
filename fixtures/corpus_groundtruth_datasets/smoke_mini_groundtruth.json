@@ -1,0 +1,255 @@
+{
+  "groundtruth_dataset_metadata": {
+    "name": "Smoke set — five sessions — questions",
+    "corpus_ref": {
+      "dataset": "smoke-mini"
+    },
+    "language": "en",
+    "description": "Six questions across all three difficulty bands, written against the smoke-mini corpus.",
+    "default_question_asked_at": "2026-06-08T00:00:00Z",
+    "question_metadata_fields": {
+      "question_type": {
+        "type": "string",
+        "values": [
+          "single-hop",
+          "temporal",
+          "multi-hop",
+          "abstention"
+        ],
+        "description": "Evaluation category.",
+        "applies_to": [
+          "question"
+        ]
+      },
+      "difficulty": {
+        "type": "string",
+        "values": [
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "description": "Human-assigned difficulty.",
+        "applies_to": [
+          "question"
+        ]
+      }
+    },
+    "evidence_role_values": {
+      "supporting": "The quote supports the expected answer."
+    }
+  },
+  "groundtruth_dataset": [
+    {
+      "groundtruth_question_id": 1,
+      "question": "What broke in the kitchen?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "The espresso machine, on Monday.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The espresso machine broke"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "the espresso machine in the kitchen broke on Monday",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 2,
+      "question": "Where are the spare keys?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "In the blue tin on the top shelf.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "They are in the blue tin"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 2,
+          "evidence": [
+            {
+              "text": "the spare office keys are in the blue tin on the top shelf",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy"
+      }
+    },
+    {
+      "groundtruth_question_id": 3,
+      "question": "When does the parcel arrive?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Thursday between 9 and 11.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Thursday between 9 and 11"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 3,
+          "evidence": [
+            {
+              "text": "the parcel from Hälsa arrives on Thursday between 9 and 11",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "temporal",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 4,
+      "question": "How often does the fig tree need watering?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Twice a week in summer, once a week the rest of the year.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Twice a week in summer"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 4,
+          "evidence": [
+            {
+              "text": "the fig tree needs watering twice a week in summer",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "medium"
+      }
+    },
+    {
+      "groundtruth_question_id": 5,
+      "question": "What two things changed in the office this week?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "The espresso machine broke on Monday and the guest wifi password changed.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "The espresso machine broke"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "The wifi password changed"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "the espresso machine in the kitchen broke on Monday",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 5,
+          "evidence": [
+            {
+              "text": "the guest wifi password changed to harbour-lantern-42",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard"
+      }
+    },
+    {
+      "groundtruth_question_id": 6,
+      "question": "Who is paying for the espresso machine repair?",
+      "expected_answer": {
+        "behavior": "abstain"
+      },
+      "relevant_corpus_documents": [],
+      "question_metadata": {
+        "question_type": "abstention",
+        "difficulty": "hard"
+      }
+    }
+  ]
+}

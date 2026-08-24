@@ -3,15 +3,18 @@ const ArchiveIO = (() => {
   const FORMAT = 'raglab-experiment';
   const VERSION = 1;
   const MAX_BYTES = 32 * 1024 * 1024;
+  // D3: `IndexConfig.dataset=''` still *means* the built-in diary, and is
+  // still dropped from the fingerprint payload so every collection name
+  // already recorded stays reproducible — the one dataset id this codec (and
+  // `ExperimentHandoff.reconcile`, which reads this same constant) ever
+  // fills in for an absent one, stated once rather than typed at each site.
+  const BUILTIN_DATASET = 'diary-fa';
   const LIMITS = Object.freeze({
     depth: 32, questions: 5000, chunks: 50000, traces: 5000,
     candidates_per_trace: 1000, list_items: 100000, string_chars: 2000000,
   });
-  const TYPES = Object.freeze([
-    'single-hop', 'temporal', 'multi-hop', 'aggregation', 'knowledge-update',
-    'commitment', 'entity', 'pattern', 'habit', 'abstention', 'adversarial',
-  ]);
-  const DIFFICULTIES = Object.freeze(['easy', 'medium', 'hard']);
+  const EVIDENCE_FIDELITIES = Object.freeze(['verbatim', 'paraphrase', 'computed']);
+  const BEHAVIORS = Object.freeze(['answer', 'abstain', 'correct_premise']);
   const STAGES = Object.freeze(['index', 'retrieval', 'generation', 'overall']);
   const UNSAFE_METRIC_KEYS = Object.freeze(['__proto__', 'prototype', 'constructor']);
   const RESULT_KEYS = Object.freeze([
@@ -35,7 +38,7 @@ const ArchiveIO = (() => {
       summary_boost: 1, summary_levels: '',
     },
     generation: {
-      answerer: 'extractive', model: '', key_facts_judge: false,
+      answerer: 'extractive', model: '', fact_judge: false,
       judge_model: '', ragas_model: '',
     },
     label: '',
@@ -185,7 +188,8 @@ const ArchiveIO = (() => {
     object(body.config, 'settings.config');
     validateConfig(body.config);
     const ui = object(body.ui, 'settings.ui');
-    keys(ui, ['mode', 'ragas_mode', 'limit', 'ragas_limit', 'types'], 'settings.ui');
+    keys(ui, ['mode', 'ragas_mode', 'limit', 'ragas_limit', 'labels', 'balance'],
+      'settings.ui');
     string(ui.mode, 'settings.ui.mode');
     if (!['', 'local', 'openrouter', 'claude', 'codex'].includes(ui.mode)) {
       fail(`settings.ui.mode: unsupported mode ${JSON.stringify(ui.mode)}`);
@@ -196,26 +200,39 @@ const ArchiveIO = (() => {
     }
     integer(ui.limit, 'settings.ui.limit', 0, 200);
     integer(ui.ragas_limit, 'settings.ui.ragas_limit', 0, 200);
-    array(ui.types, 'settings.ui.types').forEach((type, index) => {
-      string(type, `settings.ui.types[${index}]`);
-      if (!TYPES.includes(type)) fail(`settings.ui.types[${index}]: unknown question type ${type}`);
+    string(ui.balance, 'settings.ui.balance');
+    // D7: a question filter is one switch-group per label the *dataset*
+    // declares — an open vocabulary, so there is no fixed list to check
+    // `labels`/`balance` against here. The panel checks them against the
+    // dataset the config names, which is where that vocabulary lives.
+    const labels = object(ui.labels, 'settings.ui.labels');
+    Object.entries(labels).forEach(([label, values]) => {
+      array(values, `settings.ui.labels.${label}`).forEach((value, index) => {
+        string(value, `settings.ui.labels.${label}[${index}]`, true);
+      });
     });
   };
 
-  const unique = (rows, key, path) => {
+  // `isInt` is true for a question/row/trace id — the schema's own
+  // `groundtruth_question_id`, an integer — and false for a chunk/summary id,
+  // an arbitrary string assigned at index time and unrelated to the schema.
+  const unique = (rows, key, path, isInt = false) => {
     const found = new Map();
     array(rows, path).forEach((row, index) => {
       object(row, `${path}[${index}]`);
-      const value = string(row[key], `${path}[${index}].${key}`, true);
+      const value = isInt
+        ? integer(row[key], `${path}[${index}].${key}`)
+        : string(row[key], `${path}[${index}].${key}`, true);
       if (found.has(value)) fail(`${path}: duplicate ${key} ${value}`);
       found.set(value, row);
     });
     return found;
   };
-  const ids = (values, path) => {
+  const ids = (values, path, isInt = false) => {
     const found = new Set();
     array(values, path).forEach((value, index) => {
-      string(value, `${path}[${index}]`, true);
+      if (isInt) integer(value, `${path}[${index}]`);
+      else string(value, `${path}[${index}]`, true);
       if (found.has(value)) fail(`${path}: duplicate id ${value}`);
       found.add(value);
     });
@@ -229,6 +246,15 @@ const ArchiveIO = (() => {
     }
   };
 
+  // The corpus/ground-truth pair, held to the schema's own contract (D4/D9):
+  // the pair join, every cited document real, every verbatim quote findable
+  // character for character. This is a hand-written mirror of the essential
+  // cross-file rules `dataset_import_contract.validate()` runs server-side —
+  // the browser has no `jsonschema` and cannot load the JSON Schema files, so
+  // it cannot re-run the *full* structural contract (label vocabularies,
+  // confidence/ranks legality); those were already enforced once, at import,
+  // and re-deciding them here would be a second validator drifting from the
+  // first rather than following it.
   const validateDataset = dataset => {
     object(dataset, 'evaluation.inspector.dataset');
     keys(dataset, ['id', 'corpus', 'ground_truth'], 'evaluation.inspector.dataset');
@@ -237,66 +263,82 @@ const ArchiveIO = (() => {
       fail(`evaluation.inspector.dataset.id ${datasetId}: invalid dataset id`);
     }
     const corpus = object(dataset.corpus, 'evaluation.inspector.dataset.corpus');
-    const meta = object(corpus.meta, 'evaluation.inspector.dataset.corpus.meta');
-    string(meta.language, 'evaluation.inspector.dataset.corpus.meta.language', true);
-    const sessions = array(corpus.sessions, 'evaluation.inspector.dataset.corpus.sessions');
-    if (!sessions.length) fail('evaluation.inspector.dataset.corpus.sessions: non-empty list required');
-    const sessionById = unique(sessions, 'session_id', 'evaluation.inspector.dataset.corpus.sessions');
-    sessionById.forEach((session, sessionId) => {
-      const datePath = `evaluation.inspector.dataset.corpus.sessions.${sessionId}.date`;
-      const date = string(session.date, datePath, true);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) fail(`${datePath}: expected YYYY-MM-DD`);
-      const messages = array(session.messages,
-        `evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages`);
-      if (!messages.length) fail(`evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages: non-empty list required`);
-      messages.forEach((message, index) => {
-        object(message, `evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages[${index}]`);
-        if (!['user', 'assistant'].includes(message.role)) {
-          fail(`evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages[${index}].role: invalid role`);
-        }
-        string(message.content,
-          `evaluation.inspector.dataset.corpus.sessions.${sessionId}.messages[${index}].content`, true);
-      });
-    });
-    const truth = object(dataset.ground_truth, 'evaluation.inspector.dataset.ground_truth');
-    const questions = array(truth.questions,
-      'evaluation.inspector.dataset.ground_truth.questions');
-    if (!questions.length) fail('evaluation.inspector.dataset.ground_truth.questions: non-empty list required');
-    if (questions.length > LIMITS.questions) {
-      fail(`evaluation.inspector.dataset.ground_truth.questions: questions exceed ${LIMITS.questions}`);
+    const corpusMeta = object(corpus.corpus_dataset_metadata,
+      'evaluation.inspector.dataset.corpus.corpus_dataset_metadata');
+    string(corpusMeta.dataset,
+      'evaluation.inspector.dataset.corpus.corpus_dataset_metadata.dataset', true);
+    string(corpusMeta.name,
+      'evaluation.inspector.dataset.corpus.corpus_dataset_metadata.name', true);
+    string(corpusMeta.language,
+      'evaluation.inspector.dataset.corpus.corpus_dataset_metadata.language', true);
+    if (corpusMeta.dataset !== datasetId) {
+      fail('evaluation.inspector.dataset.corpus.corpus_dataset_metadata.dataset '
+        + `${JSON.stringify(corpusMeta.dataset)}: expected archived dataset `
+        + `${JSON.stringify(datasetId)}`);
     }
-    const questionById = unique(questions, 'id',
-      'evaluation.inspector.dataset.ground_truth.questions');
+    const documents = array(corpus.corpus_documents,
+      'evaluation.inspector.dataset.corpus.corpus_documents');
+    if (!documents.length) fail('evaluation.inspector.dataset.corpus.corpus_documents: non-empty list required');
+    const documentById = unique(documents, 'corpus_document_id',
+      'evaluation.inspector.dataset.corpus.corpus_documents', true);
+    const documentText = new Map();
+    documentById.forEach((document, documentId) => {
+      const path = `evaluation.inspector.dataset.corpus.corpus_documents.${documentId}`;
+      const parts = array(document.document_content, `${path}.document_content`);
+      if (!parts.length) fail(`${path}.document_content: non-empty list required`);
+      const texts = parts.map((part, index) => string(part.text, `${path}.document_content[${index}].text`, true));
+      documentText.set(documentId, texts.join(' \n'));
+    });
+
+    const truth = object(dataset.ground_truth, 'evaluation.inspector.dataset.ground_truth');
+    const truthMeta = object(truth.groundtruth_dataset_metadata,
+      'evaluation.inspector.dataset.ground_truth.groundtruth_dataset_metadata');
+    string(truthMeta.name,
+      'evaluation.inspector.dataset.ground_truth.groundtruth_dataset_metadata.name', true);
+    const corpusRef = object(truthMeta.corpus_ref,
+      'evaluation.inspector.dataset.ground_truth.groundtruth_dataset_metadata.corpus_ref');
+    if (corpusRef.dataset !== corpusMeta.dataset) {
+      fail(`${JSON.stringify(corpusRef.dataset)}: corpus_ref.dataset does not `
+        + `match the corpus it is paired with (${JSON.stringify(corpusMeta.dataset)})`);
+    }
+    const questions = array(truth.groundtruth_dataset,
+      'evaluation.inspector.dataset.ground_truth.groundtruth_dataset');
+    if (!questions.length) fail('evaluation.inspector.dataset.ground_truth.groundtruth_dataset: non-empty list required');
+    if (questions.length > LIMITS.questions) {
+      fail(`evaluation.inspector.dataset.ground_truth.groundtruth_dataset: questions exceed ${LIMITS.questions}`);
+    }
+    const questionById = unique(questions, 'groundtruth_question_id',
+      'evaluation.inspector.dataset.ground_truth.groundtruth_dataset', true);
     questionById.forEach((question, questionId) => {
-      const path = `evaluation.inspector.dataset.ground_truth.questions.${questionId}`;
-      const questionText = question.question || question.question_fa;
-      string(questionText, `${path}.question`, true);
-      if (!TYPES.includes(question.type)) fail(`${path}.type: unknown question type ${question.type}`);
-      if (!DIFFICULTIES.includes(question.difficulty)) fail(`${path}.difficulty: invalid difficulty`);
-      const evidence = array(question.evidence || [], `${path}.evidence`);
-      if (question.answerable !== false && !evidence.length) {
-        fail(`${path}.evidence: an answerable question needs evidence`);
-      }
-      if (question.answerable !== false) {
-        string(question.answer || question.answer_fa, `${path}.answer`, true);
-      }
-      evidence.forEach((item, index) => {
-        const where = `${path}.evidence[${index}]`;
-        object(item, where);
-        const sessionId = string(item.session_id, `${where}.session_id`, true);
-        const session = sessionById.get(sessionId);
-        if (!session) fail(`${where}.session_id ${sessionId} is not archived`);
-        const indices = array(item.message_indices, `${where}.message_indices`);
-        if (!indices.length) fail(`${where}.message_indices: non-empty list required`);
-        indices.forEach(messageIndex => {
-          if (!Number.isInteger(messageIndex) || messageIndex < 0
-              || messageIndex >= session.messages.length) {
-            fail(`${where}.message_indices ${messageIndex} is outside session ${sessionId}`);
+      const path = `evaluation.inspector.dataset.ground_truth.groundtruth_dataset.${questionId}`;
+      string(question.question, `${path}.question`, true);
+      const expected = object(question.expected_answer, `${path}.expected_answer`);
+      const behavior = expected.behavior;
+      if (!BEHAVIORS.includes(behavior)) fail(`${path}.expected_answer.behavior: unknown behavior ${behavior}`);
+      if (behavior !== 'abstain') string(expected.text, `${path}.expected_answer.text`, true);
+      const relevant = array(question.relevant_corpus_documents || [], `${path}.relevant_corpus_documents`);
+      relevant.forEach((entry, index) => {
+        const where = `${path}.relevant_corpus_documents[${index}]`;
+        object(entry, where);
+        const documentId = entry.corpus_document_id;
+        if (!documentById.has(documentId)) {
+          fail(`${where}.corpus_document_id ${documentId}: cites a document not in this corpus`);
+        }
+        const evidence = array(entry.evidence, `${where}.evidence`);
+        if (!evidence.length) fail(`${where}.evidence: non-empty list required`);
+        evidence.forEach((item, evidenceIndex) => {
+          const evidencePath = `${where}.evidence[${evidenceIndex}]`;
+          object(item, evidencePath);
+          const text = string(item.text, `${evidencePath}.text`, true);
+          const fidelity = item.fidelity;
+          if (!EVIDENCE_FIDELITIES.includes(fidelity)) {
+            fail(`${evidencePath}.fidelity: unknown fidelity ${fidelity}`);
+          }
+          if (fidelity === 'verbatim' && !documentText.get(documentId).includes(text)) {
+            fail(`${evidencePath}.text: not findable character for character `
+              + `in document ${documentId} — a verbatim quote must appear exactly`);
           }
         });
-        const quote = string(item.quote, `${where}.quote`, true);
-        const cited = indices.map(messageIndex => session.messages[messageIndex].content).join(' \n');
-        if (!cited.includes(quote)) fail(`${where}.quote: text is not in cited messages`);
       });
     });
     return questionById;
@@ -406,7 +448,7 @@ const ArchiveIO = (() => {
     });
     const sources = new Map([...chunkById, ...summaryById]);
 
-    const rowById = unique(rows, 'id', 'evaluation.result.rows');
+    const rowById = unique(rows, 'id', 'evaluation.result.rows', true);
     Array.from(rowById.keys()).forEach((rowId, index) => {
       if (!questionById.has(rowId)) {
         fail(`evaluation.result.rows[${index}].id ${rowId} is outside archived ground truth`);
@@ -416,7 +458,7 @@ const ArchiveIO = (() => {
     if (traces.length > LIMITS.traces) {
       fail(`evaluation.inspector.traces: traces exceed ${LIMITS.traces}`);
     }
-    const traceById = unique(traces, 'question_id', 'evaluation.inspector.traces');
+    const traceById = unique(traces, 'question_id', 'evaluation.inspector.traces', true);
     Array.from(traceById.entries()).forEach(([questionId, traceRow], traceIndex) => {
       const tracePath = `evaluation.inspector.traces[${traceIndex}]`;
       if (!questionById.has(questionId)) {
@@ -447,7 +489,7 @@ const ArchiveIO = (() => {
       });
     });
 
-    const questionIds = ids(selection.question_ids, 'evaluation.result.selection.question_ids');
+    const questionIds = ids(selection.question_ids, 'evaluation.result.selection.question_ids', true);
     const rowIds = Array.from(rowById.keys());
     const traceIds = Array.from(traceById.keys());
     if (stable(questionIds) !== stable(rowIds)) {
@@ -483,7 +525,7 @@ const ArchiveIO = (() => {
     if (integer(result.summary.n_questions, 'evaluation.result.summary.n_questions', 0) !== count) {
       fail(`evaluation.result.summary.n_questions: expected ${count}`);
     }
-    const datasetId = body.config.index.dataset || 'diary-fa';
+    const datasetId = body.config.index.dataset || BUILTIN_DATASET;
     if (result.dataset !== datasetId) {
       fail(`evaluation.result.dataset ${result.dataset}: expected settings dataset ${datasetId}`);
     }
@@ -509,8 +551,18 @@ const ArchiveIO = (() => {
       fail(`archive.version ${JSON.stringify(value.version)}: expected version ${VERSION}`);
     }
     object(value.settings, 'settings');
-    if (value.settings.ui && Array.isArray(value.settings.ui.types)) {
-      value.settings.ui.types = Array.from(new Set(value.settings.ui.types)).sort();
+    // Canonical order before the equality check `ArchiveIO.equal` runs
+    // elsewhere: object keys sort themselves there, but an array's order is
+    // part of the comparison, and which checkbox a browser reports first
+    // among several checked ones is not a fact this archive should carry.
+    if (value.settings.ui && value.settings.ui.labels
+        && typeof value.settings.ui.labels === 'object') {
+      const labels = value.settings.ui.labels;
+      Object.keys(labels).forEach(name => {
+        if (Array.isArray(labels[name])) {
+          labels[name] = Array.from(new Set(labels[name])).sort();
+        }
+      });
     }
     validateSettings(value.settings);
     if (Object.prototype.hasOwnProperty.call(value, 'evaluation')) {
@@ -565,7 +617,7 @@ const ArchiveIO = (() => {
     }
   };
   const datasetDisposition = (value, servedIds) => {
-    const dataset = value.settings.config.index.dataset || 'diary-fa';
+    const dataset = value.settings.config.index.dataset || BUILTIN_DATASET;
     const viewOnly = !servedIds.includes(dataset);
     if (viewOnly && !value.evaluation) {
       throw new Error(`settings.config.index.dataset ${dataset} is not available`);
@@ -579,7 +631,7 @@ const ArchiveIO = (() => {
     catch (error) { adapter.write(before); throw error; }
     return next;
   };
-  return Object.freeze({ FORMAT, VERSION, MAX_BYTES, settings, completed,
-    normalize, parse, stringify, equal, assertFileSize, stageResults,
+  return Object.freeze({ FORMAT, VERSION, MAX_BYTES, BUILTIN_DATASET, settings,
+    completed, normalize, parse, stringify, equal, assertFileSize, stageResults,
     datasetDisposition, transact });
 })();

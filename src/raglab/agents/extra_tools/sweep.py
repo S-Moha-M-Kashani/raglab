@@ -11,10 +11,10 @@ from dataclasses import replace
 
 from raglab.evaluation import leaderboard
 from raglab.llm_backends import cli_subprocess_chat as clichat
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
 from raglab.configuration.lab_config import (
-    BALANCES,
     GenerationConfig,
     IndexConfig,
     LabConfig,
@@ -170,8 +170,7 @@ def live(label: str, started: float, stream=sys.stdout):
 def sweep(limit: int, workers: int, only: list[str] | None = None,
           balance: str = SWEEP_BALANCE) -> list[tuple]:
     settings = judged_settings()
-    diary = corpus.load_diary()
-    ground_truth = corpus.load_ground_truth()
+    diary, ground_truth = datasets.load()
     registry = IndexRegistry(settings, diary)
 
     asked, workers = workers, capped_workers(workers, settings)
@@ -258,13 +257,12 @@ def final(limit: int | None, workers: int, label: str,
     """Re-run one candidate over the whole question set: the winner is decided
     on a subset for cost, but a per-type breakdown over two questions isn't one."""
     settings = judged_settings()
-    diary = corpus.load_diary()
-    ground_truth = corpus.load_ground_truth()
+    diary, ground_truth = datasets.load()
     registry = IndexRegistry(settings, diary)
     cfg = next(c for c in candidates() if c.label.split()[0] == label)
     cfg = replace(cfg, label=f'WINNER {cfg.label} · full set')
     workers = capped_workers(workers, settings)
-    n = limit or len(ground_truth['questions'])
+    n = limit or len(ground_truth['groundtruth_dataset'])
     started = time.time()
     print(f'final run: {cfg.label} over {n} questions, {workers} workers',
           flush=True)
@@ -277,8 +275,7 @@ def final(limit: int | None, workers: int, label: str,
     print(f'run {result.run_id}')
     print(json.dumps({'decision': score(result),
                       'ragas': (result.ragas or {}).get('metrics'),
-                      'overall': result.summary.get('overall'),
-                      'by_type': result.summary.get('by_type')},
+                      'overall': result.summary.get('overall')},
                      ensure_ascii=False, indent=1))
 
 
@@ -287,10 +284,11 @@ def main() -> None:
     parser.add_argument('--limit', type=int, default=SWEEP_LIMIT,
                         help='questions per candidate (default %(default)s, '
                              'balanced across the difficulty bands)')
-    parser.add_argument('--balance', default=SWEEP_BALANCE, choices=BALANCES,
-                        help='"difficulty" equalises easy/medium/hard; "stride" '
-                             'samples the set as it is, which is what the runs '
-                             'before 2026-07-31 used')
+    parser.add_argument('--balance', default=SWEEP_BALANCE,
+                        help='the name of a question label to equalise '
+                             '("difficulty" on a corpus that declares one), '
+                             'or "" to stride the set as it is, which is what '
+                             'the runs before 2026-07-31 used')
     parser.add_argument('--workers', type=int, default=6,
                         help='questions scored in parallel; the judged stages '
                              'are dominated by waiting on the model. Drop this '

@@ -21,6 +21,7 @@ from fastapi.responses import (FileResponse, JSONResponse,
 
 from raglab.llm_backends import openrouter_key_memory as credentials
 from raglab.corpora import dataset_import_contract as datasets
+from raglab.corpora import corpus_reading
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import experiment_archive as archive
@@ -37,10 +38,8 @@ from raglab.rag_components.retrieval import (
 from raglab.agents import widget
 from raglab.configuration.lab_config import (
     ANSWERERS,
-    BALANCES,
     CHUNKERS,
     DEPENDENCIES,
-    DIFFICULTIES,
     EMBEDDERS,
     GRADERS,
     GRAPH_SOURCES,
@@ -55,7 +54,6 @@ from raglab.configuration.lab_config import (
     LabConfig,
     load_lab_settings,
     settings_for_provider)
-from raglab.corpora.diary_corpus_loader import load_diary, load_ground_truth
 from raglab.rag_components.indexing import (
     summary_hierarchy_builder as hierarchy)
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
@@ -113,7 +111,12 @@ def _archive_ui(payload: dict) -> dict:
         'ragas_mode': payload.get('ragas_mode', 'offline'),
         'limit': int(payload.get('limit') or 0),
         'ragas_limit': int(payload.get('ragas_limit') or 0),
-        'types': list(payload.get('types') or []),
+        # D7: a question filter is now one switch-group per question label
+        # the dataset itself declares, so there is no fixed vocabulary left
+        # to validate `labels`/`balance` against here — the panel checks them
+        # against the dataset the archived config names.
+        'labels': dict(payload.get('labels') or {}),
+        'balance': payload.get('balance') or '',
     }
 
 
@@ -139,13 +142,22 @@ def _hierarchy_options() -> dict:
     }
 
 
-def _question_vocab() -> dict:
+def _question_vocab(ground_truth: dict) -> dict:
+    """One switch-group per question label the loaded ground truth declares
+    with a closed set of values or a glossary (D7) — data-driven, since the
+    labels are the dataset's own, not a vocabulary every corpus must share.
+    `balance` may name any of them, or '' for a plain stride."""
+    fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
+             ).get('question_metadata_fields') or {}
+    labels = {name: (declaration.get('values')
+                     or list((declaration.get('glossary') or {})))
+             for name, declaration in fields.items()
+             if declaration.get('values') or declaration.get('glossary')}
     return {
-        'question_types': list(metrics.TYPES),
-        'difficulties': list(DIFFICULTIES),
+        'question_labels': labels,
         # The sample is part of the measurement: two rows on different
         # samples are not two results of the same one.
-        'balances': list(BALANCES),
+        'balances': [''] + sorted(labels),
     }
 
 
@@ -180,15 +192,14 @@ def _metric_help() -> dict:
 
 
 def _corpus_summary(diary: dict, ground_truth: dict) -> dict:
+    documents = diary.get('corpus_documents') or []
     return {'corpus': {
-        'sessions': len(diary['sessions']),
-        'messages': sum(len(s['messages']) for s in diary['sessions']),
-        'from': diary['meta']['period']['from'],
-        'to': diary['meta']['period']['to'],
-        'threads': len(diary['threads']),
-        'habits': len(diary.get('habits', {})),
-        'questions': len(ground_truth['questions']),
-        'query_date': ground_truth['meta'].get('query_date'),
+        'documents': len(documents),
+        'parts': sum(len(document.get('document_content') or [])
+                     for document in documents),
+        'questions': len(ground_truth.get('groundtruth_dataset') or []),
+        'query_date': (ground_truth.get('groundtruth_dataset_metadata') or {}
+                       ).get('default_question_asked_at', '')[:10],
     }}
 
 
@@ -236,9 +247,49 @@ def _sent_events(events):
         yield f'data: {json.dumps({"error": str(error)})}\n\n'
 
 
+def _label_declaration(fields: dict) -> list[dict]:
+    """One row per declared label — name, type, its closed set of levels (a
+    plain `values` list or a `glossary`'s own keys; empty for an open field),
+    whether a model extracted it, and the confidence rater that scores it, if
+    any. Read straight off the file's own `label_fields`/
+    `question_metadata_fields` (D4) — nothing here is guessed or filled in."""
+    return [
+        {'name': name, 'type': declaration.get('type', ''),
+         'levels': declaration.get('values')
+                   or list(declaration.get('glossary') or {}),
+         'extracted': bool(declaration.get('extracted')),
+         'confidence_for': declaration.get('confidence_for', '')}
+        for name, declaration in sorted(fields.items())]
+
+
+def _dataset_declaration(dataset_id: str) -> dict:
+    """Everything the dataset card and the run's label filters read about one
+    dataset, straight off its loaded files (D4) — never hardcoded, so a
+    corpus with no date or ranks label just shows fewer rows and three
+    greyed-out knobs rather than a placeholder for what it lacks. The same
+    reading an import shows on success and a catalogue entry shows on
+    selection, because both are 'this is what the lab read' and must not
+    disagree."""
+    corpus, ground_truth = datasets.load(dataset_id)
+    label_fields = (corpus.get('corpus_dataset_metadata') or {}
+                    ).get('label_fields') or {}
+    question_fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
+                       ).get('question_metadata_fields') or {}
+    return {
+        'label_declarations': _label_declaration(label_fields),
+        'question_label_declarations': _label_declaration(question_fields),
+        # '' means the corpus declares no such label (D5/D6) — the source
+        # `knob_dependencies.DEPENDENCIES` reads to grey the three time knobs
+        # and the agentic importance weight.
+        'date_label': corpus_reading.date_label(label_fields),
+        'ranks_label': corpus_reading.ranks_label(label_fields),
+    } | _question_vocab(ground_truth)
+
+
 def _dataset_options() -> dict:
     return {
-        'datasets': [found.as_dict() for found in datasets.catalogue()],
+        'datasets': [found.as_dict() | _dataset_declaration(found.id)
+                     for found in datasets.catalogue()],
     }
 
 
@@ -400,8 +451,7 @@ def create_app() -> FastAPI:
         return credentials.apply(boot_settings)
 
     settings = boot_settings
-    diary = load_diary()
-    ground_truth = load_ground_truth()
+    diary, ground_truth = datasets.load()
 
     def questions_for(cfg: LabConfig) -> dict:
         """The ground truth of the corpus this config names — resolved by id, so index and questions match."""
@@ -522,7 +572,7 @@ def create_app() -> FastAPI:
         """Everything the panel needs to render itself, including what is actually installed."""
         live = settings_now()
         return (_catalogue_vocab() | _hierarchy_options()
-                | _question_vocab() | _config_defaults() | _step_list()
+                | _question_vocab(ground_truth) | _config_defaults() | _step_list()
                 | _model_catalogues(live) | _metric_help()
                 | _corpus_summary(diary, ground_truth) | _capabilities(live)
                 | _dataset_options() | {'indexes': registry.known()})
@@ -592,10 +642,9 @@ def create_app() -> FastAPI:
                 run_corpus, run_truth = datasets.load(cfg.index.dataset)
                 result = evaluate.run_eval(
                     registry, run_truth, cfg, run_settings,
-                    types=payload.get('types') or None,
-                    difficulty=payload.get('difficulty') or None,
+                    labels=payload.get('labels') or None,
                     limit=payload.get('limit') or None,
-                    balance=payload.get('balance') or 'stride',
+                    balance=payload.get('balance') or '',
                     ragas_mode=payload.get('ragas_mode', 'offline'),
                     ragas_limit=payload.get('ragas_limit') or None,
                     workers=int(payload.get('workers', 1)), progress=report,
@@ -672,10 +721,9 @@ def create_app() -> FastAPI:
                 check_cancelled()
                 return evaluate.run_retrieval(
                     registry, questions_for(cfg), cfg, run_settings,
-                    types=payload.get('types') or None,
-                    difficulty=payload.get('difficulty') or None,
+                    labels=payload.get('labels') or None,
                     limit=payload.get('limit') or None,
-                    balance=payload.get('balance') or 'stride',
+                    balance=payload.get('balance') or '',
                     progress=report, cancelled=check_cancelled)
 
         return _accepted(jobs.start('retrieve', work,
@@ -841,8 +889,9 @@ def create_app() -> FastAPI:
             with dataset_lock(cfg.index.dataset):
                 check_cancelled()
                 asked = questions_for(cfg)
-                query_date = (requested_query_date
-                              or asked['meta']['query_date'])
+                query_date = requested_query_date or (
+                    asked.get('groundtruth_dataset_metadata') or {}
+                    ).get('default_question_asked_at', '2026-07-28T00:00:00Z')[:10]
                 # The implicit build is the long silent part — hand it the
                 # front of the bar, or it all happens on 'starting 0%'.
                 index = registry.get(
@@ -860,14 +909,19 @@ def create_app() -> FastAPI:
                     outcome, cfg.generation, llm=llm, models=roles)
                 # Exact match only, never fuzzy: everything else stays plainly
                 # ungraded rather than guessed at.
-                gt_question = next((q for q in asked['questions']
-                                    if q['question_fa'] == question), None)
+                gt_question = next(
+                    (q for q in asked['groundtruth_dataset']
+                     if q['question'] == question), None)
                 if gt_question is not None:
-                    quotes = [ev['quote']
-                              for ev in gt_question.get('evidence', [])]
+                    quotes = [
+                        ev['text']
+                        for relevant in gt_question.get(
+                            'relevant_corpus_documents') or []
+                        for ev in relevant.get('evidence') or []
+                        if ev.get('fidelity') == 'verbatim']
                     gold_flags = mark_gold(
                         [c['text'] for c in trace['candidates']], quotes)
-                    question_id = gt_question['id']
+                    question_id = gt_question['groundtruth_question_id']
                 else:
                     gold_flags = [False] * len(trace['candidates'])
                     question_id = None
@@ -886,11 +940,31 @@ def create_app() -> FastAPI:
         """The ground truth without its answers, for picking a question in the query panel."""
         asked = (datasets.load(dataset)[1] if dataset else ground_truth)
         return {'questions': [
-            {'id': q['id'], 'type': q['type'], 'difficulty': q['difficulty'],
-             'question_fa': q['question_fa'], 'question_en': q['question_en'],
-             'answerable': q['answerable'],
-             'evidence_sessions': [ev['session_id'] for ev in q['evidence']]}
-            for q in asked['questions'][:limit]]}
+            {'id': q['groundtruth_question_id'],
+             'labels': q.get('question_metadata') or {},
+             'question': q['question'],
+             'behavior': q['expected_answer']['behavior'],
+             'evidence_sessions': [
+                 str(relevant.get('corpus_document_id', ''))
+                 for relevant in q.get('relevant_corpus_documents') or []]}
+            for q in asked['groundtruth_dataset'][:limit]]}
+
+    @app.get('/api/dataset-templates/corpus')
+    def dataset_template_corpus():
+        """The corpus template, read from the fixture every time — no copy of
+        it lives in code, so the one author (the fixture file, pinned
+        byte-equal to the schema by its own convention test) is also the one
+        the import section's guidance link hands the browser."""
+        return FileResponse(datasets.BUNDLED_DIR / 'corpus_template.json',
+                            media_type='application/json',
+                            filename='corpus_template.json')
+
+    @app.get('/api/dataset-templates/groundtruth')
+    def dataset_template_groundtruth():
+        """The ground-truth template, on the same terms as the corpus one above."""
+        return FileResponse(datasets.BUNDLED_DIR / 'groundtruth_template.json',
+                            media_type='application/json',
+                            filename='groundtruth_template.json')
 
     @app.get('/api/datasets')
     def list_datasets():
@@ -898,20 +972,30 @@ def create_app() -> FastAPI:
 
     @app.post('/api/datasets')
     def import_dataset(payload: dict):
-        """Take one dataset file, check it against the contract, keep it — 400 with every problem at once."""
-        meta = payload.get('dataset') if isinstance(payload, dict) else None
-        raw_id = meta.get('id') if isinstance(meta, dict) else ''
+        """Take one dataset pair — the corpus file and its ground truth (D1) —
+        check it against the contract, keep it. 400 with every problem at once."""
+        corpus = payload.get('corpus') if isinstance(payload, dict) else None
+        ground_truth = (payload.get('ground_truth')
+                        if isinstance(payload, dict) else None)
+        if not isinstance(corpus, dict) or not isinstance(ground_truth, dict):
+            raise HTTPException(
+                400, "a dataset import needs both files: {'corpus': …, "
+                     "'ground_truth': …}")
+        meta = corpus.get('corpus_dataset_metadata')
+        raw_id = meta.get('dataset') if isinstance(meta, dict) else ''
         lock_id = raw_id if isinstance(raw_id, str) else ''
         with dataset_lock(lock_id):
             try:
-                found = datasets.import_dataset(payload)
+                found = datasets.import_dataset(corpus, ground_truth)
             except ValueError as error:
                 raise HTTPException(400, str(error))
             # Import writes the file and clears the loader cache first; eviction
             # is the final step under the same lock, so no later index lookup
             # can observe the new file through an old cached index.
             registry.invalidate_dataset(found.id)
-        return found.as_dict()
+        # The same declaration table a catalogue entry carries, so the panel
+        # can show what it just read without a second round trip.
+        return found.as_dict() | _dataset_declaration(found.id)
 
     @app.post('/api/credentials')
     def set_credentials(payload: dict):

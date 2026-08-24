@@ -1,0 +1,147 @@
+{
+  "corpus_dataset_metadata": {
+    "dataset": "smoke-mini",
+    "name": "Smoke set — five sessions",
+    "language": "en",
+    "description": "Five sessions and six questions across all three difficulty bands. Too small to measure anything and not meant to: it is the set you run end to end in seconds to check that a pipeline works before spending an hour on one that does not. Deliberately declares no date-typed label and no ranks label, so this is the corpus that exercises the \"no time behaviour\" path on every run.",
+    "label_fields": {
+      "topics": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "What the session was about.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "role": {
+        "type": "string",
+        "values": [
+          "user",
+          "assistant"
+        ],
+        "description": "Who produced the turn.",
+        "applies_to": [
+          "part",
+          "chunk",
+          "summary"
+        ]
+      }
+    }
+  },
+  "corpus_documents": [
+    {
+      "corpus_document_id": 1,
+      "document_content": [
+        {
+          "text": "Note to self: the espresso machine in the kitchen broke on Monday. Repair booked for Wednesday.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Noted — I'll remind you Tuesday evening.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "topics": [
+          "office"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 2,
+      "document_content": [
+        {
+          "text": "Reminder: the spare office keys are in the blue tin on the top shelf, not in the drawer where they used to be.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Saved.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "topics": [
+          "office"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 3,
+      "document_content": [
+        {
+          "text": "Delivery: the parcel from Hälsa arrives on Thursday between 9 and 11. Someone has to be in.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "I'll flag it Thursday morning.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "topics": [
+          "deliveries"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 4,
+      "document_content": [
+        {
+          "text": "Plant care: the fig tree needs watering twice a week in summer, once a week the rest of the year.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Noted.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "topics": [
+          "plants"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 5,
+      "document_content": [
+        {
+          "text": "IT: the guest wifi password changed to harbour-lantern-42. The old one stopped working this morning.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Saved. Tell visitors at reception rather than by email.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "topics": [
+          "it"
+        ]
+      }
+    }
+  ]
+}

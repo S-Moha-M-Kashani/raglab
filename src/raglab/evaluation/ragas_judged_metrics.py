@@ -314,17 +314,20 @@ def _samples(pairs, ragas_mod, include_answers: bool,
     samples, skipped = [], 0
     for question, outcome in pairs:
         contexts = [c.text for c in outcome.contexts]
-        references = (reference_texts or {}).get(question['id']) or [
-            ev['quote'] for ev in question.get('evidence', [])]
+        references = (reference_texts or {}).get(
+            question['groundtruth_question_id']) or [
+                ev['text']
+                for relevant in question.get('relevant_corpus_documents') or []
+                for ev in relevant.get('evidence') or []]
         # Non-LLM context metrics compare retrieved text to reference text; with
         # either side empty the score is undefined, not zero.
         if not contexts or not references:
             skipped += 1
             continue
-        payload = dict(user_input=question['question_fa'],
+        payload = dict(user_input=question['question'],
                        retrieved_contexts=contexts,
                        reference_contexts=references,
-                       reference=question.get('answer_fa', ''))
+                       reference=question['expected_answer'].get('text', ''))
         if include_answers:
             if not outcome.answer:
                 skipped += 1

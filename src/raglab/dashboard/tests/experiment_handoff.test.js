@@ -22,8 +22,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE = readFileSync(
-  join(HERE, '../frontend/experiment_handoff.js'), 'utf8');
+const read = (name) => readFileSync(join(HERE, '../frontend', name), 'utf8');
+// `archive_io.js` first, exactly as every real page loads them: `reconcile`
+// reads `ArchiveIO.BUILTIN_DATASET` for the one dataset id it ever fills in
+// for an absent one (D3), rather than a second copy of that string.
+const SOURCE = `${read('archive_io.js')}\n${read('experiment_handoff.js')}`;
 const Handoff = runInNewContext(SOURCE + '\n;ExperimentHandoff', {});
 
 // The smallest fake of `localStorage` these two functions actually touch.
@@ -38,30 +41,43 @@ function store(initial = {}) {
 }
 
 // What the panel currently has on screen: every knob at some value, because
-// that is what an unserved knob has to be left at.
+// that is what an unserved knob has to be left at. Every field `LabConfig`
+// actually has, shown or not — a fixture that quietly dropped `rrf_k` would
+// make its own "carried through unshown" test pass for the wrong reason, and
+// one that still said `key_facts_judge` would make "an unknown key is dropped
+// and named" untestable, since that is the exact field this schema renamed.
 const CURRENT = {
   label: 'what the reader was doing',
   index: {
-    dataset: 'diary-fa', chunker: 'semantic-drift', chunk_chars: 500,
+    // The built-in corpus, spelled the way the panel's own control spells it:
+    // `''` is that corpus's config identity (`IndexConfig.fingerprint()` drops
+    // it), so it is the value the `<option>` carries and therefore the value
+    // this control can actually be holding.
+    dataset: '', chunker: 'semantic-drift', chunk_chars: 500,
     overlap: 100, contextual: true, embedder: 'token-hash', embed_model: '',
     hierarchy: '', graph_source: 'hybrid', graph_knn: 8, granularity: 1,
     hierarchy_levels: 1, min_group: 3, summarizer: 'centroid',
   },
   retrieval: {
-    retriever: 'hybrid-rrf', k: 8, candidates: 40, time_filter: true,
-    multi_query: true, hyde: false, mmr_lambda: 1, reranker: 'lexical',
-    rerank_depth: 20, recency_half_life_days: 180, grader: 'none',
-    grade_threshold: 0, summary_scope: 'mixed', summary_boost: 1,
+    retriever: 'hybrid-rrf', k: 8, candidates: 40, rrf_k: 60,
+    time_filter: true, multi_query: true, hyde: false, expansion_model: '',
+    mmr_lambda: 1, reranker: 'lexical', rerank_depth: 20, reranker_model: '',
+    recency_half_life_days: 180, agentic_weights: [1, 0.3, 0.2],
+    grader: 'none', grade_threshold: 0, grader_model: '',
+    max_context_chars: 6000, summary_scope: 'mixed', summary_boost: 1,
     summary_levels: '',
   },
-  generation: { answerer: 'extractive', model: '', key_facts_judge: false },
+  generation: { answerer: 'extractive', model: '', fact_judge: false,
+                judge_model: '', ragas_model: '' },
 };
 
 // What this installation serves, in the shape the panel assembles from
 // /api/options and its own numeric controls.
 const SERVED = {
   mode: 'openrouter',
-  datasets: ['diary-fa', 'smoke-mini'],
+  // What `servedKnobs()` actually assembles: `datasetValues()`, which spells
+  // the built-in corpus `''` and every other corpus by its own id.
+  datasets: ['', 'smoke-mini'],
   choices: {
     'index.chunker': ['semantic-drift', 'session', 'fixed'],
     'index.embedder': ['token-hash', 'sentence-transformers'],
@@ -159,9 +175,74 @@ test('a corpus this installation no longer has is named as uninstalled', () => {
   const recorded = copy(CURRENT);
   recorded.index.dataset = 'gone-fa';
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
-  assert.equal(out.config.index.dataset, 'diary-fa');
+  assert.equal(out.config.index.dataset, CURRENT.index.dataset);
   assert.deepEqual(plain(out.unserved), [{
     path: 'index.dataset', value: 'gone-fa', reason: 'not installed here',
+  }]);
+});
+
+// --- D3: an absent dataset still means the built-in diary -------------------
+// `IndexConfig.dataset=''` is how an archive names the built-in corpus, and
+// it is also that corpus's config *identity*: the fingerprint payload drops
+// it, so every collection already built under it stays reproducible. So the
+// resolution to the corpus's id is for deciding which corpus a value means
+// and for what the reader is shown — never for what is written back. Four
+// cases: an absent id is servable and adopted verbatim, a served non-empty
+// id selects as it always did, a genuinely unknown one keeps the ordinary
+// honest naming, and a catalogue that happens to name the built-in corpus by
+// its id serves an archive that names it by absence just the same.
+
+test("an absent dataset ('') is servable and adopted exactly as recorded, so "
+  + 'a rebuild lands on the collection the record was built under', () => {
+  const recorded = copy(CURRENT);
+  recorded.index.dataset = '';
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+  assert.equal(out.config.index.dataset, '',
+    "'' is the built-in corpus's config identity — resolving it to "
+    + "'diary-fa' here would fingerprint a rebuild into a new collection");
+  assert.deepEqual(plain(out.unserved), [],
+    'the built-in corpus is always servable, so this must not be named as '
+    + 'unserved at all');
+  assert.ok(out.set.includes('index.dataset'));
+});
+
+test('a catalogue naming the built-in corpus by its id serves an archive '
+  + 'that names it by absence, and the other way round', () => {
+  const byId = Object.assign({}, SERVED, { datasets: ['diary-fa', 'smoke-mini'] });
+  const absent = copy(CURRENT);
+  absent.index.dataset = '';
+  const one = Handoff.reconcile(absent, CURRENT, byId);
+  assert.deepEqual(plain(one.unserved), [],
+    'one corpus under two spellings is still one corpus');
+  assert.equal(one.config.index.dataset, '', 'and still adopted verbatim');
+
+  const spelled = copy(CURRENT);
+  spelled.index.dataset = 'diary-fa';
+  const two = Handoff.reconcile(spelled, CURRENT, SERVED);
+  assert.deepEqual(plain(two.unserved), []);
+  assert.equal(two.config.index.dataset, 'diary-fa');
+});
+
+test('a served, non-empty dataset id selects exactly as it always did', () => {
+  const recorded = copy(CURRENT);
+  recorded.index.dataset = 'smoke-mini';
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+  assert.equal(out.config.index.dataset, 'smoke-mini',
+    'a real id already equal to what this lab serves is never rewritten');
+  assert.deepEqual(plain(out.unserved), []);
+});
+
+test('an unknown, non-empty dataset id keeps the ordinary unserved naming — '
+  + "the leniency is for the built-in corpus's two spellings, not for any "
+  + 'absence of a match', () => {
+  const recorded = copy(CURRENT);
+  recorded.index.dataset = 'retired-corpus-xyz';
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+  assert.equal(out.config.index.dataset, CURRENT.index.dataset,
+    'left at the panel’s own value, exactly like any other unserved knob');
+  assert.deepEqual(plain(out.unserved), [{
+    path: 'index.dataset', value: 'retired-corpus-xyz',
+    reason: 'not installed here',
   }]);
 });
 
@@ -356,4 +437,46 @@ test('every unserved knob is reported, not just the first', () => {
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
   assert.deepEqual(plain(out.unserved).map((row) => row.path).sort(),
     ['index.chunker', 'index.dataset', 'retrieval.k']);
+});
+
+// --- opening a pre-branch archive: a retired key name is not a refusal -----
+// The exact regression this covers: every experiment recorded before the
+// generic-dataset-schema branch carries `generation.key_facts_judge` instead
+// of `generation.fact_judge` — the field was renamed, not merely moved — and
+// the open path used to hand the recorded config straight to the strict
+// archive codec, whose exact-key-set check refused the whole handoff over
+// one renamed field. `reconcile` is where that has to be absorbed instead:
+// a name this lab's config no longer has is unservable by definition, so it
+// is dropped and named exactly like any other knob this lab cannot serve,
+// while the field it was renamed to — never named by the record, since the
+// record predates it — simply stays at whatever the panel already has,
+// exactly as any other knob the record does not mention does.
+
+test('opening a pre-branch archive drops its retired key and leaves the '
+  + 'renamed one at the panel value, naming the drop', () => {
+  const recorded = copy(CURRENT);
+  delete recorded.generation.fact_judge;
+  recorded.generation.key_facts_judge = true;
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+
+  // The open proceeds: no exception, a config comes back either way — this
+  // is the whole point, contrasted with the archive import's strict refusal.
+  assert.ok(out.config);
+
+  // The retired key never reaches the config this lab is about to run.
+  assert.equal('key_facts_judge' in out.config.generation, false,
+    'a name this schema no longer has must not land on the config that runs');
+
+  // The renamed field was never named by this record, so it is the reader's
+  // — untouched, exactly like `chunk_chars` in the ledger-only case above.
+  assert.equal(out.config.generation.fact_judge, CURRENT.generation.fact_judge);
+
+  // And the drop is named, not silent — the same contract every other
+  // unserved knob gets.
+  assert.deepEqual(plain(out.unserved), [{
+    path: 'generation.key_facts_judge', value: true,
+    reason: 'not a knob this lab reads any more',
+  }]);
+  const said = Handoff.notice(RECORD, out);
+  assert.match(said, /key_facts_judge = true — not a knob this lab reads any more/);
 });

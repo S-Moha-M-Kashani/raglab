@@ -521,6 +521,78 @@ def test_a_ledger_row_with_no_run_file_shows_no_metrics_rather_than_zeros(
     assert rows[0]['judge'] == {}
 
 
+def test_the_questions_column_reads_the_runs_own_selection_note(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """The board's `questions` column is not just a count: two rows that both
+    scored "9 questions" may have balanced a different label, or none at all.
+    A run that recorded a selection note (`run_evaluation.selection_note`)
+    shows it — `by_<balance>` counts and all, in both the row projection and
+    the markdown table — not merely how many."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    ledger.connect(db).close()          # an empty but real ledger
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
+    (tmp_path / 'balanced.json').write_text(json.dumps({
+        'run_id': 'balanced', 'label': 'balanced', 'dataset': 'diary-fa',
+        'started_at': '2026-08-01 10:00:00', 'seconds': 12,
+        'config': {'index': {'chunker': 'session', 'embedder': 'token-hash'}},
+        'summary': {'n_questions': 9},
+        'ragas': {'metrics': {}, 'decision': None, 'judge': {}},
+        'selection': {'balance': 'difficulty', 'limit': 9, 'n': 9,
+                      'by_difficulty': {'easy': 3, 'medium': 3, 'hard': 3},
+                      'question_ids': [f'q{i}' for i in range(9)]},
+    }), encoding='utf-8')
+
+    rows = leaderboard.board_rows(db_path=db)
+    assert len(rows) == 1
+    assert rows[0]['selection']['balance'] == 'difficulty'
+    assert leaderboard.selection_text(rows[0]) == '9 (easy=3, medium=3, hard=3)'
+
+    text = leaderboard.markdown(leaderboard.by_dataset(rows))
+    assert '9 (easy=3, medium=3, hard=3)' in text
+
+
+def test_the_questions_column_falls_back_to_the_bare_count_with_no_note(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """Old rows must stay comparable, and no recorded data is reinterpreted:
+    a ledger-only row (an index build here) never scored a question at all,
+    and a run file predating `selection_note` carries no `selection` key
+    either. Neither is read as an identity it never claimed — both the row
+    projection and the markdown table fall back to the bare count."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+
+    # a ledger-only row: an index build scores no question at all
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-1', 'kind': 'index',
+                   'config': {'index': {'chunker': 'session',
+                                        'dataset': 'smoke-mini',
+                                        'embedder': 'token-hash'}},
+                   'seconds': 3, 'result': {}}, 'done', path=db)
+    rows = leaderboard.board_rows(db_path=db)
+    assert rows[0]['selection'] == {}
+    assert leaderboard.selection_text(rows[0]) == '0'
+
+    # a run file that predates selection_note: no 'selection' key at all
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
+    (tmp_path / 'ancient.json').write_text(json.dumps({
+        'run_id': 'ancient', 'label': 'ancient', 'dataset': 'diary-fa',
+        'started_at': '2026-01-01 00:00:00', 'seconds': 5,
+        'config': {}, 'summary': {'n_questions': 24},
+        'ragas': {'metrics': {}, 'decision': None, 'judge': {}},
+    }), encoding='utf-8')
+    other_db = tmp_path / 'l2.db'
+    ledger.connect(other_db).close()
+    ancient_rows = leaderboard.board_rows(db_path=other_db)
+    assert ancient_rows[0]['selection'] == {}
+    assert leaderboard.selection_text(ancient_rows[0]) == '24'
+
+    text = leaderboard.markdown(leaderboard.by_dataset(ancient_rows))
+    assert '| 24 |' in text
+
+
 def test_a_run_file_with_no_ledger_row_still_appears(tmp_path, monkeypatch):
     # this is an integration test
     """The ledger is written in `Jobs.run`, so every evaluation older than the

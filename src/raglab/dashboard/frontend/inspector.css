@@ -290,6 +290,21 @@ select { font: inherit; color: inherit; }
   border-inline-start: 2px solid var(--evidence-rule);
   padding-inline-start: var(--s-2); margin-top: var(--s-1);
 }
+/* A paraphrase or a computed fact is stated in its own words, not lifted
+   character for character — the dashed rule says "not a literal excerpt"
+   without needing a sentence to say it, and the text itself carries no
+   `.evidence-mark`: highlighting a computed date would box text the corpus
+   never actually wrote. */
+.gt-quote--labelled { border-inline-start-style: dashed; }
+.fidelity-tag {
+  font: var(--label-font); letter-spacing: var(--label-track);
+  text-transform: uppercase; color: var(--ink-soft);
+  margin-inline-start: var(--s-1);
+}
+.gt-supports {
+  display: block; font-size: var(--t-xs); color: var(--ink-soft);
+  margin-top: var(--s-px);
+}
 
 /* --- chunks: a session is a page of the diary ----------------------------- */
 .chunk-session {
@@ -430,10 +445,12 @@ select { font: inherit; color: inherit; }
   text-transform: uppercase; color: var(--ink-soft);
   margin: var(--s-2) 0 var(--s-px);
 }
-.question-head .qh-facts {
+/* Unscoped like `.qh-label` above: the ground-truth cards and the question
+   picker's detail both list derived facts by `derived_fact_id` too. */
+.qh-facts {
   margin: 0; padding-left: var(--s-5); font-size: var(--t-sm);
 }
-.question-head .qh-facts li { margin: var(--s-px) 0; }
+.qh-facts li { margin: var(--s-px) 0; }
 
 /* --- one collapsible block per question ---------------------------------- */
 /* Both the retrieval and the generation views are lists of these: an experiment

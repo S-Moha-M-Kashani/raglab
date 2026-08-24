@@ -27,7 +27,6 @@ from raglab.configuration.lab_config import (
     load_lab_settings,
     settings_for_provider)
 from raglab.corpora import dataset_import_contract as datasets
-from raglab.corpora.diary_corpus_loader import load_diary, load_ground_truth
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.llm_backends.chat_model_factory import lab_llm
 from raglab.dashboard.service_presentation import (
@@ -86,6 +85,25 @@ CHOSEN_CONFIG = {
     'retrieval': {'retriever': 'hybrid-rrf', 'k': 8, 'reranker': 'lexical',
                   'time_filter': True, 'grader': 'llm', 'grade_threshold': 0.4},
 }
+
+
+def _find_question(ground_truth: dict, qid) -> dict | None:
+    """One question by its `groundtruth_question_id`, matched as a string so a
+    DOM `dataset` attribute (always a string) still finds an id the schema
+    declares as a number."""
+    if qid is None:
+        return None
+    wanted = str(qid)
+    return next((q for q in ground_truth['groundtruth_dataset']
+                if str(q.get('groundtruth_question_id')) == wanted), None)
+
+
+def _default_query_date(ground_truth: dict) -> str:
+    """The 'now' a relative time expression resolves against when the caller
+    named none — the ground truth's own `default_question_asked_at`, sliced to
+    a plain date, the same default `run_evaluation._query_date` reads."""
+    meta = ground_truth.get('groundtruth_dataset_metadata') or {}
+    return meta.get('default_question_asked_at', '2026-07-28T00:00:00Z')[:10]
 
 
 def _newest_done(jobs_index: dict, kind: str) -> dict | None:
@@ -177,8 +195,7 @@ def _followed_dataset(jobs_index: dict) -> str:
 
 def create_inspector_app() -> FastAPI:
     settings = load_lab_settings()
-    diary = load_diary()
-    ground_truth = load_ground_truth()
+    diary, ground_truth = datasets.load()
     def truth_for(cfg) -> dict:
         """The ground truth of the corpus a followed config names — same dataset as the index it built."""
         return ground_truth_for(cfg, ground_truth)
@@ -228,7 +245,8 @@ def create_inspector_app() -> FastAPI:
         """The pairs for whichever corpus is being followed, asked for by name rather than assumed built-in."""
         asked = datasets.load(dataset)[1] if dataset else ground_truth
         described = datasets.find(dataset)
-        return {'meta': asked['meta'], 'questions': asked['questions'],
+        return {'meta': asked['groundtruth_dataset_metadata'],
+                'questions': asked['groundtruth_dataset'],
                 'dataset': dataset or datasets.BUILTIN,
                 # Which language the corpus is in, so the page can render its
                 # text in the direction that language reads. Said outright
@@ -275,24 +293,23 @@ def create_inspector_app() -> FastAPI:
         cfg = LabConfig.from_dict(payload)
         asked = truth_for(cfg)
         qid = payload.get('question_id')
-        question = next((q for q in asked['questions']
-                         if q['id'] == qid), None)
+        question = _find_question(asked, qid)
         if question is None:
             raise HTTPException(404, f'unknown question id: {qid!r}')
         run_settings = settings_for_provider(settings,
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
-        query_date = payload.get('query_date') or asked['meta']['query_date']
+        query_date = payload.get('query_date') or _default_query_date(asked)
 
         def work(report):
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.7))
             llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
-            report('retrieving', 0.8, question['question_fa'][:80])
+            report('retrieving', 0.8, question['question'][:80])
             _outcome, tr = pipeline.retrieve_traced(
-                index, cfg.retrieval, question['question_fa'], query_date,
+                index, cfg.retrieval, question['question'], query_date,
                 llm=llm, models=roles)
-            quotes = [ev['quote'] for ev in question.get('evidence', [])]
+            quotes = metrics.verbatim_quotes(question)
             flags = mark_gold([c['text'] for c in tr['candidates']], quotes)
             for cand, gold in zip(tr['candidates'], flags):
                 cand['gold'] = gold
@@ -310,24 +327,23 @@ def create_inspector_app() -> FastAPI:
         cfg = LabConfig.from_dict(payload)
         asked = truth_for(cfg)
         qid = payload.get('question_id')
-        question = next((q for q in asked['questions']
-                         if q['id'] == qid), None)
+        question = _find_question(asked, qid)
         if question is None:
             raise HTTPException(404, f'unknown question id: {qid!r}')
         run_settings = settings_for_provider(settings,
                                              payload.get('provider') or '')
         screen(cfg, run_settings)
-        query_date = payload.get('query_date') or asked['meta']['query_date']
+        query_date = payload.get('query_date') or _default_query_date(asked)
 
         def work(report):
             index = registry.get(cfg.index, progress=scaled_progress(report, 0.6))
             llm = lab_llm(run_settings)
             roles = models.resolve(cfg, run_settings)
-            report('retrieving', 0.65, question['question_fa'][:80])
+            report('retrieving', 0.65, question['question'][:80])
             outcome, trace = pipeline.retrieve_traced(
-                index, cfg.retrieval, question['question_fa'], query_date,
+                index, cfg.retrieval, question['question'], query_date,
                 llm=llm, models=roles)
-            quotes = [ev['quote'] for ev in question.get('evidence', [])]
+            quotes = metrics.verbatim_quotes(question)
             retrieval = evaluate.trace_row(
                 question, trace,
                 gold_present=gold_available(index, quotes))

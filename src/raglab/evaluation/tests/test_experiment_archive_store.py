@@ -6,6 +6,8 @@ import sqlite3
 import pytest
 
 from raglab.corpora import corpus_store as corpora
+from raglab.corpora import dataset_import_contract as datasets
+from raglab.evaluation import experiment_archive as archive
 from raglab.evaluation import experiment_archive_store as store
 from raglab.evaluation.tests import archive_examples as examples
 
@@ -13,6 +15,47 @@ from raglab.evaluation.tests import archive_examples as examples
 def _complete():
     """The ladder's fullest rung — the only shape this store accepts."""
     return examples.generated_rung()['archive']
+
+
+def test_an_archive_written_before_this_schema_still_serves_unchanged(
+        tmp_path, monkeypatch):
+    # this is a unit test
+    """D2/D8's promise kept at the one seam a schema migration could quietly
+    break: an archive stored in the shape every archive carried before this
+    branch (`sessions`/`questions`/`session_id`/`message_indices`/`types`,
+    not `corpus_documents`/`groundtruth_dataset`/…) still opens exactly as it
+    was written.
+
+    `validate_archive` now refuses this shape on the way *in* — that is
+    checked below, first — so this row stands in for one already on disk
+    from before that refusal existed, written back when this branch's own
+    (now retired) validator accepted it. `put()` is bypassed rather than
+    called, because calling it would apply *today's* validator to a write
+    that never happened under it; `serve()` is not bypassed, because it never
+    validates at all — it only splices the corpus back in by
+    content-addressed reference, which is exactly why an old-shape row still
+    opens.
+    """
+    old_shape = examples.pre_migration_archive()
+
+    # First: today's codec really does refuse a fresh write in this shape —
+    # otherwise this test would not be about an old row at all.
+    with pytest.raises(archive.ArchiveError):
+        archive.validate_archive(copy.deepcopy(old_shape))
+
+    db = store.connect(tmp_path / 'archives.db')
+    monkeypatch.setattr(archive, 'validate_archive', lambda value, **_: value)
+    store.put(db, 'pre-migration-run-001', old_shape)
+    # Restored *before* `serve()` runs, deliberately: the docstring's claim
+    # is that `serve()` itself needs no bypass, and leaving the patch active
+    # here would let a future regression that added a `validate_archive` call
+    # inside `serve()`/`swell()` pass this test right along with it.
+    monkeypatch.undo()
+
+    served = store.serve(db, 'pre-migration-run-001')
+    assert served == old_shape, (
+        'an archive predating this schema must be served byte-for-byte, '
+        'never reinterpreted through the current one')
 
 
 def test_an_archive_survives_storage_byte_for_byte(tmp_path):
@@ -83,6 +126,40 @@ def test_the_corpus_is_in_the_corpus_store_before_the_row_that_names_it(tmp_path
                             'experiment_id = ?', ('exp-1',)).fetchone()['id_corpora']
     assert id_corpora > 0, 'the row must name a corpora row that exists'
     assert corpora.get(id_corpora) == (examples.CORPUS, examples.GROUND_TRUTH)
+
+
+def test_a_bundled_datasets_real_pair_is_written_by_shrink_with_no_new_code(
+        tmp_path):
+    # this is an integration test
+    """The refill decision (Task 10, D8): no new writer is needed.
+
+    Every experiment that finishes goes through `store.put` -> `shrink` ->
+    `keep` -> `corpus_store.put` (`panel_server.keep_archive` reaches this
+    same `store.put`) on its way onto the ledger. `shrink` stores whatever
+    `evaluation.inspector.dataset.{corpus, ground_truth}` the run actually
+    carried, and for a bundled dataset that is
+    `dataset_import_contract.load()`'s own real pair — the schema's shape,
+    unrewritten (D4) — not a synthetic stand-in. So the first evaluation
+    that finishes against each bundled dataset, post-migration, writes its
+    real pair through exactly this path: the code every archive has always
+    gone through, unchanged by this migration.
+    """
+    path = tmp_path / 'corpora.db'
+    keep = (lambda dataset_id, corpus, ground_truth:
+            corpora.put(dataset_id, corpus, ground_truth, path))
+    written = {}
+    for dataset_id in ('diary-fa', 'support-en', 'meetings-de',
+                       'research-multihop', 'smoke-mini'):
+        corpus, ground_truth = datasets.load(dataset_id)
+        value = {'evaluation': {'inspector': {'dataset': {
+            'id': dataset_id, 'corpus': corpus, 'ground_truth': ground_truth,
+        }}}}
+        thin, id_corpora = store.shrink(value, keep=keep)
+        reference = thin['evaluation']['inspector']['dataset'][store.CORPUS_REF]
+        assert reference['dataset'] == dataset_id
+        assert corpora.get(id_corpora, path) == (corpus, ground_truth)
+        written[dataset_id] = id_corpora
+    assert len(set(written.values())) == 5, 'five distinct pairs, five rows'
 
 
 def test_many_archives_over_one_corpus_share_one_corpora_row(tmp_path):
@@ -181,7 +258,7 @@ def test_a_row_the_id_points_at_that_moved_is_refused(tmp_path):
 
     def replaced(*_args):
         corpus = copy.deepcopy(examples.CORPUS)
-        corpus['sessions'][0]['messages'][0]['content'] = 'a different diary'
+        corpus['corpus_documents'][0]['document_content'][0]['text'] = 'a different diary'
         return corpus, copy.deepcopy(examples.GROUND_TRUTH)
 
     with pytest.raises(store.ArchiveStoreError, match='not the one this experiment'):
@@ -204,7 +281,7 @@ def test_a_row_edited_in_place_under_its_id_is_refused_through_the_real_store(
     id_corpora = db.execute('SELECT id_corpora FROM archives WHERE '
                             'experiment_id = ?', ('exp-1',)).fetchone()['id_corpora']
     moved = copy.deepcopy(examples.CORPUS)
-    moved['sessions'][0]['messages'][0]['content'] = 'a different diary'
+    moved['corpus_documents'][0]['document_content'][0]['text'] = 'a different diary'
     with corpora.connect() as store_db:
         store_db.execute('UPDATE corpora SET corpus = ? WHERE id = ?',
                          (json.dumps(moved, ensure_ascii=False), id_corpora))

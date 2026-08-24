@@ -1,14 +1,23 @@
-"""Chunking strategies for spoken diary text (fixed, fixed-overlap, message,
-turn-pair, session, semantic-drift), plus the per-chunk metadata every chunk
-carries into the index. `contextual` is orthogonal to all six: a short
-metadata-only header prepended to each chunk before embedding.
+"""Chunking strategies for a corpus's documents (fixed, fixed-overlap,
+message, turn-pair, session, semantic-drift), plus the per-chunk metadata
+every chunk carries into the index. `contextual` is orthogonal to all six: a
+short metadata-only header prepended to each chunk before embedding.
+
+Everything here reads the corpus's own declared vocabulary (D4) — a
+document's `document_metadata`, a part's `labels`, and the dataset's
+`label_fields` table that says what each one means and where it may land —
+rather than a fixed set of diary-specific fields. A label a corpus never
+declares simply never appears; nothing here invents a neutral default for
+one that is absent.
 """
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
-from raglab.corpora.diary_corpus_loader import date_int, session_text
+from raglab.corpora.corpus_reading import (
+    date_int, date_label, document_text, part_line, ranks_label)
 
 
 def chunk_text(text: str, max_chars: int = 500) -> list[str]:
@@ -35,20 +44,17 @@ SHIFT_MARKERS = ('ولش کن', 'بذریم', 'بگذریم', 'راستی', 'ی�
 class Chunk:
     id: str
     text: str
-    session_id: str = ''
+    document_id: str = ''
     date: str = ''
     span_from: int = 0          # date_int; equals span_to for leaf chunks
     span_to: int = 0
-    time: str = ''
-    source: str = ''
-    mood: str = ''
-    valence: int = 0
-    arousal: int = 0
     importance: float = 0.0
-    topics: tuple[str, ...] = ()
-    threads: tuple[str, ...] = ()
-    msg_start: int = -1
-    msg_end: int = -1
+    # Every label the corpus declares that reaches this chunk, flowed down
+    # from the document or the parts it was cut from (D4) — never a fixed
+    # set of fields, and never filled with a neutral value when absent.
+    labels: dict = field(default_factory=dict)
+    part_start: int = -1
+    part_end: int = -1
     prefix: str = ''            # the contextual header, kept separately so metrics can measure the body alone
     # A leaf is layer='', level=0; summary_hierarchy_builder.py writes layer='summary' at its
     # level. Present (empty) on every chunk, never absent — an optional field
@@ -59,19 +65,24 @@ class Chunk:
     member_ids: tuple[str, ...] = ()
 
     def metadata(self) -> dict:
-        """Flat and filterable: lists become space-joined strings since the store can only filter on scalars."""
-        return {
-            'session_id': self.session_id, 'date': self.date,
+        """Flat and filterable: lists become space-joined strings and objects
+        become a JSON string, since the store can only filter on scalars.
+        The flattened keys are prefixed (`label.topics`) so a label can never
+        collide with a structural key."""
+        meta = {
+            'document_id': self.document_id, 'date': self.date,
             'span_from': self.span_from, 'span_to': self.span_to,
-            'time': self.time, 'source': self.source, 'mood': self.mood,
-            'valence': self.valence, 'arousal': self.arousal,
             'importance': self.importance,
-            'topics': ' '.join(self.topics), 'threads': ' '.join(self.threads),
-            'msg_start': self.msg_start, 'msg_end': self.msg_end,
+            'part_start': self.part_start, 'part_end': self.part_end,
             'chars': len(self.text),
             'layer': self.layer, 'level': self.level,
             'group_id': self.group_id, 'member_ids': ' '.join(self.member_ids),
         }
+        for name, value in self.labels.items():
+            flat = _flattened(value)
+            if flat is not None:
+                meta[f'label.{name}'] = flat
+        return meta
 
     @property
     def body(self) -> str:
@@ -79,55 +90,169 @@ class Chunk:
         return self.text[len(self.prefix):] if self.prefix else self.text
 
 
-def importance_of(session: dict) -> float:
-    """Emotional intensity as a memorability proxy (Generative Agents'
-    'importance' term): high arousal or extreme valence marks a memorable session."""
-    mood = session['mood']
-    arousal = mood['arousal'] / 10.0
-    extremity = abs(mood['valence'] - 5.5) / 4.5
-    return round(min(1.0, 0.6 * arousal + 0.4 * extremity), 3)
+def is_present(value) -> bool:
+    """Whether a label's own value is something to show or group by, not
+    nothing recorded — the one presence rule `contextual_prefix` and
+    `summary_hierarchy_builder._metadata_groups` both defer to, so neither
+    can silently disagree with the other about what "absent" means. `None`
+    (a nullable label recorded absent, D4) and an empty string carry
+    nothing; `0`, `False`, and any other real value — including one item
+    already pulled out of a list — do."""
+    return value is not None and value != ''
 
 
-# Both strings are prepended to text that gets embedded, so writing them in
-# Farsi over an English corpus would add a constant foreign phrase to every vector.
-SPEAKERS = {'fa': ('کاربر', 'دستیار'), 'de': ('Nutzer', 'Assistent')}
-SPEAKERS_DEFAULT = ('User', 'Assistant')
-HEADERS = {'fa': ('حال', 'موضوع', 'رشته', '، '),
-           'de': ('Stimmung', 'Thema', 'Strang', ', ')}
-HEADERS_DEFAULT = ('mood', 'topic', 'thread', ', ')
+def _flattened(value):
+    """One label value, made chroma-safe: a list space-joined, an object (a
+    keyed confidence, or a rolled-up date range) a JSON string, a scalar as
+    itself. `None` (a nullable label recorded absent) stays absent rather
+    than becoming the string `'None'`."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        return ' '.join(str(v) for v in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
 
-def _language(session: dict) -> str:
-    """The corpus's language; absent (every session of the built-in fixture) defaults to Farsi."""
-    return session.get('language') or 'fa'
+def importance_of(document: dict, label_fields: dict) -> float:
+    """The `ranks` label (D6) rescaled to 0-1, or 0.0 without one declared —
+    corrected in place, same name, same call sites. `mood.valence`/`arousal`
+    are gone: the new schema deliberately has no such field, and importance
+    now reads whatever numeric label the corpus itself declared as the
+    source (`ranks: true`, with `minimum`/`maximum`)."""
+    name = ranks_label(label_fields)
+    if not name:
+        return 0.0
+    value = (document.get('document_metadata') or {}).get(name)
+    if value is None:
+        return 0.0
+    definition = label_fields[name]
+    lo, hi = definition.get('minimum', 0.0), definition.get('maximum', 1.0)
+    if hi <= lo:
+        return 0.0
+    return round(min(1.0, max(0.0, (float(value) - lo) / (hi - lo))), 3)
 
 
-def _speaker(role: str, language: str = 'fa') -> str:
-    user, assistant = SPEAKERS.get(language, SPEAKERS_DEFAULT)
-    return user if role == 'user' else assistant
+# The corpus's own declared language picks the comma its list-valued labels
+# join by inside `contextual_prefix` — Farsi's is not the ASCII comma. A tiny
+# mapping, not an i18n library: every language without a special-cased comma
+# falls back to ', '.
+_LANGUAGE_COMMA = {'fa': '، '}
+_DEFAULT_COMMA = ', '
 
 
-def _base(session: dict) -> dict:
-    di = date_int(session['date'])
-    return dict(session_id=session['session_id'], date=session['date'],
-                span_from=di, span_to=di, time=session['time'],
-                source=session['source'], mood=session['mood']['label'],
-                valence=session['mood']['valence'], arousal=session['mood']['arousal'],
-                importance=importance_of(session),
-                topics=tuple(session['topics']),
-                threads=tuple(session['recurring_threads']))
+def _comma_for(language: str) -> str:
+    return _LANGUAGE_COMMA.get(language, _DEFAULT_COMMA)
 
 
-def contextual_prefix(session: dict) -> str:
-    """A short header naming when this was said, how it felt, and what it was
-    about. Deliberately short: duplicated into every chunk of the session."""
-    mood_word, topic_word, thread_word, comma = HEADERS.get(_language(session),
-                                                            HEADERS_DEFAULT)
-    threads = comma.join(session['recurring_threads']) or '—'
-    head = (f"[{session['date']} | {mood_word}: {session['mood']['label'] or '—'} | "
-            f"{topic_word}: {comma.join(session['topics']) or '—'} | "
-            f"{thread_word}: {threads}]")
-    return head + '\n'
+def contextual_prefix(document: dict, label_fields: dict, language: str) -> str:
+    """`[<label>: <value> | …]` for every label declared at the document
+    level that this document actually carries, in declaration order, list
+    values joined by the corpus's own language comma. Deliberately short:
+    duplicated into every chunk of the document. A label's own name is its
+    name — no HEADERS translation table, since inventing a word for a user's
+    label would be guessing. A label declaring `confidence_for` is never
+    shown: it is a caveat on another label, never something to embed."""
+    meta = document.get('document_metadata') or {}
+    comma = _comma_for(language)
+    parts: list[str] = []
+    for name, definition in (label_fields or {}).items():
+        if 'document' not in (definition.get('applies_to') or []):
+            continue
+        if definition.get('confidence_for'):
+            continue
+        if name not in meta:
+            continue
+        value = meta[name]
+        # A nullable label recorded `null` (D4: absence, never "recorded as
+        # nothing") is skipped here rather than rendered as the literal word
+        # "None" — the same presence rule `is_present` states once for every
+        # reader of a label value.
+        if not is_present(value):
+            continue
+        if isinstance(value, (list, tuple)):
+            shown = comma.join(str(v) for v in value if is_present(v))
+        elif isinstance(value, dict):
+            shown = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        else:
+            shown = str(value)
+        if not shown:
+            continue
+        parts.append(f'{name}: {shown}')
+    if not parts:
+        return ''
+    return '[' + ' | '.join(parts) + ']\n'
+
+
+def _document_date(document: dict, label_fields: dict) -> tuple[str, int, int]:
+    """`date`/`span_from`/`span_to` from the date-typed label (D5). No date
+    label, or a value that will not parse, means '' and 0/0 — inert, not an
+    error: time filtering, recency ranking and summary date ranges all read
+    this and must degrade gracefully rather than raise."""
+    name = date_label(label_fields)
+    if not name:
+        return '', 0, 0
+    value = (document.get('document_metadata') or {}).get(name)
+    if not value:
+        return '', 0, 0
+    day = str(value)[:10]
+    try:
+        di = date_int(day)
+    except ValueError:
+        return '', 0, 0
+    return day, di, di
+
+
+def _flowing(label_fields: dict, source: str, target: str) -> list[str]:
+    """Label names declared at both `source` (where the value actually lives
+    — `document` or `part`) and `target` (the level they flow down into,
+    e.g. `chunk`) — the applies_to table is what makes a label reach a chunk
+    at all."""
+    return [name for name, definition in (label_fields or {}).items()
+           if source in (definition.get('applies_to') or [])
+           and target in (definition.get('applies_to') or [])]
+
+
+def _document_chunk_labels(document: dict, label_fields: dict) -> dict:
+    """Document-level labels that reach a chunk, read straight from
+    `document_metadata` — absent stays absent."""
+    meta = document.get('document_metadata') or {}
+    return {name: meta[name] for name in _flowing(label_fields, 'document', 'chunk')
+           if name in meta}
+
+
+def _part_chunk_labels(document: dict, label_fields: dict,
+                       start: int, end: int) -> dict:
+    """Part-level labels for the parts a chunk actually spans (`role`, most
+    often), unioned across the span — a single value stays a scalar, more
+    than one becomes a list, the same rule a summary uses to union its
+    members. A chunk cut by character window (`start < 0`) has no part span
+    to read a part-level label from at all."""
+    if start < 0:
+        return {}
+    names = _flowing(label_fields, 'part', 'chunk')
+    if not names:
+        return {}
+    parts = document.get('document_content') or []
+    collected: dict[str, list] = {name: [] for name in names}
+    for part in parts[start:end + 1]:
+        part_labels = part.get('labels') or {}
+        for name in names:
+            if name in part_labels and part_labels[name] not in collected[name]:
+                collected[name].append(part_labels[name])
+    return {name: (values[0] if len(values) == 1 else values)
+           for name, values in collected.items() if values}
+
+
+def _base(document: dict, label_fields: dict) -> dict:
+    date, span_from, span_to = _document_date(document, label_fields)
+    return dict(document_id=str(document.get('corpus_document_id', '')),
+               date=date, span_from=span_from, span_to=span_to,
+               importance=importance_of(document, label_fields),
+               labels=_document_chunk_labels(document, label_fields))
 
 
 # --- leaf strategies -------------------------------------------------------
@@ -156,75 +281,82 @@ def _windows(text: str, size: int, overlap: int) -> list[str]:
     return out
 
 
-def _semantic_segments(session: dict, embedder, max_chars: int) -> list[list[int]]:
-    """Groups consecutive messages into topical segments: cut where similarity
-    drops into the bottom of *this session's own* distribution (a relative
-    threshold, since embedder scales are not comparable), a shift marker fires, or max_chars is exceeded."""
-    messages = session['messages']
-    if len(messages) <= 2:
-        return [list(range(len(messages)))]
-    vectors = embedder.embed([m['content'] for m in messages])
+def _semantic_segments(document: dict, embedder, max_chars: int) -> list[list[int]]:
+    """Groups consecutive parts into topical segments: cut where similarity
+    drops into the bottom of *this document's own* distribution (a relative
+    threshold, since embedder scales are not comparable), a shift marker
+    fires, or max_chars is exceeded. Reads `document['document_content']`
+    (D4: the file's own key, not a renamed one)."""
+    parts = document.get('document_content') or []
+    if len(parts) <= 2:
+        return [list(range(len(parts)))]
+    vectors = embedder.embed([p.get('text', '') for p in parts])
     sims = np.array([float(vectors[i] @ vectors[i + 1])
-                     for i in range(len(messages) - 1)], dtype=np.float32)
+                     for i in range(len(parts) - 1)], dtype=np.float32)
     cut_at = float(np.percentile(sims, 35)) if sims.size else -1.0
-    segments, current, size = [], [0], len(messages[0]['content'])
-    for i in range(1, len(messages)):
-        marker = any(m in textnorm.normalize(messages[i]['content'])
-                     for m in SHIFT_MARKERS)
-        too_big = size + len(messages[i]['content']) > max_chars * 2
+    segments, current, size = [], [0], len(parts[0].get('text', ''))
+    for i in range(1, len(parts)):
+        text = parts[i].get('text', '')
+        marker = any(m in textnorm.normalize(text) for m in SHIFT_MARKERS)
+        too_big = size + len(text) > max_chars * 2
         drifted = sims[i - 1] <= cut_at
         if current and (marker or too_big or drifted):
             segments.append(current)
-            current, size = [i], len(messages[i]['content'])
+            current, size = [i], len(text)
         else:
             current.append(i)
-            size += len(messages[i]['content'])
+            size += len(text)
     if current:
         segments.append(current)
     return segments
 
 
-def chunk_session(session: dict, cfg, embedder) -> list[Chunk]:
-    """One session → chunks, per the configured strategy."""
-    base = _base(session)
-    prefix = contextual_prefix(session) if cfg.contextual else ''
-    messages = session['messages']
+def chunk_document(document: dict, cfg, embedder, label_fields: dict | None = None,
+                   language: str = '') -> list[Chunk]:
+    """One document → chunks, per the configured strategy."""
+    label_fields = label_fields or {}
+    base = _base(document, label_fields)
+    prefix = contextual_prefix(document, label_fields, language) if cfg.contextual else ''
+    parts = document.get('document_content') or []
+    document_id = base['document_id']
     out: list[Chunk] = []
-    language = _language(session)
 
     def emit(text: str, i: int, start: int, end: int) -> None:
-        out.append(Chunk(id=f"{session['session_id']}:c{i}", text=prefix + text,
-                         prefix=prefix, msg_start=start, msg_end=end, **base))
+        labels = dict(base['labels'])
+        labels.update(_part_chunk_labels(document, label_fields, start, end))
+        out.append(Chunk(
+            id=f'{document_id}:c{i}', text=prefix + text, prefix=prefix,
+            document_id=document_id, date=base['date'],
+            span_from=base['span_from'], span_to=base['span_to'],
+            importance=base['importance'], labels=labels,
+            part_start=start, part_end=end))
 
     if cfg.chunker == 'session':
-        emit(session_text(session), 0, 0, len(messages) - 1)
+        emit(document_text(document), 0, 0, len(parts) - 1)
     elif cfg.chunker == 'message':
-        for i, m in enumerate(messages):
-            emit(f"{_speaker(m['role'], language)}: {m['content']}", i, i, i)
+        for i, part in enumerate(parts):
+            emit(part_line(part), i, i, i)
     elif cfg.chunker == 'turn-pair':
         i = 0
-        while i < len(messages):
-            group = [messages[i]]
+        while i < len(parts):
+            group = [parts[i]]
             end = i
-            if (messages[i]['role'] == 'user' and i + 1 < len(messages)
-                    and messages[i + 1]['role'] == 'assistant'):
-                group.append(messages[i + 1])
+            if ((parts[i].get('labels') or {}).get('role') == 'user' and i + 1 < len(parts)
+                    and (parts[i + 1].get('labels') or {}).get('role') == 'assistant'):
+                group.append(parts[i + 1])
                 end = i + 1
-            emit('\n'.join(f"{_speaker(m['role'], language)}: {m['content']}"
-                           for m in group),
-                 len(out), i, end)
+            emit('\n'.join(part_line(p) for p in group), len(out), i, end)
             i = end + 1
     elif cfg.chunker == 'semantic-drift':
-        for i, segment in enumerate(_semantic_segments(session, embedder,
+        for i, segment in enumerate(_semantic_segments(document, embedder,
                                                        cfg.chunk_chars)):
-            emit('\n'.join(f"{_speaker(messages[j]['role'], language)}: "
-                           f"{messages[j]['content']}" for j in segment),
+            emit('\n'.join(part_line(parts[j]) for j in segment),
                  i, segment[0], segment[-1])
     elif cfg.chunker == 'fixed-overlap':
-        for i, piece in enumerate(_windows(session_text(session), cfg.chunk_chars,
+        for i, piece in enumerate(_windows(document_text(document), cfg.chunk_chars,
                                            cfg.overlap)):
             emit(piece, i, -1, -1)
     else:   # 'fixed' — the production baseline, called rather than reimplemented
-        for i, piece in enumerate(chunk_text(session_text(session), cfg.chunk_chars)):
+        for i, piece in enumerate(chunk_text(document_text(document), cfg.chunk_chars)):
             emit(piece, i, -1, -1)
     return out

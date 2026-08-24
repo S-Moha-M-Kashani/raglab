@@ -1,0 +1,487 @@
+{
+  "corpus_dataset_metadata": {
+    "dataset": "meetings-de",
+    "name": "Team meeting notes (German)",
+    "language": "de",
+    "description": "Synthetic German weekly meeting notes for a fictional software team over six months. A third script family, compound nouns and dates written in words — where an English-only embedder separates sharply from a multilingual one. All names, companies and events are fictional.",
+    "label_fields": {
+      "meeting_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "The day of the weekly meeting this note is from.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "topics": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "What the meeting covered.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "threads": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "A topic that runs across several meetings.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "role": {
+        "type": "string",
+        "values": [
+          "user",
+          "assistant"
+        ],
+        "description": "Who produced the turn.",
+        "applies_to": [
+          "part",
+          "chunk",
+          "summary"
+        ]
+      },
+      "mood_label": {
+        "type": "string",
+        "description": "How the meeting's mood was described, when noted. Recorded on a few meetings only.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      },
+      "mood_valence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10,
+        "description": "How positive the noted mood was, 0 (very negative) to 10 (very positive). The importance source: rescaled to 0-1, this is what the agentic retriever's third weight reads. Recorded on a few meetings only; a corpus without it is not measured any differently.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ],
+        "ranks": true
+      },
+      "mood_arousal": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10,
+        "description": "How energised the noted mood was, 0 (very calm) to 10 (very activated). Recorded on a few meetings only.",
+        "applies_to": [
+          "document",
+          "chunk",
+          "summary"
+        ]
+      }
+    }
+  },
+  "corpus_documents": [
+    {
+      "corpus_document_id": 1,
+      "document_content": [
+        {
+          "text": "Protokoll Wochenmeeting: Das Budget für 2026 wurde auf 480.000 Euro festgelegt. Davon sind 120.000 Euro für Infrastruktur vorgesehen.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Notiert. Die Aufteilung auf die Teams besprechen wir in der nächsten Sitzung.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-01-13T00:00:00Z",
+        "topics": [
+          "budget"
+        ],
+        "threads": [
+          "budget-2026"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 2,
+      "document_content": [
+        {
+          "text": "Wir stellen zwei Werkstudenten für das Datenteam ein, Start im Februar. Die Ausschreibung ist seit gestern online.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Gut. Ich lege die Einarbeitungspläne an, sobald die Zusagen da sind.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-01-20T00:00:00Z",
+        "topics": [
+          "personal"
+        ],
+        "threads": [
+          "einstellungen"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 3,
+      "document_content": [
+        {
+          "text": "Zum Thema Werkzeuge: Wir bleiben vorerst bei Jira. Ein Wechsel mitten im Quartal wäre zu teuer.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Einverstanden. Wir prüfen die Alternativen erneut im Mai.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-01-27T00:00:00Z",
+        "topics": [
+          "tooling"
+        ],
+        "threads": [
+          "tool-wechsel"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 4,
+      "document_content": [
+        {
+          "text": "Der Umzug in das neue Büro in der Sonnenstraße findet am 15. März statt. Die Kartons werden eine Woche vorher geliefert.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich trage den Termin ein und informiere die Hausverwaltung.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-02-03T00:00:00Z",
+        "topics": [
+          "umzug"
+        ],
+        "threads": [
+          "bueroumzug"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 5,
+      "document_content": [
+        {
+          "text": "Sprint 14 wurde um eine Woche verlängert, weil die Schnittstelle zum Abrechnungssystem länger dauert als geplant.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Verstanden. Die Demo verschiebt sich damit auf den 24. Februar.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-02-10T00:00:00Z",
+        "topics": [
+          "sprint"
+        ],
+        "threads": [
+          "sprint-planung"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 6,
+      "document_content": [
+        {
+          "text": "Demo lief gut. Die Abrechnungsschnittstelle steht, die Tests fehlen noch.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Dann planen wir die Tests in Sprint 15 ein.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-02-24T00:00:00Z",
+        "topics": [
+          "sprint"
+        ],
+        "threads": [
+          "sprint-planung"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 7,
+      "document_content": [
+        {
+          "text": "Personelles: Frau Berger verlässt das Team zum 30. April. Sie übergibt das Reporting an Herrn Novak.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich setze einen Übergabetermin für Anfang April an.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-03-03T00:00:00Z",
+        "topics": [
+          "personal"
+        ],
+        "threads": [
+          "einstellungen"
+        ],
+        "mood_label": "nachdenklich",
+        "mood_valence": 4,
+        "mood_arousal": 4
+      }
+    },
+    {
+      "corpus_document_id": 8,
+      "document_content": [
+        {
+          "text": "Der Umzug ist durch. Zwei Monitore fehlen noch, sonst ist alles da.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich melde die fehlenden Geräte beim Lieferanten.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-03-17T00:00:00Z",
+        "topics": [
+          "umzug"
+        ],
+        "threads": [
+          "bueroumzug"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 9,
+      "document_content": [
+        {
+          "text": "Neuer Auftrag: Der Kunde Hafenwerk hat den Vertrag um zwei Jahre verlängert. Der Vertrag läuft damit bis Ende 2028.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Sehr gut. Ich aktualisiere die Umsatzplanung.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-04-07T00:00:00Z",
+        "topics": [
+          "kunden"
+        ],
+        "threads": [
+          "hafenwerk"
+        ],
+        "mood_label": "zufrieden",
+        "mood_valence": 8,
+        "mood_arousal": 5
+      }
+    },
+    {
+      "corpus_document_id": 10,
+      "document_content": [
+        {
+          "text": "Zusage an Hafenwerk: Der Prototyp wird bis zum 12. Mai fertig. Das Team ist informiert.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich blocke die letzten zwei Wochen dafür frei.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-04-21T00:00:00Z",
+        "topics": [
+          "kunden"
+        ],
+        "threads": [
+          "hafenwerk"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 11,
+      "document_content": [
+        {
+          "text": "Entscheidung zum Werkzeug ist gefallen: Ab dem 1. Juni wechseln wir von Jira zu Linear. Die Migration der offenen Vorgänge übernimmt das Plattformteam.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich kündige das den Teams in der Freitagsrunde an.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-05-05T00:00:00Z",
+        "topics": [
+          "tooling"
+        ],
+        "threads": [
+          "tool-wechsel"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 12,
+      "document_content": [
+        {
+          "text": "Der Prototyp wurde am 11. Mai übergeben, einen Tag vor dem zugesagten Termin.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Notiert. Das Feedback des Kunden kommt bis Ende der Woche.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-05-12T00:00:00Z",
+        "topics": [
+          "kunden"
+        ],
+        "threads": [
+          "hafenwerk"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 13,
+      "document_content": [
+        {
+          "text": "Die Schulung zu Datenschutz ist für alle verpflichtend, Frist ist der 30. Juni. Bisher haben neun von vierzehn Personen teilgenommen.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich erinnere die übrigen fünf per Kalendereinladung.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-06-02T00:00:00Z",
+        "topics": [
+          "schulung"
+        ],
+        "threads": [
+          "datenschutz"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 14,
+      "document_content": [
+        {
+          "text": "Die Migration zu Linear ist abgeschlossen. Zwei alte Projekte bleiben als Archiv in Jira.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich dokumentiere, wo das Archiv liegt.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-06-16T00:00:00Z",
+        "topics": [
+          "tooling"
+        ],
+        "threads": [
+          "tool-wechsel"
+        ]
+      }
+    },
+    {
+      "corpus_document_id": 15,
+      "document_content": [
+        {
+          "text": "Halbjahresbilanz: Budget eingehalten, ein Kunde verlängert, ein Abgang im Team.",
+          "labels": {
+            "role": "user"
+          }
+        },
+        {
+          "text": "Ich fasse das für die Geschäftsführung zusammen.",
+          "labels": {
+            "role": "assistant"
+          }
+        }
+      ],
+      "document_metadata": {
+        "meeting_date": "2026-06-30T00:00:00Z",
+        "topics": [
+          "bilanz"
+        ],
+        "threads": [
+          "budget-2026"
+        ]
+      }
+    }
+  ]
+}

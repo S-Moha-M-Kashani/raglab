@@ -144,15 +144,24 @@ function fillModels() {
 // reads one back, and the catalogue `servedKnobs()` calls served. Written out
 // three times they did not, and an experiment opened from the board announced
 // this lab's own default corpus as one it does not have.
-const datasetValue = (d) => (d.source === 'builtin' ? '' : d.id);
+//
+// Which corpus is the built-in one is asked by *id*, against the one constant
+// both codecs read (`ArchiveIO.BUILTIN_DATASET`). It used to be asked of a
+// `source` field reading `'builtin'` — a value the service stopped sending
+// when the diary became an ordinary bundled pair (D3), so the test was dead
+// and every fresh selection of the diary sent the explicit id instead, which
+// fingerprints away from every collection already recorded under `''`.
+// The id is what a dataset actually has; a source label was a second name
+// for it that could rot without a single reader noticing.
+const datasetValue = (d) => (d.id === ArchiveIO.BUILTIN_DATASET ? '' : d.id);
 const datasetValues = () => (OPTIONS.datasets || []).map(datasetValue);
 
 function fillDatasets() {
   const found = OPTIONS.datasets || [];
   $('dataset').innerHTML = found.map((d) =>
     `<option value="${escapeHtml(datasetValue(d))}">`
-    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.sessions} `
-    + `sessions · ${d.questions} questions`
+    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.documents} `
+    + `documents · ${d.questions} questions`
     + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
   $('dataset').onchange = () => {
     describeDataset();
@@ -163,9 +172,60 @@ function fillDatasets() {
 const datasetOf = (id) => (OPTIONS.datasets || []).find(
   (d) => datasetValue(d) === id);
 
+// The declaration table (D4): one line per label the dataset's corpus and
+// ground truth declare — name, type, its closed set of levels, whether a
+// model extracted it, and the confidence rater that scores it, if any. Read
+// straight off the loaded files, never hardcoded, so a sparse corpus just
+// shows fewer rows rather than a placeholder for a label it lacks.
+function renderDatasetLabels(found) {
+  const rows = (found.label_declarations || []).map((row) => [row, 'corpus'])
+    .concat((found.question_label_declarations || [])
+      .map((row) => [row, 'question']));
+  renderTable('datasetLabels',
+    ['name', 'declared on', 'type', 'levels', 'extracted', 'confidence rater'],
+    rows.map(([row, scope]) => [safe(row.name), scope, safe(row.type),
+      safe((row.levels || []).join(', ')), row.extracted ? 'yes' : '',
+      safe(row.confidence_for)]),
+    { label: 'Declared labels', text: [0, 1, 2, 3, 5] });
+}
+
+// The run's question selection — which declared labels to filter on, and the
+// one to balance the sample by. It has no controls on this page: both knobs
+// still travel in a run's ui block and in the archive codec, so they are
+// carried here the way UNSHOWN carries config fields with no control. '' and
+// {} for a run set up by hand; an opened experiment's recorded values, so its
+// export and its reruns stay faithful to the row. Reset on every dataset
+// switch, so a label from the previous corpus cannot ride into a run against
+// one that never declared it.
+let QUESTION_SELECTION = { labels: {}, balance: '' };
+
+// The label vocabulary a run's `labels`/`balance` are checked against. The
+// installed catalogue answers this for any dataset served here; a view-only
+// archive names one that is not, and is only ever view-only because it
+// carries the completed evidence itself (`datasetDisposition` refuses
+// otherwise) — so its own embedded ground truth is read instead, the same
+// filtering `_question_vocab` applies server-side.
+function labelVocabFor(config, archive) {
+  const found = datasetOf(config.index.dataset);
+  if (found) return found.question_labels || {};
+  const groundTruth = ((((archive || {}).evaluation || {}).inspector || {})
+    .dataset || {}).ground_truth || {};
+  const fields = (groundTruth.groundtruth_dataset_metadata || {})
+    .question_metadata_fields || {};
+  const labels = {};
+  for (const [name, declaration] of Object.entries(fields)) {
+    const values = declaration.values
+      || (declaration.glossary ? Object.keys(declaration.glossary) : null);
+    if (values) labels[name] = values;
+  }
+  return labels;
+}
+
 // One line about the corpus in force, in the header where the corpus has always
 // been described — switching datasets has to move that line, or the page says
-// 167 sessions while measuring twenty.
+// 167 documents while measuring twenty. Also rebuilds the declaration table,
+// which is this dataset's own, and drops the question selection for the same
+// reason the table is rebuilt: it named the previous dataset's labels.
 function describeDataset() {
   const found = datasetOf($('dataset').value);
   if (!found) return;
@@ -175,36 +235,68 @@ function describeDataset() {
   // the census sits in the popover, because nobody reads a stats strip twice.
   $('corpusName').textContent = found.id || $('dataset').value;
   $('corpus').textContent =
-    `${found.sessions} sessions · ${found.messages} messages · ${period}`
+    `${found.documents} documents · ${found.parts} parts · ${period}`
     + `${found.questions} questions`
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
   $('datasetInfo').textContent = found.description;
+  renderDatasetLabels(found);
+  QUESTION_SELECTION = { labels: {}, balance: '' };
 }
 
-// Import: the file is read here and posted as JSON, so the service checks it
-// against the contract rather than the browser guessing. Every problem comes
-// back at once — fixing a corpus is a slow loop if each attempt reports one
-// broken quote out of nine.
-$('dataset-file').onchange = async () => {
-  const file = $('dataset-file').files[0];
-  if (!file) return;
-  $('importInfo').textContent = `reading ${file.name}…`;
+// Import: a dataset is two files, paired by id (D1) — read here and posted as
+// JSON, so the service checks the pair against the contract rather than the
+// browser guessing. Every problem comes back at once — fixing a corpus is a
+// slow loop if each attempt reports one broken quote out of nine.
+$('dataset-import').onclick = async () => {
+  const corpusFile = $('dataset-corpus-file').files[0];
+  const groundTruthFile = $('dataset-groundtruth-file').files[0];
+  if (!corpusFile || !groundTruthFile) {
+    $('importInfo').innerHTML = '<div class="note">a dataset is two files: '
+      + 'pick both the corpus and its ground truth</div>';
+    return;
+  }
+  $('importInfo').textContent =
+    `reading ${corpusFile.name} and ${groundTruthFile.name}…`;
   try {
-    const payload = JSON.parse(await file.text());
-    const added = await api('/api/datasets', payload);
+    const corpus = JSON.parse(await corpusFile.text());
+    const ground_truth = JSON.parse(await groundTruthFile.text());
+    const added = await api('/api/datasets', { corpus, ground_truth });
     await refreshOptions();
     $('dataset').value = added.id;
     describeDataset();
     $('importInfo').innerHTML =
-      `<b>${escapeHtml(added.name)}</b> imported · ${added.sessions} sessions, `
+      `<b>${escapeHtml(added.name)}</b> imported · ${added.documents} documents, `
       + `${added.questions} questions. Build the index to measure against it.`;
   } catch (e) {
     $('importInfo').innerHTML =
       `<div class="note">${escapeHtml(e.message)}</div>`;
   } finally {
-    $('dataset-file').value = '';
+    $('dataset-corpus-file').value = '';
+    $('dataset-groundtruth-file').value = '';
   }
 };
+
+// The backend a first visit boots on. A preset, not a lock: the codex CLI
+// needs no key, so a fresh panel's model knobs work before anything is typed.
+const DEFAULT_MODE = 'codex';
+
+// The selected mode's served preset, written onto the controls (the choices
+// stay editable). Named because two callers apply it: the select's own
+// onchange, and boot() on a first visit with nothing saved.
+function applyModePreset() {
+  const mode = (OPTIONS.modes || []).find((m) => m.key === $('mode').value);
+  // Read the controls before the model dropdowns are rebuilt for the new
+  // backend's catalogue, then write the merged config back over them.
+  const cfg = readConfig();
+  if (mode && mode.config) {
+    for (const group of Object.keys(mode.config)) {
+      Object.assign(cfg[group], mode.config[group]);
+    }
+  }
+  fillModels();
+  applyDefaults(cfg);
+  applyDependencies();
+}
 
 // The mode dropdown: '' follows whatever backend the lab booted with; a mode
 // applies its served preset onto the controls (the choices stay editable) and
@@ -216,18 +308,8 @@ function fillModes() {
     + (OPTIONS.modes || []).map((m) =>
       `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)}</option>`).join('');
   $('mode').onchange = () => {
-    const mode = (OPTIONS.modes || []).find((m) => m.key === $('mode').value);
-    // Read the controls before the model dropdowns are rebuilt for the new
-    // backend's catalogue, then write the merged config back over them.
-    const cfg = readConfig();
-    if (mode && mode.config) {
-      for (const group of Object.keys(mode.config)) {
-        Object.assign(cfg[group], mode.config[group]);
-      }
-    }
-    fillModels();
-    applyDefaults(cfg);
-    applyDependencies();
+    applyModePreset();
+    remember(SAVED_MODE, $('mode').value);
   };
 }
 
@@ -280,14 +362,10 @@ function decorateExplainers() {
   });
 }
 
-function checkboxes(host, values, checked) {
-  host.innerHTML = values.map((v) =>
-    `<label><input type="checkbox" value="${v}"${checked.includes(v) ? ' checked' : ''}> ${v}</label>`
-  ).join('');
-}
-
-function selected(host) {
-  return [...host.querySelectorAll('input:checked')].map((el) => el.value);
+// Escaped and never null/undefined — the one guard every table cell and
+// declaration row goes through, so a table added later cannot forget it.
+function safe(value) {
+  return escapeHtml(String(value ?? ''));
 }
 
 async function api(path, body, method = body ? 'POST' : 'GET') {
@@ -311,12 +389,28 @@ let ARCHIVE_VIEW_ONLY = false;
 let ARCHIVE_EVENTS_BOUND = false;
 
 // Remember the parts of a config the controls cannot express, having applied it.
+//
+// `applied` is not always this installation's own config on its way back in
+// — an open board row hands this whatever it reconciled, and a config saved
+// to `localStorage` before this schema renamed a field can still be sitting
+// there. Either way, a name this lab's served defaults do not have at all
+// (`generation.key_facts_judge`, before `fact_judge` existed) is not an
+// unshown *knob* to carry through — it is nowhere on the schema this
+// installation runs, and keeping it here would let it reappear on every
+// `readConfig()` from now on, including the one the strict archive codec
+// validates on the next write. Filtered against `OPTIONS.defaults` — the
+// server's own current shape — rather than skipped when `OPTIONS` has not
+// loaded yet (`validNames.size` guards that one boot-ordering case only).
 function keepUnshown(applied) {
   const shown = readShownConfig();
+  const defaults = (OPTIONS && OPTIONS.defaults) || {};
   UNSHOWN = { index: {}, retrieval: {}, generation: {} };
   for (const group of ['index', 'retrieval', 'generation']) {
+    const validNames = new Set(Object.keys(defaults[group] || {}));
     for (const [key, value] of Object.entries(applied[group] || {})) {
-      if (!(key in shown[group])) UNSHOWN[group][key] = value;
+      if (key in shown[group]) continue;
+      if (validNames.size && !validNames.has(key)) continue;
+      UNSHOWN[group][key] = value;
     }
   }
 }
@@ -347,7 +441,7 @@ function readShownConfig() {
       summary_levels: $('summary_levels').value,
     },
     generation: {
-      answerer: $('answerer').value, key_facts_judge: $('key_facts_judge').checked,
+      answerer: $('answerer').value, fact_judge: $('fact_judge').checked,
     },
   };
   // Each role writes into the config group whose stage uses it, so the index
@@ -375,19 +469,31 @@ function readConfig() {
 // happen per keystroke without a round trip; the two copies must agree — pinned
 // by `test_the_panel_resolves_a_dependency_chain_the_way_the_service_does` —
 // including transitively, so a control whose owner is itself dead is dead.
+function checkDependencyCondition(condition, cfg) {
+  const [group, name] = condition.field.split('.');
+  const current = (cfg[group] || {})[name];
+  const enabled = condition.on_true ? Boolean(current)
+    : (condition.on || []).indexOf(current) !== -1;
+  return { enabled, reason: enabled ? '' : condition.reason };
+}
+
 function dependencyState(rules, cfg) {
   const state = {};
   const resolve = (path, seen) => {
     if (state[path]) return state[path];
     const rule = rules[path];
-    const [group, name] = rule.field.split('.');
-    const current = (cfg[group] || {})[name];
-    let enabled = rule.on_true ? Boolean(current)
-      : (rule.on || []).indexOf(current) !== -1;
-    let reason = enabled ? '' : rule.reason;
+    let { enabled, reason } = checkDependencyCondition(rule, cfg);
     if (enabled && rules[rule.field] && seen.indexOf(path) === -1) {
       const above = resolve(rule.field, seen.concat([path]));
       if (!above.enabled) { enabled = false; reason = above.reason; }
+    }
+    // `also`: a second, independent condition of the same shape a rule may
+    // carry (D5/D6, composed with the reranker-based rule rather than
+    // replacing it) — both must hold, checked after the primary condition
+    // and its chain, so a control killed by its owner keeps that reason.
+    if (enabled && rule.also) {
+      const also = checkDependencyCondition(rule.also, cfg);
+      if (!also.enabled) { enabled = false; reason = also.reason; }
     }
     state[path] = { enabled, reason };
     return state[path];
@@ -399,6 +505,13 @@ function dependencyState(rules, cfg) {
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
   const cfg = readConfig();
+  // The new source D5/D6 gave this mechanism: a dataset fact rather than
+  // another knob, read off the served catalogue under a synthetic `dataset`
+  // group beside the three real config groups — resolved by the exact same
+  // rule shape every other entry uses.
+  const dataset = datasetOf(cfg.index.dataset) || {};
+  cfg.dataset = { date_label: dataset.date_label || '',
+                 ranks_label: dataset.ranks_label || '' };
   const state = dependencyState(rules, cfg);
   for (const path of Object.keys(rules)) {
     const el = controlFor(path);
@@ -462,7 +575,7 @@ function applyDefaults(d) {
   $('grader').value = d.retrieval.grader;
   $('grade_threshold').value = d.retrieval.grade_threshold;
   $('answerer').value = d.generation.answerer;
-  $('key_facts_judge').checked = d.generation.key_facts_judge;
+  $('fact_judge').checked = d.generation.fact_judge;
   for (const select of document.querySelectorAll('.rag-model')) {
     const [group, field] = select.dataset.field.split('.');
     select.value = (d[group] || {})[field] || '';
@@ -475,6 +588,7 @@ function applyDefaults(d) {
 // its served default. Remembered under the board's own `lodestar:` prefix.
 const SAVED_CONFIG = 'lodestar:raglab-config';
 const SAVED_RUN = 'lodestar:raglab-last-run';
+const SAVED_MODE = 'lodestar:raglab-mode';
 
 function saved(key) {
   try {
@@ -500,13 +614,27 @@ function remember(key, value) {
 // missing entirely, and every blank control in it would read as 0, which
 // validation then refuses. Same class of bug as `UNSHOWN`, same fix: the page
 // must not hold its own idea of what a config contains.
+//
+// And the opposite edge of the same rule: a saved config may carry a knob
+// this lab's schema *retired* since it was written (`generation.
+// key_facts_judge`, before `fact_judge` existed). Merged in unfiltered, that
+// name would sit on the config every control reads and writes from boot
+// onward — including the one the strict archive codec validates the moment
+// anything tries to save again — so only the keys `defaults[group]` still
+// has are kept from what was saved; everything else in it is left behind
+// exactly as an unservable knob from an opened archive is.
 function startingConfig(defaults) {
   const kept = saved(SAVED_CONFIG);
   if (!kept) return defaults;
   const merged = { label: kept.label || defaults.label || '' };
   for (const group of Object.keys(defaults)) {
     if (group === 'label') continue;
-    merged[group] = Object.assign({}, defaults[group], kept[group] || {});
+    const validNames = new Set(Object.keys(defaults[group] || {}));
+    const keptGroup = {};
+    for (const [key, value] of Object.entries(kept[group] || {})) {
+      if (validNames.has(key)) keptGroup[key] = value;
+    }
+    merged[group] = Object.assign({}, defaults[group], keptGroup);
   }
   return merged;
 }
@@ -540,12 +668,27 @@ async function boot() {
   fill($('reranker'), o.rerankers);
   fill($('grader'), o.graders);
   fill($('answerer'), o.answerers);
-  checkboxes($('types'), o.question_types, []);
   document.addEventListener('change', applyDependencies);
   fillModels();
   fillModes();
   applyDefaults(startingConfig(o.defaults));
   keepUnshown(startingConfig(o.defaults));
+  // The remembered backend comes back with the remembered config — the select
+  // set before the model dropdowns are rebuilt, so the saved model ids land on
+  // that backend's own catalogue rather than being lost against boot's. Only
+  // when nothing is saved at all — no config and no mode, a first visit — does
+  // the panel boot on DEFAULT_MODE's preset (fillModes above has already put
+  // the option in the select). A saved config is never overwritten by a
+  // preset: the preset is a starting point, not the reader's own choices.
+  const rememberedMode = saved(SAVED_MODE);
+  if (rememberedMode !== null) {
+    $('mode').value = rememberedMode;
+    fillModels();
+    applyDefaults(startingConfig(o.defaults));
+  } else if (saved(SAVED_CONFIG) === null) {
+    $('mode').value = DEFAULT_MODE;
+    applyModePreset();
+  }
   applyDependencies();
   describeDataset();
   decorateExplainers();
@@ -561,7 +704,8 @@ async function boot() {
     for (const event of ['change', 'input']) {
       experimentControls.addEventListener(event, (change) => {
         if (!CURRENT_ARCHIVE || !change.target.matches('input, select, textarea')
-            || change.target.id === 'dataset-file') return;
+            || change.target.id === 'dataset-corpus-file'
+            || change.target.id === 'dataset-groundtruth-file') return;
         CURRENT_ARCHIVE = null;
         setArchiveStatus(
           'Readings belong to the previous settings; export will contain settings only.',
@@ -809,7 +953,8 @@ $('run').onclick = async () => {
     ragas_mode: requested.settings.ui.ragas_mode,
     limit: requested.settings.ui.limit || null,
     ragas_limit: requested.settings.ui.ragas_limit || null,
-    types: requested.settings.ui.types,
+    labels: requested.settings.ui.labels,
+    balance: requested.settings.ui.balance,
   });
   try {
     const { job_id } = await api('/api/evaluations', body);
@@ -836,11 +981,12 @@ $('run').onclick = async () => {
 };
 
 // Exactly the questions "Run evaluation" would score — the same limit and the
-// same type filter, read from the same controls. A different selection here
+// same label filters, read from the same controls. A different selection here
 // would put questions in the Inspector's retrieval window that no score was
 // ever about, which is the one thing this view must not do.
 function selectionBody() {
-  return { limit: +$('limit').value || null, types: selected($('types')) };
+  return { limit: +$('limit').value || null, labels: QUESTION_SELECTION.labels,
+           balance: QUESTION_SELECTION.balance };
 }
 
 // The same job `poll` already drives, awaited, so one click can chain a build
@@ -903,7 +1049,8 @@ function archiveSettings() {
     ragas_mode: $('ragas_mode').value,
     limit: +$('limit').value,
     ragas_limit: +$('ragas_limit').value,
-    types: selected($('types')),
+    labels: QUESTION_SELECTION.labels,
+    balance: QUESTION_SELECTION.balance,
   });
 }
 
@@ -1013,10 +1160,28 @@ function validateAgainstPanelOptions(imported) {
   if (![...$('ragas_mode').options].some((option) => option.value === ui.ragas_mode)) {
     throw new Error(`settings.ui.ragas_mode: ${ui.ragas_mode} is not available`);
   }
-  const questionTypes = new Set(OPTIONS.question_types || []);
-  for (const type of ui.types) {
-    if (!questionTypes.has(type)) {
-      throw new Error(`settings.ui.types: ${type} is not served by this lab`);
+  // D7: a question filter names a label the *dataset* declares, not a fixed
+  // vocabulary every corpus shares — so `labels` and `balance` are checked
+  // against that dataset's own declaration rather than a served list. A
+  // view-only archive names a dataset this installation does not have
+  // installed at all; `labelVocabFor` falls back to the archive's own
+  // embedded ground truth for exactly that case.
+  const declared = labelVocabFor(config, imported);
+  if (ui.balance && !(ui.balance in declared)) {
+    throw new Error(`settings.ui.balance: ${ui.balance} is not a label this `
+      + 'dataset declares');
+  }
+  for (const [name, values] of Object.entries(ui.labels || {})) {
+    if (!(name in declared)) {
+      throw new Error(`settings.ui.labels: ${name} is not a label this `
+        + 'dataset declares');
+    }
+    const allowed = new Set(declared[name]);
+    for (const value of values) {
+      if (!allowed.has(value)) {
+        throw new Error(`settings.ui.labels.${name}: ${value} is not a `
+          + 'value this dataset declares');
+      }
     }
   }
   // The two numbers that are the run's and not the config's, so they are not in
@@ -1085,16 +1250,17 @@ function writeArchiveSettings(imported, restoration = null) {
   fillModels();
   applyDefaults(config);
   keepUnshown(config);
+  // A dataset this installation serves gets its own declaration rebuilt by
+  // `describeDataset` — which also resets the question selection, so the
+  // archive's own has to land *after* it. A view-only one has no files to
+  // read here and nothing on screen to rebuild.
+  if (!disposition.viewOnly) describeDataset();
   $('ragas_mode').value = ui.ragas_mode;
   $('limit').value = ui.limit;
   $('ragas_limit').value = ui.ragas_limit;
-  const wantedTypes = new Set(ui.types);
-  for (const input of $('types').querySelectorAll('input')) {
-    input.checked = wantedTypes.has(input.value);
-  }
+  QUESTION_SELECTION = { labels: ui.labels || {}, balance: ui.balance || '' };
   applyDependencies();
   setArchiveViewOnly(disposition.viewOnly);
-  if (!disposition.viewOnly) describeDataset();
 
   const expected = ArchiveIO.settings(config, ui);
   if (!ArchiveIO.equal(archiveSettings(), expected)) {
@@ -1119,7 +1285,10 @@ function snapshotDashboard() {
 
 function restoreDashboard(before) {
   writeArchiveSettings(before.settings, {
-    dataset: before.settings.settings.config.index.dataset || 'diary-fa',
+    // Same one mapping the codec and the handoff read, never a fourth copy of
+    // the string: an absent dataset names the built-in corpus.
+    dataset: before.settings.settings.config.index.dataset
+      || ArchiveIO.BUILTIN_DATASET,
     viewOnly: before.archiveViewOnly,
     optionText: before.archivedOption && before.archivedOption.text,
   });
@@ -1189,7 +1358,8 @@ async function adoptArchive(imported) {
         validate: validateAgainstPanelOptions,
         write: (next) => writeArchiveSettings(next,
           ArchiveIO.equal(next, before.settings) ? {
-            dataset: before.settings.settings.config.index.dataset || 'diary-fa',
+            dataset: before.settings.settings.config.index.dataset
+              || ArchiveIO.BUILTIN_DATASET,
             viewOnly: before.archiveViewOnly,
             optionText: before.archivedOption && before.archivedOption.text,
           } : null),
@@ -1288,6 +1458,122 @@ $('archive-export').onclick = () => {
 // one — the board opens the Inspector in a new tab, so the reader who has both
 // surfaces up is the reader this is for — and without it the button would set
 // the settings on the *next* reload, which is not what it said it did.
+//
+// This is deliberately *not* the archive-import path, even though it used to
+// share it. An imported file either arrives intact or it does not — that is
+// right for a file someone chose to hand this lab, which was never here
+// before. An experiment opened from this lab's own board is already a record
+// here: it has a job, a ledger row, everything `ImportedArchiveStore` exists
+// to give something that has none of those. So nothing here is re-posted to
+// `/api/imported-archives`, and — the rule CLAUDE.md and this plan's own
+// handoff design both state — a knob this installation cannot serve, or a
+// name this schema no longer has at all (every experiment recorded before
+// this branch carries `generation.key_facts_judge`, not `fact_judge`), is
+// left at the panel's own value and *named*, never made to refuse the whole
+// handoff the way the strict codec used to.
+
+// The `ui` block's own lenient reading, the same rule `ExperimentHandoff.
+// reconcile` applies to `config`, in miniature: a name this panel's own `ui`
+// no longer has (`types`, before `labels`/`balance` existed) is dropped and
+// named; a name it still has is applied when the value is one this panel can
+// actually represent. `labels` and `balance` have no controls any more —
+// they land in `QUESTION_SELECTION` — but the checks stay: a recorded value
+// naming a label this dataset does not declare must be left behind and
+// *said*, not carried silently into a run that would refuse it.
+function reconcileUi(recorded, current, config, archived) {
+  const ui = Object.assign({}, current);
+  const unserved = [];
+  const set = [];
+  const modes = ['', ...(OPTIONS.modes || []).map((row) => row.key)];
+  const ragasModes = [...$('ragas_mode').options].map((option) => option.value);
+  const declared = labelVocabFor(config, archived);
+  for (const [knob, value] of Object.entries(recorded || {})) {
+    const path = `ui.${knob}`;
+    if (!(knob in current)) {
+      unserved.push({ path, value, reason: 'not a knob this lab reads any more' });
+      continue;
+    }
+    if (knob === 'mode' && !modes.includes(value)) {
+      unserved.push({ path, value, reason: 'not served by this lab' });
+      continue;
+    }
+    if (knob === 'ragas_mode' && !ragasModes.includes(value)) {
+      unserved.push({ path, value, reason: 'not available' });
+      continue;
+    }
+    if (knob === 'balance' && value && !(value in declared)) {
+      unserved.push({ path, value, reason: 'not a label this dataset declares' });
+      continue;
+    }
+    if (knob === 'labels') {
+      // Filtered per label rather than refused whole: one label this dataset
+      // does not declare must not cost every other filter the record named.
+      const kept = {};
+      const dropped = [];
+      for (const [label, values] of Object.entries(value || {})) {
+        if (label in declared) kept[label] = values; else dropped.push(label);
+      }
+      ui.labels = kept;
+      set.push(path);
+      if (dropped.length) {
+        unserved.push({ path: 'ui.labels', value: dropped,
+                        reason: 'not a label this dataset declares' });
+      }
+      continue;
+    }
+    ui[knob] = value;
+    set.push(path);
+  }
+  return { ui, unserved, set };
+}
+
+// A knob named `ui.*` has no stage `ExperimentHandoff.notice`'s own grouping
+// knows about, so it is named in its own sentence rather than silently
+// dropped from the "To set" list the way an unknown group would leave it.
+function uiUnservedNote(unserved) {
+  if (!unserved.length) return '';
+  const said = unserved.map((row) => `${row.path.slice(3)} = `
+    + `${JSON.stringify(row.value)} — ${row.reason}`).join('; ');
+  return ` Also left at the panel’s own value: ${said}.`;
+}
+
+// The lenient half of the handoff: every config and `ui` knob this
+// installation can serve is applied, and every one it cannot — including a
+// name this schema no longer has at all — is left at the panel's own value
+// and returned for the notice to name. Throws only for what genuinely leaves
+// nothing to open with (a representation `writeArchiveSettings` cannot square
+// with the panel after applying only what passed that check), never for a
+// knob this function itself already decided not to apply.
+function adoptHandedSettings(archived) {
+  const settingsBlock = (archived || {}).settings || {};
+  const recordedConfig = settingsBlock.config || {};
+  const recordedUi = settingsBlock.ui || {};
+  const currentSettings = archiveSettings().settings;
+  const served = servedKnobs(recordedUi.mode);
+  const configOut = ExperimentHandoff.reconcile(
+    recordedConfig, currentSettings.config, served);
+  const uiOut = reconcileUi(
+    recordedUi, currentSettings.ui, configOut.config, archived);
+  writeArchiveSettings(ArchiveIO.settings(configOut.config, uiOut.ui));
+  if (archived.evaluation) {
+    renderResult(archived.evaluation.result,
+      { remember: false, imported: true,
+        metric_catalogue: archived.evaluation.metric_catalogue });
+  }
+  // Never the archive this experiment recorded: `settings.config`/`ui` may
+  // now differ from `archived.evaluation.result.config` wherever a knob was
+  // left at the panel's own value, and claiming this screen re-exports that
+  // record byte for byte would be exactly the row-lying-about-what-produced-
+  // it CLAUDE.md forbids. A later export is settings-only, which is honest.
+  CURRENT_ARCHIVE = null;
+  remember(SAVED_CONFIG, readConfig());
+  // Kept apart rather than merged: `ExperimentHandoff.notice`'s own count of
+  // "N knobs could not be set" has to match the detail list it prints right
+  // beside it, and that list only knows the three config stages — folding the
+  // `ui` knobs into the same count without a place in that list would make
+  // the sentence claim more detail than it goes on to give.
+  return { config: configOut, ui: uiOut };
+}
 
 async function openHandedExperiment(experimentId) {
   let archived;
@@ -1304,18 +1590,25 @@ async function openHandedExperiment(experimentId) {
       + `(${error.message}). No knob was changed.`);
     return;
   }
+  // Snapshotted before anything is written, and restored on any failure below
+  // — a refused open must leave every control exactly as it was, never half
+  // one experiment's settings under a notice that never arrived.
+  const before = snapshotDashboard();
+  let out;
   try {
-    // The same object a downloaded export carries, taking the same path a
-    // chosen file takes — `normalize` rather than `parse` only because this
-    // arrived as JSON already parsed by `api()`; the validation either way is
-    // identical. Whatever this lab cannot serve is refused here, whole, exactly
-    // as it would be for a file: the experiment arrives or it does not.
-    await adoptArchive(ArchiveIO.normalize(archived));
+    out = adoptHandedSettings(archived);
   } catch (error) {
+    restoreDashboard(before);
     Widget.note(`Experiment ${experimentId} was not opened `
       + `(${error.message}). The panel is as it was.`);
     return;
   }
+  const result = archived.evaluation ? archived.evaluation.result : {};
+  const record = { experiment_id: experimentId, kind: 'run',
+                   label: result.label || '', started_at: result.started_at || '',
+                   dataset: result.dataset || '', source: 'both' };
+  Widget.note(ExperimentHandoff.notice(record, out.config)
+    + uiUnservedNote(out.ui.unserved));
   // The settings are this experiment's now, and so is the conversation: the
   // widget switches to the thread it kept for this id. Coming back to another
   // experiment brings that one's conversation back with it.
@@ -1372,7 +1665,6 @@ function takeHandedExperiment() {
 }
 
 function renderResult(result, options = {}) {
-  const safe = (value) => escapeHtml(String(value ?? ''));
   const metricCatalogue = options.metric_catalogue || measures();
   // Held evidence follows the run on display: an older leaderboard or ledger
   // row changes no control, so the settings-change invalidation never fires —
@@ -1410,13 +1702,26 @@ function renderResult(result, options = {}) {
         <span class="muted">${escapeHtml(m.short)}</span>${bar}</div>`;
     }).join('');
 
-  const t = result.summary.by_type;
+  // `behavior` is the one question-classification field every ground truth
+  // carries (D2/D7 retired the fixed `type`/`difficulty` vocabularies every
+  // corpus used to share) — grouped here, client-side, rather than added
+  // back to `metrics.aggregate`, which no longer breaks scores down by any
+  // question label since the set of labels is now the dataset's own.
+  const byBehavior = {};
+  for (const row of result.rows) {
+    (byBehavior[row.behavior || ''] = byBehavior[row.behavior || ''] || []).push(row);
+  }
+  const meanOf = (rows, field) => {
+    const values = rows.map((r) => r[field]).filter((v) => v !== null && v !== undefined);
+    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  };
   renderTable('byType',
-    ['type', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
-    Object.entries(t).map(([name, row]) => [safe(name), safe(row.n), safe(fmt(row.recall)),
-      safe(fmt(row.quote_recall)), safe(fmt(row.ndcg)), safe(fmt(row.hit)),
-      safe(fmt(row.abstained_correctly)), safe(fmt(row.false_abstention))]),
-    { label: 'Scores by question type', text: [0] });
+    ['behavior', 'n', 'recall', 'quote', 'nDCG', 'hit', 'abstain ok', 'false ref'],
+    Object.entries(byBehavior).map(([name, rows]) => [safe(name), safe(rows.length),
+      safe(fmt(meanOf(rows, 'recall'))), safe(fmt(meanOf(rows, 'quote_recall'))),
+      safe(fmt(meanOf(rows, 'ndcg'))), safe(fmt(meanOf(rows, 'hit'))),
+      safe(fmt(meanOf(rows, 'abstained_correctly'))), safe(fmt(meanOf(rows, 'false_abstention')))]),
+    { label: 'Scores by behavior', text: [0] });
 
   const r = result.ragas || {};
   const metrics = r.metrics || {};
@@ -1441,10 +1746,17 @@ function renderResult(result, options = {}) {
       `<div class="muted">no RAGAS scores${(r.notes || []).length ? ': ' + escapeHtml(r.notes.join('; ')) : ''}</div>`;
   }
 
-  renderTable('extras', ['difficulty', 'n', 'recall'],
-    Object.entries(result.summary.by_difficulty)
-      .map(([k, v]) => [safe(k), safe(v.n), safe(fmt(v.recall))]),
-    { label: 'Scores by difficulty', text: [0] });
+  // What this run actually sampled: `by_<balance>` only exists when a run
+  // was balanced on a question label (D7); a plain stride reports the raw
+  // selection instead, since there is no band to report a breakdown by.
+  const selection = result.selection || {};
+  const balance = selection.balance || '';
+  const bandCounts = balance ? selection[`by_${balance}`] : null;
+  renderTable('extras', bandCounts ? [balance, 'n'] : ['selection', 'value'],
+    bandCounts ? Object.entries(bandCounts).map(([k, v]) => [safe(k), safe(v)])
+      : [['limit', safe(selection.limit ?? 'all')], ['n', safe(selection.n)],
+         ['balance', 'stride (no label balance)']],
+    { label: balance ? `Selection by ${balance}` : 'Selection', text: [0] });
 
   // The run on screen becomes a question the helper can be asked about it. Built
   // here rather than read out of the DOM later, because this is the one place
@@ -1453,12 +1765,12 @@ function renderResult(result, options = {}) {
   Widget.offer(widgetRunAsk(result, metricCatalogue));
 
   renderTable('rows',
-    ['id', 'type', 'diff', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
-    result.rows.map((row) => [safe(row.id), safe(row.type), safe(row.difficulty),
+    ['id', 'behavior', 'recall', 'quote', 'ndcg', 'ctx', 'abst', 'ms'],
+    result.rows.map((row) => [safe(row.id), safe(row.behavior),
       safe(fmt(row.recall, 2)), safe(fmt(row.quote_recall, 2)), safe(fmt(row.ndcg, 2)),
       safe(row.n_contexts), row.abstained ? 'yes' : '',
       safe(Math.round(row.latency_ms))]),
-    { label: 'Every question, one row each', text: [0, 1, 2] });
+    { label: 'Every question, one row each', text: [0, 1] });
 }
 
 // One table inside the shared scroll region (chrome.css), which both surfaces

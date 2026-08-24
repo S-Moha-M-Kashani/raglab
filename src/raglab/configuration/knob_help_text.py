@@ -24,9 +24,10 @@ HELP = {
         'Which corpus this experiment measures against. It is the first thing '
         'the leaderboard groups by, because two corpora are two measurements '
         'rather than two configurations of one, and changing it rebuilds the '
-        'index. The bundled default is a synthetic Farsi diary with 112 '
-        'ground-truth questions; four smaller corpora ship beside it so a '
-        'general finding can be told from a fact about Farsi diaries. Import '
+        'index. The bundled default is a synthetic one-year English diary '
+        'with 112 ground-truth questions; its Farsi original and four smaller '
+        'corpora ship beside it so a general finding can be told from a fact '
+        'about one corpus. Import '
         'your own with the button beside it — the ! there states the shape a '
         'file must have — and a dataset whose evidence quotes are not verbatim '
         'in the messages they cite is refused.'),

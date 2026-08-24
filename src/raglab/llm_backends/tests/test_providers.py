@@ -358,7 +358,7 @@ def test_the_sweep_refuses_a_backend_it_has_no_screened_pair_for(monkeypatch):
         sweep.judged_settings()
     said = str(refused.value)
     assert 'no answerer/judge pair' in said
-    assert 'RAGLAB_SWEEP_ANSWER_MODEL' in said and 'RAGLAB_SWEEP_JUDGE_MODEL' in said
+    assert 'pinned pair' in said, 'the refusal has to say what is missing'
     # The equality branch's own wording must not be what came back: with both
     # pins empty it would fire first under the wrong order and name the wrong
     # fault.

@@ -43,14 +43,13 @@ PAIRINGS = {'openrouter': {'answerer': 'openai/gpt-5-nano',
             'fake': {'answerer': 'openai/gpt-5-nano',
                      'judge': 'openai/gpt-5-mini'}}
 
-# Read at import so the env that chooses the backend also chooses the pairing,
-# individually overridable. No fallback to another backend's pins: that would
-# hand a CLI backend a slug it has never heard of.
+# Read at import so the env that chooses the backend also chooses the pairing.
+# No fallback to another backend's pins: that would hand a CLI backend a slug
+# it has never heard of — a backend with no pinned pair cannot sweep.
 _PROVIDER = os.environ.get('RAGLAB_LLM', '') or 'openrouter'
 _PAIR = PAIRINGS.get(_PROVIDER, {})
-ANSWER_MODEL = os.environ.get('RAGLAB_SWEEP_ANSWER_MODEL',
-                              _PAIR.get('answerer', ''))
-JUDGE_MODEL = os.environ.get('RAGLAB_SWEEP_JUDGE_MODEL', _PAIR.get('judge', ''))
+ANSWER_MODEL = _PAIR.get('answerer', '')
+JUDGE_MODEL = _PAIR.get('judge', '')
 
 # Every candidate is measured on the same 30 questions — 10 easy, 10 medium, 10
 # hard — rather than the full 112, since a candidate sweep pays the judged cost
@@ -119,13 +118,12 @@ def judged_settings():
                  'RAGLAB_LLM=openrouter needs OPENROUTER_API_KEY. Each has a '
                  'pinned answerer/judge pair except codex, where one alias is '
                  'verified here and a model grading its own output is not '
-                 'evidence — name both with RAGLAB_SWEEP_ANSWER_MODEL / '
-                 'RAGLAB_SWEEP_JUDGE_MODEL.')
+                 'evidence — sweep on a backend with a pinned pair.')
     if not ANSWER_MODEL or not JUDGE_MODEL:
-        sys.exit(f'no answerer/judge pair for RAGLAB_LLM={_PROVIDER!r}: name '
-                 'both with RAGLAB_SWEEP_ANSWER_MODEL and '
-                 'RAGLAB_SWEEP_JUDGE_MODEL. Two different models, because a '
-                 'model grading its own output is not evidence.')
+        sys.exit(f'no answerer/judge pair for RAGLAB_LLM={_PROVIDER!r}: this '
+                 'backend has no pinned pair in PAIRINGS, and a model grading '
+                 'its own output is not evidence — sweep on a backend that '
+                 'has one.')
     if ANSWER_MODEL == JUDGE_MODEL:
         sys.exit(f'answerer and judge are both {ANSWER_MODEL!r}: a model grading '
                  'its own output is not evidence, and these four metrics are the '

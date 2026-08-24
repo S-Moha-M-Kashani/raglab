@@ -102,8 +102,8 @@ def test_two_groupings_are_two_indexes():
 # Three tests used to cover this: the unit refusal below, a direct check of
 # `hierarchy.available()`'s answers, and the route 400 kept near the bottom of
 # this file. The middle one is dropped — its claims are not lost, they are
-# proven more directly elsewhere: the "leiden needs graph-index" install
-# string is asserted right here on the refusing side, `hierarchy_support`'s
+# proven more directly elsewhere: the install string a refused grouping must
+# name is asserted right here on the refusing side, `hierarchy_support`'s
 # `louvain: available=True` is asserted from the real, unmocked
 # `/api/options` response in `test_both_panels_are_served_the_hierarchy_lists`,
 # and the anchor test below actually *builds* an index with each of
@@ -123,7 +123,7 @@ def test_a_grouping_whose_library_is_missing_is_refused_and_never_substituted(
     problems = LabConfig(index=IndexConfig(hierarchy='leiden')).validate()
     assert problems, 'an unavailable grouping must not validate'
     assert 'leiden' in problems[0]
-    assert 'graph-index' in problems[0], 'the error has to say what to install'
+    assert 'uv sync' in problems[0], 'the error has to say what to install'
     assert 'louvain' not in problems[0].lower(), 'never offer a substitute'
     assert LabConfig(index=IndexConfig(hierarchy='louvain')).validate() == []
 
@@ -686,7 +686,7 @@ def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
     response = client.post('/api/indexes',
                            json={'index': {'hierarchy': 'leiden'}})
     assert response.status_code == 400
-    assert 'graph-index' in response.json()['detail']
+    assert 'uv sync' in response.json()['detail']
 
 
 # FastAPI TestClient.
@@ -702,9 +702,11 @@ def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     # Read from the real, unmocked availability check — the claims
     # `test_availability_is_verified_rather_than_asserted` used to make,
     # before it was dropped as the availability rule's redundant middle test:
-    # every grouping that runs on a core dependency (everything but `leiden`,
-    # which needs the `graph-index` extra) reports available here, for real.
-    for name in ('louvain', 'label-prop', 'raptor', 'agglomerative', 'kmeans'):
+    # every grouping runs on a core dependency (`leiden`'s compiled pair
+    # included, since graph-index stopped being an extra), so each one must
+    # report available here, for real.
+    for name in ('louvain', 'label-prop', 'raptor', 'agglomerative', 'kmeans',
+                 'leiden'):
         assert options['hierarchy_support'][name]['available'] is True, name
     assert 'retrieval.summary_scope' in options['dependencies']
 

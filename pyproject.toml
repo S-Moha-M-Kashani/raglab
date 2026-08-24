@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.25.0"
+version = "0.26.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [
@@ -73,6 +73,11 @@ dependencies = [
   # runs them with, instead of restating their rules in Python. Small and
   # pure — no compiled wheels, no transitive surprise.
   "jsonschema>=4.23",
+  # Leiden's grouping pair. Compiled wheels, but prebuilt for the common
+  # platforms — core so `hierarchy='leiden'` works on a plain `uv sync`
+  # instead of hiding behind a graph-index extra nobody discovered.
+  "leidenalg>=0.10",
+  "python-igraph>=0.11",
 ]
 
 [project.optional-dependencies]
@@ -83,11 +88,6 @@ semantic = ["fastembed>=0.7"]
 # HuggingFace checkpoints fastembed does not serve. The default embedder needs
 # this — see README's launch line and tests/test_conventions.py.
 local-embeddings = ["sentence-transformers>=3.0"]
-# Leiden alone needs compiled wheels; every other grouping runs on networkx and
-# scikit-learn, which are core. Optional so a lab that cannot build them still
-# starts — `hierarchy='leiden'` is then reported NA and refused by validation,
-# never quietly served by Louvain.
-graph-index = ["leidenalg>=0.10", "python-igraph>=0.11"]
 
 [project.scripts]
 raglab = "raglab.dashboard.cli.serve:panel"

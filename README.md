@@ -5,10 +5,11 @@ retrieve against its questions, score what comes back, and keep the account of
 every experiment, so a RAG architecture for any use case can be chosen by
 measurement instead of by taste. The corpus is a config field, not an
 assumption: point `dataset` at any file matching the stated contract, or use
-one of the five that ship. The bundled default is `diary-fa`
-(`fixtures/corpus_groundtruth_datasets/diary_year_fa_corpus.json` and
-`diary_year_fa_groundtruth.json`), a year of synthetic colloquial Farsi diary
-chat with ground-truth questions and cited evidence — one case study among the
+one of the six that ship. The bundled default is `diary-en`
+(`fixtures/corpus_groundtruth_datasets/diary_year_en_corpus.json` and
+`diary_year_en_groundtruth.json`), a year of synthetic colloquial diary chat
+with ground-truth questions and cited evidence, translated from its Farsi
+original (`diary-fa`), which ships beside it — one case study among the
 shipped corpora, not the project's scope.
 
 **Who this is for:** anyone who has to choose a RAG architecture and wants the
@@ -19,6 +20,8 @@ answers.
 
 ## Quick start
 
+### raglab
+
 ```sh
 uv run --extra local-embeddings raglab      # the panel on :9002, the read-only Inspector at /inspector
 ```
@@ -27,32 +30,49 @@ The extra is required because the default embedder is a sentence-transformers
 checkpoint. Without it the service starts fine and then fails on the first
 index build. The ~2.2 GB model downloads on first index build, not at boot.
 
-Add `--extra graph-index` for the `leiden` hierarchy grouping.
+The panel serves without any model, and index builds need none — but
+answering and judging need a chat backend. `RAGLAB_LLM` (in a `.env` copied
+from `.env.example`) picks one of four, and each needs a one-time setup:
 
-| Command | What it does |
-| --- | --- |
-| `uv run raglab-lab` | the suite, then the panel — refuses to serve on a red suite |
-| `uv run raglab-sweep` | the one-change-at-a-time ablation ladder |
-| `uv run raglab-judgescreen` | score a candidate judge model before trusting it |
-| `uv run raglab-leaderboard` | rank the runs in `.runs/`, refusing to rank the incomparable |
-| `uv run pytest` | the suite |
+- `ollama` (the default) — a local model server, so a fresh install can never
+  silently spend credit. Install it from <https://ollama.com>, then pull the
+  lab's default model once:
+
+  ```sh
+  ollama pull 4skl/gemma4-e2b-mtp
+  ```
+
+  Any other pulled model works too: name it in `RAGLAB_MODEL`. The lab expects
+  Ollama at `localhost:11434` (`RAGLAB_OLLAMA_BASE_URL` overrides).
+
+- `claude` / `codex` — no API key and nothing to pull: each drives the coding
+  CLI already installed **and logged in** on this machine (`npm install -g
+  @anthropic-ai/claude-code` or `npm install -g @openai/codex`, then run it
+  once to log in). Set `RAGLAB_LLM=claude` or `RAGLAB_LLM=codex`;
+  `RAGLAB_CLI_EFFORT` sets how hard it thinks (claude takes
+  `low|medium|high|xhigh|max`, codex `low|medium|high|none`).
+
+- `openrouter` — a remote model, paid per call. Set `RAGLAB_LLM=openrouter`
+  and put an `OPENROUTER_API_KEY` in `.env` — or skip the file and enter the
+  key in **⚙** at the right of the panel masthead, where it lives in process
+  memory only, for the life of that process. The default model is
+  `openai/gpt-5-nano`.
+
+### The widget
+
+The corner helper (the Ask widget on every surface) has its own model picker
+and needs no setup beyond the backends above. Its tool-using default,
+`openai/gpt-5-nano`, reads the same OpenRouter key — from `.env` or typed into
+**⚙**; without one it answers 502 naming the missing variable. The keyless
+fallback is picking the claude or codex CLI in its picker, which answers in
+one call but cannot run tools.
 
 ## Configuration
 
-`RAGLAB_LLM` picks the chat backend:
-
-- `ollama` (default) — a local model; a judged run can make hundreds of calls,
-  so the default must never silently spend credit.
-- `openrouter` — a remote model; set `OPENROUTER_API_KEY` in `.env`, or open
-  **⚙** at the right of the panel masthead and enter it there, for the life of
-  that process. The corner helper defaults to the GPT-5 Nano OpenRouter tool
-  agent.
-- `claude` / `codex` — drives a CLI already installed on this machine, no API
-  key needed.
-- `fake` — offline, answers and judges without ever failing; for tests only.
-
-Everything else the lab reads is in `.env.example`, commented out and kept
-complete by `test_conventions.py`.
+`RAGLAB_LLM` and its backends are covered in Quick start; the fifth value,
+`fake`, is offline, answers and judges without ever failing, and is for tests
+only. Everything else the lab reads is in `.env.example`, commented out and
+kept complete by `test_conventions.py`.
 
 **⚙** also holds the theme: **Day**, **Night**, or **Auto**, which follows the
 machine and is the default. The panel, the Inspector and the board are one
@@ -222,3 +242,22 @@ shares the process, or the run is traced too.
 - `.screens/` — one JSON file per judge screen, the evidence for which model
   was allowed to grade the deciding metrics. Git-ignored, so keep it if you
   care which judge produced a number.
+
+## Development
+
+| Command | What it does |
+| --- | --- |
+| `uv run pytest` | the suite |
+| `uv run raglab-lab` | the suite, then the panel — refuses to serve on a red suite |
+
+The suite is offline and safe to run anywhere: fixtures pin the `fake`
+backend, blank any API keys, and redirect every artifact path, so no test can
+call a model, spend credit, or write into the real `.runs/`, ledger or
+conversation store. The only exception is the `*_live.py` probes, and each of
+those skips unless its file is named on the pytest command line.
+
+Tests are colocated — each section's `tests/` folder holds its own, and
+`src/raglab/tests/test_conventions.py` holds the repo-wide guards. Branch from
+`development`, never `master`; `master` is the squash-merged release.
+
+The extra tools (`agents/extra_tools/`) are under construction.

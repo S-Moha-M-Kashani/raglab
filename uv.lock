@@ -2170,7 +2170,7 @@ wheels = [
 
 [[package]]
 name = "raglab"
-version = "0.25.0"
+version = "0.26.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -2182,8 +2182,10 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "leidenalg" },
     { name = "networkx" },
     { name = "numpy" },
+    { name = "python-igraph" },
     { name = "pyyaml" },
     { name = "ragas" },
     { name = "rapidfuzz" },
@@ -2192,10 +2194,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-graph-index = [
-    { name = "leidenalg" },
-    { name = "python-igraph" },
-]
 local-embeddings = [
     { name = "sentence-transformers" },
 ]
@@ -2220,10 +2218,10 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1,<2" },
     { name = "langgraph", specifier = ">=1.2,<2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.1.1" },
-    { name = "leidenalg", marker = "extra == 'graph-index'", specifier = ">=0.10" },
+    { name = "leidenalg", specifier = ">=0.10" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "numpy", specifier = ">=2.0" },
-    { name = "python-igraph", marker = "extra == 'graph-index'", specifier = ">=0.11" },
+    { name = "python-igraph", specifier = ">=0.11" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ragas", specifier = "==0.4.*" },
     { name = "rapidfuzz" },
@@ -2231,7 +2229,7 @@ requires-dist = [
     { name = "sentence-transformers", marker = "extra == 'local-embeddings'", specifier = ">=3.0" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["semantic", "local-embeddings", "graph-index"]
+provides-extras = ["semantic", "local-embeddings"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]

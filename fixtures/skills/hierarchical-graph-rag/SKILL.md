@@ -108,8 +108,9 @@ This is implemented, and the design is a direct response to the trap above
   community has a nameable subject.
 - **Leiden and Louvain tie here**: 0.2587 against 0.2543 modularity. Leiden's
   advantage is over badly-connected communities and needs scale to show.
-  `leiden` needs `uv sync --extra graph-index` and is refused when absent, never
-  silently served by Louvain.
+  `leiden`'s libraries (leidenalg, python-igraph) are core dependencies; if the
+  import still fails the grouping is refused by name, never silently served by
+  Louvain.
 - **Retrieval does nothing until asked.** `summary_scope` defaults to `mixed`,
   `summary_boost` to 1.0, so a hierarchy build moves no number by itself.
   `leaves` is the control; `drill-down` retrieves among summaries then expands to

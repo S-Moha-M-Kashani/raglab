@@ -93,17 +93,19 @@ def test_archive_version_requires_an_integer_type():
 def test_broken_question_chunk_and_span_references_are_refused():
     # this is a unit test
     mutations = [
-        (lambda full: full['evaluation']['result']['rows'][0].update(id='missing'),
-         'rows.*missing'),
+        (lambda full: full['evaluation']['result']['rows'][0].update(id=99),
+         'rows.*99.*outside'),
         (lambda full: full['evaluation']['inspector']['dataset']['ground_truth']
-         ['questions'][0]['evidence'][0].update(session_id='missing-session'),
-         'evidence.*session_id.*missing-session'),
+         ['groundtruth_dataset'][0]['relevant_corpus_documents'][0]
+         .update(corpus_document_id=999),
+         'cites corpus_document_id 999'),
         (lambda full: full['evaluation']['inspector']['dataset']['ground_truth']
-         ['questions'][0]['evidence'][0].update(message_indices=[1]),
-         'evidence.*message_indices.*1'),
+         ['groundtruth_dataset'][0]['relevant_corpus_documents'][0]['evidence'][0]
+         .update(text='words the corpus never said'),
+         'findable character for character'),
         (lambda full: full['evaluation']['inspector']['traces'][0]
-         .update(question_id='missing-question'),
-         'traces.*question_id.*missing-question'),
+         .update(question_id=999),
+         'traces.*question_id.*999'),
         (lambda full: full['evaluation']['inspector']['traces'][0]
          ['trace']['candidates'][0].update(chunk_id='missing'), 'chunk_id.*missing'),
         (lambda full: full['evaluation']['inspector']['traces'][0]
@@ -123,6 +125,10 @@ def test_dataset_ids_duplicate_ids_and_non_finite_metrics_are_refused():
     full['evaluation']['result']['config']['index']['dataset'] = ''
     full['evaluation']['result']['dataset'] = 'diary-fa'
     full['evaluation']['inspector']['dataset']['id'] = 'diary-fa'
+    full['evaluation']['inspector']['dataset']['corpus'][
+        'corpus_dataset_metadata']['dataset'] = 'diary-fa'
+    full['evaluation']['inspector']['dataset']['ground_truth'][
+        'groundtruth_dataset_metadata']['corpus_ref']['dataset'] = 'diary-fa'
     assert archive.validate_archive(full) == full
 
     full = completed_archive()
@@ -131,10 +137,11 @@ def test_dataset_ids_duplicate_ids_and_non_finite_metrics_are_refused():
         archive.validate_archive(full)
 
     full = completed_archive()
-    full['evaluation']['inspector']['dataset']['ground_truth']['questions'] \
-        .append(copy.deepcopy(full['evaluation']['inspector']['dataset']
-                              ['ground_truth']['questions'][0]))
-    with pytest.raises(archive.ArchiveError, match='duplicate.*q1'):
+    full['evaluation']['inspector']['dataset']['ground_truth'][
+        'groundtruth_dataset'].append(copy.deepcopy(
+            full['evaluation']['inspector']['dataset']['ground_truth']
+            ['groundtruth_dataset'][0]))
+    with pytest.raises(archive.ArchiveError, match='duplicate.*1'):
         archive.validate_archive(full)
 
     full = completed_archive()

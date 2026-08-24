@@ -6,9 +6,10 @@ purpose: >-
   The RAG lab is a generic retrieval workbench: chunking and retrieval
   choices for any use case are decided by measurement against a
   ground-truth corpus, which is itself a config field. The bundled default
-  is fixtures/corpus_groundtruth_datasets/diary_year_fa.json, 167 sessions
-  of synthetic Farsi diary chat — one case study among five shipped
-  corpora, with imports supported.
+  is diary-fa (fixtures/corpus_groundtruth_datasets/diary_year_fa_corpus.json
+  plus diary_year_fa_groundtruth.json), 167 sessions of synthetic Farsi
+  diary chat — one case study among five shipped corpora, with imports
+  supported.
 ports: >-
   The lab serves everything on port 9002
   (uv run --extra local-embeddings raglab): the panel at /, the read-only

@@ -184,6 +184,71 @@ function setCorpusDir(language) {
   document.documentElement.dataset.corpusDir = CORPUS_DIR;
 }
 
+// Every piece of evidence a question cites, flattened off the documents it
+// names — a question's own evidence is nested one level under
+// `relevant_corpus_documents` because each piece is tied to one document, and
+// every render below wants the flat list.
+function evidenceEntries(q) {
+  const rows = [];
+  for (const relevant of q.relevant_corpus_documents || []) {
+    for (const ev of relevant.evidence || []) rows.push(ev);
+  }
+  return rows;
+}
+
+// Which derived fact(s) one piece of evidence backs, or that it backs the
+// answer as a whole — the schema's own reading of an empty `supports`.
+function supportsLabel(ev) {
+  return (ev.supports || []).length
+    ? `supports #${ev.supports.join(', #')}`
+    : 'supports the answer as a whole';
+}
+
+// Fidelity decides how a piece of evidence is shown, not just what it says:
+// a verbatim quote is highlighted exactly as written, because that text is
+// really findable in the document it cites; a paraphrase or a computed fact
+// is stated in its own words and only labelled — highlighting a computed date
+// would box text the corpus never actually said.
+function evidenceBlock(q) {
+  const rows = evidenceEntries(q);
+  if (!rows.length) return '';
+  const items = rows.map(ev => {
+    const verbatim = ev.fidelity === 'verbatim';
+    const text = verbatim
+      ? `<mark class="evidence-mark">${escapeHtml(ev.text)}</mark>`
+      : escapeHtml(ev.text);
+    const tag = verbatim ? '' : `<span class="fidelity-tag `
+      + `fidelity-tag--${escapeHtml(ev.fidelity)}">${escapeHtml(ev.fidelity)}</span>`;
+    return `<div dir="${CORPUS_DIR}" class="gt-quote${verbatim ? '' : ' gt-quote--labelled'}">`
+      + text + tag
+      + `<span class="gt-supports">${escapeHtml(supportsLabel(ev))}</span></div>`;
+  }).join('');
+  return `<div class="gt-field"><div class="qh-label">evidence</div>${items}</div>`;
+}
+
+// The <li> markup for one question's derived facts, by `derived_fact_id` —
+// the id `evidenceBlock`'s "supports #n" points back at. One construction,
+// shared by every view that lists them (the ground-truth tab via
+// `factsBlock` below, the retrieval/generation question head via
+// `questionHead`, and the picker's own detail through `evidenceBlock`'s
+// supports label reading the same ids), so the two lists always read as one
+// structure and can never drift into two different renderings of it.
+function factsItems(q) {
+  return ((q.expected_answer || {}).derived_facts || [])
+    .map(f => `<li><span class="q-id">#${escapeHtml(f.derived_fact_id)}</span> `
+              + `${escapeHtml(f.fact)}</li>`).join('');
+}
+
+// The ground-truth tab's own wrapper around `factsItems` — a labelled field
+// beside the answer and the evidence, present only when there is something
+// to list.
+function factsBlock(q) {
+  const items = factsItems(q);
+  if (!items) return '';
+  return `<div class="gt-field"><div class="qh-label">derived facts</div>`
+    + `<ol class="qh-facts">${items}</ol></div>`;
+}
+
 function renderGroundTruth(body) {
   FOLLOWED_DATASET = body.dataset || '';
   // Before the first row is written, because every render below reads it.
@@ -192,7 +257,7 @@ function renderGroundTruth(body) {
   GT.clear();
   root.innerHTML = '';
   for (const q of body.questions) {
-    GT.set(q.id, q);
+    GT.set(q.groundtruth_question_id, q);
     const row = document.createElement('div');
     row.className = 'gt-row';
     // Label above its text, never beside it. A label set inline with a
@@ -201,18 +266,18 @@ function renderGroundTruth(body) {
     const field = (label, text, corpusText) => text
       ? `<div class="gt-field"><div class="qh-label">${label}</div>`
         + `<div${corpusText ? ` dir="${CORPUS_DIR}"` : ''}>${escapeHtml(text)}</div></div>` : '';
-    const quotes = (q.evidence || []).map(e => e.quote);
-    row.innerHTML = `<div class="gt-head"><span class="q-id">${escapeHtml(q.id)}</span> `
-      + `<span class="q-tally">${escapeHtml(q.type)} · ${escapeHtml(q.difficulty)}`
-      + `${q.answerable ? '' : ' · unanswerable'}</span></div>`
-      + `<div class="gt-q" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa)}</div>`
-      + `<div class="gt-en">${escapeHtml(q.question_en || '')}</div>`
-      + field('answer', q.answer_fa, true)
-      + (quotes.length
-         ? `<div class="gt-field"><div class="qh-label">evidence quoted from the diary</div>`
-           + quotes.map(quote =>
-               `<div dir="${CORPUS_DIR}" class="gt-quote">${escapeHtml(quote)}</div>`).join('')
-           + `</div>` : '');
+    const meta = q.question_metadata || {};
+    const expected = q.expected_answer || {};
+    row.innerHTML = `<div class="gt-head"><span class="q-id">`
+      + `${escapeHtml(q.groundtruth_question_id)}</span> `
+      + `<span class="q-tally">${escapeHtml(meta.question_type || '')} · `
+      + `${escapeHtml(meta.difficulty || '')}`
+      + `${expected.behavior === 'abstain' ? ' · unanswerable' : ''}</span></div>`
+      + `<div class="gt-q" dir="${CORPUS_DIR}">${escapeHtml(q.question)}</div>`
+      + `<div class="gt-en">${escapeHtml(meta.question_translation_en || '')}</div>`
+      + field('answer', expected.text, true)
+      + factsBlock(q)
+      + evidenceBlock(q);
     root.appendChild(row);
   }
   // The first poll can beat this fetch; forgetting the rendered job ids forces
@@ -544,14 +609,17 @@ function retrievalTable(candidates) {
   return table;
 }
 
-// The question restated above its own rows, with the facts a right answer would
-// have contained. `id` is enough to find both in the fixture.
-function questionHead(questionId, fallbackFa) {
+// The question restated above its own rows, with the derived facts a right
+// answer would have contained, by `derived_fact_id`. `id` is enough to find
+// both in the fixture.
+function questionHead(questionId, fallbackQuestion) {
   const q = GT.get(questionId) || {};
-  const facts = (q.key_facts || []).map(f => `<li>${escapeHtml(f)}</li>`).join('');
+  const meta = q.question_metadata || {};
+  const facts = factsItems(q);
   return `<div class="question-head">`
-    + `<div class="qh-fa" dir="${CORPUS_DIR}">${escapeHtml(q.question_fa || fallbackFa || '')}</div>`
-    + `<div class="qh-en">${escapeHtml(q.question_en || '')}</div>`
+    + `<div class="qh-fa" dir="${CORPUS_DIR}">`
+    + `${escapeHtml(q.question || fallbackQuestion || '')}</div>`
+    + `<div class="qh-en">${escapeHtml(meta.question_translation_en || '')}</div>`
     + (facts ? `<div class="qh-label">what a right answer contains</div>`
              + `<ol class="qh-facts">${facts}</ol>` : '')
     + `</div>`;
@@ -582,11 +650,14 @@ function questionBlock(q) {
   // rather than implying a total nobody measured.
   const goldTally = q.gold_available === null || q.gold_available === undefined
     ? `${gold} gold` : `${gold} of ${q.gold_available} gold found`;
+  // The trace row itself carries no label — those live on the fixture, so
+  // they are looked up rather than guessed from the trace.
+  const meta = (GT.get(q.question_id) || {}).question_metadata || {};
   const det = document.createElement('details');
   det.className = 'retrieval-question';
-  det.innerHTML = questionSummary(q.question_id, q.type, q.difficulty,
+  det.innerHTML = questionSummary(q.question_id, meta.question_type, meta.difficulty,
       `${candidates.length} candidates · ${kept} kept · ${goldTally}`)
-    + questionHead(q.question_id, q.question_fa);
+    + questionHead(q.question_id, q.question);
   det.appendChild(scrollable(retrievalTable(candidates),
     `candidates for ${q.question_id}`));
   return det;
@@ -633,33 +704,37 @@ function openPicker(open) {
 function renderPicker(filter) {
   const needle = filter.trim().toLowerCase();
   const matches = [...GT.values()].filter(q => !needle
-    || q.id.toLowerCase().includes(needle)
-    || (q.question_fa || '').toLowerCase().includes(needle)
-    || (q.question_en || '').toLowerCase().includes(needle));
+    || String(q.groundtruth_question_id).toLowerCase().includes(needle)
+    || (q.question || '').toLowerCase().includes(needle)
+    || ((q.question_metadata || {}).question_translation_en || '')
+        .toLowerCase().includes(needle));
   pickerList.innerHTML = matches.length ? '' : '<div class="q-empty">'
     + 'No question matches that. Clear the filter to see all of them.</div>';
   for (const q of matches) {
+    const id = q.groundtruth_question_id;
+    const meta = q.question_metadata || {};
+    const expected = q.expected_answer || {};
+    const difficulty = meta.difficulty || 'easy';
     const option = document.createElement('div');
-    option.className = `q-option q-option--${q.difficulty || 'easy'}`;
+    option.className = `q-option q-option--${difficulty}`;
     option.setAttribute('role', 'option');
-    option.setAttribute('aria-selected', String(ADDED.has(q.id)));
+    option.setAttribute('aria-selected', String(ADDED.has(id)));
     option.tabIndex = -1;
-    option.dataset.id = q.id;
-    const quotes = (q.evidence || []).map(ev =>
-      `<div class="gt-quote" dir="${CORPUS_DIR}">${escapeHtml(ev.quote)}</div>`).join('');
+    option.dataset.id = id;
     option.innerHTML =
-      `<span class="q-option-id">${escapeHtml(q.id)}</span>`
-      + `<span class="q-chip q-chip--${escapeHtml(q.difficulty || 'easy')}">`
-      + `${escapeHtml(q.difficulty || '')}</span>`
-      + `<span class="q-option-en">${escapeHtml(q.question_en || q.question_fa)}</span>`
-      + (ADDED.has(q.id) ? '<span class="q-option-added">added</span>' : '')
+      `<span class="q-option-id">${escapeHtml(id)}</span>`
+      + `<span class="q-chip q-chip--${escapeHtml(difficulty)}">`
+      + `${escapeHtml(difficulty)}</span>`
+      + `<span class="q-option-en">`
+      + `${escapeHtml(meta.question_translation_en || q.question)}</span>`
+      + (ADDED.has(id) ? '<span class="q-option-added">added</span>' : '')
       // The detail is in the DOM from the start rather than built on hover, so
       // it opens with no delay and reads the same to a screen reader.
       + `<div class="q-option-detail">`
-      + `<div dir="${CORPUS_DIR}" class="q-option-fa">${escapeHtml(q.question_fa)}</div>`
+      + `<div dir="${CORPUS_DIR}" class="q-option-fa">${escapeHtml(q.question)}</div>`
       + `<div class="qh-label">expected answer</div>`
-      + `<div dir="${CORPUS_DIR}">${escapeHtml(q.answer_fa || '—')}</div>`
-      + (quotes ? `<div class="qh-label">evidence quoted from the diary</div>${quotes}` : '')
+      + `<div dir="${CORPUS_DIR}">${escapeHtml(expected.text || '—')}</div>`
+      + evidenceBlock(q)
       + `</div>`;
     pickerList.appendChild(option);
   }
@@ -730,7 +805,7 @@ function renderAdded() {
 // --- Generation: the ideal answer, the written one, and the scores ----------
 // Per-question deterministic scores, in pipeline order. RAGAS's judged metrics
 // are per *run*, not per question, so they are rendered once above instead.
-const GEN_METRICS = ['answer_similarity', 'answer_token_f1', 'key_fact_coverage',
+const GEN_METRICS = ['answer_similarity', 'answer_token_f1', 'fact_coverage',
                      'abstained_correctly', 'false_abstention'];
 
 const fmt = v => (v === null || v === undefined) ? '·'
@@ -773,16 +848,18 @@ function renderGeneration(view, traces) {
 // the same renderer.
 function generationBlock(row, trace) {
   const gt = GT.get(row.id) || {};
+  const meta = gt.question_metadata || {};
+  const expected = gt.expected_answer || {};
   const det = document.createElement('details');
   det.className = 'gen-question';
   const scored = GEN_METRICS.filter(k => row[k] !== undefined && row[k] !== null);
   const tally = row.abstained ? 'abstained'
     : `${scored.length} score${scored.length === 1 ? '' : 's'}`;
-  det.innerHTML = questionSummary(row.id, row.type, row.difficulty, tally)
+  det.innerHTML = questionSummary(row.id, meta.question_type, meta.difficulty, tally)
     + questionHead(row.id, '')
     + '<div class="gen-answers">'
-    + '<div class="gen-answer gen-answer--ideal"><h4>what the diary says</h4>'
-    + `<div dir="${CORPUS_DIR}">${escapeHtml(gt.answer_fa || '—')}</div></div>`
+    + '<div class="gen-answer gen-answer--ideal"><h4>what the ground truth says</h4>'
+    + `<div dir="${CORPUS_DIR}">${escapeHtml(expected.text || '—')}</div></div>`
     + '<div class="gen-answer gen-answer--actual">'
     + `<h4>what this run wrote${row.abstained ? ' — it refused' : ''}</h4>`
     + `<div dir="${CORPUS_DIR}">${escapeHtml(row.answer || '—')}</div></div>`
@@ -860,6 +937,18 @@ function setArchiveState(runId, label = 'Imported archive') {
   else state.textContent = recordProblem;
 }
 
+// Whether an archived ground truth is in the shape written before this
+// schema (`meta`/`questions`) rather than the schema's own
+// (`groundtruth_dataset_metadata`/`groundtruth_dataset`). An archive is a
+// record (CLAUDE.md) — one written before this branch still has to open —
+// so an old-shape payload is named as old-shape here rather than read as if
+// `questions` meant `groundtruth_dataset`: reinterpreting it would show a
+// reader ground truth the archive never actually carried in that vocabulary.
+function archivedGroundTruthIsPreMigration(groundTruth) {
+  return !groundTruth || (!('groundtruth_dataset' in groundTruth)
+    && 'questions' in groundTruth);
+}
+
 function renderImportedArchive(archive) {
   const evaluation = archive.evaluation;
   const evidence = evaluation.inspector;
@@ -868,17 +957,28 @@ function renderImportedArchive(archive) {
   FOLLOWED_CONFIG = result.config;
   ADDED.clear();
   renderAdded();
-  renderGroundTruth({ dataset: evidence.dataset.id,
-                      meta: evidence.dataset.ground_truth.meta,
-                      questions: evidence.dataset.ground_truth.questions,
-                      // The archive carries the corpus it was run against, and
-                      // the corpus half is where a language lives — so an
-                      // archive is read in its own direction rather than in
-                      // whatever the live corpus happened to be. An archive
-                      // written without one falls through to `auto`, which is
-                      // the honest answer for text whose language is unstated.
-                      language: ((evidence.dataset.corpus || {}).meta || {}).language,
-                      datasets: [] });
+  const groundTruth = evidence.dataset.ground_truth || {};
+  const corpus = evidence.dataset.corpus || {};
+  const preMigration = archivedGroundTruthIsPreMigration(groundTruth);
+  if (preMigration) {
+    GT.clear();
+    document.getElementById('view-groundtruth').innerHTML =
+      '<div class="gt-old-shape">This archive was written before the '
+      + 'current dataset schema, in the old shape — its ground truth is not '
+      + 'shown here, though it is still on record. The chunks, retrieval and '
+      + 'generation below are read from the archive exactly as recorded.</div>';
+  } else {
+    renderGroundTruth({ dataset: evidence.dataset.id,
+                        questions: groundTruth.groundtruth_dataset,
+                        // The archive carries the corpus it was run against,
+                        // and the corpus half is where a language lives — so
+                        // an archive is read in its own direction rather than
+                        // in whatever the live corpus happened to be. An
+                        // archive written without one falls through to
+                        // `auto`, the honest answer for unstated text.
+                        language: (corpus.corpus_dataset_metadata || {}).language,
+                        datasets: [] });
+  }
   renderChunkGroups(document.getElementById('chunks-body'),
                     evidence.chunks_by_session);
   setChunkSummaries(evidence.summaries);
@@ -895,7 +995,9 @@ function renderImportedArchive(archive) {
   }
   document.getElementById('retrieval-body').innerHTML = '';
   document.getElementById('retrieval-answer').textContent = '';
-  setArchiveState(result.run_id);
+  setArchiveState(result.run_id,
+                  preMigration ? 'Imported archive (old-shape ground truth)'
+                               : 'Imported archive');
 }
 
 async function archiveRequest(path, method = 'GET') {

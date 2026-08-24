@@ -1,0 +1,750 @@
+{
+  "groundtruth_dataset_metadata": {
+    "name": "Team meeting notes (German) — questions",
+    "corpus_ref": {
+      "dataset": "meetings-de"
+    },
+    "language": "de",
+    "description": "Twelve questions in German, written against the meetings-de corpus, each carrying its own English translation for analysis.",
+    "default_question_asked_at": "2026-07-01T00:00:00Z",
+    "question_metadata_fields": {
+      "question_type": {
+        "type": "string",
+        "values": [
+          "single-hop",
+          "temporal",
+          "knowledge-update",
+          "commitment",
+          "entity",
+          "multi-hop",
+          "aggregation",
+          "abstention",
+          "adversarial"
+        ],
+        "description": "Evaluation category.",
+        "applies_to": [
+          "question"
+        ]
+      },
+      "difficulty": {
+        "type": "string",
+        "values": [
+          "easy",
+          "medium",
+          "hard"
+        ],
+        "description": "Human-assigned difficulty.",
+        "applies_to": [
+          "question"
+        ]
+      },
+      "question_translation_en": {
+        "type": "string",
+        "description": "English translation, for analysis. Not the retrieval query.",
+        "applies_to": [
+          "question"
+        ]
+      },
+      "time_scope": {
+        "type": "object",
+        "nullable": true,
+        "description": "Inclusive from/to date range resolved from a time expression in the question; null when the question needs no range.",
+        "applies_to": [
+          "question"
+        ]
+      }
+    },
+    "evidence_role_values": {
+      "supporting": "The quote supports the expected answer.",
+      "contradicting": "The quote contradicts the question's false premise."
+    }
+  },
+  "groundtruth_dataset": [
+    {
+      "groundtruth_question_id": 1,
+      "question": "Wie hoch ist das Budget für 2026?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Es wurde auf 480.000 Euro festgelegt, davon 120.000 Euro für Infrastruktur.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Das Budget für 2026 beträgt 480.000 Euro"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 1,
+          "evidence": [
+            {
+              "text": "Das Budget für 2026 wurde auf 480.000 Euro festgelegt",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-01-13T00:00:00Z",
+                "topics": [
+                  "budget"
+                ],
+                "threads": [
+                  "budget-2026"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy",
+        "question_translation_en": "How large is the 2026 budget?"
+      }
+    },
+    {
+      "groundtruth_question_id": 2,
+      "question": "Wann war der Büroumzug?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Am 15. März 2026, in die Sonnenstraße.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Der Umzug war am 15. März"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Das neue Büro ist in der Sonnenstraße"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 4,
+          "evidence": [
+            {
+              "text": "Der Umzug in das neue Büro in der Sonnenstraße findet am 15. März statt",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-02-03T00:00:00Z",
+                "topics": [
+                  "umzug"
+                ],
+                "threads": [
+                  "bueroumzug"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "temporal",
+        "difficulty": "easy",
+        "question_translation_en": "When did the office move happen?"
+      }
+    },
+    {
+      "groundtruth_question_id": 3,
+      "question": "Welches Werkzeug benutzt das Team für Vorgänge?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Seit dem 1. Juni 2026 Linear. Im Januar war noch entschieden worden, vorerst bei Jira zu bleiben.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Das Team ist zu Linear gewechselt"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Der Wechsel war am 1. Juni"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 3,
+          "evidence": [
+            {
+              "text": "Wir bleiben vorerst bei Jira",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-01-27T00:00:00Z",
+                "topics": [
+                  "tooling"
+                ],
+                "threads": [
+                  "tool-wechsel"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 11,
+          "evidence": [
+            {
+              "text": "Ab dem 1. Juni wechseln wir von Jira zu Linear",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-05-05T00:00:00Z",
+                "topics": [
+                  "tooling"
+                ],
+                "threads": [
+                  "tool-wechsel"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "knowledge-update",
+        "difficulty": "hard",
+        "question_translation_en": "Which issue tracker does the team use?"
+      }
+    },
+    {
+      "groundtruth_question_id": 4,
+      "question": "Wurde die Zusage an Hafenwerk eingehalten?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Ja. Der Prototyp war für den 12. Mai zugesagt und wurde am 11. Mai übergeben.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Der Prototyp war für den 12. Mai zugesagt"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Er wurde am 11. Mai übergeben"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 10,
+          "evidence": [
+            {
+              "text": "Der Prototyp wird bis zum 12. Mai fertig",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-04-21T00:00:00Z",
+                "topics": [
+                  "kunden"
+                ],
+                "threads": [
+                  "hafenwerk"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 12,
+          "evidence": [
+            {
+              "text": "Der Prototyp wurde am 11. Mai übergeben",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-05-12T00:00:00Z",
+                "topics": [
+                  "kunden"
+                ],
+                "threads": [
+                  "hafenwerk"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "commitment",
+        "difficulty": "medium",
+        "question_translation_en": "Was the promise to Hafenwerk kept?"
+      }
+    },
+    {
+      "groundtruth_question_id": 5,
+      "question": "Was ist mit Frau Berger?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Sie verlässt das Team zum 30. April 2026 und übergibt das Reporting an Herrn Novak.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Sie verlässt das Team zum 30. April"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 7,
+          "evidence": [
+            {
+              "text": "Frau Berger verlässt das Team zum 30. April",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-03-03T00:00:00Z",
+                "topics": [
+                  "personal"
+                ],
+                "threads": [
+                  "einstellungen"
+                ],
+                "mood_label": "nachdenklich",
+                "mood_valence": 4,
+                "mood_arousal": 4
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "entity",
+        "difficulty": "medium",
+        "question_translation_en": "What happened with Ms Berger?"
+      }
+    },
+    {
+      "groundtruth_question_id": 6,
+      "question": "Wie viele Werkstudenten werden eingestellt?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Zwei, für das Datenteam.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Zwei Werkstudenten"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Sie kommen ins Datenteam"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 2,
+          "evidence": [
+            {
+              "text": "Wir stellen zwei Werkstudenten für das Datenteam ein",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-01-20T00:00:00Z",
+                "topics": [
+                  "personal"
+                ],
+                "threads": [
+                  "einstellungen"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "easy",
+        "question_translation_en": "How many working students are being hired?"
+      }
+    },
+    {
+      "groundtruth_question_id": 7,
+      "question": "Warum verschob sich die Demo im Februar?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Sprint 14 wurde um eine Woche verlängert, weil die Abrechnungsschnittstelle länger dauerte; die Demo fand daher am 24. Februar statt.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Sprint 14 wurde um eine Woche verlängert"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "Die Demo fand am 24. Februar statt"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 5,
+          "evidence": [
+            {
+              "text": "Sprint 14 wurde um eine Woche verlängert",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-02-10T00:00:00Z",
+                "topics": [
+                  "sprint"
+                ],
+                "threads": [
+                  "sprint-planung"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1
+              ]
+            },
+            {
+              "text": "Die Demo verschiebt sich damit auf den 24. Februar",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-02-10T00:00:00Z",
+                "topics": [
+                  "sprint"
+                ],
+                "threads": [
+                  "sprint-planung"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "assistant"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "multi-hop",
+        "difficulty": "hard",
+        "question_translation_en": "Why was the February demo postponed?"
+      }
+    },
+    {
+      "groundtruth_question_id": 8,
+      "question": "Wie viele Personen fehlten Anfang Juni noch bei der Datenschutzschulung?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Fünf von vierzehn.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Fünf von vierzehn hatten noch nicht teilgenommen"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 13,
+          "evidence": [
+            {
+              "text": "Die Schulung zu Datenschutz ist für alle verpflichtend",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-06-02T00:00:00Z",
+                "topics": [
+                  "schulung"
+                ],
+                "threads": [
+                  "datenschutz"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            },
+            {
+              "text": "haben neun von vierzehn",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-06-02T00:00:00Z",
+                "topics": [
+                  "schulung"
+                ],
+                "threads": [
+                  "datenschutz"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "aggregation",
+        "difficulty": "hard",
+        "question_translation_en": "How many people still had to do the training in early June?"
+      }
+    },
+    {
+      "groundtruth_question_id": 9,
+      "question": "Wie lange läuft der Vertrag mit Hafenwerk?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Er wurde um zwei Jahre verlängert und läuft bis Ende 2028.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Der Vertrag wurde um zwei Jahre verlängert"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 9,
+          "evidence": [
+            {
+              "text": "Der Kunde Hafenwerk hat den Vertrag um zwei Jahre verlängert",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-04-07T00:00:00Z",
+                "topics": [
+                  "kunden"
+                ],
+                "threads": [
+                  "hafenwerk"
+                ],
+                "mood_label": "zufrieden",
+                "mood_valence": 8,
+                "mood_arousal": 5
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "single-hop",
+        "difficulty": "medium",
+        "question_translation_en": "How long does the Hafenwerk contract run?"
+      }
+    },
+    {
+      "groundtruth_question_id": 10,
+      "question": "Bis wann muss die Datenschutzschulung abgeschlossen sein?",
+      "expected_answer": {
+        "behavior": "answer",
+        "text": "Bis zum 30. Juni 2026.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "Die Frist ist der 30. Juni"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 13,
+          "evidence": [
+            {
+              "text": "Frist ist der 30. Juni",
+              "fidelity": "verbatim",
+              "role": "supporting",
+              "document_metadata": {
+                "meeting_date": "2026-06-02T00:00:00Z",
+                "topics": [
+                  "schulung"
+                ],
+                "threads": [
+                  "datenschutz"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "temporal",
+        "difficulty": "medium",
+        "question_translation_en": "By when must the data protection training be done?",
+        "time_scope": {
+          "from": "2026-06-01",
+          "to": "2026-06-30"
+        }
+      }
+    },
+    {
+      "groundtruth_question_id": 11,
+      "question": "Wie hoch ist das Gehalt von Herrn Novak?",
+      "expected_answer": {
+        "behavior": "abstain"
+      },
+      "relevant_corpus_documents": [],
+      "question_metadata": {
+        "question_type": "abstention",
+        "difficulty": "medium",
+        "question_translation_en": "What is Mr Novak's salary?"
+      }
+    },
+    {
+      "groundtruth_question_id": 12,
+      "question": "Warum wurde der Umzug in die Bahnhofstraße abgesagt?",
+      "expected_answer": {
+        "behavior": "correct_premise",
+        "text": "Es gab keinen Umzug in die Bahnhofstraße, der abgesagt wurde. Der geplante Umzug ging in die Sonnenstraße und wurde am 15. März 2026 durchgeführt.",
+        "derived_facts": [
+          {
+            "derived_fact_id": 1,
+            "fact": "false premise: no move to Bahnhofstraße was planned or cancelled"
+          },
+          {
+            "derived_fact_id": 2,
+            "fact": "the truth: the planned move went to the Sonnenstraße office on 15 March 2026 and was carried out"
+          }
+        ]
+      },
+      "relevant_corpus_documents": [
+        {
+          "corpus_document_id": 4,
+          "evidence": [
+            {
+              "text": "Der Umzug in das neue Büro in der Sonnenstraße findet am 15. März statt",
+              "fidelity": "verbatim",
+              "role": "contradicting",
+              "document_metadata": {
+                "meeting_date": "2026-02-03T00:00:00Z",
+                "topics": [
+                  "umzug"
+                ],
+                "threads": [
+                  "bueroumzug"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                1,
+                2
+              ]
+            }
+          ]
+        },
+        {
+          "corpus_document_id": 8,
+          "evidence": [
+            {
+              "text": "Der Umzug ist durch",
+              "fidelity": "verbatim",
+              "role": "contradicting",
+              "document_metadata": {
+                "meeting_date": "2026-03-17T00:00:00Z",
+                "topics": [
+                  "umzug"
+                ],
+                "threads": [
+                  "bueroumzug"
+                ]
+              },
+              "part_labels": [
+                {
+                  "role": "user"
+                }
+              ],
+              "supports": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "question_metadata": {
+        "question_type": "adversarial",
+        "difficulty": "hard",
+        "question_translation_en": "Why was the move to Bahnhofstraße cancelled?"
+      }
+    }
+  ]
+}

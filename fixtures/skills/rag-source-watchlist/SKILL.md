@@ -16,7 +16,7 @@ sections whose use cases this installation currently serves; skim the rest.
 
 Timestamped multi-session chat plus questions requiring recall across sessions
 — assistant memory, diaries, long-running support threads. The bundled default
-corpus (`diary_year_fa.json`) has exactly this shape, which is why these
+corpus (`diary-fa`) has exactly this shape, which is why these
 sources are first in the file, not because the lab is limited to them.
 
 - [LongMemEval](https://arxiv.org/abs/2410.10813) ([code](https://github.com/xiaowu0162/longmemeval),

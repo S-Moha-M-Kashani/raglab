@@ -156,17 +156,17 @@ ROLES = (
               'Writes the answer from the retrieved context, cites session ids, '
               'and is the stage that must refuse when the corpus is silent. On '
               'the bundled diary generation is the bottleneck — faithfulness '
-              '0.743 against key-fact coverage 0.261 — so this is the '
+              '0.743 against fact coverage 0.261 — so this is the '
               'interesting dropdown.',
               'Answerer = llm'),
-    ModelRole('judge', 'Key-facts judge', 'generation.judge_model',
-              'Checks an answer against the ground truth\'s atomic key facts. '
+    ModelRole('judge', 'Fact judge', 'generation.judge_model',
+              'Checks an answer against the ground truth\'s atomic derived_facts. '
               'When the two are not in the same language — the bundled diary '
               'answers in Farsi against English facts — it is translating as '
               'well as judging, which is why no deterministic metric can '
               'replace it, and why a weak model here produces confidently wrong '
               'scores.',
-              'the key-facts judge is on'),
+              'the fact judge is on'),
     ModelRole('ragas', 'RAGAS judge', 'generation.ragas_model',
               'The model RAGAS uses for faithfulness, answer relevancy and '
               'factual correctness. Separate from the answerer on purpose: a '
@@ -410,7 +410,7 @@ GATE_MODELS = ('cohere/rerank-4-fast', 'cohere/rerank-4-pro')
 _MODE_FIELDS = {
     'retrieval': ('hyde', 'expansion_model', 'reranker', 'reranker_model',
                   'grader', 'grader_model', 'grade_threshold'),
-    'generation': ('answerer', 'model', 'key_facts_judge', 'judge_model',
+    'generation': ('answerer', 'model', 'fact_judge', 'judge_model',
                    'ragas_model'),
 }
 
@@ -450,7 +450,7 @@ def mode_config(key: str, settings: LabSettings) -> dict:
                 'grade_threshold': 0.4},
             'generation': {
                 'answerer': 'llm', 'model': model,
-                'key_facts_judge': True, 'judge_model': model,
+                'fact_judge': True, 'judge_model': model,
                 'ragas_model': model},
         }
     else:

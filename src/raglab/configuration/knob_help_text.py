@@ -35,68 +35,64 @@ HELP = {
     # panel finds an explainer at all. The one entry written as a shape rather
     # than prose (`p.explain` keeps its newlines); every other text is one line.
     'run.dataset-file': (
-        'One JSON file holding a corpus and the questions it can be asked. '
-        'Three keys, all required, checked in full and refused — never '
-        'repaired — with every problem reported at once:\n'
+        'A dataset is two JSON files, paired by id: a corpus and the ground '
+        'truth measured against it. Start from the two templates in '
+        'fixtures/corpus_groundtruth_datasets/ — corpus_template.json and '
+        'groundtruth_template.json, the same two files the links beside this '
+        'field serve — copy them, replace every example value, delete what '
+        'you do not use. Both files are then checked in full against '
+        'schema_corpus.json and '
+        'schema_groundtruth.json in the same folder, the formal contract '
+        'behind the templates rather than a file to import itself, and '
+        'refused — never repaired — with every problem reported at once.\n'
         '\n'
-        '"dataset": {\n'
-        '  "id": "support-en",\n'
-        '  "name": "Product support tickets",\n'
-        '  "language": "en"}\n'
-        'id is 2–40 characters of a–z, 0–9 and hyphens, and becomes the '
-        'value recorded on every run and every leaderboard row; language picks '
-        'the contextual header\'s language and is what lets the panel say that '
-        'an English-only embedder cannot read this corpus. Optional: '
-        'description, query_date.\n'
+        'The corpus: "corpus_dataset_metadata": {"dataset": "support-tickets", '
+        '"name": "…", "language": "en"} — dataset is the id every run and '
+        'leaderboard row records, 2+ characters, never a filename. '
+        '"corpus_documents": [{"corpus_document_id": 1, "document_content": '
+        '[{"text": "…"}]}] — one entry per document, one part per turn; a '
+        'label used anywhere (on a document, a part, a question) must be '
+        'declared in label_fields, which states its type, which levels it may '
+        'apply to, and — for a closed set — its allowed values. One label '
+        'typed "date-time" drives time filtering and recency; one numeric '
+        'label declaring ranks:true drives importance; neither is required.\n'
         '\n'
-        '"sessions": [{\n'
-        '  "session_id": "t-1",\n'
-        '  "date": "2025-11-04",\n'
-        '  "messages": [{"role": "user", "content": "…"}]}]\n'
-        'One conversation per entry, at least one entry, session_id unique '
-        'because evidence points at it; date is YYYY-MM-DD, since the time '
-        'filter and every recency score read it as a number; role is "user" or '
-        '"assistant". Optional: time, source, topics, threads, and mood '
-        '{"label", "valence", "arousal"} — an absent mood is neutral, not an '
-        'error, and a corpus that is not a diary should not have to invent '
-        'one.\n'
+        'The ground truth: "groundtruth_dataset_metadata": {"name": "…", '
+        '"corpus_ref": {"dataset": "support-tickets"}} — corpus_ref.dataset '
+        'must name the corpus above. "groundtruth_dataset": [{'
+        '"groundtruth_question_id": 1, "question": "…", "expected_answer": '
+        '{"behavior": "answer", "text": "…", "derived_facts": [{'
+        '"derived_fact_id": 1, "fact": "…"}]}, "relevant_corpus_documents": '
+        '[{"corpus_document_id": 1, "evidence": [{"text": "…", '
+        '"fidelity": "verbatim"}]}]}] — question is the retrieval query as '
+        'asked, nothing else here may be handed to it. behavior is "answer", '
+        '"abstain" (nothing in the corpus answers it — empty '
+        'relevant_corpus_documents) or "correct_premise" (a false premise, '
+        'corrected from the corpus); only abstain scores as unanswerable. '
+        'text is the reference two of the four judged metrics compare '
+        'against; derived_facts are the atomic claims a correct answer must '
+        'contain, reported but non-voting. evidence.fidelity is "verbatim" '
+        '(copied character for character — checked against the document, and '
+        'the only kind lexical quote recall may score), "paraphrase" (the '
+        'document\'s own claim, restated) or "computed" (worked out from a '
+        'label, stated nowhere in the text).\n'
         '\n'
-        '"questions": [{\n'
-        '  "id": "q-1",\n'
-        '  "type": "single-hop",\n'
-        '  "difficulty": "easy",\n'
-        '  "answerable": true,\n'
-        '  "question": "…",\n'
-        '  "answer": "…",\n'
-        '  "evidence": [{"session_id": "t-1",\n'
-        '                "message_indices": [0],\n'
-        '                "quote": "…"}]}]\n'
-        'type is one of single-hop, temporal, multi-hop, aggregation, '
-        'knowledge-update, commitment, entity, pattern, habit, abstention, '
-        'adversarial — the list is closed because a run filters and reports by '
-        'it. difficulty is easy, medium or hard, and is load bearing: a '
-        'balanced sample takes an equal share of each. answer and evidence are '
-        'required when answerable is true, and the unanswerable questions are '
-        'what measures whether a pipeline knows to refuse. Optional: '
-        'question_en, key_facts, time_scope, query_date.\n'
-        '\n'
-        'The rule that earns its cost: every evidence quote must appear '
-        'verbatim in a message it cites. Quote recall, the Inspector\'s '
-        'highlighted spans and the offline context metrics are all computed '
-        'against those strings, so a corpus that misquotes itself does not '
-        'score worse — it scores confidently about text it never contained. '
-        'The four bundled samples in fixtures/corpus_groundtruth_datasets/ all meet '
-        'it and are the working reference — all but diary_year_fa.json in '
-        'that folder, which is the built-in corpus in its own native shape, '
-        'not a template for imports.'),
+        'The rule that earns its cost: every verbatim evidence entry must '
+        'appear character for character in the document it cites. Quote '
+        'recall, the Inspector\'s highlighted spans and the offline context '
+        'metrics are all computed against those strings, so a ground truth '
+        'that misquotes its corpus does not score worse — it scores '
+        'confidently about text it never contained. Every bundled pair in '
+        'fixtures/corpus_groundtruth_datasets/ meets it and is the working '
+        'reference the templates were copied from.'),
     'index.chunker': (
-        'How one session is cut into the pieces that get embedded. "fixed" '
+        'How one document is cut into the pieces that get embedded. "fixed" '
         'packs words up to a character budget; "fixed-overlap" slides a window '
         'so a sentence on a boundary appears in both neighbours; "message" '
-        'keeps one message per piece; "turn-pair" keeps a question with its '
-        'answer; "session" stores the whole session as one piece. '
-        '"semantic-drift" cuts where consecutive messages stop resembling each '
-        'other — the bottom third of that session\'s own similarity '
+        'keeps one document part per piece; "turn-pair" keeps a part with the '
+        'one that answers it; "session" stores the whole document as one '
+        'piece. "semantic-drift" cuts where consecutive parts stop resembling '
+        'each other — the bottom third of that document\'s own similarity '
         'distribution, so no absolute threshold is assumed — and also at a '
         'size ceiling and at a short list of topic-change phrases, which is '
         'the only part of it written for one language.'),
@@ -105,7 +101,7 @@ HELP = {
         'splitters read it; the rest cut on structure and grey it out. "fixed" '
         'and "fixed-overlap" treat it as the size of one piece, so it behaves '
         'as a target; "semantic-drift" treats it as a maximum, cutting a '
-        'segment once adding the next message would take it past twice this '
+        'segment once adding the next part would take it past twice this '
         'value. Small pieces retrieve precisely and often lose the sentence '
         'that answers the question; large ones keep it and dilute precision.'),
     'index.overlap': (
@@ -114,13 +110,18 @@ HELP = {
         'a window, so only it reads this; an overlap at or above the piece '
         'size is halved rather than looping forever.'),
     'index.contextual': (
-        'Prepend a one-line header — date, mood, topics, threads — to every '
-        'chunk before embedding it (Anthropic call this contextual retrieval). '
-        'A chunk that says "it got better" is unsearchable without knowing '
-        'what "it" was. Built from the corpus\'s own metadata, so it costs no '
-        'model call and no summary; a field the corpus does not declare shows '
-        'as an em dash, and the header is written in the corpus\'s declared '
-        'language.'),
+        'Prepend a one-line header to every chunk before embedding it '
+        '(Anthropic call this contextual retrieval). A chunk that says "it '
+        'got better" is unsearchable without knowing what "it" was. Built '
+        'from the corpus\'s own metadata, so it costs no model call and no '
+        'summary: every label the corpus declares at the document level '
+        'that the document actually carries, in declaration order, list '
+        'values joined by the corpus\'s own language comma. A label the '
+        'document does not carry is left out rather than shown as a '
+        'placeholder, and a label that rates another one\'s confidence is '
+        'never written into chunk text — a caveat on a label is not '
+        'something to embed. The header is written in the corpus\'s '
+        'declared language.'),
     'index.embedder': (
         'Turns text into the vector the index is searched by, and the one '
         'choice that decides whether anything else matters. "ascii-hash" '
@@ -201,7 +202,7 @@ HELP = {
         '"centroid" concatenates the members nearest the group\'s centre; '
         '"lead-idf" takes the sentences covering the most rare words; "mmr" '
         'picks members for coverage without repetition; "card" writes no prose '
-        'at all — top terms, date span, member count, session ids — which is '
+        'at all — top terms, date span, member count, document ids — which is '
         'the cheapest and the most likely to help a counting question, because '
         'it states a number instead of asking the model to count chunks.'),
     'retrieval.summary_scope': (
@@ -250,7 +251,10 @@ HELP = {
         'search to it, which is what stops a question about one month '
         'retrieving the whole year. A question in any other language matches '
         'nothing here, so the filter simply never fires and the search is '
-        'unrestricted.'),
+        'unrestricted. Greyed out on a corpus with no label typed date-time '
+        '(D5): with no dates on a chunk there is no span to restrict to, and '
+        'the same absence leaves the recency reranker inert and a summary\'s '
+        'date span blank.'),
     'retrieval.multi_query': (
         DATASET_SPECIFIC + ' It searches several rule-based rewrites of the '
         'question — the question itself, a keyword-only form with the '
@@ -270,11 +274,11 @@ HELP = {
     'retrieval.mmr_lambda': (
         'Maximal Marginal Relevance. At 1.0 the top k are simply the '
         'best-scoring chunks, which often means several chunks from one '
-        'session. Lower it to trade some relevance for spread across '
-        'sessions.'),
+        'document. Lower it to trade some relevance for spread across '
+        'documents.'),
     'retrieval.reranker': (
         'Re-scores the candidates before the cut to k. "lexical" is free IDF '
-        'coverage; "recency" prefers recent entries; "agentic" is the '
+        'coverage; "recency" prefers recently dated chunks; "agentic" is the '
         'Generative Agents mix of relevance + recency + importance; '
         '"cross-encoder" reads question and chunk together with a real model; '
         '"llm" asks a model to score each one.'),
@@ -283,16 +287,20 @@ HELP = {
         'expensive stage, so this is the cost dial: depth 20 with k 8 means '
         'twenty chunks scored to choose eight.'),
     'retrieval.recency_half_life_days': (
-        'How fast the recency reranker forgets. At 180 days an entry from six '
-        'months ago counts half as much as today — right for "how am I doing '
-        'lately", wrong for "what happened last summer".'),
+        'How fast the recency reranker forgets. At 180 days a chunk dated six '
+        'months back counts half as much as the newest one — right for a '
+        'question about how things stand lately, wrong for one pinned to a '
+        'specific past period. Greyed out on a '
+        'corpus that declares no date-time label (D5): with no date on a '
+        'chunk there is nothing to weigh by age.'),
     'retrieval.agentic_weights': (
         'The three weights of the agentic reranker: relevance, recency, '
-        'importance. Importance is emotional intensity read off the session\'s '
-        'declared mood — high arousal, or a valence far from neutral — as a '
-        'proxy for what a person would remember. A corpus that declares no '
-        'mood gives every chunk the same importance, so that third weight '
-        'shifts all scores equally and changes no ranking.'),
+        'importance. Importance is the corpus\'s own numeric label declaring '
+        'ranks: true (D6), rescaled to 0–1 by its declared minimum/maximum — '
+        'a rating, a severity, whatever that corpus chose to rank chunks by. A '
+        'corpus that declares no ranks label gives every chunk 0.0 importance, '
+        'so that third weight shifts all scores equally and changes no '
+        'ranking; the knob greys out for the same reason.'),
     'retrieval.grader': (
         'The gate that makes abstention possible: chunks scoring below the '
         'threshold are dropped, and if nothing survives the pipeline refuses '
@@ -306,21 +314,22 @@ HELP = {
         'refusals.'),
     'retrieval.max_context_chars': (
         'Budget for the assembled context. When it is exceeded whole chunks '
-        'are dropped, never truncated — half an entry reads as a complete one '
+        'are dropped, never truncated — half a chunk reads as a complete one '
         'and invites an answer from a sentence whose second half changed the '
         'meaning.'),
     'generation.answerer': (
         '"none" measures retrieval alone. "extractive" quotes the longest '
-        'sentence from each of the top three chunks, tagged with its session — '
-        'deterministic, free, and honest about quoting rather than answering. '
+        'sentence from each of the top three chunks, tagged with its source '
+        'document — deterministic, free, and honest about quoting rather than '
+        'answering. '
         '"llm" actually writes the answer.'),
-    'generation.key_facts_judge': (
-        'Scores each answer against the ground truth\'s atomic key facts with '
-        'a model. It is the only way to score facts when the answer and the '
-        'reference are not in the same language — the bundled diary answers in '
-        'Farsi against English key facts, which no lexical metric can compare '
-        '— and it is the metric that exposed generation as that corpus\'s '
-        'bottleneck (coverage 0.261 against faithfulness 0.743).'),
+    'generation.fact_judge': (
+        'Scores each answer against the ground truth\'s atomic derived_facts '
+        'with a model. It is the only way to score facts when the answer and '
+        'the reference are not in the same language — the bundled diary '
+        'answers in Farsi against English facts, which no lexical metric can '
+        'compare — and it is the metric that exposed generation as that '
+        'corpus\'s bottleneck (coverage 0.261 against faithfulness 0.743).'),
     'run.mode': (
         'Where the LLM stages run. "Local (Ollama)" is the lab default — free '
         'and private — and resets every stage to the lab\'s own defaults. '
@@ -353,23 +362,25 @@ HELP = {
     'run.limit': (
         'How many ground-truth questions to score. The subset is never the '
         'first n — it is drawn by the sampling below, striding across the set '
-        'or taking an equal share of each difficulty — so a limit of 10 still '
-        'covers the whole set instead of ten single-hop ones.'),
-    'run.types': (
-        'Restrict the run to certain question types: single-hop, temporal, '
-        'multi-hop, aggregation, knowledge-update, commitment, entity, '
-        'pattern, habit, abstention, adversarial. The list is closed, and the '
-        'type breakdown is usually more informative than the headline.'),
-    'run.difficulty': 'Restrict the run to easy, medium or hard questions.',
+        'or taking an equal share of a labelled band — so a limit of 10 still '
+        'covers the whole set instead of ten of one kind.'),
+    'run.labels': (
+        'Restrict the run to questions whose declared labels match. One '
+        'switch-group per label the loaded ground truth declares with a '
+        'closed set of values or a glossary — read from that dataset, so the '
+        'choices differ from one corpus to the next rather than naming a '
+        'fixed list every corpus must share.'),
     'run.balance': (
-        'How a limited run chooses its questions. "difficulty" takes an equal '
-        'share of easy, medium and hard; "stride" spreads across the set as it '
-        'is, which means a corpus\'s most common band dominates the sample — '
-        'on the bundled diary that is medium, 57 of 112, about half. It '
-        'matters because the four deciding metrics are means over questions, '
-        'so a skewed sample measures one band and reports it as the pipeline. '
-        'The setting is recorded on every row rather than assumed, because it '
-        'has not always been the same.'),
+        'How a limited run chooses its questions. Naming a question label '
+        'takes an equal share of that label\'s own values — "difficulty" '
+        'takes an equal share of easy, medium and hard on a corpus that '
+        'declares it; "" (stride) spreads across the set as it is, which '
+        'means a corpus\'s most common band dominates the sample — on the '
+        'bundled diary that is medium, 57 of 112, about half. It matters '
+        'because the four deciding metrics are means over questions, so a '
+        'skewed sample measures one band and reports it as the pipeline. The '
+        'setting is recorded on every row rather than assumed, because it has '
+        'not always been the same.'),
     'run.workers': (
         'How many questions are scored in parallel. Only worth raising when a '
         'stage calls a model, where wall-clock is dominated by waiting.'),

@@ -29,12 +29,12 @@ const CONFIG = {
     summary_boost: 1, summary_levels: '',
   },
   generation: {
-    answerer: 'extractive', model: 'answer-model', key_facts_judge: false,
+    answerer: 'extractive', model: 'answer-model', fact_judge: false,
     judge_model: '', ragas_model: '',
   },
 };
 const UI = { mode: '', ragas_mode: 'offline', limit: 1, ragas_limit: 0,
-  types: ['single-hop'] };
+  labels: {}, balance: '' };
 const INDEX = { collection: 'raglab-test', chunks: 1, leaves: 1,
   avg_chars: 8, p95_chars: 8, embed_dim: 8, build_seconds: 0, reused: false };
 const METRICS = [{ key: 'recall', label: 'Recall@k', short: 'evidence found',
@@ -43,33 +43,39 @@ const METRICS = [{ key: 'recall', label: 'Recall@k', short: 'evidence found',
 const RESULT = {
   run_id: 'imported-run-001', label: 'imported experiment', config: CONFIG,
   dataset: 'smoke-mini', index: INDEX,
-  summary: { overall: { recall: 1 },
-    by_type: { 'single-hop': { n: 1, recall: 1 } },
-    by_difficulty: { easy: { n: 1, recall: 1 } }, n_questions: 1 },
-  rows: [{ id: 'q1', type: 'single-hop', difficulty: 'easy', recall: 1,
+  summary: { overall: { recall: 1 }, n_questions: 1 },
+  rows: [{ id: 1, behavior: 'answer', recall: 1,
     latency_ms: 12, n_contexts: 1, abstained: false }],
   ragas: {}, seconds: 0.2, started_at: '2026-08-19 12:00:00', notes: [],
-  selection: { balance: 'stride', limit: 1, n: 1,
-    by_difficulty: { easy: 1 }, question_ids: ['q1'] },
+  selection: { balance: '', limit: 1, n: 1, question_ids: [1] },
 };
 const EVIDENCE = {
   execution: { provider: 'fake', models: {} }, metric_catalogue: METRICS,
   inspector: {
     dataset: { id: 'smoke-mini',
-      corpus: { meta: { language: 'en' }, persona: {}, threads: [], habits: {},
-        sessions: [{ session_id: 's1', date: '2026-08-19',
-          messages: [{ role: 'user', content: 'evidence' }] }] },
-      ground_truth: { meta: { corpus: 'smoke-mini', query_date: '2026-08-19' },
-        questions: [{ id: 'q1', type: 'single-hop', difficulty: 'easy',
-          answerable: true, question_fa: 'question', question_en: 'question',
-          answer_fa: 'answer', key_facts: ['fact'],
-          evidence: [{ session_id: 's1', message_indices: [0], quote: 'evidence' }] }] } },
-    chunks_by_session: [{ session_id: 's1', date: '2026-08-19',
+      corpus: {
+        corpus_dataset_metadata: { dataset: 'smoke-mini', name: 'Smoke corpus',
+          language: 'en' },
+        corpus_documents: [{ corpus_document_id: 1,
+          document_content: [{ text: 'evidence' }] }],
+      },
+      ground_truth: {
+        groundtruth_dataset_metadata: { name: 'Smoke questions',
+          corpus_ref: { dataset: 'smoke-mini' } },
+        groundtruth_dataset: [{
+          groundtruth_question_id: 1, question: 'question',
+          expected_answer: { behavior: 'answer', text: 'answer' },
+          relevant_corpus_documents: [{ corpus_document_id: 1,
+            evidence: [{ text: 'evidence', fidelity: 'verbatim',
+              part_labels: [{}] }] }],
+        }],
+      } },
+    chunks_by_session: [{ session_id: '1', date: '2026-08-19',
       chunks: [{ id: 'c1', text: 'evidence' }] }],
     summaries: [],
-    traces: [{ question_id: 'q1', question_fa: 'question', question_en: 'question',
-      type: 'single-hop', difficulty: 'easy', answerable: true, gold_available: 1,
-      trace: { candidates: [{ chunk_id: 'c1', text: 'evidence', session_id: 's1',
+    traces: [{ question_id: 1, question: 'question', behavior: 'answer',
+      gold_available: 1,
+      trace: { candidates: [{ chunk_id: 'c1', text: 'evidence', session_id: '1',
         date: '2026-08-19', layer: 'leaf', level: 0, group_id: '', members: 0,
         dense_rank: 1, bm25_rank: 1, fused_rank: 1, retrieval_score: 1,
         rerank_score: 1, grade_score: null, kept: true, gold: true,
@@ -90,14 +96,16 @@ test('settings-only archives omit evaluation and round-trip', () => {
 test('settings capture keeps hidden config, every model role, and all UI controls', () => {
   const value = ArchiveIO.settings(CONFIG, {
     mode: 'openrouter', ragas_mode: 'llm', limit: 7,
-    ragas_limit: 3, types: ['multi-hop', 'single-hop'],
+    ragas_limit: 3, labels: { question_type: ['multi-hop', 'single-hop'] },
+    balance: 'question_type',
   });
   assert.deepEqual(plain(value.settings.config), plain(CONFIG));
   assert.equal(value.settings.config.retrieval.expansion_model, 'expand-model');
   assert.equal(value.settings.config.generation.model, 'answer-model');
   assert.deepEqual(plain(value.settings.ui), {
     mode: 'openrouter', ragas_mode: 'llm', limit: 7, ragas_limit: 3,
-    types: ['multi-hop', 'single-hop'],
+    labels: { question_type: ['multi-hop', 'single-hop'] },
+    balance: 'question_type',
   });
 });
 
@@ -107,7 +115,7 @@ test('completed archives preserve every Inspector section and derive stages', ()
     ['chunks_by_session', 'dataset', 'summaries', 'traces']);
   assert.deepEqual(plain(value.evaluation.stage_results.retrieval.metrics),
     { recall: 1 });
-  assert.equal(value.evaluation.result.rows[0].id, 'q1');
+  assert.equal(value.evaluation.result.rows[0].id, 1);
 });
 
 test('credentials, bad references, wrong versions, and oversized files fail', () => {
@@ -131,11 +139,20 @@ test('token-hash settings cannot retain an embedding model', () => {
     /settings.config.index.embed_model/);
 });
 
-test('Inspector session dates require YYYY-MM-DD', () => {
+test('a verbatim quote must be findable character for character', () => {
   const value = plain(FULL);
-  value.evaluation.inspector.dataset.corpus.sessions[0].date = '2026/08/19';
+  value.evaluation.inspector.dataset.ground_truth.groundtruth_dataset[0]
+    .relevant_corpus_documents[0].evidence[0].text = 'words the corpus never said';
   assert.throws(() => ArchiveIO.normalize(value),
-    /evaluation.inspector.dataset.corpus.sessions.*date.*YYYY-MM-DD/);
+    /findable character for character/);
+});
+
+test('a cited document that is not in the corpus is refused', () => {
+  const value = plain(FULL);
+  value.evaluation.inspector.dataset.ground_truth.groundtruth_dataset[0]
+    .relevant_corpus_documents[0].corpus_document_id = 999;
+  assert.throws(() => ArchiveIO.normalize(value),
+    /corpus_document_id 999.*not in this corpus/);
 });
 
 test('prototype-sensitive metric keys are rejected before projection', () => {

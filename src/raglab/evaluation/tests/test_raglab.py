@@ -20,7 +20,7 @@ import pytest
 
 from raglab.evaluation import production_baseline_snapshot as baseline
 from raglab.configuration import lab_config as config
-from raglab.corpora import diary_corpus_loader as corpus
+from raglab.corpora import corpus_reading as corpus
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.configuration import explainer_assembly as explain
@@ -64,13 +64,18 @@ def smoke_lab():
 def test_run_eval_scores_a_slice_end_to_end(smoke_lab, tmp_path, monkeypatch):
     # this is an integration test
     """One run, and everything a run has to get right about itself: a row per
-    selected question with an answer on it, a summary that aggregates overall
-    and by type, a `started_at` that agrees with the run id (a field named for
-    the start that holds the finish turns a run into a timeline nobody can
+    selected question with an answer on it, an overall summary, a
+    `started_at` that agrees with the run id (a field named for the start
+    that holds the finish turns a run into a timeline nobody can
     reconstruct), and exactly one strict-JSON file left behind — `rglob`
     rather than `glob`, so a stray subdirectory beside the runs cannot hide.
     The index, the contexts and the answers die with the process; the file is
-    the only thing that outlives it."""
+    the only thing that outlives it.
+
+    No `by_type` assertion here (dropped, not renamed): `type` is no longer a
+    guaranteed field on a question — a corpus declares whatever question
+    labels it likes (D7) — so `aggregate()` no longer has a fixed vocabulary
+    to break down by; see its own docstring."""
     registry, truth = smoke_lab
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
     cfg = LabConfig(index=IndexConfig(**SMOKE_INDEX),
@@ -83,7 +88,7 @@ def test_run_eval_scores_a_slice_end_to_end(smoke_lab, tmp_path, monkeypatch):
     assert len(result.rows) == 4
     assert all('answer' in row for row in result.rows)
     assert result.summary['overall']['headline'] is not None
-    assert result.summary['by_type']
+    assert 'by_type' not in result.summary
 
     stamp = result.run_id.split('-')[1]                      # HHMMSS
     assert result.started_at.endswith(f'{stamp[:2]}:{stamp[2:4]}:{stamp[4:]}')
@@ -115,7 +120,7 @@ def test_a_traced_evaluation_scores_identically_and_leaves_traces_off_disk(
                                               multi_query=False),
                     generation=GenerationConfig(answerer='extractive'))
     traced = evaluate.run_eval(registry, truth, cfg, LAB_SETTINGS, limit=2,
-                               balance='stride', ragas_mode='off', trace=True)
+                               ragas_mode='off', trace=True)
 
     assert len(traced.rows) == 2
     assert [t['question_id'] for t in traced.traces] == \
@@ -147,7 +152,7 @@ def test_a_traced_evaluation_scores_identically_and_leaves_traces_off_disk(
         return value
 
     untraced = evaluate.run_eval(registry, truth, cfg, LAB_SETTINGS, limit=2,
-                                 balance='stride', ragas_mode='off')
+                                 ragas_mode='off')
     assert not untraced.traces, 'trace=False must record nothing'
     assert scores(untraced.rows) == scores(traced.rows)
     assert scores(untraced.summary) == scores(traced.summary)
@@ -183,24 +188,30 @@ def test_ragas_availability_reports_missing_pieces_instead_of_raising():
     assert 'ragas' in status.as_dict()['install_hint']
 
 
-def test_evidence_texts_are_the_cited_messages_not_the_short_quotes(
+def test_evidence_texts_are_every_relevant_documents_own_evidence_text(
         diary, ground_truth):
     # this is a unit test
-    """String-similarity metrics need comparable units, so RAGAS is given
-    the whole cited message, which must still contain the quote — and a
-    citation naming a session the corpus does not hold falls back to the
-    quote itself rather than dropping the evidence."""
-    sessions = corpus.sessions_by_id(diary)
-    question = next(q for q in ground_truth['questions'] if q['answerable'])
-    texts = corpus.evidence_texts(sessions, question)
+    """`corpus_reading.evidence_texts` reads the schema's own vocabulary
+    directly (D4): every relevant document's evidence entries, by their own
+    `text`, in order. Rewritten from a test pinning deleted behaviour — the
+    old dialect's `evidence_texts` expanded a short `quote` out to the whole
+    cited message and fell back to the quote when the cited session was
+    missing; the new schema's evidence entries already carry their own full
+    text, so neither expansion nor fallback exists any more (the `documents`
+    parameter survives only so a caller already holding `documents_by_id`'s
+    result need not change its call)."""
+    documents = corpus.documents_by_id(diary)
+    question = next(q for q in ground_truth['groundtruth_dataset']
+                    if q['expected_answer']['behavior'] == 'answer')
+    texts = corpus.evidence_texts(documents, question)
     assert texts
-    quote = question['evidence'][0]['quote']
-    assert any(quote in text for text in texts)
-    assert sum(map(len, texts)) > len(quote)
+    expected = [ev['text'] for relevant in question['relevant_corpus_documents']
+               for ev in relevant['evidence']]
+    assert texts == expected
 
-    unknown = {'evidence': [{'session_id': 'nope', 'message_indices': [0],
-                             'quote': 'یه چیزی'}]}
-    assert corpus.evidence_texts({}, unknown) == ['یه چیزی']
+    # No relevant documents (an 'abstain' question) is no evidence text —
+    # never a fabricated one.
+    assert corpus.evidence_texts({}, {'relevant_corpus_documents': []}) == []
 
 
 def test_json_safe_replaces_undefined_metrics_with_null():
@@ -218,9 +229,12 @@ def test_an_offline_ragas_run_scores_a_retrieval_and_reports_no_decision(
     pytest.importorskip('ragas')
     pytest.importorskip('rapidfuzz')
     _, truth = datasets.load('smoke-mini')
-    questions = [q for q in truth['questions'] if q['answerable']][:3]
+    query_date = truth['groundtruth_dataset_metadata'][
+        'default_question_asked_at'][:10]
+    questions = [q for q in truth['groundtruth_dataset']
+                if q['expected_answer']['behavior'] != 'abstain'][:3]
     pairs = [(q, pipeline.retrieve(smoke_index.index, RetrievalConfig(k=5),
-                                   q['question_fa'], q['query_date']))
+                                   q['question'], query_date))
              for q in questions]
     report = ragas_eval.run(pairs, LAB_SETTINGS, smoke_index.index.embedder,
                             mode='offline')
@@ -425,7 +439,7 @@ PINNED = {
                      'library': ('difflib',)},
     'answer_similarity': {'library': ('difflib',)},
     # A deterministic metric must not claim to be a model, and vice versa.
-    'key_fact_coverage': {'library': ('llm',)},
+    'fact_coverage': {'library': ('llm',)},
     # "Faithfulness" is RAGAS's word, not ours, so the panel says whose
     # definition it is showing and which class computed it.
     'faithfulness': {'library': ('Faithfulness', 'ragas'),
@@ -619,14 +633,14 @@ def test_a_second_job_is_refused_in_readable_english(client, monkeypatch):
     second is posted."""
     entered = threading.Event()
     release = threading.Event()
-    original = index_module.chunk_session
+    original = index_module.chunk_document
 
-    def held(session, cfg, embedder):
+    def held(document, cfg, embedder, label_fields, language):
         entered.set()
         release.wait(timeout=5)
-        return original(session, cfg, embedder)
+        return original(document, cfg, embedder, label_fields, language)
 
-    monkeypatch.setattr(index_module, 'chunk_session', held)
+    monkeypatch.setattr(index_module, 'chunk_document', held)
     try:
         first = client.post('/api/indexes', json={
             'index': {**SMOKE_INDEX, 'chunker': 'message'}})
@@ -753,12 +767,13 @@ def test_retrieval_only_covers_exactly_the_experiment_questions(client):
     *same* selection `/api/evaluations` would score, or the Inspector shows
     retrieval for questions the numbers were never about."""
     _, truth = datasets.load('smoke-mini')
-    picked_type = truth['questions'][0]['type']
+    picked_type = truth['groundtruth_dataset'][0]['question_metadata']['question_type']
     payload = {'index': dict(SMOKE_INDEX),
                'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                              'grader': 'none', 'k': 3, 'rerank_depth': 20,
                              'time_filter': False, 'multi_query': False},
-               'types': [picked_type], 'limit': 2, 'balance': 'stride'}
+               'labels': {'question_type': [picked_type]}, 'limit': 2,
+               'balance': ''}
     res = client.post('/api/retrievals', json=payload)
     assert res.status_code == 202, res.text
     job = _finished(client, res.json()['job_id'])
@@ -766,9 +781,10 @@ def test_retrieval_only_covers_exactly_the_experiment_questions(client):
     assert job['kind'] == 'retrieve'
 
     result = job['result']
-    expected = evaluate.select_questions(truth, [picked_type], 2, None, 'stride')
+    expected = evaluate.select_questions(
+        truth, limit=2, labels={'question_type': [picked_type]}, balance='')
     assert [q['question_id'] for q in result['questions']] == \
-        [q['id'] for q in expected]
+        [q['groundtruth_question_id'] for q in expected]
     assert result['selection']['n'] == 2
 
     # The chunks it retrieved *from* travel with it. A run builds its index
@@ -779,7 +795,7 @@ def test_retrieval_only_covers_exactly_the_experiment_questions(client):
     assert sum(len(g['chunks']) for g in groups) == result['index']['chunks']
 
     first = result['questions'][0]
-    assert first['question_fa'] == expected[0]['question_fa']
+    assert first['question'] == expected[0]['question']
     # retrieval only: the generation step never ran, so there is no answer to
     # show and no run file to leave behind.
     assert 'answer' not in first
@@ -863,14 +879,66 @@ def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something
                  )['generation.model']['enabled']
 
 
+def test_a_reranker_choice_and_a_dataset_fact_both_gate_the_same_knob():
+    # this is a unit test
+    """`question_to_answer_pipeline.py` reads `recency_half_life_days` only
+    inside the recency/agentic branches and `agentic_weights` only inside
+    the agentic one, so a rule composed of two conditions (D5/D6's `also`)
+    has to keep the original reranker-based reason live, not replace it —
+    either fact alone already makes the field inert, and the primary
+    condition is checked first."""
+    def state(reranker, date_label='', ranks_label=''):
+        cfg = LabConfig(retrieval=RetrievalConfig(reranker=reranker)).to_dict()
+        cfg['dataset'] = {'date_label': date_label, 'ranks_label': ranks_label}
+        return config.dependency_state(cfg)
+
+    # (a) a dated corpus with the default lexical reranker: the pipeline
+    # never reads the field regardless of what the corpus declares, so the
+    # reranker reason wins.
+    lexical = state('lexical', date_label='recorded_at')
+    assert not lexical['retrieval.recency_half_life_days']['enabled']
+    assert lexical['retrieval.recency_half_life_days']['reason'] == \
+        'only the recency and agentic rerankers weigh age'
+
+    # (b) a dateless corpus with the recency reranker active: the reranker
+    # condition is satisfied, so the dataset reason surfaces instead.
+    recency = state('recency')
+    assert not recency['retrieval.recency_half_life_days']['enabled']
+    assert recency['retrieval.recency_half_life_days']['reason'] == \
+        'this corpus declares no date label'
+
+    # Both conditions satisfied: live.
+    assert state('recency', date_label='recorded_at'
+                 )['retrieval.recency_half_life_days']['enabled']
+
+    # (c) the agentic reranker active over a corpus with no ranks label:
+    # agentic_weights greys for the dataset reason.
+    agentic = state('agentic')
+    assert not agentic['retrieval.agentic_weights']['enabled']
+    assert agentic['retrieval.agentic_weights']['reason'] == \
+        'this corpus declares no ranks label'
+    assert state('agentic', ranks_label='severity'
+                 )['retrieval.agentic_weights']['enabled']
+
+    # `time_filter` carries only the dataset condition — no reranker involved.
+    assert not state('lexical')['retrieval.time_filter']['enabled']
+    assert state('lexical', date_label='recorded_at'
+                 )['retrieval.time_filter']['enabled']
+
+
 def test_every_disabled_control_says_why():
     # this is a convention test
     """A greyed-out control with no reason is indistinguishable from a broken
-    one. Every rule carries the sentence the panel shows."""
+    one. Every rule carries the sentence the panel shows — a rule's `also`
+    (D5/D6's second, independent condition) is a `{field, on_true|on,
+    reason}` of exactly the same shape and carries the same promise."""
     for key, rule in config.DEPENDENCIES.items():
-        assert rule['reason'], f'{key} has no reason'
-        assert not rule['reason'].endswith('.'), (
-            f'{key}: the panel completes "disabled because …", so no full stop')
+        for condition in (rule, rule.get('also')):
+            if condition is None:
+                continue
+            assert condition['reason'], f'{key} has no reason'
+            assert not condition['reason'].endswith('.'), (
+                f'{key}: the panel completes "disabled because …", so no full stop')
 
 
 # That both frontends are *served* these rules rather than each keeping a copy

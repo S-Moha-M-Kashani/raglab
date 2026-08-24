@@ -1,8 +1,7 @@
-"""The 49-question sample, balanced across difficulty — so a run's
+"""The 49-question sample, balanced across a question label — so a run's
 questions are a stated, deterministic, comparable choice."""
 import pytest
 
-from raglab.configuration import lab_config as config
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.agents.extra_tools import sweep
 from raglab.configuration.lab_config import (
@@ -11,6 +10,11 @@ from raglab.configuration.lab_config import (
     LabConfig)
 
 from raglab.conftest import LAB_SETTINGS
+
+# The bundled diary's own declared glossary order for its 'difficulty' label
+# (D7 — TYPES/DIFFICULTIES are deleted; a fixed band order is now read off
+# the dataset itself, never hardcoded in the lab).
+DIFFICULTIES = ('easy', 'medium', 'hard')
 
 
 # --- the balanced sample, at every limit the lab actually uses --------------
@@ -21,7 +25,8 @@ from raglab.conftest import LAB_SETTINGS
 
 @pytest.mark.parametrize('limit,expected', [
     # 49 does not divide by three; the remainder goes to the earlier bands in
-    # DIFFICULTIES order, so the split is 17/16/16 and not "whatever came out".
+    # the label's own declared order, so the split is 17/16/16 and not
+    # "whatever came out".
     (49, {'easy': 17, 'medium': 16, 'hard': 16}),
     # 51 divides evenly, so the split is exactly equal rather than merely
     # as-equal-as-possible.
@@ -35,8 +40,9 @@ def test_a_balanced_sample_splits_the_difficulty_bands_as_evenly_as_it_can(
     picked = evaluate.select_questions(ground_truth, limit=limit,
                                        balance='difficulty')
     assert len(picked) == limit
-    counts = {name: sum(1 for q in picked if q['difficulty'] == name)
-              for name in config.DIFFICULTIES}
+    counts = {name: sum(1 for q in picked
+                        if q['question_metadata']['difficulty'] == name)
+              for name in DIFFICULTIES}
     assert counts == expected, counts
 
 
@@ -50,10 +56,12 @@ def test_a_balanced_sample_is_deterministic_and_keeps_fixture_order(
                                       balance='difficulty')
     second = evaluate.select_questions(ground_truth, limit=49,
                                        balance='difficulty')
-    assert [q['id'] for q in first] == [q['id'] for q in second]
-    order = [q['id'] for q in ground_truth['questions']]
-    picked_ids = {q['id'] for q in first}
-    assert [q['id'] for q in first] == [i for i in order if i in picked_ids]
+    ids = lambda picked: [q['groundtruth_question_id'] for q in picked]  # noqa: E731
+    assert ids(first) == ids(second)
+    order = [q['groundtruth_question_id']
+            for q in ground_truth['groundtruth_dataset']]
+    picked_ids = set(ids(first))
+    assert ids(first) == [i for i in order if i in picked_ids]
 
 
 def test_a_balanced_sample_still_spreads_across_the_question_types(ground_truth):
@@ -62,7 +70,7 @@ def test_a_balanced_sample_still_spreads_across_the_question_types(ground_truth)
     last in the file and were the type a bad stride used to lose entirely."""
     picked = evaluate.select_questions(ground_truth, limit=49,
                                        balance='difficulty')
-    types = {q['type'] for q in picked}
+    types = {q['question_metadata']['question_type'] for q in picked}
     assert len(types) >= 9, types
     assert 'habit' in types
 
@@ -71,27 +79,34 @@ def test_a_band_too_small_for_its_share_does_not_shrink_the_sample():
     # this is a unit test
     """A run asked for N questions must produce N whenever the set holds that
     many; what a small band cannot supply is offered to the others."""
-    questions = ([{'id': f'e{i}', 'difficulty': 'easy', 'type': 't'}
+    questions = ([{'groundtruth_question_id': f'e{i}',
+                   'question_metadata': {'difficulty': 'easy'}}
                   for i in range(2)]
-                 + [{'id': f'm{i}', 'difficulty': 'medium', 'type': 't'}
+                 + [{'groundtruth_question_id': f'm{i}',
+                     'question_metadata': {'difficulty': 'medium'}}
                     for i in range(20)]
-                 + [{'id': f'h{i}', 'difficulty': 'hard', 'type': 't'}
+                 + [{'groundtruth_question_id': f'h{i}',
+                     'question_metadata': {'difficulty': 'hard'}}
                     for i in range(20)])
-    picked = evaluate.select_questions({'questions': questions}, limit=12,
+    ground_truth = {'groundtruth_dataset_metadata': {
+                        'question_metadata_fields': {'difficulty': {}}},
+                    'groundtruth_dataset': questions}
+    picked = evaluate.select_questions(ground_truth, limit=12,
                                        balance='difficulty')
     assert len(picked) == 12
-    assert sum(1 for q in picked if q['difficulty'] == 'easy') == 2
+    assert sum(1 for q in picked
+              if q['question_metadata']['difficulty'] == 'easy') == 2
 
 
 def test_the_default_sampling_rule_is_unchanged(ground_truth):
     # this is a unit test
     """The runs already in `.runs/` were strided. Changing the default
     underneath the leaderboard would make those rows incomparable rather than
-    merely old — so 'stride' stays the default and the sweep opts in."""
+    merely old — so '' (stride) stays the default and the sweep opts in."""
     strided = evaluate.select_questions(ground_truth, limit=24)
-    explicit = evaluate.select_questions(ground_truth, limit=24,
-                                         balance='stride')
-    assert [q['id'] for q in strided] == [q['id'] for q in explicit]
+    explicit = evaluate.select_questions(ground_truth, limit=24, balance='')
+    ids = lambda picked: [q['groundtruth_question_id'] for q in picked]  # noqa: E731
+    assert ids(strided) == ids(explicit)
 
 
 # --- stride, at the two limits that exercise its coverage -------------------
@@ -110,19 +125,20 @@ def test_the_default_sampling_rule_is_unchanged(ground_truth):
 def test_a_stride_reaches_the_end_and_covers_the_question_types(
         ground_truth, limit, required_type, min_types):
     # this is a unit test
-    questions = ground_truth['questions']
+    questions = ground_truth['groundtruth_dataset']
     picked = evaluate.select_questions(ground_truth, limit=limit)
     assert len(picked) == limit
-    ids = [q['id'] for q in picked]
+    ids = [q['groundtruth_question_id'] for q in picked]
     assert len(set(ids)) == limit, f'{limit} produced duplicates'
-    assert ids[0] == questions[0]['id'], limit
+    assert ids[0] == questions[0]['groundtruth_question_id'], limit
     # The last pick is within one stride of the end, not 16 short of it.
     stride = -(-len(questions) // limit)          # ceil
     assert questions.index(picked[-1]) >= len(questions) - stride, limit
+    types = {q['question_metadata']['question_type'] for q in picked}
     if required_type is not None:
-        assert any(q['type'] == required_type for q in picked)
+        assert required_type in types
     if min_types is not None:
-        assert len({q['type'] for q in picked}) >= min_types, picked
+        assert len(types) >= min_types, picked
 
 
 @pytest.mark.parametrize('kwargs', [
@@ -161,7 +177,8 @@ def test_a_run_saves_the_questions_it_was_measured_on(registry, ground_truth):
 def test_the_sweep_measures_every_candidate_on_the_same_balanced_30():
     # this is a unit test
     """The sample is a property of the sweep, not of the invocation: a row
-    measured on a different sample is a different measurement."""
+    measured on a different sample is a different measurement. No
+    `config.BALANCES` check any more (deleted, D7): balance now names any
+    question label the dataset declares, not a fixed enum."""
     assert sweep.SWEEP_LIMIT == 30
     assert sweep.SWEEP_BALANCE == 'difficulty'
-    assert sweep.SWEEP_BALANCE in config.BALANCES

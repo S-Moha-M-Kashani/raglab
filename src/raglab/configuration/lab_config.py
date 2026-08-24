@@ -27,8 +27,7 @@ from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKER
                       GRAPH_HIERARCHIES, CLUSTER_HIERARCHIES,
                       LEVELLED_HIERARCHIES, TUNED_HIERARCHIES, GRAPH_SOURCES,
                       KNN_SOURCES, SUMMARIZERS, RETRIEVERS, SUMMARY_SCOPES,
-                      RERANKERS, GRADERS, ANSWERERS,
-                      DIFFICULTIES, BALANCES)
+                      RERANKERS, GRADERS, ANSWERERS)
 
 # Re-exported: DEPENDENCIES lives in knob_dependencies.py, which now reads the
 # option tuples from option_vocabularies.py rather than from here, so this import carries
@@ -56,8 +55,9 @@ STEPS = (
          'Runs on every question against an index that already exists — which '
          'is why these are the knobs worth sweeping first.'),
     Step('generation', 'Generation', 'Generation & scoring',
-         'Turns the retrieved contexts into a Farsi answer, refuses when the '
-         'diary is silent, and grades what it wrote.'),
+         'Turns the retrieved contexts into an answer in the corpus\'s own '
+         'language, refuses when the corpus is silent, and grades what it '
+         'wrote.'),
 )
 
 
@@ -177,8 +177,8 @@ class RetrievalConfig:
 class GenerationConfig:
     answerer: str = 'extractive'
     model: str = ''                  # '' = LabSettings.llm_model
-    key_facts_judge: bool = False    # LLM check of ground-truth key_facts
-    judge_model: str = ''            # the key-facts judge
+    fact_judge: bool = False         # LLM check of the ground truth's derived_facts
+    judge_model: str = ''            # the fact judge
     ragas_model: str = ''            # RAGAS's own judge, kept separate on purpose
 
 

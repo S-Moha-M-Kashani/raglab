@@ -75,7 +75,7 @@ def chunks_by_session(index) -> list[dict]:
     `summary_rows` is the other half; between them every row in the index is
     covered exactly once. `by_session` is already in chunk order, so no sorting is needed."""
     groups = []
-    for session_id, chunks in index.by_session.items():
+    for session_id, chunks in index.by_document.items():
         leaves = [c for c in chunks if c.layer != 'summary']
         if not leaves:
             continue
@@ -93,7 +93,7 @@ def _leaf_sessions(index, chunk) -> set[str]:
     level-2 group's members are themselves summaries with no session id —
     so only recursion reports the sessions a top-level summary spans."""
     if chunk.layer != 'summary':
-        return {chunk.session_id} if chunk.session_id else set()
+        return {chunk.document_id} if chunk.document_id else set()
     found: set[str] = set()
     for member_id in chunk.member_ids:
         member = index.by_id.get(member_id)

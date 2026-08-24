@@ -133,9 +133,23 @@
       <select id="dataset"></select>
       <div id="datasetInfo" class="muted"></div>
     </div>
+    <!-- The declaration table: every label this dataset's corpus and ground
+         truth declare, read straight off the loaded files (D4) — never
+         hardcoded, so a sparse corpus just shows fewer rows. Rebuilt on every
+         dataset switch and again on a successful import, from the one
+         reading (`/api/options` -> datasets[].label_declarations) both paths
+         share. -->
+    <div id="datasetLabels"></div>
     <div class="field">
-      <label>Import a dataset <span class="muted">· one JSON file</span></label>
-      <input type="file" id="dataset-file" accept="application/json,.json">
+      <label>Import a dataset <span class="muted">· two JSON files, paired by id (D1)</span></label>
+      <input type="file" id="dataset-corpus-file" accept="application/json,.json">
+      <input type="file" id="dataset-groundtruth-file" accept="application/json,.json">
+      <div class="muted template-links">start from the templates:
+        <a href="/api/dataset-templates/corpus" download="corpus_template.json">corpus_template.json</a>
+        &middot;
+        <a href="/api/dataset-templates/groundtruth" download="groundtruth_template.json">groundtruth_template.json</a>
+      </div>
+      <button class="ghost" id="dataset-import" type="button">Import</button>
       <div id="importInfo" class="muted"></div>
     </div>
     <div class="field">
@@ -224,7 +238,7 @@
       <div><label>Levels <span class="muted">· blank = all</span></label><input type="text" id="summary_levels" placeholder="1 2"></div>
     </div>
     <div class="switches">
-      <label><input type="checkbox" id="time_filter"> Farsi time-scope filter</label>
+      <label><input type="checkbox" id="time_filter"> time-scope filter</label>
       <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
       <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
     </div>
@@ -247,7 +261,7 @@
       <select id="answerer"></select>
     </div>
     <div class="switches">
-      <label><input type="checkbox" id="key_facts_judge"> LLM key-facts judge</label>
+      <label><input type="checkbox" id="fact_judge"> LLM fact judge</label>
     </div>
     <div class="field">
       <label>RAGAS mode</label>
@@ -261,10 +275,11 @@
       <div><label>Questions (0 = all)</label><input type="number" id="limit" min="0" max="200" value="0"></div>
       <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="200" value="0"></div>
     </div>
-    <div class="field">
-      <label>Question types (none = all)</label>
-      <div class="switches" id="types"></div>
-    </div>
+    <!-- Question-type sampling has no controls on this page: `labels` and
+         `balance` still travel in a run's ui block and in the archive codec,
+         carried by panel.js the way UNSHOWN carries config fields with no
+         control — so an opened experiment's recorded selection survives
+         open/export without a widget to show it. -->
     <div class="field">
       <label>Run label</label>
       <input type="text" id="label" placeholder="e.g. semantic + hybrid + gate">
@@ -335,9 +350,14 @@
     <div id="resultBody" hidden>
       <div class="scores" id="scores"></div>
       <div class="breakdown">
-        <div><h3>By question type</h3><div id="byType"></div></div>
+        <div><h3>By behavior</h3><div id="byType"></div></div>
         <div><h3>RAGAS</h3><div id="ragas"></div></div>
-        <div><h3>By difficulty</h3><div id="extras"></div></div>
+        <!-- The table's own caption (renderTable's `label`) says what this
+             run was actually balanced on ("Selection by difficulty", or
+             plain "Selection" for a stride) — this heading stays generic on
+             purpose, since which label a run balances on is the dataset's
+             own choice, not a fixed vocabulary this page can name in advance. -->
+        <div><h3>Selection</h3><div id="extras"></div></div>
       </div>
       <details class="rowdump"><summary>Per-question rows</summary>
         <div id="rows"></div></details>

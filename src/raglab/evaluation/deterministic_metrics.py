@@ -1,18 +1,14 @@
 """Deterministic scoring against the ground truth: no LLM, no run-to-run variance.
 
 RAGAS metrics (ragas_judged_metrics.py) sit on top for the dimensions that need a model.
-Quote recall and latest-state recall are specific to this ground truth's evidence.
+Quote recall is specific to this ground truth's evidence.
 """
 import difflib
 import math
 from dataclasses import dataclass
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
-from raglab.configuration.lab_config import DIFFICULTIES
-from raglab.corpora.diary_corpus_loader import evidence_sessions
-
-TYPES = ('single-hop', 'temporal', 'multi-hop', 'aggregation', 'knowledge-update',
-         'commitment', 'entity', 'pattern', 'habit', 'abstention', 'adversarial')
+from raglab.corpora.corpus_reading import evidence_documents
 
 
 @dataclass(frozen=True)
@@ -91,15 +87,6 @@ MEASURES = (
             'The most forgiving retrieval metric: did anything relevant come '
             'back at all. Useful for spotting total misses that an averaged '
             'recall softens.'),
-    Measure('latest_state_hit', 'Latest state',
-            'changed facts, current version', 'retrieval',
-            '1 if the newest evidence session is in top-k, else 0 '
-            '(knowledge-update questions only)',
-            'metrics.latest_state_session' + NO_MODEL,
-            'On a fact that changed over time, retrieving only the superseded '
-            'state is worse than retrieving nothing: it produces a confident, '
-            'stale answer. This checks that the most recent evidence session '
-            'was found.'),
     Measure('abstained_correctly', 'Abstention', 'unanswerable refused',
             'generation',
             'refusals / unanswerable questions',
@@ -134,17 +121,18 @@ MEASURES = (
             'metrics.token_f1 (textnorm tokeniser)' + NO_MODEL,
             'The SQuAD-style measure. It credits a short correct answer that a '
             'character-similarity ratio penalises purely for being short.'),
-    Measure('key_fact_coverage', 'Key facts', 'judged fact coverage',
+    Measure('fact_coverage', 'Derived facts', 'judged fact coverage',
             'generation',
-            'facts the judge marked present / key facts in the ground truth',
-            'evaluate.judge_key_facts — an LLM judge (the "Key-facts judge" '
+            'facts the judge marked present / derived_facts in the ground truth',
+            'evaluate.judge_derived_facts — an LLM judge (the "Fact judge" '
             'model role), so this number carries that model\'s variance',
-            'The ground truth lists the atomic facts a correct answer must '
-            'contain, and a judge checks each one. When the facts and the '
-            'answers are in different languages — the bundled diary lists '
-            'English facts against Farsi answers — the judge is translating as '
-            'well as checking, which is why no deterministic metric replaces '
-            'it, and why a weak model here produces confidently wrong scores.'),
+            'The ground truth breaks its reference answer into atomic '
+            'derived_facts, and a judge checks each one against the produced '
+            'answer. When the facts and the answer are in different languages '
+            '— the bundled diary lists English facts against Farsi answers — '
+            'the judge is translating as well as checking, which is why no '
+            'deterministic metric replaces it, and why a weak model here '
+            'produces confidently wrong scores.'),
     Measure('latency_ms', 'Latency', 'ms per question', '',
             'sum of the per-stage timings for one question, in milliseconds',
             'time.perf_counter around each pipeline stage' + NO_MODEL,
@@ -227,10 +215,23 @@ def hit_at_k(retrieved: list[str], gold: list[str], k: int) -> float:
     return 1.0 if set(retrieved[:k]) & set(gold) else 0.0
 
 
+def verbatim_quotes(question: dict) -> list[str]:
+    """Every evidence string a lexical match may be scored against — `fidelity
+    == 'verbatim'` entries only. A paraphrase is the ground truth's own words
+    for something the document says, and a computed fact is never in the text
+    at all; a lexical match against either measures nothing, so quote recall
+    reads only the entries that are checked to appear character for character
+    in the document they cite."""
+    return [evidence['text']
+            for relevant in question.get('relevant_corpus_documents') or []
+            for evidence in relevant.get('evidence') or []
+            if evidence.get('fidelity') == 'verbatim']
+
+
 def quote_recall(context_text: str, question: dict) -> float:
     """Verbatim-quote coverage; falls back to a >=90% similarity match for a
     quote a chunker's whitespace normalisation would otherwise miss."""
-    quotes = [ev['quote'] for ev in question.get('evidence', [])]
+    quotes = verbatim_quotes(question)
     if not quotes:
         return float('nan')
     haystack = textnorm.normalize(context_text)
@@ -250,14 +251,6 @@ def _fuzzy_contains(haystack: str, needle: str, threshold: float = 0.9) -> bool:
     matcher = difflib.SequenceMatcher(None, needle, haystack, autojunk=False)
     match = matcher.find_longest_match(0, len(needle), 0, len(haystack))
     return match.size / len(needle) >= threshold
-
-
-def latest_state_session(question: dict) -> str | None:
-    """The newest evidence session — the one carrying the current truth."""
-    evidence = question.get('evidence', [])
-    if not evidence:
-        return None
-    return max(evidence, key=lambda ev: ev['session_id'])['session_id']
 
 
 def answer_similarity(response: str, reference: str) -> float:
@@ -288,13 +281,16 @@ def token_f1(response: str, reference: str) -> float:
 
 def score_question(question: dict, outcome, k: int) -> dict:
     """Every per-question number the report needs, for one config."""
-    gold = evidence_sessions(question)
+    gold = [str(document_id) for document_id in evidence_documents(question)]
     retrieved = outcome.sessions
     context_text = '\n'.join(c.text for c in outcome.contexts)
-    answerable = bool(question.get('answerable'))
+    behavior = question['expected_answer']['behavior']
+    # 'correct_premise' must answer *and* contradict the false premise, so for
+    # scoring it is answerable exactly like 'answer' — only 'abstain' carries
+    # no relevant documents and has nothing to retrieve.
+    answerable = behavior != 'abstain'
     row = {
-        'id': question['id'], 'type': question['type'],
-        'difficulty': question['difficulty'], 'answerable': answerable,
+        'id': question['groundtruth_question_id'], 'behavior': behavior,
         'retrieved_sessions': retrieved[:k],
         'n_contexts': len(outcome.contexts),
         # Per question, not inferred from config: 'configured' and 'retrieved'
@@ -317,13 +313,10 @@ def score_question(question: dict, outcome, k: int) -> dict:
             'hit': hit_at_k(retrieved, gold, k),
             'quote_recall': quote_recall(context_text, question),
         }
-        if question['type'] == 'knowledge-update':
-            latest = latest_state_session(question)
-            row['latest_state_hit'] = float(latest in retrieved[:k]) if latest else float('nan')
         row['false_abstention'] = float(outcome.abstained)
     else:
-        # Unanswerable is correctly handled by either abstention or a corrected
-        # premise (adversarial); the answerer sets `abstained` for both.
+        # Unanswerable is correctly handled by abstaining; the answerer sets
+        # `abstained` for it.
         row['abstained_correctly'] = float(outcome.abstained)
     if outcome.diagnostics.get('answer_error'):
         # `pipeline._llm_answer` swallows every failure into the canonical
@@ -331,7 +324,7 @@ def score_question(question: dict, outcome, k: int) -> dict:
         row['answer_error'] = outcome.diagnostics['answer_error']
     if outcome.answer is not None:
         row['answer'] = outcome.answer
-        reference = question.get('answer_fa', '')
+        reference = question['expected_answer'].get('text', '')
         if answerable and reference:
             row['answer_similarity'] = answer_similarity(outcome.answer, reference)
             row['answer_token_f1'] = token_f1(outcome.answer, reference)
@@ -348,37 +341,26 @@ def _isnan(value) -> bool:
 
 
 AGGREGATED = ('recall', 'precision', 'mrr', 'ndcg', 'hit', 'quote_recall',
-              'latest_state_hit', 'false_abstention', 'abstained_correctly',
-              'answer_similarity', 'answer_token_f1', 'key_fact_coverage',
+              'false_abstention', 'abstained_correctly',
+              'answer_similarity', 'answer_token_f1', 'fact_coverage',
               'latency_ms', 'n_contexts', 'n_summaries', 'n_expanded',
               'context_chars')
 
 
 def aggregate(rows: list[dict]) -> dict:
-    """Overall means, plus a per-type and per-difficulty breakdown — an average
-    alone would hide a gain in one type that comes at the cost of another."""
+    """Overall means over every scored question.
+
+    A per-question-label breakdown (what `by_type`/`by_difficulty` used to be,
+    fixed to two vocabularies every corpus had to share) is not reproduced
+    here: `type` and `difficulty` are no longer guaranteed fields — a corpus
+    declares whatever question labels it likes (D7) — so a generic
+    replacement would have to be invented rather than substituted, and this
+    step only substitutes. `selection_note` already reports the run's own
+    `by_<balance>` breakdown for whichever label a run was balanced on."""
     overall = {name: _mean([r[name] for r in rows if name in r])
                for name in AGGREGATED}
-    by_type: dict[str, dict] = {}
-    for type_name in TYPES:
-        subset = [r for r in rows if r['type'] == type_name]
-        if not subset:
-            continue
-        by_type[type_name] = {'n': len(subset)} | {
-            name: _mean([r[name] for r in subset if name in r])
-            for name in ('recall', 'quote_recall', 'ndcg', 'hit',
-                         'abstained_correctly', 'false_abstention',
-                         'answer_similarity')}
-    by_difficulty: dict[str, dict] = {}
-    for level in DIFFICULTIES:
-        subset = [r for r in rows if r['difficulty'] == level]
-        if subset:
-            by_difficulty[level] = {'n': len(subset),
-                                    'recall': _mean([r['recall'] for r in subset
-                                                     if 'recall' in r])}
     overall['headline'] = _headline(overall)
-    return {'overall': overall, 'by_type': by_type, 'by_difficulty': by_difficulty,
-            'n_questions': len(rows)}
+    return {'overall': overall, 'n_questions': len(rows)}
 
 
 def _headline(overall: dict) -> float | None:

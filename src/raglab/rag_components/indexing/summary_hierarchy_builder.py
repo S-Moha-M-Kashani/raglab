@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
-from raglab.rag_components.indexing.chunking_strategies import Chunk
+from raglab.rag_components.indexing.chunking_strategies import Chunk, is_present
 
 # One seed for everything that would otherwise wander. Not a knob: two builds of
 # one fingerprint must produce one index, and a seed in the config would be a
@@ -267,14 +267,68 @@ def _by_label(labels, k: int) -> list[list[int]]:
     return [g for g in groups if g]
 
 
-def _metadata_groups(chunks: list[Chunk]) -> list[list[int]]:
-    """The deleted rollup, as a control: one group per storyline. Threads, not
-    topics — topics are per-session and noisier, which would be a different thing wearing the control's name."""
-    by_thread: dict[str, list[int]] = defaultdict(list)
+def _recurrence(chunks: list[Chunk], name: str) -> float:
+    """How much one array label's own values repeat across this leaf set:
+    total occurrences over distinct values. A storyline that spans many
+    documents scores high; a fine-grained, mostly one-off vocabulary scores
+    low. Purely data-driven — no label name is ever hardcoded — so it works
+    on whatever a corpus happens to call its two array labels."""
+    counts: dict = defaultdict(int)
+    for chunk in chunks:
+        value = chunk.labels.get(name)
+        items = value if isinstance(value, list) else ([value] if is_present(value) else [])
+        for item in items:
+            if is_present(item):
+                counts[item] += 1
+    distinct = len(counts)
+    return (sum(counts.values()) / distinct) if distinct else 0.0
+
+
+def _grouping_label(label_fields: dict, chunks: list[Chunk]) -> str:
+    """Which array label the `metadata` control groups by: the corpus's own
+    storyline vocabulary. Two stages, both generic — neither ever names a
+    label: first, among the array labels declared to reach `chunk`, prefer
+    the ones a person authored (no `extracted`) over ones a model derived,
+    since the whole point of this control is to be the *less* noisy rollup.
+    That alone resolves diary-fa (`topics` is `extracted`, `recurring_threads`
+    is not). When it does not resolve anything — meetings-de, research-
+    multihop and support-en each declare *two* authored array labels — the
+    tie is broken on the corpus's own data: `_recurrence`, the label whose
+    values repeat most across this leaf set, since a storyline recurring
+    across many documents is exactly what makes a label a storyline rather
+    than a topic. A further tie (or no candidate at all) falls back to
+    declaration order, deterministically. `''` when the corpus declares no
+    array label at all, so the control groups nothing rather than guessing."""
+    candidates = [name for name, definition in (label_fields or {}).items()
+                 if definition.get('type') == 'array'
+                 and 'chunk' in (definition.get('applies_to') or [])]
+    if not candidates:
+        return ''
+    authored = [name for name in candidates if not label_fields[name].get('extracted')]
+    pool = authored or candidates
+    if len(pool) == 1:
+        return pool[0]
+    # `sorted` is stable, so a tie in recurrence keeps declaration order.
+    return sorted(pool, key=lambda name: -_recurrence(chunks, name))[0]
+
+
+def _metadata_groups(chunks: list[Chunk], label_fields: dict) -> list[list[int]]:
+    """One group per distinct value of the corpus's own storyline label
+    (`_grouping_label`) — a control against the old, deleted rollups: one
+    group per declared storyline, not per topic, which is per-document and
+    noisier. A value that carries nothing (`is_present` says so) groups
+    nothing, the same rule `contextual_prefix` renders by."""
+    name = _grouping_label(label_fields, chunks)
+    if not name:
+        return []
+    by_value: dict[str, list[int]] = defaultdict(list)
     for i, chunk in enumerate(chunks):
-        for thread in chunk.threads:
-            by_thread[thread].append(i)
-    return [members for _, members in sorted(by_thread.items())]
+        value = chunk.labels.get(name)
+        values = value if isinstance(value, list) else ([value] if is_present(value) else [])
+        for v in values:
+            if is_present(v):
+                by_value[v].append(i)
+    return [members for _, members in sorted(by_value.items())]
 
 
 # --- the summaries ---------------------------------------------------------
@@ -357,12 +411,12 @@ def _card(chunks: list[Chunk], members: list[int], idf: dict[str, float]) -> str
             weights[token] += idf.get(token, 0.0)
     terms = [t for t, _ in sorted(weights.items(), key=lambda kv: -kv[1])[:12]]
     dates = sorted({chunks[i].date for i in members if chunks[i].date})
-    sessions = sorted({chunks[i].session_id for i in members
-                       if chunks[i].session_id})
+    documents = sorted({chunks[i].document_id for i in members
+                       if chunks[i].document_id})
     span = f'{dates[0]} … {dates[-1]}' if dates else '—'
-    return (f'[group of {len(members)} · {span} · {len(sessions)} sessions]\n'
+    return (f'[group of {len(members)} · {span} · {len(documents)} documents]\n'
             f'{" ".join(terms)}\n'
-            f'{" ".join(sessions[:40])}')
+            f'{" ".join(documents[:40])}')
 
 
 def _fit(texts: list[str], budget: int) -> str:
@@ -404,10 +458,10 @@ class HierarchyStats:
 
 
 def _group_once(chunks: list[Chunk], vectors: np.ndarray, cfg,
-                stats: HierarchyStats) -> list[list[int]]:
+                stats: HierarchyStats, label_fields: dict) -> list[list[int]]:
     """One level of grouping, by whichever family `cfg.hierarchy` names."""
     if cfg.hierarchy == 'metadata':
-        return _metadata_groups(chunks)
+        return _metadata_groups(chunks, label_fields)
     if cfg.hierarchy in ('raptor', 'agglomerative', 'kmeans'):
         groups = _cluster_vectors(vectors, cfg.hierarchy, cfg.granularity)
         if stats.silhouette is None:
@@ -457,9 +511,10 @@ def _silhouette(vectors: np.ndarray, groups: list[list[int]]) -> float | None:
 
 
 def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
-          stats: HierarchyStats) -> list[Chunk]:
+          stats: HierarchyStats, label_fields: dict | None = None) -> list[Chunk]:
     """Every summary row this config asks for, over the given leaves — the
     caller keeps the leaves always. Level 2 groups level 1's summaries, and so on."""
+    label_fields = label_fields or {}
     import time
     started = time.time()
     stats.hierarchy = cfg.hierarchy
@@ -477,7 +532,8 @@ def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
             stats.notes.append(
                 f'level {level}: only {len(current)} rows to group — stopped')
             break
-        groups = [g for g in _group_once(current, current_vectors, cfg, stats)
+        groups = [g for g in _group_once(current, current_vectors, cfg, stats,
+                                         label_fields)
                   if len(g) >= cfg.min_group]
         if not groups:
             stats.notes.append(
@@ -491,7 +547,7 @@ def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
             if not text.strip():
                 continue
             written.append(_summary_chunk(current, members, text, level,
-                                          group_id))
+                                          group_id, label_fields))
             if level == 1:
                 covered.update(current[i].id for i in members)
         if not written:
@@ -519,33 +575,88 @@ def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
     return summaries
 
 
+def _rolled_up_labels(label_fields: dict, block: list[Chunk]) -> dict:
+    """The schema's own rollup rules (`x-raglab-uses.labels_roll_up_into_summaries`),
+    applied per label declared to reach `summary`: an array unions; a
+    date-time becomes `{from, to}`; a number averages, except a
+    `confidence_for` rater, which takes the max — keyed by what it rates,
+    for a list label's own keyed confidence; anything else (a scalar string,
+    most often `role`) keeps the single value if every member agrees, else
+    becomes the list of what disagreed. A label not declared to reach
+    `summary` at all is an identity of the leaf it labelled, not a property
+    of the group, and is simply not rolled up."""
+    out: dict = {}
+    for name, definition in (label_fields or {}).items():
+        if 'summary' not in (definition.get('applies_to') or []):
+            continue
+        values = [c.labels[name] for c in block if name in c.labels]
+        if not values:
+            continue
+        confidence_of = definition.get('confidence_for')
+        if definition.get('type') == 'array':
+            union: list = []
+            for value in values:
+                for item in (value if isinstance(value, list) else [value]):
+                    if item not in union:
+                        union.append(item)
+            out[name] = union
+        elif definition.get('format') == 'date-time':
+            # A member may already be a rolled-up `{from, to}` (a level-2
+            # grouping over level-1 summaries), not a raw timestamp — both
+            # endpoints count as points in the wider range either way.
+            points: list[str] = []
+            for value in values:
+                if isinstance(value, dict):
+                    points.extend(v for v in (value.get('from'), value.get('to')) if v)
+                else:
+                    points.append(value)
+            if points:
+                out[name] = {'from': min(points), 'to': max(points)}
+        elif confidence_of and definition.get('type') == 'object':
+            merged: dict = {}
+            for value in values:
+                if isinstance(value, dict):
+                    for key, number in value.items():
+                        merged[key] = max(merged.get(key, number), number)
+            out[name] = merged
+        elif confidence_of:
+            out[name] = max(float(v) for v in values)
+        elif definition.get('type') in ('number', 'integer'):
+            out[name] = round(sum(float(v) for v in values) / len(values), 3)
+        else:
+            # A scalar string label (`role`, most often) that a leaf already
+            # unioned into a list (several parts, several roles) is handled
+            # the same way an array label is: flatten before deciding
+            # whether every member agreed.
+            distinct: list = []
+            for value in values:
+                for item in (value if isinstance(value, list) else [value]):
+                    if item not in distinct:
+                        distinct.append(item)
+            out[name] = distinct[0] if len(distinct) == 1 else distinct
+    return out
+
+
 def _summary_chunk(members_of: list[Chunk], members: list[int], text: str,
-                   level: int, group_id: str) -> Chunk:
-    """A summary row carrying the union of its members' date span (so the time
-    filter still works) and their ids (so it can be expanded without a second lookup)."""
+                   level: int, group_id: str, label_fields: dict) -> Chunk:
+    """A summary row carrying the union of its members' date span (so the
+    time filter still works), their ids (so it can be expanded without a
+    second lookup), and its own labels — rolled up from its members by the
+    schema's own rule (`_rolled_up_labels`), never inherited whole."""
     block = [members_of[i] for i in members]
     dates = sorted(c.date for c in block if c.date)
     spans_from = [c.span_from for c in block if c.span_from]
     spans_to = [c.span_to for c in block if c.span_to]
-    topics: list[str] = []
-    threads: list[str] = []
-    for chunk in block:
-        for topic in chunk.topics:
-            if topic not in topics:
-                topics.append(topic)
-        for thread in chunk.threads:
-            if thread not in threads:
-                threads.append(thread)
-    sessions = {c.session_id for c in block if c.session_id}
+    documents = {c.document_id for c in block if c.document_id}
     return Chunk(
         id=f'summary:{group_id}', text=text,
-        # One session's summary keeps that session's id; a summary spanning
+        # One document's summary keeps that document's id; a summary spanning
         # several claims none, since naming one would misattribute a citation.
-        session_id=next(iter(sessions)) if len(sessions) == 1 else '',
+        document_id=next(iter(documents)) if len(documents) == 1 else '',
         date=dates[0] if dates else '',
         span_from=min(spans_from) if spans_from else 0,
         span_to=max(spans_to) if spans_to else 0,
         importance=round(float(np.mean([c.importance for c in block])), 3),
-        topics=tuple(topics[:12]), threads=tuple(threads[:12]),
+        labels=_rolled_up_labels(label_fields, block),
         layer='summary', level=level, group_id=group_id,
         member_ids=tuple(c.id for c in block))

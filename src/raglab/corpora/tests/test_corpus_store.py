@@ -5,6 +5,7 @@ import json
 import pytest
 
 from raglab.corpora import corpus_store as store
+from raglab.corpora import dataset_import_contract as datasets
 
 
 def _corpus(first_line: str = 'the third shelf'):
@@ -288,3 +289,93 @@ def test_no_two_rows_are_ever_identical_in_key_or_in_content(tmp_path):
     assert len(set(keys)) == len(rows), 'no two rows share a key'
     assert len(set(contents)) == len(rows), 'no two rows hold the same text'
     assert len({row['id'] for row in rows}) == len(rows)
+
+
+# --- the refill (D8): the five bundled pairs enter as new rows -------------
+#
+# Everything above is proven with a small, hand-written corpus so the claims
+# stay legible. This store is opaque about shape — it hashes and stores
+# whatever dict it is handed — so nothing here needed to change for the
+# schema-pair migration. What the tests below pin is that the *refill* the
+# migration requires (D8: the old rows in the real `databases/corpora.db`
+# hold the pre-migration shape; nothing re-derives them; a new row per
+# dataset enters the same way every corpus always has — by being stored) is
+# nothing more than storing the five real pairs, and that they coexist beside
+# rows already holding the old shape rather than replacing them.
+
+BUNDLED = ('diary-fa', 'support-en', 'meetings-de', 'research-multihop',
+          'smoke-mini')
+
+
+def test_every_bundled_pairs_real_shape_round_trips_through_the_store(tmp_path):
+    # this is an integration test
+    """`corpora.get(id)` on a new-pair row hands back exactly the two file
+    payloads `load()` reads — the schema's own shape (`corpus_documents`,
+    `groundtruth_dataset`, …), not the retired `sessions`/`questions` one
+    `_corpus()`/`_ground_truth()` above stand in for. One row per dataset,
+    because five distinct corpora are five distinct fingerprints.
+    """
+    path = tmp_path / 'corpora.db'
+    ids = set()
+    for dataset_id in BUNDLED:
+        corpus, ground_truth = datasets.load(dataset_id)
+        id_corpora = store.put(dataset_id, corpus, ground_truth, path)
+        assert store.get(id_corpora, path) == (corpus, ground_truth)
+        ids.add(id_corpora)
+    assert len(ids) == len(BUNDLED), 'five distinct corpora, five distinct rows'
+    assert _rows(path) == len(BUNDLED)
+
+
+def test_a_bundled_pairs_fingerprint_still_refuses_altered_content(tmp_path,
+                                                                    monkeypatch):
+    # this is a unit test
+    """The same refusal `_same_or_refuse` makes on the hand-written fixture
+    above, pinned again against a real bundled pair — `diary-fa` — so the
+    claim is not an artefact of the small synthetic corpus. Forced with a
+    pinned fingerprint for the reason
+    `test_a_fingerprint_collision_is_refused_rather_than_aliased` gives: a
+    real 64-bit collision is not something a test can wait for.
+    """
+    path = tmp_path / 'corpora.db'
+    corpus, ground_truth = datasets.load('diary-fa')
+    monkeypatch.setattr(store, 'fingerprint', lambda value: 'c0ffeec0ffeec0ff')
+    first = store.put('diary-fa', corpus, ground_truth, path)
+
+    altered = copy.deepcopy(corpus)
+    altered['corpus_documents'][0]['document_content'][0]['text'] += ' — edited'
+    with pytest.raises(store.CorpusStoreError, match='different corpus'):
+        store.put('diary-fa', altered, ground_truth, path)
+
+    assert _rows(path) == 1, 'the refusal writes nothing'
+    assert store.get(first, path) == (corpus, ground_truth), (
+        'the stored row is untouched by the corpus that could not be stored')
+
+
+def test_versions_of_diary_fa_lets_a_new_shape_row_coexist_beside_an_old_one(
+        tmp_path):
+    # this is an integration test
+    """The exact claim D8 makes about the real `databases/corpora.db`, pinned
+    here on a throwaway one instead (the suite never touches the real file):
+    a row already holding the pre-migration shape (`sessions`/`messages`/
+    `groundtruth` — the shape every archive before this branch carried, and
+    the shape still sitting in the real database's `diary-fa` row) is left
+    exactly as it is, and the real pair `load('diary-fa')` now returns enters
+    as a second, distinct row under the same dataset id — never a migration,
+    never an overwrite.
+    """
+    path = tmp_path / 'corpora.db'
+    old_shape_corpus = _corpus('a diary entry from before the schema pair')
+    old_shape_truth = _ground_truth('a diary entry from before the schema pair')
+    old_id = store.put('diary-fa', old_shape_corpus, old_shape_truth, path)
+
+    new_corpus, new_truth = datasets.load('diary-fa')
+    new_id = store.put('diary-fa', new_corpus, new_truth, path)
+
+    assert old_id != new_id
+    versions = {version['id'] for version in store.versions('diary-fa', path)}
+    assert versions == {old_id, new_id}
+    # The old row is untouched — still the shape nothing re-derives it from.
+    assert store.get(old_id, path) == (old_shape_corpus, old_shape_truth)
+    # The new row is the schema's own shape, not a translation of it.
+    assert 'corpus_documents' in new_corpus and 'sessions' not in new_corpus
+    assert store.get(new_id, path) == (new_corpus, new_truth)

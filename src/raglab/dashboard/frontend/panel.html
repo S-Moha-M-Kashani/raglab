@@ -144,6 +144,11 @@
       <label>Import a dataset <span class="muted">· two JSON files, paired by id (D1)</span></label>
       <input type="file" id="dataset-corpus-file" accept="application/json,.json">
       <input type="file" id="dataset-groundtruth-file" accept="application/json,.json">
+      <div class="muted template-links">start from the templates:
+        <a href="/api/dataset-templates/corpus" download="corpus_template.json">corpus_template.json</a>
+        &middot;
+        <a href="/api/dataset-templates/groundtruth" download="groundtruth_template.json">groundtruth_template.json</a>
+      </div>
       <button class="ghost" id="dataset-import" type="button">Import</button>
       <div id="importInfo" class="muted"></div>
     </div>

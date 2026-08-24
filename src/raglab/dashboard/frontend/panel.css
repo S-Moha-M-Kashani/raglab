@@ -447,6 +447,11 @@ p.explain {
    board is not. The claim still exists for the sweep, which prints it. */
 
 .muted { color: var(--ink-soft); }
+/* The two import-section template links: plain text ink, not a step colour —
+   this line sits in the index card, and a link is not what got measured. */
+.template-links { margin-top: var(--s-1); }
+.template-links a { color: var(--ink-soft); text-decoration: underline; }
+.template-links a:hover { color: var(--ink); }
 /* Attached to the score it qualifies, quieter but never dropped. */
 /* .8em, relative to the table's own font-size (var(--t-sm), 13px computed —
    this renders inside a <td>): the 10.4px product's nearest scale step is

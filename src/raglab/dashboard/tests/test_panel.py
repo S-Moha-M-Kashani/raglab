@@ -183,6 +183,25 @@ CONVENTIONS = [
     ('panel_server.py', 'api/queries', None,
      "the route itself must stay: the Inspector's followed query view reads "
      'whatever runs through it'),
+    ('panel_server.py', 'api/dataset-templates/corpus', None,
+     'the panel must serve the corpus template so the import section can '
+     'link to it, read from the fixture rather than duplicated into code'),
+    ('panel_server.py', 'api/dataset-templates/groundtruth', None,
+     'the panel must serve the ground-truth template on the same terms as '
+     'the corpus template beside it'),
+    ('index.html', 'start from the templates', None,
+     'the import section must guide an author to the templates, not only to '
+     'the schema help text — the templates are the readable path'),
+    ('index.html', 'href="/api/dataset-templates/corpus"', None,
+     'the corpus template link must point at the served route, not a local '
+     'copy of the fixture'),
+    ('index.html', 'href="/api/dataset-templates/groundtruth"', None,
+     'the ground-truth template link must point at the served route'),
+    ('index.html', 'download="corpus_template.json"', None,
+     'the corpus template link must offer the file under its real name'),
+    ('index.html', 'download="groundtruth_template.json"', None,
+     'the ground-truth template link must offer the file under its real '
+     'name'),
     ('index.html', 'id="mode"', None,
      'the mode dropdown must read the served modes rather than a local copy'),
     ('index.html', 'id="retrieve-selected"', None,
@@ -2028,3 +2047,48 @@ def test_every_knob_can_be_set_by_an_import(panel_texts):
         in panel_js, ('the import must verify it reproduced the config it was '
                       'given, or a knob dropped here is a knob nobody is told '
                       'about')
+
+
+# --- the templates are the guided path, not the schemas ---------------------
+
+@pytest.mark.parametrize('route, filename', [
+    ('/api/dataset-templates/corpus', 'corpus_template.json'),
+    ('/api/dataset-templates/groundtruth', 'groundtruth_template.json'),
+])
+def test_dataset_template_routes_serve_the_fixture_byte_for_byte(
+        client, route, filename):
+    # this is a convention test
+    """One author per artifact: the route reads the fixture at request time
+    rather than a copy baked into code, so a byte comparison against the
+    file on disk is the whole claim — anything less would let the served
+    copy drift from the file the mirror test actually guards."""
+    response = client.get(route)
+    assert response.status_code == 200
+    on_disk = (datasets.BUNDLED_DIR / filename).read_bytes()
+    assert response.content == on_disk, (
+        f'{route} must serve {filename} byte-identical to the fixture, not '
+        'a duplicate or a stale copy')
+    assert filename in (response.headers.get('content-disposition') or ''), (
+        f'{route} must offer the file under its real name ({filename}), so '
+        'a download or a save keeps the name the templates are written under'
+    )
+
+
+def test_dataset_help_text_leads_with_the_templates():
+    # this is a convention test
+    """The user's complaint was concrete: the schema document is confusing
+    and complex. The fix is not deleting the schema help — it is the
+    contract validate() actually runs — but making it the second thing
+    read, not the first. 'Start from the two templates' must come before
+    the schema files are named at all."""
+    text = config.HELP['run.dataset-file']
+    templates_at = text.index('Start from the two templates')
+    schema_at = text.index('schema_corpus.json')
+    assert templates_at < schema_at, (
+        'run.dataset-file must lead with the templates as the way to start '
+        'and name the schemas only afterwards, as the formal contract '
+        'behind them')
+    assert 'corpus_template.json' in text and 'groundtruth_template.json' in text
+    assert 'formal contract' in text, (
+        'the schemas must be named as the contract behind the templates, '
+        'not as a second starting point')

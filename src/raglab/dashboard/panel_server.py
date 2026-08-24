@@ -949,6 +949,23 @@ def create_app() -> FastAPI:
                  for relevant in q.get('relevant_corpus_documents') or []]}
             for q in asked['groundtruth_dataset'][:limit]]}
 
+    @app.get('/api/dataset-templates/corpus')
+    def dataset_template_corpus():
+        """The corpus template, read from the fixture every time — no copy of
+        it lives in code, so the one author (the fixture file, pinned
+        byte-equal to the schema by its own convention test) is also the one
+        the import section's guidance link hands the browser."""
+        return FileResponse(datasets.BUNDLED_DIR / 'corpus_template.json',
+                            media_type='application/json',
+                            filename='corpus_template.json')
+
+    @app.get('/api/dataset-templates/groundtruth')
+    def dataset_template_groundtruth():
+        """The ground-truth template, on the same terms as the corpus one above."""
+        return FileResponse(datasets.BUNDLED_DIR / 'groundtruth_template.json',
+                            media_type='application/json',
+                            filename='groundtruth_template.json')
+
     @app.get('/api/datasets')
     def list_datasets():
         return {'datasets': [found.as_dict() for found in datasets.catalogue()]}

@@ -36,10 +36,15 @@ HELP = {
     # than prose (`p.explain` keeps its newlines); every other text is one line.
     'run.dataset-file': (
         'A dataset is two JSON files, paired by id: a corpus and the ground '
-        'truth measured against it. Both are checked in full against '
-        'fixtures/corpus_groundtruth_datasets/schema_corpus.json and '
-        'schema_groundtruth.json and refused — never repaired — with every '
-        'problem reported at once.\n'
+        'truth measured against it. Start from the two templates in '
+        'fixtures/corpus_groundtruth_datasets/ — corpus_template.json and '
+        'groundtruth_template.json, the same two files the links beside this '
+        'field serve — copy them, replace every example value, delete what '
+        'you do not use. Both files are then checked in full against '
+        'schema_corpus.json and '
+        'schema_groundtruth.json in the same folder, the formal contract '
+        'behind the templates rather than a file to import itself, and '
+        'refused — never repaired — with every problem reported at once.\n'
         '\n'
         'The corpus: "corpus_dataset_metadata": {"dataset": "support-tickets", '
         '"name": "…", "language": "en"} — dataset is the id every run and '
@@ -79,10 +84,7 @@ HELP = {
         'that misquotes its corpus does not score worse — it scores '
         'confidently about text it never contained. Every bundled pair in '
         'fixtures/corpus_groundtruth_datasets/ meets it and is the working '
-        'reference; corpus_template.json and groundtruth_template.json in '
-        'that folder are the templates to copy, and schema_corpus.json / '
-        'schema_groundtruth.json are the contract checked above, not files '
-        'to import.'),
+        'reference the templates were copied from.'),
     'index.chunker': (
         'How one session is cut into the pieces that get embedded. "fixed" '
         'packs words up to a character budget; "fixed-overlap" slides a window '

@@ -91,8 +91,9 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
         IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
-    question = next(q for q in gt['questions'] if q.get('evidence'))
-    quotes = [ev['quote'] for ev in question['evidence']]
+    question = next(q for q in gt['groundtruth_dataset']
+                    if metrics.verbatim_quotes(q))
+    quotes = metrics.verbatim_quotes(question)
 
     total = present.gold_available(index, quotes)
     # counted the same way a candidate is marked, over every chunk in the index
@@ -103,8 +104,9 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none', grader='none',
                           k=5, rerank_depth=20, time_filter=False,
                           multi_query=False)
+    query_date = gt['groundtruth_dataset_metadata']['default_question_asked_at'][:10]
     _outcome, trace = pipeline.retrieve_traced(
-        index, cfg, question['question_fa'], gt['meta']['query_date'])
+        index, cfg, question['question'], query_date)
     row = evaluate.trace_row(question, trace, gold_present=total)
     assert row['gold_available'] == total
     found = sum(1 for c in row['trace']['candidates'] if c['gold'])
@@ -129,12 +131,14 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none', grader='none',
                           k=5, rerank_depth=20, time_filter=False,
                           multi_query=False)
-    question = next(q for q in gt['questions'] if q.get('evidence'))
+    question = next(q for q in gt['groundtruth_dataset']
+                    if metrics.verbatim_quotes(q))
+    query_date = gt['groundtruth_dataset_metadata']['default_question_asked_at'][:10]
     _outcome, trace = pipeline.retrieve_traced(
-        index, cfg, question['question_fa'], gt['meta']['query_date'])
+        index, cfg, question['question'], query_date)
     row = evaluate.trace_row(question, trace)
 
-    quotes = [ev['quote'] for ev in question['evidence']]
+    quotes = metrics.verbatim_quotes(question)
     verbatim_seen = 0
     for candidate in row['trace']['candidates']:
         spans = candidate['gold_spans']
@@ -159,8 +163,8 @@ def test_retrieve_traced_records_ranks_and_dropped_candidates():
     # rerank_depth(20) > k(3): mmr keeps 3, so at least 17 candidates are dropped.
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none',
                           grader='none', k=3, rerank_depth=20, time_filter=False)
-    question = gt['questions'][0]['question_fa']
-    query_date = gt['meta']['query_date']
+    question = gt['groundtruth_dataset'][0]['question']
+    query_date = gt['groundtruth_dataset_metadata']['default_question_asked_at'][:10]
 
     outcome, trace = pipeline.retrieve_traced(
         index, cfg, question, query_date)
@@ -304,14 +308,23 @@ def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
 # FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     # this is an integration test
+    """The Inspector's own fixture route serves the raw ground-truth question
+    (D4: no second, translated dialect) — everything the :9002 picker route
+    (`/api/questions`) strips down to `id`/`labels`/`question`/`behavior` has
+    to still be here, under the schema's own key names, or the Inspector could
+    not render an evidence pane richer than the picker at all."""
     client = _client(monkeypatch)
     body = client.get('/api/groundtruth').json()
     q = body['questions'][0]
-    # the fields the :9002 /api/questions endpoint strips must be present here
-    for key in ('answer_fa', 'key_facts', 'evidence', 'question_fa',
-                'type', 'difficulty', 'answerable'):
+    for key in ('question', 'expected_answer', 'relevant_corpus_documents',
+                'groundtruth_question_id', 'question_metadata'):
         assert key in q, f'missing {key}'
-    assert 'quote' in q['evidence'][0]
+    behavior = q['expected_answer']['behavior']
+    assert behavior in ('answer', 'abstain', 'correct_premise')
+    evidence = q['relevant_corpus_documents'][0]['evidence'][0]
+    for key in ('text', 'fidelity', 'role'):
+        assert key in evidence, f'missing {key}'
+    assert evidence['fidelity'] in ('verbatim', 'paraphrase', 'computed')
 
 
 @pytest.mark.parametrize('dataset, language', [
@@ -381,7 +394,7 @@ def test_chunks_job_returns_sessions_and_any_summaries_beside_them(
     assert all('id' in c and 'text' in c for c in first['chunks'])
     # one group per session either way — a hierarchy adds rows beside the
     # leaves, it never folds two sessions' leaves into one group
-    assert len(groups) == len(smoke_index.index.by_session)
+    assert len(groups) == len(smoke_index.index.by_document)
 
     if expect_summaries:
         assert result['total_summaries'] == len(result['summaries']) >= 1
@@ -403,13 +416,22 @@ def test_trace_job_marks_gold(monkeypatch):
                'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                              'grader': 'none', 'k': 3, 'rerank_depth': 20,
                              'time_filter': False},
-               'question_id': gt_q['id']}
+               'question_id': gt_q['groundtruth_question_id']}
     acc = client.post('/api/trace', json=payload)
     assert acc.status_code == 202
     job = _finished(client, acc.json()['job_id'])
     assert job['state'] == 'done', job.get('error')
     cands = job['result']['trace']['candidates']
     assert cands and all('gold' in c for c in cands)
+
+    # a question id sent as a string (as a DOM `dataset` attribute would send
+    # it) must still resolve, since the schema declares the id as a number
+    string_id_payload = {**payload,
+                         'question_id': str(gt_q['groundtruth_question_id'])}
+    acc = client.post('/api/trace', json=string_id_payload)
+    assert acc.status_code == 202
+    job = _finished(client, acc.json()['job_id'])
+    assert job['state'] == 'done', job.get('error')
 
     # An invalid config must refuse synchronously, the same as /api/questions,
     # rather than accept the job and fail it with state='error' — the
@@ -420,7 +442,8 @@ def test_trace_job_marks_gold(monkeypatch):
     # from this one before (the board's proxy tests, the panel/Inspector split).
     bad = client.post('/api/trace', json={
         'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
-        'retrieval': {'reranker': 'nope'}, 'question_id': gt_q['id']})
+        'retrieval': {'reranker': 'nope'},
+        'question_id': gt_q['groundtruth_question_id']})
     assert bad.status_code == 400
     assert 'unknown reranker' in bad.json()['detail']
 
@@ -1311,8 +1334,8 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     and a row measured under the wrong `k` or missing its `pipeline.answer`
     call would still have passed."""
     gt = datasets.load()[1]
-    gt_q = gt['questions'][0]
-    query_date = gt['meta']['query_date']
+    gt_q = gt['groundtruth_dataset'][0]
+    query_date = gt['groundtruth_dataset_metadata']['default_question_asked_at'][:10]
     config = {'index': {'chunker': 'fixed-overlap', 'chunk_chars': 500,
                         'overlap': 100, 'contextual': True,
                         'embedder': 'ascii-hash'},
@@ -1326,7 +1349,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     # the run's own path: every evaluation retrieves with the plain,
     # untraced call, computed directly — the reference the route's own row
     # below is compared against
-    outcome_b = pipeline.retrieve(index, cfg.retrieval, gt_q['question_fa'],
+    outcome_b = pipeline.retrieve(index, cfg.retrieval, gt_q['question'],
                                   query_date)
     outcome_b = pipeline.answer(outcome_b, cfg.generation)
     reference = metrics.score_question(gt_q, outcome_b, cfg.retrieval.k)
@@ -1334,7 +1357,9 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     # the added-question path: the real route, over HTTP, through the job
     # runner
     client = _client(monkeypatch)
-    acc = client.post('/api/questions', json={**config, 'question_id': gt_q['id']})
+    acc = client.post('/api/questions',
+                      json={**config,
+                            'question_id': gt_q['groundtruth_question_id']})
     assert acc.status_code == 202, acc.text
     job = _finished(client, acc.json()['job_id'])
     assert job['state'] == 'done', job.get('error')
@@ -1350,7 +1375,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
 
     # the retrieval half, shaped like a followed question
     retrieval = result['retrieval']
-    assert retrieval['question_id'] == gt_q['id']
+    assert retrieval['question_id'] == gt_q['groundtruth_question_id']
     assert isinstance(retrieval['gold_available'], int)
     candidate = retrieval['trace']['candidates'][0]
     for key in ('dense_rank', 'bm25_rank', 'fused_rank', 'rerank_score',
@@ -1364,7 +1389,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     assert set(row) == set(reference), (
         f"added row differs: only here {set(row) - set(reference)}, "
         f"only in the eval row {set(reference) - set(row)}")
-    assert row['id'] == gt_q['id'] and row['answer']
+    assert row['id'] == gt_q['groundtruth_question_id'] and row['answer']
 
     # an unknown id refuses synchronously rather than dying inside a job
     assert client.post('/api/questions',
@@ -1385,7 +1410,7 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
     assert body['help'] == explain.topics()
     # the generation half specifically, since that is what the new tab grades
     generation = {m['key'] for m in body['metrics'] if m['step'] == 'generation'}
-    assert {'answer_similarity', 'key_fact_coverage', 'faithfulness',
+    assert {'answer_similarity', 'fact_coverage', 'faithfulness',
             'abstained_correctly'} <= generation
     # every measure carries the text the '!' opens, or the mark has nothing to say
     assert all(m.get('formula') or m.get('note') or body['help'].get(f"metric.{m['key']}")

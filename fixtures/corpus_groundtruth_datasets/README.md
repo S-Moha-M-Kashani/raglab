@@ -1,16 +1,16 @@
 # Bundled datasets
 
-Four corpora the lab can be pointed at, beside the bundled default (the Farsi
-diary). They are here to answer one question the lab could not answer with a
-single fixture: **is this finding about retrieval, or about Farsi diaries?**
+Five corpora the lab can be pointed at, one of them the bundled default (the
+Farsi diary). They are here to answer one question the lab could not answer
+with a single fixture: **is this finding about retrieval, or about Farsi
+diaries?**
 
-`diary_year_fa.json` in this folder is that built-in default — corpus and
-ground truth merged in one file since 2026-08-18 — and it is the **one file
-here that does not follow the import contract**: it keeps its native schema
-(`persona`, `threads`, `habits`, `groundtruth`), because those are fields the
-pipeline reads and the contract does not carry. Use any of the other four as
-the template for an import, never the diary; `datasets._files` skips it by
-path for the same reason.
+Every dataset is a pair of files, joined by the id each declares:
+`<name>_corpus.json` and `<name>_groundtruth.json`. `diary-fa` is an ordinary
+pair like the other four — no native schema, no special-cased loader; it
+satisfies the same `dataset_import_contract.validate()` contract every import
+is held to, and `corpus_template.json`/`groundtruth_template.json` in this
+folder are the templates for a new one.
 
 Each also stands in for a use case from the map in
 `skills/rag-use-case-architectures/SKILL.md`: the diary is the personal-memory
@@ -22,14 +22,15 @@ leaving the repository.
 They are read-only reference points. Anything imported through the panel lands
 in `.datasets/` instead, which is git-ignored.
 
-| file | language | sessions | questions | what it is for |
+| pair | language | sessions | questions | what it is for |
 | --- | --- | --- | --- | --- |
-| `support-en.json` | English | 20 | 15 | A year of support conversations for a fictional analytics product. Latin script, short factual turns, dates and identifiers — the corpus where an ASCII embedder is genuinely competitive rather than scoring at chance, which is the control the Farsi finding never had. |
-| `meetings-de.json` | German | 15 | 12 | Weekly meeting notes for a fictional software team. A third script family and compound nouns, where an English-only embedder separates sharply from a multilingual one. Each question carries an English translation. |
-| `research-multihop.json` | English | 18 | 14 | Reading notes following one replication dispute. Deliberately weighted to multi-hop and aggregation: most answers need two or three sessions, so a pipeline that retrieves one perfect chunk still scores badly. |
-| `smoke-mini.json` | English | 5 | 6 | Five sessions, six questions, all three difficulty bands. Too small to measure anything and not meant to — it is what you run end to end in seconds to check a pipeline works before spending an hour on one that does not. |
+| `diary_year_fa_corpus.json` / `diary_year_fa_groundtruth.json` | Farsi | 167 | many | The bundled default: a year of synthetic colloquial Farsi diary chat — the flagship case study, not the project's scope. |
+| `support_en_corpus.json` / `support_en_groundtruth.json` | English | 20 | 15 | A year of support conversations for a fictional analytics product. Latin script, short factual turns, dates and identifiers — the corpus where an ASCII embedder is genuinely competitive rather than scoring at chance, which is the control the Farsi finding never had. |
+| `meetings_de_corpus.json` / `meetings_de_groundtruth.json` | German | 15 | 12 | Weekly meeting notes for a fictional software team. A third script family and compound nouns, where an English-only embedder separates sharply from a multilingual one. Each question carries an English translation. |
+| `research_multihop_corpus.json` / `research_multihop_groundtruth.json` | English | 18 | 14 | Reading notes following one replication dispute. Deliberately weighted to multi-hop and aggregation: most answers need two or three sessions, so a pipeline that retrieves one perfect chunk still scores badly. |
+| `smoke_mini_corpus.json` / `smoke_mini_groundtruth.json` | English | 5 | 6 | Five sessions, six questions, all three difficulty bands. Too small to measure anything and not meant to — it is what you run end to end in seconds to check a pipeline works before spending an hour on one that does not. Declares no date label and no `ranks` label on purpose, so the suite's fastest corpus also exercises those absent-declaration paths on every run. |
 
-All four are synthetic. Every person, company, product and finding in them is
+All five are synthetic. Every person, company, product and finding in them is
 fictional; none of it is anybody's data.
 
 ## What makes them trustworthy

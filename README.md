@@ -5,10 +5,11 @@ retrieve against its questions, score what comes back, and keep the account of
 every experiment, so a RAG architecture for any use case can be chosen by
 measurement instead of by taste. The corpus is a config field, not an
 assumption: point `dataset` at any file matching the stated contract, or use
-one of the five that ship. The bundled default is `fixtures/corpus_groundtruth_datasets/diary_year_fa.json`,
-a year of synthetic colloquial Farsi diary chat with ground-truth questions and
-cited evidence — one case study among the shipped corpora, not the project's
-scope.
+one of the five that ship. The bundled default is `diary-fa`
+(`fixtures/corpus_groundtruth_datasets/diary_year_fa_corpus.json` and
+`diary_year_fa_groundtruth.json`), a year of synthetic colloquial Farsi diary
+chat with ground-truth questions and cited evidence — one case study among the
+shipped corpora, not the project's scope.
 
 **Who this is for:** anyone who has to choose a RAG architecture and wants the
 choice to rest on numbers — an engineer picking chunking and retrieval settings

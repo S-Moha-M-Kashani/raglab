@@ -86,13 +86,13 @@ HELP = {
         'fixtures/corpus_groundtruth_datasets/ meets it and is the working '
         'reference the templates were copied from.'),
     'index.chunker': (
-        'How one session is cut into the pieces that get embedded. "fixed" '
+        'How one document is cut into the pieces that get embedded. "fixed" '
         'packs words up to a character budget; "fixed-overlap" slides a window '
         'so a sentence on a boundary appears in both neighbours; "message" '
-        'keeps one message per piece; "turn-pair" keeps a question with its '
-        'answer; "session" stores the whole session as one piece. '
-        '"semantic-drift" cuts where consecutive messages stop resembling each '
-        'other — the bottom third of that session\'s own similarity '
+        'keeps one document part per piece; "turn-pair" keeps a part with the '
+        'one that answers it; "session" stores the whole document as one '
+        'piece. "semantic-drift" cuts where consecutive parts stop resembling '
+        'each other — the bottom third of that document\'s own similarity '
         'distribution, so no absolute threshold is assumed — and also at a '
         'size ceiling and at a short list of topic-change phrases, which is '
         'the only part of it written for one language.'),
@@ -101,7 +101,7 @@ HELP = {
         'splitters read it; the rest cut on structure and grey it out. "fixed" '
         'and "fixed-overlap" treat it as the size of one piece, so it behaves '
         'as a target; "semantic-drift" treats it as a maximum, cutting a '
-        'segment once adding the next message would take it past twice this '
+        'segment once adding the next part would take it past twice this '
         'value. Small pieces retrieve precisely and often lose the sentence '
         'that answers the question; large ones keep it and dilute precision.'),
     'index.overlap': (
@@ -202,7 +202,7 @@ HELP = {
         '"centroid" concatenates the members nearest the group\'s centre; '
         '"lead-idf" takes the sentences covering the most rare words; "mmr" '
         'picks members for coverage without repetition; "card" writes no prose '
-        'at all — top terms, date span, member count, session ids — which is '
+        'at all — top terms, date span, member count, document ids — which is '
         'the cheapest and the most likely to help a counting question, because '
         'it states a number instead of asking the model to count chunks.'),
     'retrieval.summary_scope': (
@@ -274,11 +274,11 @@ HELP = {
     'retrieval.mmr_lambda': (
         'Maximal Marginal Relevance. At 1.0 the top k are simply the '
         'best-scoring chunks, which often means several chunks from one '
-        'session. Lower it to trade some relevance for spread across '
-        'sessions.'),
+        'document. Lower it to trade some relevance for spread across '
+        'documents.'),
     'retrieval.reranker': (
         'Re-scores the candidates before the cut to k. "lexical" is free IDF '
-        'coverage; "recency" prefers recent entries; "agentic" is the '
+        'coverage; "recency" prefers recently dated chunks; "agentic" is the '
         'Generative Agents mix of relevance + recency + importance; '
         '"cross-encoder" reads question and chunk together with a real model; '
         '"llm" asks a model to score each one.'),
@@ -287,9 +287,10 @@ HELP = {
         'expensive stage, so this is the cost dial: depth 20 with k 8 means '
         'twenty chunks scored to choose eight.'),
     'retrieval.recency_half_life_days': (
-        'How fast the recency reranker forgets. At 180 days an entry from six '
-        'months ago counts half as much as today — right for "how am I doing '
-        'lately", wrong for "what happened last summer". Greyed out on a '
+        'How fast the recency reranker forgets. At 180 days a chunk dated six '
+        'months back counts half as much as the newest one — right for a '
+        'question about how things stand lately, wrong for one pinned to a '
+        'specific past period. Greyed out on a '
         'corpus that declares no date-time label (D5): with no date on a '
         'chunk there is nothing to weigh by age.'),
     'retrieval.agentic_weights': (
@@ -313,13 +314,14 @@ HELP = {
         'refusals.'),
     'retrieval.max_context_chars': (
         'Budget for the assembled context. When it is exceeded whole chunks '
-        'are dropped, never truncated — half an entry reads as a complete one '
+        'are dropped, never truncated — half a chunk reads as a complete one '
         'and invites an answer from a sentence whose second half changed the '
         'meaning.'),
     'generation.answerer': (
         '"none" measures retrieval alone. "extractive" quotes the longest '
-        'sentence from each of the top three chunks, tagged with its session — '
-        'deterministic, free, and honest about quoting rather than answering. '
+        'sentence from each of the top three chunks, tagged with its source '
+        'document — deterministic, free, and honest about quoting rather than '
+        'answering. '
         '"llm" actually writes the answer.'),
     'generation.fact_judge': (
         'Scores each answer against the ground truth\'s atomic derived_facts '

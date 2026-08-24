@@ -55,8 +55,9 @@ STEPS = (
          'Runs on every question against an index that already exists — which '
          'is why these are the knobs worth sweeping first.'),
     Step('generation', 'Generation', 'Generation & scoring',
-         'Turns the retrieved contexts into a Farsi answer, refuses when the '
-         'diary is silent, and grades what it wrote.'),
+         'Turns the retrieved contexts into an answer in the corpus\'s own '
+         'language, refuses when the corpus is silent, and grades what it '
+         'wrote.'),
 )
 
 

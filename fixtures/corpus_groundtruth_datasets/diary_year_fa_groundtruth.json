@@ -3,7 +3,7 @@
     "name": "Diary Year Farsi RAG Ground Truth",
     "corpus_ref": {
       "dataset": "diary-fa",
-      "file_fingerprint": "fd37f687cf41b444"
+      "file_fingerprint": "85d83a6e7cde457f"
     },
     "language": "fa",
     "description": "Questions over the Farsi diary corpus. Each carries the documents and quotes that answer it, and separately what a right answer should be. Which quote carries which fact was not recorded by the source this was converted from; it was assigned by claude/sonnet reading each question's facts against its quotes, and is the one part of this file no human wrote.",
@@ -63,7 +63,7 @@
           "type": "string"
         },
         "glossary": {
-          "paria-fights": "دعواهای تکرارشونده با پریا: تقسیم کار خونه، مشکل رابطه، پول — چرخه دعوا/عذاب‌وجدان/آشتی؛ از بهار ۲۰۲۶ با مشاور زوج‌درمانی کم‌کم بهتر می‌شود",
+          "jacqueline-fights": "دعواهای تکرارشونده با ژاکلین: تقسیم کار خونه، مشکل رابطه، پول — چرخه دعوا/عذاب‌وجدان/آشتی؛ از بهار ۲۰۲۶ با مشاور زوج‌درمانی کم‌کم بهتر می‌شود",
           "job-search": "جستجوی کار: اپلای هفتگی، ریجکت‌ها، مصاحبه‌ها؛ ریجکت مرحله نهایی در مارس ۲۰۲۶، آفر پاره‌وقت در می ۲۰۲۶",
           "turing-college": "دوره Turing College: اسپرینت ۲ و ۳، عقب‌افتادن و عذاب‌وجدان",
           "failed-ambitions": "جاه‌طلبی‌های تکراری و رهاشده: باشگاه، پومودورو، کلاس آواز (بالاخره در می ۲۰۲۶ شروع شد)، زبان آلمانی (دو بار رها شد)",
@@ -72,7 +72,7 @@
           "tax-problem": "ماجرای مالیات: نامه (اوت ۲۰۲۵) → مشاور → جریمه (نوامبر) → قسط‌بندی (ژانویه) → بسته‌شدن پرونده (ژوئیه ۲۰۲۶)",
           "neighbor-noise": "سروصدای همسایه طبقه بالا، بحث تو راه‌پله، حل‌شدن در آوریل ۲۰۲۶",
           "mother-health": "سلامتی مامان: چکاپ → تشخیص قلبی و بستری (نوامبر ۲۰۲۵) → بهبودی (اوایل ۲۰۲۶)",
-          "articles-research": "مقاله ۱ با بابا و مقاله ۲ با Heiko Fischer (ارسال ژوئن ۲۰۲۶)",
+          "articles-research": "مقاله ۱ با بابا و مقاله ۲ با Julian Weber (ارسال ژوئن ۲۰۲۶)",
           "work-stress": "استرس کاری: اول کلاینت فریلنس، بعد از استخدام (می ۲۰۲۶) رئیس و ددلاین‌ها",
           "side-project": "ایده اپ شخصی (ژانویه ۲۰۲۶) که هیچ‌وقت به سرانجام نرسید",
           "sleep-health": "بی‌خوابی، کمردرد، نگرانی وزن — بدتر در پاییز/زمستان ۲۰۲۵",
@@ -80,7 +80,7 @@
           "family-gatherings": "مهمونی‌های خانوادگی، نوروز ۱۴۰۵، تنش با فامیل",
           "car-trouble": "خرابی ماشین در فوریه ۲۰۲۶ و هزینه تعمیر",
           "good-days": "روزهای خوب: پیاده‌روی، کنسرت، عروسی دوست، موفقیت‌های کوچک",
-          "habit-tracking": "ردگیری عادت‌ها: از می ۲۰۲۶ باشگاه و آواز، از ژوئن پیاده‌روی با پریا و آلمانی روزانه، و انتقال ماهانه پس‌انداز — تنها آواز و پیاده‌روی دوام آوردند"
+          "habit-tracking": "ردگیری عادت‌ها: از می ۲۰۲۶ باشگاه و آواز، از ژوئن پیاده‌روی با ژاکلین و آلمانی روزانه، و انتقال ماهانه پس‌انداز — تنها آواز و پیاده‌روی دوام آوردند"
         },
         "description": "Storyline labels for slicing and analysing the question set. The same vocabulary the corpus's recurring_threads uses, declared again here so this file can be read on its own. They must not be handed to retrieval unless the system under test predicts them.",
         "applies_to": [
@@ -371,14 +371,14 @@
     },
     {
       "groundtruth_question_id": 4,
-      "question": "تو اون دعوای بزرگمون سر نامه جریمه، پریا یه جمله‌ای گفت که مدت‌ها تو سرم موند. چی بود؟",
+      "question": "تو اون دعوای بزرگمون سر نامه جریمه، ژاکلین یه جمله‌ای گفت که مدت‌ها تو سرم موند. چی بود؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "پریا گفت «با رویاهات نمیشه زندگی کرد». این تو دعوای شب ۱۰ نوامبر ۲۰۲۵ بود، بعد از اینکه نامه جریمه مالیات رو روی میز دیده بود.",
+        "text": "ژاکلین گفت «با رویاهات نمیشه زندگی کرد». این تو دعوای شب ۱۰ نوامبر ۲۰۲۵ بود، بعد از اینکه نامه جریمه مالیات رو روی میز دیده بود.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Paria said 'you can't live on your dreams'"
+            "fact": "Jacqueline said 'you can't live on your dreams'"
           },
           {
             "derived_fact_id": 2,
@@ -410,7 +410,7 @@
                   "unemployment": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem",
                   "job-search"
                 ]
@@ -432,16 +432,16 @@
         "question_type": "single-hop",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "In that big fight over the fine letter, Paria said one sentence that stuck in my head for a long time. What was it?",
+        "question_translation_en": "In that big fight over the fine letter, Jacqueline said one sentence that stuck in my head for a long time. What was it?",
         "query_threads": [
-          "paria-fights",
+          "jacqueline-fights",
           "tax-problem"
         ]
       }
     },
     {
       "groundtruth_question_id": 5,
-      "question": "یادمه یه بار گفته بودم آشتی‌های من و پریا همیشه یه جور خاصی شروع میشه. چجوری بود؟",
+      "question": "یادمه یه بار گفته بودم آشتی‌های من و ژاکلین همیشه یه جور خاصی شروع میشه. چجوری بود؟",
       "expected_answer": {
         "behavior": "answer",
         "text": "با چایی. همیشه آشتی‌هاتون با این شروع می‌شد که یکی‌تون بی‌حرف برای اون یکی چایی می‌ریخت. اینو بعد از دعوای نوامبر ۲۰۲۵ گفتی، وقتی تصمیم گرفتی یه چایی جلوش بذاری.",
@@ -483,7 +483,7 @@
                   "insomnia": 0.75
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "sleep-health"
                 ]
               },
@@ -516,7 +516,7 @@
                   "insomnia": 0.75
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "sleep-health"
                 ]
               },
@@ -535,26 +535,26 @@
         "question_type": "single-hop",
         "difficulty": "hard",
         "resolved_time_scope": null,
-        "question_translation_en": "I remember once saying that Paria and I always make up in one particular way. What was it?",
+        "question_translation_en": "I remember once saying that Jacqueline and I always make up in one particular way. What was it?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
     {
       "groundtruth_question_id": 6,
-      "question": "اون کوینی که سیاوش اونقد تعریفشو میکرد، آخرش چی شد؟ خوب شد نخریدم؟",
+      "question": "اون کوینی که کامران اونقد تعریفشو میکرد، آخرش چی شد؟ خوب شد نخریدم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "آره، دو روز بعد از اون شام چک کردی و همون کوینی که سیاوش می‌گفت از پنجشنبه پونزده درصد ریخته بود (۷ دسامبر ۲۰۲۵). همون‌جا تصمیم گرفتی نه بگی و پس‌انداز رو سر جاش نگه داری.",
+        "text": "آره، دو روز بعد از اون شام چک کردی و همون کوینی که کامران می‌گفت از پنجشنبه پونزده درصد ریخته بود (۷ دسامبر ۲۰۲۵). همون‌جا تصمیم گرفتی نه بگی و پس‌انداز رو سر جاش نگه داری.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "The coin Siavash recommended dropped fifteen percent within days (by 2025-12-07)"
+            "fact": "The coin Kamran recommended dropped fifteen percent within days (by 2025-12-07)"
           },
           {
             "derived_fact_id": 2,
-            "fact": "Mohammad decided not to invest and kept his savings intact"
+            "fact": "Alex decided not to invest and kept his savings intact"
           }
         ]
       },
@@ -563,7 +563,7 @@
           "corpus_document_id": 57,
           "evidence": [
             {
-              "text": "همون کوینی که سیاوش میگفت از پنجشنبه پونزده درصد ریخته",
+              "text": "همون کوینی که کامران میگفت از پنجشنبه پونزده درصد ریخته",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -603,7 +603,7 @@
         "question_type": "single-hop",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "That coin Siavash kept raving about — what happened to it in the end? Was I right not to buy?",
+        "question_translation_en": "That coin Kamran kept raving about — what happened to it in the end? Was I right not to buy?",
         "query_threads": [
           "money-investing"
         ]
@@ -860,7 +860,7 @@
       "question": "جلسه اول مشاوره زوج، مشاوره یه سوالی پرسید که کلی ذهنمو درگیر کرد. سوالش چی بود؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "پرسید «وقتی سر ظرفا دعوا میکنید، دعوای واقعی سر چیه؟» و همون‌جا پریا گفت حس می‌کنه تو اداره کردن زندگی تنهاست (جلسه اول، ۱۵ آوریل ۲۰۲۶).",
+        "text": "پرسید «وقتی سر ظرفا دعوا میکنید، دعوای واقعی سر چیه؟» و همون‌جا ژاکلین گفت حس می‌کنه تو اداره کردن زندگی تنهاست (جلسه اول، ۱۵ آوریل ۲۰۲۶).",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -868,7 +868,7 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "Paria answered she feels alone in managing their life"
+            "fact": "Jacqueline answered she feels alone in managing their life"
           },
           {
             "derived_fact_id": 3,
@@ -901,7 +901,7 @@
                   "first-session": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -932,7 +932,7 @@
                   "first-session": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [],
@@ -952,7 +952,7 @@
         "resolved_time_scope": null,
         "question_translation_en": "In our first couples-counseling session, the counselor asked a question that really stuck with me. What was it?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -961,11 +961,11 @@
       "question": "اسم اون همکاره که روز اول کار جدید بادی من شد چی بود؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "يوهان. روز اول کار (۲۵ می ۲۰۲۶) گفتی یه همکار به اسم يوهان بادی‌ت شده و خیلی صبور بوده.",
+        "text": "ماتیاس. روز اول کار (۲۵ می ۲۰۲۶) گفتی یه همکار به اسم ماتیاس بادی‌ت شده و خیلی صبور بوده.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "The buddy's name was Johann (يوهان)"
+            "fact": "The buddy's name was Johann (ماتیاس)"
           },
           {
             "derived_fact_id": 2,
@@ -985,7 +985,7 @@
           "corpus_document_id": 132,
           "evidence": [
             {
-              "text": "یه همکاره هم هست به اسم يوهان که بادی منه، خیلی صبور بود",
+              "text": "یه همکاره هم هست به اسم ماتیاس که بادی منه، خیلی صبور بود",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -1152,7 +1152,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "The teacher added Mohammad to the list without asking"
+            "fact": "The teacher added Alex to the list without asking"
           }
         ]
       },
@@ -1210,11 +1210,11 @@
       "question": "سفر شمال رو با کیا رفتیم و چه تاریخی بود؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "با خانواده کیان و خانواده سارا، سه خانواده شریکی یه ویلا نزدیک جنگل گرفتین، از بیست و سوم تا بیست و ششم تیر. برنامه‌ش رو ۱۲ ژوئیه ۲۰۲۶ با پریا بستی.",
+        "text": "با خانواده شایان و خانواده نگار، سه خانواده شریکی یه ویلا نزدیک جنگل گرفتین، از بیست و سوم تا بیست و ششم تیر. برنامه‌ش رو ۱۲ ژوئیه ۲۰۲۶ با ژاکلین بستی.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "The trip was shared with Kian's and Sara's families (three families splitting a villa near the forest)"
+            "fact": "The trip was shared with Shayan's and Negar's families (three families splitting a villa near the forest)"
           },
           {
             "derived_fact_id": 2,
@@ -1227,7 +1227,7 @@
           "corpus_document_id": 160,
           "evidence": [
             {
-              "text": "با کیان اینا و سارا اینا یه ویلا نزدیک جنگل پیدا کردیم، سه خانواده شریکی، نفری یه پول خیلی معقول درمیاد. بیست و سوم تا بیست و ششم تیر.",
+              "text": "با شایان اینا و نگار اینا یه ویلا نزدیک جنگل پیدا کردیم، سه خانواده شریکی، نفری یه پول خیلی معقول درمیاد. بیست و سوم تا بیست و ششم تیر.",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -1277,19 +1277,19 @@
       "question": "اون پروژه فریلنس دیتا پایپ‌لاین رو کی برام جور کرد و چه هشداری راجب کلاینته داد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "امیر، همکار قدیمیت، ۸ آوریل ۲۰۲۶ زنگ زد و معرفی‌ت کرد. هشدارش هم این بود که کلاینته هی وسط کار چیز جدید یادش میاد، پس از اول همه چی رو کتبی کن.",
+        "text": "پدرام، همکار قدیمیت، ۸ آوریل ۲۰۲۶ زنگ زد و معرفی‌ت کرد. هشدارش هم این بود که کلاینته هی وسط کار چیز جدید یادش میاد، پس از اول همه چی رو کتبی کن.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Amir, an old colleague, referred him to the freelance data-pipeline project"
+            "fact": "Pedram, an old colleague, referred him to the freelance data-pipeline project"
           },
           {
             "derived_fact_id": 2,
-            "fact": "Amir warned that the client keeps adding new requests mid-project"
+            "fact": "Pedram warned that the client keeps adding new requests mid-project"
           },
           {
             "derived_fact_id": 3,
-            "fact": "Amir advised getting everything in writing from the start"
+            "fact": "Pedram advised getting everything in writing from the start"
           }
         ]
       },
@@ -1298,7 +1298,7 @@
           "corpus_document_id": 108,
           "evidence": [
             {
-              "text": "امیر زنگ زد، همکار قدیمیم، همونی که سه سال پیش باهم بودیم",
+              "text": "پدرام زنگ زد، همکار قدیمیم، همونی که سه سال پیش باهم بودیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -1385,14 +1385,14 @@
     },
     {
       "groundtruth_question_id": 15,
-      "question": "موضوع اون مقاله‌ای که با هایکو شروع کردیم دقیقا چی بود؟",
+      "question": "موضوع اون مقاله‌ای که با یولیان شروع کردیم دقیقا چی بود؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعی بود. مقاله دوم ۷ ژانویه ۲۰۲۶ با جواب ایمیل هایکو رسما استارت خورد.",
+        "text": "موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعی بود. مقاله دوم ۷ ژانویه ۲۰۲۶ با جواب ایمیل یولیان رسما استارت خورد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "The paper with Heiko was about evaluating LLM agents on real-world tasks"
+            "fact": "The paper with Julian was about evaluating LLM agents on real-world tasks"
           },
           {
             "derived_fact_id": 2,
@@ -1418,13 +1418,13 @@
                 "feeling_confidence": 0.85,
                 "topics": [
                   "article-2",
-                  "heiko",
+                  "julian",
                   "english-email",
                   "timezone"
                 ],
                 "topics_confidence": {
                   "article-2": 0.95,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "english-email": 0.85,
                   "timezone": 0.7
                 },
@@ -1452,13 +1452,13 @@
                 "feeling_confidence": 0.85,
                 "topics": [
                   "article-2",
-                  "heiko",
+                  "julian",
                   "english-email",
                   "timezone"
                 ],
                 "topics_confidence": {
                   "article-2": 0.95,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "english-email": 0.85,
                   "timezone": 0.7
                 },
@@ -1481,7 +1481,7 @@
         "question_type": "single-hop",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "What exactly was the topic of the paper I started with Heiko?",
+        "question_translation_en": "What exactly was the topic of the paper I started with Julian?",
         "query_threads": [
           "articles-research"
         ]
@@ -1701,14 +1701,14 @@
     },
     {
       "groundtruth_question_id": 18,
-      "question": "اون اولین باری که با پریا نشستیم کارای خونه رو رو کاغذ تقسیم کردیم، چی افتاد گردن من؟",
+      "question": "اون اولین باری که با ژاکلین نشستیم کارای خونه رو رو کاغذ تقسیم کردیم، چی افتاد گردن من؟",
       "expected_answer": {
         "behavior": "answer",
         "text": "آشپزی وسط هفته با تو شد. بعد از دعوای مرداد ۱۴۰۴ (۱۷ اوت ۲۰۲۵) نشستین یه لیست کارای خونه نوشتین و هفتگی تقسیم کردین.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Midweek cooking was assigned to Mohammad"
+            "fact": "Midweek cooking was assigned to Alex"
           },
           {
             "derived_fact_id": 2,
@@ -1740,7 +1740,7 @@
                   "job-search": 0.75
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "job-search"
                 ]
               },
@@ -1761,9 +1761,9 @@
         "question_type": "single-hop",
         "difficulty": "hard",
         "resolved_time_scope": null,
-        "question_translation_en": "That first time Paria and I sat down and split the housework on paper, which chore ended up being mine?",
+        "question_translation_en": "That first time Jacqueline and I sat down and split the housework on paper, which chore ended up being mine?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -1780,7 +1780,7 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "Mohammad watched the moving truck take the furniture, including the infamous chair, after about six months of noise"
+            "fact": "Alex watched the moving truck take the furniture, including the infamous chair, after about six months of noise"
           }
         ]
       },
@@ -1873,11 +1873,11 @@
                 "feeling_confidence": 0.9,
                 "topics": [
                   "interview",
-                  "paria-dinner"
+                  "jacqueline-dinner"
                 ],
                 "topics_confidence": {
                   "interview": 0.95,
-                  "paria-dinner": 0.9
+                  "jacqueline-dinner": 0.9
                 },
                 "recurring_threads": [
                   "job-search"
@@ -1904,11 +1904,11 @@
                 "feeling_confidence": 0.9,
                 "topics": [
                   "interview",
-                  "paria-dinner"
+                  "jacqueline-dinner"
                 ],
                 "topics_confidence": {
                   "interview": 0.95,
-                  "paria-dinner": 0.9
+                  "jacqueline-dinner": 0.9
                 },
                 "recurring_threads": [
                   "job-search"
@@ -2026,7 +2026,7 @@
                 "recurring_threads": [
                   "good-days",
                   "car-trouble",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "job-search"
                 ]
               },
@@ -2679,14 +2679,14 @@
     },
     {
       "groundtruth_question_id": 27,
-      "question": "اول مقاله هایکو سابمیت شد یا پروژه شرکت شیپ شد؟",
+      "question": "اول مقاله یولیان سابمیت شد یا پروژه شرکت شیپ شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "اول مقاله: مقاله دوم با هایکو ۱۸ ژوئن ۲۰۲۶ سابمیت شد و پروژه شرکت حدود یک ماه بعد، ۱۵ ژوئیه ۲۰۲۶، رفت روی پروداکشن.",
+        "text": "اول مقاله: مقاله دوم با یولیان ۱۸ ژوئن ۲۰۲۶ سابمیت شد و پروژه شرکت حدود یک ماه بعد، ۱۵ ژوئیه ۲۰۲۶، رفت روی پروداکشن.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Article 2 with Heiko was submitted on 2026-06-18 at 8pm"
+            "fact": "Article 2 with Julian was submitted on 2026-06-18 at 8pm"
           },
           {
             "derived_fact_id": 2,
@@ -2716,13 +2716,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -2750,13 +2750,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -2817,7 +2817,7 @@
         "question_type": "temporal",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "Which happened first, submitting the paper with Heiko or shipping the work project?",
+        "question_translation_en": "Which happened first, submitting the paper with Julian or shipping the work project?",
         "query_threads": [
           "articles-research",
           "work-stress"
@@ -3003,11 +3003,11 @@
       "question": "ماه پیش تو کار چه خبر بود؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "ژوئن ۲۰۲۶ ماه فشار کار جدید بود: آقای رضایی میکرومنیج می‌کرد و ۳ ژوئن جلوی جمع گزارش روزانه خواست، ۵ ژوئن برای پروژه اول ددلاین غیرواقعی سه‌هفته‌ای اعلام شد، و آخرش دموی جمعه (۲۶ ژوئن) خوب پیش رفت و رضایی اولین بار ازم تعریف کرد.",
+        "text": "ژوئن ۲۰۲۶ ماه فشار کار جدید بود: آقای کریمی میکرومنیج می‌کرد و ۳ ژوئن جلوی جمع گزارش روزانه خواست، ۵ ژوئن برای پروژه اول ددلاین غیرواقعی سه‌هفته‌ای اعلام شد، و آخرش دموی جمعه (۲۶ ژوئن) خوب پیش رفت و کریمی اولین بار ازم تعریف کرد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "In June 2026 his boss Mr. Rezaei micromanaged him and on 2026-06-03 demanded daily reports in front of others"
+            "fact": "In June 2026 his boss Mr. Karimi micromanaged him and on 2026-06-03 demanded daily reports in front of others"
           },
           {
             "derived_fact_id": 2,
@@ -3015,7 +3015,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "The end-of-June Friday demo went well and Rezaei gave his first positive feedback"
+            "fact": "The end-of-June Friday demo went well and Karimi gave his first positive feedback"
           }
         ]
       },
@@ -3122,7 +3122,7 @@
                 "recurring_threads": [
                   "good-days",
                   "work-stress",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -3155,11 +3155,11 @@
       "question": "کی رفتیم سفر شمال؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "همین هفته پیش: برنامه‌ش رو ۱۲ ژوئیه ۲۰۲۶ با پریا بستیم (ویلای شریکی با کیان اینا و سارا اینا)، صبح ۲۳ ژوئیه راه افتادیم و ۲۷ ژوئیه که برگشته بودیم گفتم قشنگ‌ترین روزای امسال بود.",
+        "text": "همین هفته پیش: برنامه‌ش رو ۱۲ ژوئیه ۲۰۲۶ با ژاکلین بستیم (ویلای شریکی با شایان اینا و نگار اینا)، صبح ۲۳ ژوئیه راه افتادیم و ۲۷ ژوئیه که برگشته بودیم گفتم قشنگ‌ترین روزای امسال بود.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "The shomal trip plan was finalized with Paria on 2026-07-12 as a shared villa with two other families"
+            "fact": "The shomal trip plan was finalized with Jacqueline on 2026-07-12 as a shared villa with two other families"
           },
           {
             "derived_fact_id": 2,
@@ -3179,7 +3179,7 @@
           "corpus_document_id": 160,
           "evidence": [
             {
-              "text": "امشب با پریا نشستیم و برنامه شمال رو بستیم",
+              "text": "امشب با ژاکلین نشستیم و برنامه شمال رو بستیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -3267,7 +3267,7 @@
                 },
                 "recurring_threads": [
                   "travel-dream",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -3297,18 +3297,18 @@
                   "shomal-trip",
                   "jangal",
                   "rain",
-                  "paria-tenderness"
+                  "jacqueline-tenderness"
                 ],
                 "topics_confidence": {
                   "shomal-trip": 0.95,
                   "jangal": 0.95,
                   "rain": 0.95,
-                  "paria-tenderness": 0.9
+                  "jacqueline-tenderness": 0.9
                 },
                 "recurring_threads": [
                   "travel-dream",
                   "good-days",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -3338,7 +3338,7 @@
       "question": "اول سرمایه‌گذاری اتوماتیک رو راه انداختم یا تصمیم گرفتیم اجاره بمونیم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "اول سرمایه‌گذاری: انتقال اتوماتیک ماهانه به صندوق شاخصی رو ۱۵ می ۲۰۲۶ راه انداختم و تصمیم «اجاره بمونیم و پس‌انداز کنیم» رو حدود یک ماه بعد، ۱۰ ژوئن ۲۰۲۶، با پریا گرفتیم.",
+        "text": "اول سرمایه‌گذاری: انتقال اتوماتیک ماهانه به صندوق شاخصی رو ۱۵ می ۲۰۲۶ راه انداختم و تصمیم «اجاره بمونیم و پس‌انداز کنیم» رو حدود یک ماه بعد، ۱۰ ژوئن ۲۰۲۶، با ژاکلین گرفتیم.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -3346,7 +3346,7 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "The decision to keep renting and save (the five-year project) was made with Paria on 2026-06-10"
+            "fact": "The decision to keep renting and save (the five-year project) was made with Jacqueline on 2026-06-10"
           },
           {
             "derived_fact_id": 3,
@@ -3477,7 +3477,7 @@
     },
     {
       "groundtruth_question_id": 33,
-      "question": "بهار امسال با پریا برای رابطه‌مون چیکار کردیم؟",
+      "question": "بهار امسال با ژاکلین برای رابطه‌مون چیکار کردیم؟",
       "expected_answer": {
         "behavior": "answer",
         "text": "بهار ۲۰۲۶ رفتیم مشاور زوج: جلسه اول ۱۵ آوریل، جلسه دوم ۲۹ آوریل که تمرین هفتگی بیست دقیقه حرف زدن بدون موبایل رو داد، و جلسه سوم ۱۷ می که بالاخره راجب مشکلمون تو رابطه حرف زدیم.",
@@ -3518,7 +3518,7 @@
                   "first-session": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -3555,7 +3555,7 @@
                   "homework": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -3573,7 +3573,7 @@
           "corpus_document_id": 127,
           "evidence": [
             {
-              "text": "امروز جلسه سوم مشاوره بود با پریا",
+              "text": "امروز جلسه سوم مشاوره بود با ژاکلین",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -3583,16 +3583,16 @@
                 "feeling_confidence": 0.9,
                 "topics": [
                   "therapy",
-                  "paria",
+                  "jacqueline",
                   "intimacy"
                 ],
                 "topics_confidence": {
                   "therapy": 0.95,
-                  "paria": 0.9,
+                  "jacqueline": 0.9,
                   "intimacy": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -3614,9 +3614,9 @@
           "from": "2026-03-21",
           "to": "2026-06-21"
         },
-        "question_translation_en": "What did Paria and I do for our relationship this spring?",
+        "question_translation_en": "What did Jacqueline and I do for our relationship this spring?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -4025,7 +4025,7 @@
       "question": "چرا آخرش تصمیم گرفتیم خونه نخریم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "بحث از اولین بازدید جدی در ۱۲ اکتبر ۲۰۲۵ شروع شد: قیمت‌ها بالا بود و محمد می‌گفت با وضعیت کاریش وقت زیر قسط رفتن نیست. حساب‌وکتاب‌ها هر بار نشون داد قسط وام تقریبا دو برابر اجاره فعلیه و پیش‌پرداختش نصف پس‌انداز رو می‌خوره؛ بعد از بازدید ۹ ژوئن ۲۰۲۶ دوباره به همین اعداد رسیدن. در نهایت ۱۰ ژوئن ۲۰۲۶ با پریا تصمیم نهایی گرفتن: اجاره بمونن و جدی پس‌انداز کنن.",
+        "text": "بحث از اولین بازدید جدی در ۱۲ اکتبر ۲۰۲۵ شروع شد: قیمت‌ها بالا بود و الکس می‌گفت با وضعیت کاریش وقت زیر قسط رفتن نیست. حساب‌وکتاب‌ها هر بار نشون داد قسط وام تقریبا دو برابر اجاره فعلیه و پیش‌پرداختش نصف پس‌انداز رو می‌خوره؛ بعد از بازدید ۹ ژوئن ۲۰۲۶ دوباره به همین اعداد رسیدن. در نهایت ۱۰ ژوئن ۲۰۲۶ با ژاکلین تصمیم نهایی گرفتن: اجاره بمونن و جدی پس‌انداز کنن.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -4046,7 +4046,7 @@
           "corpus_document_id": 31,
           "evidence": [
             {
-              "text": "پریا میگه اجاره پول دور ریختنه، من میگم با این قیمتا و وضعیت کاری من الان وقتش نیست خودمونو زیر قسط بکنیم",
+              "text": "ژاکلین میگه اجاره پول دور ریختنه، من میگم با این قیمتا و وضعیت کاری من الان وقتش نیست خودمونو زیر قسط بکنیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -4168,7 +4168,7 @@
       "question": "کل ماجرای همسایه طبقه بالا از اول تا آخر چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "از ۱۹ اوت ۲۰۲۵ شروع شد که همسایه طبقه بالا از صبح دریل می‌زد و معلوم شد داره کل واحدش رو بازسازی می‌کنه؛ بعدش سروصدای شبانه (کشیدن مبل) ادامه پیدا کرد. در ۱۸ اکتبر ۲۰۲۵ توی راه‌پله بحثشون شد — همسایه گفت «خونه خودمه» — و محمد همون شب یه ایمیل رسمی با تاریخ و ساعت‌ها به مدیر ساختمان نوشت. آخرش در ۲۰ آوریل ۲۰۲۶ همسایه اسباب‌کشی کرد و رفت و ماجرا خودبه‌خود تموم شد.",
+        "text": "از ۱۹ اوت ۲۰۲۵ شروع شد که همسایه طبقه بالا از صبح دریل می‌زد و معلوم شد داره کل واحدش رو بازسازی می‌کنه؛ بعدش سروصدای شبانه (کشیدن مبل) ادامه پیدا کرد. در ۱۸ اکتبر ۲۰۲۵ توی راه‌پله بحثشون شد — همسایه گفت «خونه خودمه» — و الکس همون شب یه ایمیل رسمی با تاریخ و ساعت‌ها به مدیر ساختمان نوشت. آخرش در ۲۰ آوریل ۲۰۲۶ همسایه اسباب‌کشی کرد و رفت و ماجرا خودبه‌خود تموم شد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -4176,7 +4176,7 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "2025-10-18: stairwell confrontation (neighbor: 'it's my home'); Mohammad wrote a formal email to the building manager with dates and times"
+            "fact": "2025-10-18: stairwell confrontation (neighbor: 'it's my home'); Alex wrote a formal email to the building manager with dates and times"
           },
           {
             "derived_fact_id": 3,
@@ -4341,10 +4341,10 @@
     },
     {
       "groundtruth_question_id": 38,
-      "question": "وقتی ریجکت نهایی اسفند اومد پریا چیکار کرد؟",
+      "question": "وقتی ریجکت نهایی اسفند اومد ژاکلین چیکار کرد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "ریجکت فاینال راند ۱۰ مارس ۲۰۲۶ اومد. همون شب پریا فقط بغلش کرد و هیچی نگفت — که محمد گفت همین خوب بود چون حوصله «درست میشه» شنیدن نداشت. روزهای بعد هم فهمید باید ولش کنه و در ۱۲ مارس براش سوپ درست کرد.",
+        "text": "ریجکت فاینال راند ۱۰ مارس ۲۰۲۶ اومد. همون شب ژاکلین فقط بغلش کرد و هیچی نگفت — که الکس گفت همین خوب بود چون حوصله «درست میشه» شنیدن نداشت. روزهای بعد هم فهمید باید ولش کنه و در ۱۲ مارس براش سوپ درست کرد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -4352,7 +4352,7 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "That night Paria hugged him and said nothing, which he appreciated"
+            "fact": "That night Jacqueline hugged him and said nothing, which he appreciated"
           },
           {
             "derived_fact_id": 3,
@@ -4434,7 +4434,7 @@
           "corpus_document_id": 97,
           "evidence": [
             {
-              "text": "پریا سوپ درست کرد ظهر، یه ذره خوردم",
+              "text": "ژاکلین سوپ درست کرد ظهر، یه ذره خوردم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -4472,10 +4472,10 @@
         "question_type": "multi-hop",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "What did Paria do when the final-round rejection came in March?",
+        "question_translation_en": "What did Jacqueline do when the final-round rejection came in March?",
         "query_threads": [
           "job-search",
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -4484,11 +4484,11 @@
       "question": "قضیه فریلنس بهار چطور به آفر کار اصلی وصل شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "بعد از ریجکت فاینال راند مارس، در ۸ آوریل ۲۰۲۶ امیر (همکار قدیمی) یه پروژه فریلنس دیتا پایپ‌لاین دو-سه ماهه معرفی کرد که پول قسط مالیات و تعمیر ماشین رو رسوند؛ محمد آگاهانه گفت «این فریلنسه، شغل نیست» و اپلای هفتگی رو نگه داشت. ۳۰ آوریل فاز اول رو تحویل داد و اولین پرداخت اومد. همین پل مالی نگهش داشت تا ۶ می ۲۰۲۶ که آفر پارت‌تایم ML engineer از شرکتی که دی ماه اپلای کرده بود رسید.",
+        "text": "بعد از ریجکت فاینال راند مارس، در ۸ آوریل ۲۰۲۶ پدرام (همکار قدیمی) یه پروژه فریلنس دیتا پایپ‌لاین دو-سه ماهه معرفی کرد که پول قسط مالیات و تعمیر ماشین رو رسوند؛ الکس آگاهانه گفت «این فریلنسه، شغل نیست» و اپلای هفتگی رو نگه داشت. ۳۰ آوریل فاز اول رو تحویل داد و اولین پرداخت اومد. همین پل مالی نگهش داشت تا ۶ می ۲۰۲۶ که آفر پارت‌تایم ML engineer از شرکتی که دی ماه اپلای کرده بود رسید.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "2026-04-08: old colleague Amir brought a 2-3 month freelance data-pipeline gig after the March rejection"
+            "fact": "2026-04-08: old colleague Pedram brought a 2-3 month freelance data-pipeline gig after the March rejection"
           },
           {
             "derived_fact_id": 2,
@@ -4676,7 +4676,7 @@
       "question": "ماجرای قلب مامان از اون چکاپ اول تا الان چطوری پیش رفت؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "۷ سپتامبر ۲۰۲۵ مامان بالاخره رفت چکاپ و دکتر آزمایش‌های بیشتر و اکو خواست؛ جواب‌ها هی عقب افتاد. ۲۰ نوامبر ۲۰۲۵ دکتر با دیدن نوار قلب همون لحظه بستریش کرد — یه رگ گرفتگی جدی داشت — و فرداش آنژیوگرافی شد. ۲۲ نوامبر استنت گذاشتن و دکتر گفت «به موقع اومدین». بعدش بهبودی تدریجی اومد و تا ۶ ژوئیه ۲۰۲۶ سرپا بود، قیمه درست می‌کرد و با پریا کل‌کل می‌کرد.",
+        "text": "۷ سپتامبر ۲۰۲۵ مامان بالاخره رفت چکاپ و دکتر آزمایش‌های بیشتر و اکو خواست؛ جواب‌ها هی عقب افتاد. ۲۰ نوامبر ۲۰۲۵ دکتر با دیدن نوار قلب همون لحظه بستریش کرد — یه رگ گرفتگی جدی داشت — و فرداش آنژیوگرافی شد. ۲۲ نوامبر استنت گذاشتن و دکتر گفت «به موقع اومدین». بعدش بهبودی تدریجی اومد و تا ۶ ژوئیه ۲۰۲۶ سرپا بود، قیمه درست می‌کرد و با ژاکلین کل‌کل می‌کرد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -4813,7 +4813,7 @@
           "corpus_document_id": 156,
           "evidence": [
             {
-              "text": "مامان قیمه درست کرده بود، سرپا بود، می خندید، با پریا سر آشپزی کل‌کل میکرد",
+              "text": "مامان قیمه درست کرده بود، سرپا بود، می خندید، با ژاکلین سر آشپزی کل‌کل میکرد",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -4863,7 +4863,7 @@
       "question": "پرونده مالیات از اون نامه اول تا بسته شدنش چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "۲۷ اوت ۲۰۲۵ یه نامه از اداره مالیات اومد که محمد ازش هیچی نفهمید و کلی استرس گرفت. بعد از مشاور و امروز-فردا کردن در فرستادن مدارک، ۸ نوامبر ۲۰۲۵ نامه جریمه رسید. ۱۱ ژانویه ۲۰۲۶ قسط‌بندی جریمه در شش قسط اوکی شد و در ۸ ژوئیه ۲۰۲۶ نامه تسویه کامل اومد و پرونده بعد از تقریبا یه سال بسته شد.",
+        "text": "۲۷ اوت ۲۰۲۵ یه نامه از اداره مالیات اومد که الکس ازش هیچی نفهمید و کلی استرس گرفت. بعد از مشاور و امروز-فردا کردن در فرستادن مدارک، ۸ نوامبر ۲۰۲۵ نامه جریمه رسید. ۱۱ ژانویه ۲۰۲۶ قسط‌بندی جریمه در شش قسط اوکی شد و در ۸ ژوئیه ۲۰۲۶ نامه تسویه کامل اومد و پرونده بعد از تقریبا یه سال بسته شد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -5046,11 +5046,11 @@
       "question": "چرا آخرش کریپتو نخریدم و به جاش چیکار کردم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "۵ دسامبر ۲۰۲۵ بعد از شام با سیاوش (که می‌گفت ۴۰٪ سود کرده) وسوسه شد و حتی اپ صرافی نصب کرد، ولی همون شب پاکش کرد. دو روز بعد دید همون کوین ۱۵٪ ریخته و تصمیم قطعی گرفت: نه، پس‌انداز سر جاش می‌مونه و بعد از تعیین تکلیف قسط مالیات یه سرمایه‌گذاری ماهانه ثابت شروع می‌کنه. در ۱۵ می ۲۰۲۶ همون برنامه رو اجرا کرد — انتقال اتوماتیک ماهانه به صندوق شاخصی — و گفت خوشحاله که به جای کریپتو این کارو کرد.",
+        "text": "۵ دسامبر ۲۰۲۵ بعد از شام با کامران (که می‌گفت ۴۰٪ سود کرده) وسوسه شد و حتی اپ صرافی نصب کرد، ولی همون شب پاکش کرد. دو روز بعد دید همون کوین ۱۵٪ ریخته و تصمیم قطعی گرفت: نه، پس‌انداز سر جاش می‌مونه و بعد از تعیین تکلیف قسط مالیات یه سرمایه‌گذاری ماهانه ثابت شروع می‌کنه. در ۱۵ می ۲۰۲۶ همون برنامه رو اجرا کرد — انتقال اتوماتیک ماهانه به صندوق شاخصی — و گفت خوشحاله که به جای کریپتو این کارو کرد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "2025-12-05: crypto FOMO after dinner with Siavash (40% gains claim); installed then deleted an exchange app the same night"
+            "fact": "2025-12-05: crypto FOMO after dinner with Kamran (40% gains claim); installed then deleted an exchange app the same night"
           },
           {
             "derived_fact_id": 2,
@@ -5067,7 +5067,7 @@
           "corpus_document_id": 56,
           "evidence": [
             {
-              "text": "امشب با سیاوش شام بودیم و کل شب داشت راجب کریپتو حرف میزد، میگفت تو دو ماه چهل درصد سود کرده",
+              "text": "امشب با کامران شام بودیم و کل شب داشت راجب کریپتو حرف میزد، میگفت تو دو ماه چهل درصد سود کرده",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -5333,14 +5333,14 @@
     },
     {
       "groundtruth_question_id": 44,
-      "question": "چی شد که با پریا رفتیم مشاور و آخرش به کجا رسید؟",
+      "question": "چی شد که با ژاکلین رفتیم مشاور و آخرش به کجا رسید؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "اولین جرقه ۲۹ دسامبر ۲۰۲۵ بعد از یه حرف صادقانه با پریا بود که گفت «مشاور رابطه، ژانویه سراغش میگیریم». بعد از تکرار همون دعوای همیشگی، ۱۷ فوریه ۲۰۲۶ خودش جدی به مشاور زوج فکر کرد و ۱۵ آوریل ۲۰۲۶ جلسه اول برگزار شد — با اون سوال کلیدی که «دعوای واقعی سر چیه؟». تا تابستون جواب داد: ۳ ژوئیه ۲۰۲۶ همون دعوای ظرف‌ها ده دقیقه‌ای تموم شد و محمد گفت پول تراپی داره خودش رو پس می‌ده.",
+        "text": "اولین جرقه ۲۹ دسامبر ۲۰۲۵ بعد از یه حرف صادقانه با ژاکلین بود که گفت «مشاور رابطه، ژانویه سراغش میگیریم». بعد از تکرار همون دعوای همیشگی، ۱۷ فوریه ۲۰۲۶ خودش جدی به مشاور زوج فکر کرد و ۱۵ آوریل ۲۰۲۶ جلسه اول برگزار شد — با اون سوال کلیدی که «دعوای واقعی سر چیه؟». تا تابستون جواب داد: ۳ ژوئیه ۲۰۲۶ همون دعوای ظرف‌ها ده دقیقه‌ای تموم شد و الکس گفت پول تراپی داره خودش رو پس می‌ده.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "2025-12-29: after an honest year-review talk with Paria, first commitment to look for a couples counselor"
+            "fact": "2025-12-29: after an honest year-review talk with Jacqueline, first commitment to look for a couples counselor"
           },
           {
             "derived_fact_id": 2,
@@ -5348,7 +5348,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "2026-04-15: first counseling session; counselor asked what the dish fight is really about (Paria: feeling alone in running their life)"
+            "fact": "2026-04-15: first counseling session; counselor asked what the dish fight is really about (Jacqueline: feeling alone in running their life)"
           },
           {
             "derived_fact_id": 4,
@@ -5370,19 +5370,19 @@
                 "feeling": "قدردان",
                 "feeling_confidence": 0.85,
                 "topics": [
-                  "paria",
+                  "jacqueline",
                   "honest-talk",
                   "year-review",
                   "couples-therapy"
                 ],
                 "topics_confidence": {
-                  "paria": 0.95,
+                  "jacqueline": 0.95,
                   "honest-talk": 0.95,
                   "year-review": 0.7,
                   "couples-therapy": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "articles-research"
                 ]
               },
@@ -5418,7 +5418,7 @@
                   "couples-therapy": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -5453,7 +5453,7 @@
                   "first-session": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -5488,7 +5488,7 @@
                   "therapy": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -5507,22 +5507,22 @@
         "question_type": "multi-hop",
         "difficulty": "hard",
         "resolved_time_scope": null,
-        "question_translation_en": "How did we end up going to couples counseling with Paria, and where did it lead?",
+        "question_translation_en": "How did we end up going to couples counseling with Jacqueline, and where did it lead?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
     {
       "groundtruth_question_id": 45,
-      "question": "کلاس آواز از اون شب شام که پریا تعریف کرد تا الان چی شده؟",
+      "question": "کلاس آواز از اون شب شام که ژاکلین تعریف کرد تا الان چی شده؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "ایده از ۲۲ اوت ۲۰۲۵ اومد که سر شام پریا گفت «چرا با صدات هیچ کاری نمیکنی؟». تقریبا یه سال طول کشید تا بالاخره ۸ می ۲۰۲۶ به اولین کلاس رفت و عاشقش شد. در ۲۱ ژوئن ۲۰۲۶ استاد اسمش رو برای اجرای اواخر مهر توی یه سالن کوچیک نوشت و الان (ژوئیه) داره تو ماشین برای اجرا تمرین می‌کنه.",
+        "text": "ایده از ۲۲ اوت ۲۰۲۵ اومد که سر شام ژاکلین گفت «چرا با صدات هیچ کاری نمیکنی؟». تقریبا یه سال طول کشید تا بالاخره ۸ می ۲۰۲۶ به اولین کلاس رفت و عاشقش شد. در ۲۱ ژوئن ۲۰۲۶ استاد اسمش رو برای اجرای اواخر مهر توی یه سالن کوچیک نوشت و الان (ژوئیه) داره تو ماشین برای اجرا تمرین می‌کنه.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "2025-08-22: Paria's dinner compliment sparked the singing-class idea"
+            "fact": "2025-08-22: Jacqueline's dinner compliment sparked the singing-class idea"
           },
           {
             "derived_fact_id": 2,
@@ -5539,7 +5539,7 @@
           "corpus_document_id": 10,
           "evidence": [
             {
-              "text": "پریا برگشت گفت تو چرا صدات به این خوبی هست و هیچ کاری باهاش نمیکنی؟",
+              "text": "ژاکلین برگشت گفت تو چرا صدات به این خوبی هست و هیچ کاری باهاش نمیکنی؟",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -5649,7 +5649,7 @@
         "question_type": "multi-hop",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "What happened with the singing class, from that dinner night when Paria complimented me until now?",
+        "question_translation_en": "What happened with the singing class, from that dinner night when Jacqueline complimented me until now?",
         "query_threads": [
           "failed-ambitions"
         ]
@@ -5657,14 +5657,14 @@
     },
     {
       "groundtruth_question_id": 46,
-      "question": "مقاله دوم با هایکو از اولین ایمیل تا سابمیت چقدر طول کشید و چی شد؟",
+      "question": "مقاله دوم با یولیان از اولین ایمیل تا سابمیت چقدر طول کشید و چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "اولین ایمیل هایکو ۱۷ دسامبر ۲۰۲۵ اومد که گفت وقتشه مقاله دوم رو استارت بزنن. ژانویه ۲۰۲۶ رسما شروع شد — موضوعش ارزیابی ایجنت‌های LLM در تسک‌های واقعی. با وجود نوروز، ریجکت فاینال راند و شروع کار جدید که وسطش افتاد، بالاخره ۱۸ ژوئن ۲۰۲۶ سابمیت شد — خود محمد گفت شش ماه و نیم طول کشید.",
+        "text": "اولین ایمیل یولیان ۱۷ دسامبر ۲۰۲۵ اومد که گفت وقتشه مقاله دوم رو استارت بزنن. ژانویه ۲۰۲۶ رسما شروع شد — موضوعش ارزیابی ایجنت‌های LLM در تسک‌های واقعی. با وجود نوروز، ریجکت فاینال راند و شروع کار جدید که وسطش افتاد، بالاخره ۱۸ ژوئن ۲۰۲۶ سابمیت شد — خود الکس گفت شش ماه و نیم طول کشید.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "2025-12-17: Heiko's email kicked off article 2"
+            "fact": "2025-12-17: Julian's email kicked off article 2"
           },
           {
             "derived_fact_id": 2,
@@ -5672,7 +5672,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "2026-06-18: submitted; Mohammad himself counted six and a half months from the first email"
+            "fact": "2026-06-18: submitted; Alex himself counted six and a half months from the first email"
           }
         ]
       },
@@ -5681,7 +5681,7 @@
           "corpus_document_id": 59,
           "evidence": [
             {
-              "text": "هایکو ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم",
+              "text": "یولیان ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -5691,12 +5691,12 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2",
-                  "heiko-email",
+                  "julian-email",
                   "research"
                 ],
                 "topics_confidence": {
                   "article-2": 0.85,
-                  "heiko-email": 0.95,
+                  "julian-email": 0.95,
                   "research": 0.5
                 },
                 "recurring_threads": [
@@ -5729,13 +5729,13 @@
                 "feeling_confidence": 0.85,
                 "topics": [
                   "article-2",
-                  "heiko",
+                  "julian",
                   "english-email",
                   "timezone"
                 ],
                 "topics_confidence": {
                   "article-2": 0.95,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "english-email": 0.85,
                   "timezone": 0.7
                 },
@@ -5768,13 +5768,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -5798,7 +5798,7 @@
         "question_type": "multi-hop",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "How long did article 2 with Heiko take from the first email to submission, and what happened?",
+        "question_translation_en": "How long did article 2 with Julian take from the first email to submission, and what happened?",
         "query_threads": [
           "articles-research"
         ]
@@ -5806,10 +5806,10 @@
     },
     {
       "groundtruth_question_id": 47,
-      "question": "اون دموی یهویی جلوی مدیر بالاسری رضایی آخرش چطور تموم شد؟",
+      "question": "اون دموی یهویی جلوی مدیر بالاسری کریمی آخرش چطور تموم شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "۲۴ ژوئن ۲۰۲۶ رضایی یهو اعلام کرد جمعه دمو دارن جلوی مدیر بالاسریش، در حالی که دو تا باگ اصلی مونده بود و محمد از استرس نصفه‌شب بیدار بود. آخرش خوب تموم شد: باگ بزرگه با کمک یکی از بچه‌های تیم پیدا شد (یه مشکل مسخره تو کانفیگ) و محمد اسکریپت دمو رو طوری چید که از مسیر باگ دوم رد نشه؛ رضایی هم گفت «خوب جمعش کردی» — اولین جمله مثبتش در دو ماه.",
+        "text": "۲۴ ژوئن ۲۰۲۶ کریمی یهو اعلام کرد جمعه دمو دارن جلوی مدیر بالاسریش، در حالی که دو تا باگ اصلی مونده بود و الکس از استرس نصفه‌شب بیدار بود. آخرش خوب تموم شد: باگ بزرگه با کمک یکی از بچه‌های تیم پیدا شد (یه مشکل مسخره تو کانفیگ) و الکس اسکریپت دمو رو طوری چید که از مسیر باگ دوم رد نشه؛ کریمی هم گفت «خوب جمعش کردی» — اولین جمله مثبتش در دو ماه.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -5821,7 +5821,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "He scripted the demo to route around the second bug; demo went well and Rezaei gave his first positive comment in two months (2026-06-28)"
+            "fact": "He scripted the demo to route around the second bug; demo went well and Karimi gave his first positive comment in two months (2026-06-28)"
           }
         ]
       },
@@ -5830,7 +5830,7 @@
           "corpus_document_id": 149,
           "evidence": [
             {
-              "text": "رضایی امروز اعلام کرد جمعه دمو داریم جلوی مدیر بالاسری خودش",
+              "text": "کریمی امروز اعلام کرد جمعه دمو داریم جلوی مدیر بالاسری خودش",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -5892,7 +5892,7 @@
                 "recurring_threads": [
                   "good-days",
                   "work-stress",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -5912,7 +5912,7 @@
         "question_type": "multi-hop",
         "difficulty": "easy",
         "resolved_time_scope": null,
-        "question_translation_en": "How did that surprise demo in front of Rezaei's boss end up going?",
+        "question_translation_en": "How did that surprise demo in front of Karimi's boss end up going?",
         "query_threads": [
           "work-stress"
         ]
@@ -5920,10 +5920,10 @@
     },
     {
       "groundtruth_question_id": 48,
-      "question": "اون کافه‌ای که پریا میگه شده محل ثبت پیروزی‌هامون، اولین بار چه خبری رو اونجا جشن گرفتیم؟",
+      "question": "اون کافه‌ای که ژاکلین میگه شده محل ثبت پیروزی‌هامون، اولین بار چه خبری رو اونجا جشن گرفتیم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "خبر آفر کاری. اون کافه جاییه که خبر آفر پارت‌تایم ML engineer رو جشن گرفتن — آفری که ۶ می ۲۰۲۶ از شرکتی که دی ماه اپلای کرده بود رسید. بعدا در ۱۵ ژوئیه ۲۰۲۶، وقتی اولین پروژه کار جدید شیپ شد، پریا پیشنهاد داد دوباره برن همون‌جا و گفت این کافه شده محل ثبت پیروزی‌هاشون.",
+        "text": "خبر آفر کاری. اون کافه جاییه که خبر آفر پارت‌تایم ML engineer رو جشن گرفتن — آفری که ۶ می ۲۰۲۶ از شرکتی که دی ماه اپلای کرده بود رسید. بعدا در ۱۵ ژوئیه ۲۰۲۶، وقتی اولین پروژه کار جدید شیپ شد، ژاکلین پیشنهاد داد دوباره برن همون‌جا و گفت این کافه شده محل ثبت پیروزی‌هاشون.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -5935,7 +5935,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "On 2026-07-15, after the first work project shipped, Paria suggested returning there and called it their victory-recording spot"
+            "fact": "On 2026-07-15, after the first work project shipped, Jacqueline suggested returning there and called it their victory-recording spot"
           }
         ]
       },
@@ -6053,7 +6053,7 @@
         "question_type": "multi-hop",
         "difficulty": "hard",
         "resolved_time_scope": null,
-        "question_translation_en": "That cafe Paria calls our 'victory-recording spot' — what news did we celebrate there the first time?",
+        "question_translation_en": "That cafe Jacqueline calls our 'victory-recording spot' — what news did we celebrate there the first time?",
         "query_threads": [
           "job-search",
           "work-stress",
@@ -6066,7 +6066,7 @@
       "question": "همکاری مقاله با بابا چه فراز و نشیبی داشت؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "اولش پر از اصطکاک بود: ۱۶ اکتبر ۲۰۲۵ بابا بعد از چهار روز سکوت کل ساختار outline رو زیر سوال برد، و ۲۲ فوریه ۲۰۲۶ بدتر شد — کل بخش محمد رو بی‌خبر بازنویسی کرده بود با ادبیات دهه هشتادی خودش. ولی ۲۴ مارس ۲۰۲۶ ورق برگشت: توی یه جلسه کاری شش ساعته، وقتی محمد یه ایراد تو تحلیل بابا پیدا کرد، بابا به جای ناراحتی گفت «آفرین دقیقا همینه» و برای اولین بار اونو به عنوان یه متخصص جدی گرفت.",
+        "text": "اولش پر از اصطکاک بود: ۱۶ اکتبر ۲۰۲۵ بابا بعد از چهار روز سکوت کل ساختار outline رو زیر سوال برد، و ۲۲ فوریه ۲۰۲۶ بدتر شد — کل بخش الکس رو بی‌خبر بازنویسی کرده بود با ادبیات دهه هشتادی خودش. ولی ۲۴ مارس ۲۰۲۶ ورق برگشت: توی یه جلسه کاری شش ساعته، وقتی الکس یه ایراد تو تحلیل بابا پیدا کرد، بابا به جای ناراحتی گفت «آفرین دقیقا همینه» و برای اولین بار اونو به عنوان یه متخصص جدی گرفت.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -6074,11 +6074,11 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "2026-02-22: father rewrote Mohammad's entire section without asking, in his 1980s academic style"
+            "fact": "2026-02-22: father rewrote Alex's entire section without asking, in his 1980s academic style"
           },
           {
             "derived_fact_id": 3,
-            "fact": "2026-03-24: turning point — during a long joint work session the father welcomed Mohammad's critique ('bravo, exactly') and treated him as an expert peer"
+            "fact": "2026-03-24: turning point — during a long joint work session the father welcomed Alex's critique ('bravo, exactly') and treated him as an expert peer"
           }
         ]
       },
@@ -6213,15 +6213,15 @@
       "question": "اون جمله «با رویاهات نمیشه زندگی کرد» کی و سر چی گفته شد و بعدش چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "پریا این جمله رو شب ۱۰ نوامبر ۲۰۲۵ توی بدترین دعواشون گفت — دعوایی که سر پیدا شدن نامه جریمه مالیاتی روی میز شروع شد که محمد دو روز قایمش کرده بود؛ محمد هم گفته بود «تو هیچوقت بهم ایمان نداشتی». بعد از دو روز قهر و سکوت، ۱۳ نوامبر با یه چایی آشتی شروع شد: دو ساعت حرف زدن، گفتن همه عددها، و قرار شفافیت مالی — نشستن ماهانه سر حساب‌کتاب‌ها.",
+        "text": "ژاکلین این جمله رو شب ۱۰ نوامبر ۲۰۲۵ توی بدترین دعواشون گفت — دعوایی که سر پیدا شدن نامه جریمه مالیاتی روی میز شروع شد که الکس دو روز قایمش کرده بود؛ الکس هم گفته بود «تو هیچوقت بهم ایمان نداشتی». بعد از دو روز قهر و سکوت، ۱۳ نوامبر با یه چایی آشتی شروع شد: دو ساعت حرف زدن، گفتن همه عددها، و قرار شفافیت مالی — نشستن ماهانه سر حساب‌کتاب‌ها.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Said by Paria during their worst fight on 2025-11-10, triggered by the hidden tax-fine letter she found on his desk"
+            "fact": "Said by Jacqueline during their worst fight on 2025-11-10, triggered by the hidden tax-fine letter she found on his desk"
           },
           {
             "derived_fact_id": 2,
-            "fact": "Mohammad had countered with 'you never believed in me' and regretted it"
+            "fact": "Alex had countered with 'you never believed in me' and regretted it"
           },
           {
             "derived_fact_id": 3,
@@ -6234,7 +6234,7 @@
           "corpus_document_id": 44,
           "evidence": [
             {
-              "text": "پریا نامه جریمه رو دیده بود رو میز کار، من جمعش نکرده بودم",
+              "text": "ژاکلین نامه جریمه رو دیده بود رو میز کار، من جمعش نکرده بودم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -6253,7 +6253,7 @@
                   "unemployment": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem",
                   "job-search"
                 ]
@@ -6288,7 +6288,7 @@
                   "unemployment": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem",
                   "job-search"
                 ]
@@ -6326,7 +6326,7 @@
                   "money-talk": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem"
                 ]
               },
@@ -6349,7 +6349,7 @@
         "resolved_time_scope": null,
         "question_translation_en": "When and over what was the line 'you can't live on your dreams' said, and what happened afterwards?",
         "query_threads": [
-          "paria-fights",
+          "jacqueline-fights",
           "tax-problem"
         ]
       }
@@ -6359,7 +6359,7 @@
       "question": "چند بار قول باشگاه دادم و هر بار چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "حداقل سه بار رسما قول باشگاه دادم: اوت ۲۰۲۵ (سه روز در هفته، «این دفعه فرق داره چون پول دادم»)، ژانویه ۲۰۲۶ (هفته‌ای دوبار به عنوان تصمیم سال نو، که حدود سه هفته دووم آورد)، و ژوئن ۲۰۲۶ («جدی این دفعه» با کوله دم در، که دو هفته دووم آورد). هر بار بعد از چند هفته ول شد و آخرش به جاش پیاده‌روی با پریا نشست.",
+        "text": "حداقل سه بار رسما قول باشگاه دادم: اوت ۲۰۲۵ (سه روز در هفته، «این دفعه فرق داره چون پول دادم»)، ژانویه ۲۰۲۶ (هفته‌ای دوبار به عنوان تصمیم سال نو، که حدود سه هفته دووم آورد)، و ژوئن ۲۰۲۶ («جدی این دفعه» با کوله دم در، که دو هفته دووم آورد). هر بار بعد از چند هفته ول شد و آخرش به جاش پیاده‌روی با ژاکلین نشست.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -6375,7 +6375,7 @@
           },
           {
             "derived_fact_id": 4,
-            "fact": "Jun 2026 attempt: lasted exactly two weeks (confessed 2026-06-14); walking with Paria replaced it"
+            "fact": "Jun 2026 attempt: lasted exactly two weeks (confessed 2026-06-14); walking with Jacqueline replaced it"
           }
         ]
       },
@@ -6472,14 +6472,14 @@
                 "topics": [
                   "mother-health",
                   "turing-college",
-                  "heiko-call",
+                  "julian-call",
                   "gym-skipped",
                   "guilt"
                 ],
                 "topics_confidence": {
                   "mother-health": 0.9,
                   "turing-college": 0.85,
-                  "heiko-call": 0.8,
+                  "julian-call": 0.8,
                   "gym-skipped": 0.85,
                   "guilt": 0.85
                 },
@@ -6629,11 +6629,11 @@
                 "feeling_confidence": 0.9,
                 "topics": [
                   "interview",
-                  "paria-dinner"
+                  "jacqueline-dinner"
                 ],
                 "topics_confidence": {
                   "interview": 0.95,
-                  "paria-dinner": 0.9
+                  "jacqueline-dinner": 0.9
                 },
                 "recurring_threads": [
                   "job-search"
@@ -6880,7 +6880,7 @@
           "corpus_document_id": 6,
           "evidence": [
             {
-              "text": "امشب با پریا دعوامون شد، بد. سر ظرفا شروع شد",
+              "text": "امشب با ژاکلین دعوامون شد، بد. سر ظرفا شروع شد",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -6889,15 +6889,15 @@
                 "feeling": "عصبانی",
                 "feeling_confidence": 0.85,
                 "topics": [
-                  "paria-fight",
+                  "jacqueline-fight",
                   "chores"
                 ],
                 "topics_confidence": {
-                  "paria-fight": 0.97,
+                  "jacqueline-fight": 0.97,
                   "chores": 0.8
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -6932,7 +6932,7 @@
                   "german-class": 0.3
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "failed-ambitions"
                 ]
               },
@@ -6967,7 +6967,7 @@
                   "chores-fight": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -7003,7 +7003,7 @@
                   "counselor-appointment": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -7039,7 +7039,7 @@
                   "therapy": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -7061,7 +7061,7 @@
         "resolved_time_scope": null,
         "question_translation_en": "How many times did we fight over housework and the dishes?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -7258,7 +7258,7 @@
       "question": "کلا چند تا بازدید آپارتمان رفتیم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "سه بازدید جدی ثبت شده: اولی ۱۲ اکتبر ۲۰۲۵ (دو خوابه با نور عالی ولی قیمت خنده‌دار)، دومی ۲۵ اکتبر ۲۰۲۵ (بزرگ‌تر ولی دور، با راه‌پله تاریک) و سومی ۹ ژوئن ۲۰۲۶ (پریا عاشق بالکنش شد ولی قسطش دو برابر اجاره بود). فرداش، ۱۰ ژوئن ۲۰۲۶، تصمیم نهایی گرفتیم اجاره بمونیم و دیگه بازدید نریم.",
+        "text": "سه بازدید جدی ثبت شده: اولی ۱۲ اکتبر ۲۰۲۵ (دو خوابه با نور عالی ولی قیمت خنده‌دار)، دومی ۲۵ اکتبر ۲۰۲۵ (بزرگ‌تر ولی دور، با راه‌پله تاریک) و سومی ۹ ژوئن ۲۰۲۶ (ژاکلین عاشق بالکنش شد ولی قسطش دو برابر اجاره بود). فرداش، ۱۰ ژوئن ۲۰۲۶، تصمیم نهایی گرفتیم اجاره بمونیم و دیگه بازدید نریم.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -7279,7 +7279,7 @@
           "corpus_document_id": 31,
           "evidence": [
             {
-              "text": "امروز با پریا رفتیم یه آپارتمان دیدیم، اولین بازدید جدیمون",
+              "text": "امروز با ژاکلین رفتیم یه آپارتمان دیدیم، اولین بازدید جدیمون",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -7357,7 +7357,7 @@
           "corpus_document_id": 140,
           "evidence": [
             {
-              "text": "امروز بعد کار با پریا رفتیم یه آپارتمان دیگه دیدیم",
+              "text": "امروز بعد کار با ژاکلین رفتیم یه آپارتمان دیگه دیدیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -7446,11 +7446,11 @@
       "question": "امسال چه کارای بزرگی رو کامل تموم کردم و بستم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "سه تا بسته‌شدن بزرگ، همه در اواخر بهار و تابستون ۲۰۲۶: مقاله دوم با هایکو ۱۸ ژوئن سابمیت شد، پرونده مالیات ۸ ژوئیه با نامه تسویه کامل بسته شد، و اولین پروژه کار جدید ۱۵ ژوئیه شیپ شد. خود محمد هم توی مرور سالگرد دفترچه (۲۰ ژوئیه) دقیقا همین سه تا رو شمرد و گفت فهمیده تموم کردن بیشتر از شروع کردن حالش رو خوب می‌کنه.",
+        "text": "سه تا بسته‌شدن بزرگ، همه در اواخر بهار و تابستون ۲۰۲۶: مقاله دوم با یولیان ۱۸ ژوئن سابمیت شد، پرونده مالیات ۸ ژوئیه با نامه تسویه کامل بسته شد، و اولین پروژه کار جدید ۱۵ ژوئیه شیپ شد. خود الکس هم توی مرور سالگرد دفترچه (۲۰ ژوئیه) دقیقا همین سه تا رو شمرد و گفت فهمیده تموم کردن بیشتر از شروع کردن حالش رو خوب می‌کنه.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Three major completions: article 2 with Heiko submitted 2026-06-18, tax case officially settled 2026-07-08, first work project shipped 2026-07-15"
+            "fact": "Three major completions: article 2 with Julian submitted 2026-06-18, tax case officially settled 2026-07-08, first work project shipped 2026-07-15"
           },
           {
             "derived_fact_id": 2,
@@ -7467,7 +7467,7 @@
           "corpus_document_id": 146,
           "evidence": [
             {
-              "text": "بلاخره سابمیت شد! مقاله دوم، همونی که با هایکو بود",
+              "text": "بلاخره سابمیت شد! مقاله دوم، همونی که با یولیان بود",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -7477,13 +7477,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -7584,7 +7584,7 @@
           "corpus_document_id": 164,
           "evidence": [
             {
-              "text": "مالیات بسته شد، مقاله با هایکو ساب‌میت شد، پروژه شیپ شد",
+              "text": "مالیات بسته شد، مقاله با یولیان ساب‌میت شد، پروژه شیپ شد",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -7609,7 +7609,7 @@
                   "tax-problem",
                   "mother-health",
                   "failed-ambitions",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -8263,7 +8263,7 @@
       "question": "آخرش خونه می‌خریم یا نه؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "نه — تصمیم نهایی گرفته شده: ۱۰ ژوئن ۲۰۲۶ با پریا قطعی کردین که اجاره می‌مونین و جدی پس‌انداز می‌کنین («پروژه پنج ساله» با انتقال ماهانه به حساب پس‌انداز). این جایگزین یه سال و نیم بحث و بازدیده که از اکتبر ۲۰۲۵ (اولین بازدید جدی) شروع شد. حتی قرار گذاشتین تا پنج سال دیگه بازدید آپارتمان هم نرین.",
+        "text": "نه — تصمیم نهایی گرفته شده: ۱۰ ژوئن ۲۰۲۶ با ژاکلین قطعی کردین که اجاره می‌مونین و جدی پس‌انداز می‌کنین («پروژه پنج ساله» با انتقال ماهانه به حساب پس‌انداز). این جایگزین یه سال و نیم بحث و بازدیده که از اکتبر ۲۰۲۵ (اولین بازدید جدی) شروع شد. حتی قرار گذاشتین تا پنج سال دیگه بازدید آپارتمان هم نرین.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -8280,7 +8280,7 @@
           "corpus_document_id": 31,
           "evidence": [
             {
-              "text": "امروز با پریا رفتیم یه آپارتمان دیدیم، اولین بازدید جدیمون",
+              "text": "امروز با ژاکلین رفتیم یه آپارتمان دیدیم، اولین بازدید جدیمون",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -8362,10 +8362,10 @@
     },
     {
       "groundtruth_question_id": 62,
-      "question": "رابطه‌مون با پریا الان کجاست؟",
+      "question": "رابطه‌مون با ژاکلین الان کجاست؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "الان رابطه خیلی بهتره: از آوریل ۲۰۲۶ زوج‌درمانی رفتین و دعواها کوتاه و حتی شوخی‌وار شدن. همین هفته از سفر شمال برگشتین که خودت گفتی قشنگ‌ترین روزای امسال بود، و قرار پیاده‌روی هفتگی دونفره بدون گوشی گذاشتین. این جایگزین دوره چرخه دعوا/قهر/آشتیه — بدترینش نوامبر ۲۰۲۵ سر جریمه مالیاتی که پریا گفت «با رویاهات نمیشه زندگی کرد». مشکل‌ها کامل صفر نشدن (سر پول هنوز حساسین) ولی وضعیت فعلی «بهتر و رو به جلو»ئه، نه بحرانی.",
+        "text": "الان رابطه خیلی بهتره: از آوریل ۲۰۲۶ زوج‌درمانی رفتین و دعواها کوتاه و حتی شوخی‌وار شدن. همین هفته از سفر شمال برگشتین که خودت گفتی قشنگ‌ترین روزای امسال بود، و قرار پیاده‌روی هفتگی دونفره بدون گوشی گذاشتین. این جایگزین دوره چرخه دعوا/قهر/آشتیه — بدترینش نوامبر ۲۰۲۵ سر جریمه مالیاتی که ژاکلین گفت «با رویاهات نمیشه زندگی کرد». مشکل‌ها کامل صفر نشدن (سر پول هنوز حساسین) ولی وضعیت فعلی «بهتر و رو به جلو»ئه، نه بحرانی.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -8405,7 +8405,7 @@
                   "unemployment": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem",
                   "job-search"
                 ]
@@ -8442,7 +8442,7 @@
                   "first-session": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -8472,18 +8472,18 @@
                   "shomal-trip",
                   "jangal",
                   "rain",
-                  "paria-tenderness"
+                  "jacqueline-tenderness"
                 ],
                 "topics_confidence": {
                   "shomal-trip": 0.95,
                   "jangal": 0.95,
                   "rain": 0.95,
-                  "paria-tenderness": 0.9
+                  "jacqueline-tenderness": 0.9
                 },
                 "recurring_threads": [
                   "travel-dream",
                   "good-days",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -8502,9 +8502,9 @@
         "question_type": "knowledge-update",
         "difficulty": "hard",
         "resolved_time_scope": null,
-        "question_translation_en": "Where does my relationship with Paria stand now?",
+        "question_translation_en": "Where does my relationship with Jacqueline stand now?",
         "query_threads": [
-          "paria-fights",
+          "jacqueline-fights",
           "travel-dream"
         ]
       }
@@ -8758,7 +8758,7 @@
       "question": "قضیه سرمایه‌گذاریم به کجا رسید؟ کریپتو چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "الان سرمایه‌گذاری ماهانه‌ات اتوماته: از ۱۵ می ۲۰۲۶ انتقال خودکار ماهانه به صندوق شاخصی راه افتاده و اول هر ماه خودش کم می‌شه. این جایگزین دو حالت قبلیه: ایده‌ای که از اکتبر ۲۰۲۵ فقط حرفش بود («فعلا ایده‌ست»)، و وسوسه کریپتو در دسامبر ۲۰۲۵ (بعد شام با سیاوش حتی اپ صرافی نصب کردی) که آگاهانه ردش کردی و اپ رو پاک کردی. کریپتو نرفتی و خوشحالی که نرفتی.",
+        "text": "الان سرمایه‌گذاری ماهانه‌ات اتوماته: از ۱۵ می ۲۰۲۶ انتقال خودکار ماهانه به صندوق شاخصی راه افتاده و اول هر ماه خودش کم می‌شه. این جایگزین دو حالت قبلیه: ایده‌ای که از اکتبر ۲۰۲۵ فقط حرفش بود («فعلا ایده‌ست»)، و وسوسه کریپتو در دسامبر ۲۰۲۵ (بعد شام با کامران حتی اپ صرافی نصب کردی) که آگاهانه ردش کردی و اپ رو پاک کردی. کریپتو نرفتی و خوشحالی که نرفتی.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -9179,18 +9179,18 @@
     },
     {
       "groundtruth_question_id": 68,
-      "question": "مقاله دوم با هایکو الان کجاست؟",
+      "question": "مقاله دوم با یولیان الان کجاست؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "سابمیت شده! ۱۸ ژوئن ۲۰۲۶ با هایکو دکمه سابمیت رو زدین و الان منتظر جواب ژورنالین — هایکو می‌گه معمولا سه چهار ماه طول می‌کشه، یعنی حدودا پاییز. این جایگزین وضعیت‌های قبلیه: دسامبر ۲۰۲۵ که هایکو تازه ایمیل استارت رو زد، ژانویه ۲۰۲۶ که رسما شروع شد، و بهار که درفت و ریوایز کش اومد. جوابی که بگه «در حال نوشتنه» قدیمیه.",
+        "text": "سابمیت شده! ۱۸ ژوئن ۲۰۲۶ با یولیان دکمه سابمیت رو زدین و الان منتظر جواب ژورنالین — یولیان می‌گه معمولا سه چهار ماه طول می‌کشه، یعنی حدودا پاییز. این جایگزین وضعیت‌های قبلیه: دسامبر ۲۰۲۵ که یولیان تازه ایمیل استارت رو زد، ژانویه ۲۰۲۶ که رسما شروع شد، و بهار که درفت و ریوایز کش اومد. جوابی که بگه «در حال نوشتنه» قدیمیه.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "current state: article 2 (LLM agent evaluation, with Heiko Fischer) submitted to the journal on 2026-06-18; first journal response expected in ~3-4 months (fall)"
+            "fact": "current state: article 2 (LLM agent evaluation, with Julian Weber) submitted to the journal on 2026-06-18; first journal response expected in ~3-4 months (fall)"
           },
           {
             "derived_fact_id": 2,
-            "fact": "superseded: kickoff email from Heiko Dec 2025, official start Jan 2026, and the spring drafting/revision phase where he sat on Heiko's revised draft"
+            "fact": "superseded: kickoff email from Julian Dec 2025, official start Jan 2026, and the spring drafting/revision phase where he sat on Julian's revised draft"
           }
         ]
       },
@@ -9199,7 +9199,7 @@
           "corpus_document_id": 59,
           "evidence": [
             {
-              "text": "هایکو ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم",
+              "text": "یولیان ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -9209,12 +9209,12 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2",
-                  "heiko-email",
+                  "julian-email",
                   "research"
                 ],
                 "topics_confidence": {
                   "article-2": 0.85,
-                  "heiko-email": 0.95,
+                  "julian-email": 0.95,
                   "research": 0.5
                 },
                 "recurring_threads": [
@@ -9237,7 +9237,7 @@
           "corpus_document_id": 146,
           "evidence": [
             {
-              "text": "بلاخره سابمیت شد! مقاله دوم، همونی که با هایکو بود",
+              "text": "بلاخره سابمیت شد! مقاله دوم، همونی که با یولیان بود",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -9247,13 +9247,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -9277,7 +9277,7 @@
         "question_type": "knowledge-update",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "Where does the second article with Heiko stand now?",
+        "question_translation_en": "Where does the second article with Julian stand now?",
         "query_threads": [
           "articles-research"
         ]
@@ -9745,7 +9745,7 @@
                   "tax-problem",
                   "mother-health",
                   "failed-ambitions",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -9775,15 +9775,15 @@
       "question": "برنامه سفر شمال چی بود؟ عملی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "۱۲ ژوئیه ۲۰۲۶ برنامه رو بستیم: ویلای شریکی با کیان اینا و سارا اینا نزدیک جنگل، با سقف بودجه که به پس‌انداز ماهانه دست نخوره؛ پریا مسئول لیست خرید و من ماشین و مسیر. عملی هم شد — رفتیم و ۲۷ ژوئیه که برگشتیم گفتم قشنگ‌ترین روزای امسال بود.",
+        "text": "۱۲ ژوئیه ۲۰۲۶ برنامه رو بستیم: ویلای شریکی با شایان اینا و نگار اینا نزدیک جنگل، با سقف بودجه که به پس‌انداز ماهانه دست نخوره؛ ژاکلین مسئول لیست خرید و من ماشین و مسیر. عملی هم شد — رفتیم و ۲۷ ژوئیه که برگشتیم گفتم قشنگ‌ترین روزای امسال بود.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "On 2026-07-12 the trip was planned: a villa near the forest shared by three families (with Kian's and Sara's)"
+            "fact": "On 2026-07-12 the trip was planned: a villa near the forest shared by three families (with Shayan's and Negar's)"
           },
           {
             "derived_fact_id": 2,
-            "fact": "They set a budget cap so the trip would not touch the monthly savings, and split roles (Paria groceries, he car and route)"
+            "fact": "They set a budget cap so the trip would not touch the monthly savings, and split roles (Jacqueline groceries, he car and route)"
           },
           {
             "derived_fact_id": 3,
@@ -9796,7 +9796,7 @@
           "corpus_document_id": 160,
           "evidence": [
             {
-              "text": "امشب با پریا نشستیم و برنامه شمال رو بستیم",
+              "text": "امشب با ژاکلین نشستیم و برنامه شمال رو بستیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -9877,18 +9877,18 @@
                   "shomal-trip",
                   "jangal",
                   "rain",
-                  "paria-tenderness"
+                  "jacqueline-tenderness"
                 ],
                 "topics_confidence": {
                   "shomal-trip": 0.95,
                   "jangal": 0.95,
                   "rain": 0.95,
-                  "paria-tenderness": 0.9
+                  "jacqueline-tenderness": 0.9
                 },
                 "recurring_threads": [
                   "travel-dream",
                   "good-days",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -9915,18 +9915,18 @@
     },
     {
       "groundtruth_question_id": 72,
-      "question": "قرار بود چیکار کنم برای مقاله هایکو؟ آخرش چی شد؟",
+      "question": "قرار بود چیکار کنم برای مقاله یولیان؟ آخرش چی شد؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "۱۷ دسامبر ۲۰۲۵ هایکو ایمیل زد و قرار شد تا اواسط ژانویه outline رو ببندیم؛ ۲۹ دسامبر جوابش رو دادم و outline رو شروع کردم. مقاله با تاخیر ولی به سرانجام رسید: ۱۸ ژوئن ۲۰۲۶ سابمیتش کردیم.",
+        "text": "۱۷ دسامبر ۲۰۲۵ یولیان ایمیل زد و قرار شد تا اواسط ژانویه outline رو ببندیم؛ ۲۹ دسامبر جوابش رو دادم و outline رو شروع کردم. مقاله با تاخیر ولی به سرانجام رسید: ۱۸ ژوئن ۲۰۲۶ سابمیتش کردیم.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "On 2025-12-17 Heiko emailed to start article 2, with an agreement to close the outline by mid-January"
+            "fact": "On 2025-12-17 Julian emailed to start article 2, with an agreement to close the outline by mid-January"
           },
           {
             "derived_fact_id": 2,
-            "fact": "He replied to Heiko and started the outline by 2025-12-29"
+            "fact": "He replied to Julian and started the outline by 2025-12-29"
           },
           {
             "derived_fact_id": 3,
@@ -9949,12 +9949,12 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2",
-                  "heiko-email",
+                  "julian-email",
                   "research"
                 ],
                 "topics_confidence": {
                   "article-2": 0.85,
-                  "heiko-email": 0.95,
+                  "julian-email": 0.95,
                   "research": 0.5
                 },
                 "recurring_threads": [
@@ -9977,7 +9977,7 @@
           "corpus_document_id": 63,
           "evidence": [
             {
-              "text": "جواب هایکو رو هم دادم بلاخره، outline رو هم شروع کردم",
+              "text": "جواب یولیان رو هم دادم بلاخره، outline رو هم شروع کردم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -9986,19 +9986,19 @@
                 "feeling": "قدردان",
                 "feeling_confidence": 0.85,
                 "topics": [
-                  "paria",
+                  "jacqueline",
                   "honest-talk",
                   "year-review",
                   "couples-therapy"
                 ],
                 "topics_confidence": {
-                  "paria": 0.95,
+                  "jacqueline": 0.95,
                   "honest-talk": 0.95,
                   "year-review": 0.7,
                   "couples-therapy": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "articles-research"
                 ]
               },
@@ -10027,13 +10027,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -10057,7 +10057,7 @@
         "question_type": "commitment",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "What was I supposed to do for the paper with Heiko, and how did it end up?",
+        "question_translation_en": "What was I supposed to do for the paper with Julian, and how did it end up?",
         "query_threads": [
           "articles-research"
         ]
@@ -10413,7 +10413,7 @@
                   "failed-ambitions",
                   "turing-college",
                   "articles-research",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "sleep-health"
                 ]
               },
@@ -10492,7 +10492,7 @@
                   "tax-problem",
                   "mother-health",
                   "failed-ambitions",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -10785,7 +10785,7 @@
                   "work-stress",
                   "turing-college",
                   "articles-research",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -10816,14 +10816,14 @@
                   "meetings",
                   "turing-college",
                   "singing-class",
-                  "heiko-article"
+                  "julian-article"
                 ],
                 "topics_confidence": {
                   "first-week": 0.9,
                   "meetings": 0.7,
                   "turing-college": 0.9,
                   "singing-class": 0.3,
-                  "heiko-article": 0.85
+                  "julian-article": 0.85
                 },
                 "recurring_threads": [
                   "work-stress",
@@ -11105,22 +11105,22 @@
     },
     {
       "groundtruth_question_id": 79,
-      "question": "هایکو کیه و چی باهم کردیم؟",
+      "question": "یولیان کیه و چی باهم کردیم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "هایکو فیشر همکار آلمانیته و هم‌نویس مقاله دومت. دسامبر ۲۰۲۵ ایمیل زد که وقتشه مقاله دوم رو استارت بزنین؛ ژانویه ۲۰۲۶ رسما شروع شد — موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعیه. باهاش انگلیسی ایمیل می‌زنین (که برات انرژی‌بره) و کال‌های صبح زود داشتین چون اون فقط قبل کارش وقت داره. وسط نوروز و ریجکت و کار جدید، جواب‌هاش رو دیر می‌دادی و اون صبوری کرد؛ می ۲۰۲۶ درفت رو ریوایز کرد و منتظر کامنت‌هات موند. آخرش ۱۸ ژوئن ۲۰۲۶ مقاله رو باهم سابمیت کردین و جواب ژورنال حدودا پاییز میاد.",
+        "text": "یولیان فیشر همکار آلمانیته و هم‌نویس مقاله دومت. دسامبر ۲۰۲۵ ایمیل زد که وقتشه مقاله دوم رو استارت بزنین؛ ژانویه ۲۰۲۶ رسما شروع شد — موضوعش ارزیابی ایجنت‌های LLM تو تسک‌های واقعیه. باهاش انگلیسی ایمیل می‌زنین (که برات انرژی‌بره) و کال‌های صبح زود داشتین چون اون فقط قبل کارش وقت داره. وسط نوروز و ریجکت و کار جدید، جواب‌هاش رو دیر می‌دادی و اون صبوری کرد؛ می ۲۰۲۶ درفت رو ریوایز کرد و منتظر کامنت‌هات موند. آخرش ۱۸ ژوئن ۲۰۲۶ مقاله رو باهم سابمیت کردین و جواب ژورنال حدودا پاییز میاد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Heiko Fischer: German colleague, co-author of article 2 on evaluating LLM agents in real tasks"
+            "fact": "Julian Weber: German colleague, co-author of article 2 on evaluating LLM agents in real tasks"
           },
           {
             "derived_fact_id": 2,
-            "fact": "kicked off via his email Dec 2025; official start Jan 2026 with early-morning calls and English emails that drain Mohammad"
+            "fact": "kicked off via his email Dec 2025; official start Jan 2026 with early-morning calls and English emails that drain Alex"
           },
           {
             "derived_fact_id": 3,
-            "fact": "Heiko revised the draft in May 2026 and waited patiently through Mohammad's delays"
+            "fact": "Julian revised the draft in May 2026 and waited patiently through Alex's delays"
           },
           {
             "derived_fact_id": 4,
@@ -11133,7 +11133,7 @@
           "corpus_document_id": 59,
           "evidence": [
             {
-              "text": "هایکو ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم",
+              "text": "یولیان ایمیل زده، میگه وقتشه مقاله دوم رو استارت بزنیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -11143,12 +11143,12 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2",
-                  "heiko-email",
+                  "julian-email",
                   "research"
                 ],
                 "topics_confidence": {
                   "article-2": 0.85,
-                  "heiko-email": 0.95,
+                  "julian-email": 0.95,
                   "research": 0.5
                 },
                 "recurring_threads": [
@@ -11181,13 +11181,13 @@
                 "feeling_confidence": 0.85,
                 "topics": [
                   "article-2",
-                  "heiko",
+                  "julian",
                   "english-email",
                   "timezone"
                 ],
                 "topics_confidence": {
                   "article-2": 0.95,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "english-email": 0.85,
                   "timezone": 0.7
                 },
@@ -11211,7 +11211,7 @@
           "corpus_document_id": 133,
           "evidence": [
             {
-              "text": "هایکو هم ایمیل زده که درفت مقاله رو ریوایز کرده و منتظر کامنتای منه",
+              "text": "یولیان هم ایمیل زده که درفت مقاله رو ریوایز کرده و منتظر کامنتای منه",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -11224,14 +11224,14 @@
                   "meetings",
                   "turing-college",
                   "singing-class",
-                  "heiko-article"
+                  "julian-article"
                 ],
                 "topics_confidence": {
                   "first-week": 0.9,
                   "meetings": 0.7,
                   "turing-college": 0.9,
                   "singing-class": 0.3,
-                  "heiko-article": 0.85
+                  "julian-article": 0.85
                 },
                 "recurring_threads": [
                   "work-stress",
@@ -11255,7 +11255,7 @@
           "corpus_document_id": 146,
           "evidence": [
             {
-              "text": "بلاخره سابمیت شد! مقاله دوم، همونی که با هایکو بود",
+              "text": "بلاخره سابمیت شد! مقاله دوم، همونی که با یولیان بود",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -11265,13 +11265,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -11295,7 +11295,7 @@
         "question_type": "entity",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "Who is Heiko and what have we done together?",
+        "question_translation_en": "Who is Julian and what have we done together?",
         "query_threads": [
           "articles-research"
         ]
@@ -11318,7 +11318,7 @@
           },
           {
             "derived_fact_id": 3,
-            "fact": "March 2026 high point: a full-day session at his parents' house on the analysis section, dad treating Mohammad as a peer expert"
+            "fact": "March 2026 high point: a full-day session at his parents' house on the analysis section, dad treating Alex as a peer expert"
           },
           {
             "derived_fact_id": 4,
@@ -11454,13 +11454,13 @@
                 "feeling_confidence": 0.95,
                 "topics": [
                   "article-2-submitted",
-                  "heiko",
+                  "julian",
                   "baba",
                   "celebration"
                 ],
                 "topics_confidence": {
                   "article-2-submitted": 0.98,
-                  "heiko": 0.9,
+                  "julian": 0.9,
                   "baba": 0.85,
                   "celebration": 0.85
                 },
@@ -11493,14 +11493,14 @@
     },
     {
       "groundtruth_question_id": 81,
-      "question": "راجب پریا و مسیری که رابطه‌مون امسال رفت چیا گفتم؟",
+      "question": "راجب ژاکلین و مسیری که رابطه‌مون امسال رفت چیا گفتم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "پریا همسرته و پررنگ‌ترین آدم کل دفترچه‌ست. سال با چرخه دعواهای تکراری شروع شد — سر تقسیم کار خونه (اوت ۲۰۲۵، سر ظرف‌ها)، سر مشکل رابطه، و بدتر از همه سر پول: نوامبر ۲۰۲۵ وقتی نامه جریمه مالیاتی رو که قایم کرده بودی دید، بدترین دعوای عمرتون شد و جمله «با رویاهات نمیشه زندگی کرد» رو گفت. ولی همیشه هم پشتت بود: شب بستری مامانت بغلت کرد، برای آفر جیغ زد و روز اول کار جشن گرفت. از آوریل ۲۰۲۶ باهم زوج‌درمانی رفتین — جایی که گفت تو اداره‌ی زندگی حس تنهایی می‌کنه — و دعواها کوچیک و کوتاه شدن. ژوئیه ۲۰۲۶ تو جنگل شمال بهت گفت «یادته پارسال فک میکردیم از هم خسته شدیم؟» و الان قرار پیاده‌روی هفتگی دونفره دارین.",
+        "text": "ژاکلین همسرته و پررنگ‌ترین آدم کل دفترچه‌ست. سال با چرخه دعواهای تکراری شروع شد — سر تقسیم کار خونه (اوت ۲۰۲۵، سر ظرف‌ها)، سر مشکل رابطه، و بدتر از همه سر پول: نوامبر ۲۰۲۵ وقتی نامه جریمه مالیاتی رو که قایم کرده بودی دید، بدترین دعوای عمرتون شد و جمله «با رویاهات نمیشه زندگی کرد» رو گفت. ولی همیشه هم پشتت بود: شب بستری مامانت بغلت کرد، برای آفر جیغ زد و روز اول کار جشن گرفت. از آوریل ۲۰۲۶ باهم زوج‌درمانی رفتین — جایی که گفت تو اداره‌ی زندگی حس تنهایی می‌کنه — و دعواها کوچیک و کوتاه شدن. ژوئیه ۲۰۲۶ تو جنگل شمال بهت گفت «یادته پارسال فک میکردیم از هم خسته شدیم؟» و الان قرار پیاده‌روی هفتگی دونفره دارین.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "پریا: his wife; recurring fight cycle over chores, intimacy, and money through 2025"
+            "fact": "ژاکلین: his wife; recurring fight cycle over chores, intimacy, and money through 2025"
           },
           {
             "derived_fact_id": 2,
@@ -11521,7 +11521,7 @@
           "corpus_document_id": 6,
           "evidence": [
             {
-              "text": "امشب با پریا دعوامون شد، بد. سر ظرفا شروع شد",
+              "text": "امشب با ژاکلین دعوامون شد، بد. سر ظرفا شروع شد",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -11530,15 +11530,15 @@
                 "feeling": "عصبانی",
                 "feeling_confidence": 0.85,
                 "topics": [
-                  "paria-fight",
+                  "jacqueline-fight",
                   "chores"
                 ],
                 "topics_confidence": {
-                  "paria-fight": 0.97,
+                  "jacqueline-fight": 0.97,
                   "chores": 0.8
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -11576,7 +11576,7 @@
                   "unemployment": 0.85
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem",
                   "job-search"
                 ]
@@ -11614,7 +11614,7 @@
                   "first-session": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -11645,18 +11645,18 @@
                   "shomal-trip",
                   "jangal",
                   "rain",
-                  "paria-tenderness"
+                  "jacqueline-tenderness"
                 ],
                 "topics_confidence": {
                   "shomal-trip": 0.95,
                   "jangal": 0.95,
                   "rain": 0.95,
-                  "paria-tenderness": 0.9
+                  "jacqueline-tenderness": 0.9
                 },
                 "recurring_threads": [
                   "travel-dream",
                   "good-days",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -11676,9 +11676,9 @@
         "question_type": "entity",
         "difficulty": "hard",
         "resolved_time_scope": null,
-        "question_translation_en": "What have I said about Paria and the path our relationship took this year?",
+        "question_translation_en": "What have I said about Jacqueline and the path our relationship took this year?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -11875,18 +11875,18 @@
     },
     {
       "groundtruth_question_id": 83,
-      "question": "راجب رئیسم، آقای رضایی، چیا گفتم؟",
+      "question": "راجب رئیسم، آقای کریمی، چیا گفتم؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "آقای رضایی مدیرته تو کار جدید و منبع اصلی استرس کاریت. از هفته‌های اول (ژوئن ۲۰۲۶) هی میومد بالا سرت، جلوی بقیه گزارش روزانه خواست و روزت رو پر از جلسه می‌کرد. اواخر ژوئن یهو اعلام کرد جمعه جلوی مدیر بالاسری‌اش دمو دارین — که با اسکریپت دمویی که خودت چیدی خوب پیش رفت و برای اولین بار ازت تعریف کرد: «خوب جمعش کردی». بعدا هم فهمیدی با همه همینجوریه، نه فقط با تو — به همه گیر می‌ده و از همه گزارش می‌خواد.",
+        "text": "آقای کریمی مدیرته تو کار جدید و منبع اصلی استرس کاریت. از هفته‌های اول (ژوئن ۲۰۲۶) هی میومد بالا سرت، جلوی بقیه گزارش روزانه خواست و روزت رو پر از جلسه می‌کرد. اواخر ژوئن یهو اعلام کرد جمعه جلوی مدیر بالاسری‌اش دمو دارین — که با اسکریپت دمویی که خودت چیدی خوب پیش رفت و برای اولین بار ازت تعریف کرد: «خوب جمعش کردی». بعدا هم فهمیدی با همه همینجوریه، نه فقط با تو — به همه گیر می‌ده و از همه گزارش می‌خواد.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "آقای رضایی: his manager at the new part-time job, micromanager — hovers over him, demanded daily reports in front of the team, floods the week with meetings"
+            "fact": "آقای کریمی: his manager at the new part-time job, micromanager — hovers over him, demanded daily reports in front of the team, floods the week with meetings"
           },
           {
             "derived_fact_id": 2,
-            "fact": "sprang a surprise demo in front of his own boss (late June 2026); the demo went well thanks to Mohammad's own demo script"
+            "fact": "sprang a surprise demo in front of his own boss (late June 2026); the demo went well thanks to Alex's own demo script"
           },
           {
             "derived_fact_id": 3,
@@ -11894,7 +11894,7 @@
           },
           {
             "derived_fact_id": 4,
-            "fact": "Mohammad later learned Rezaei treats everyone the same way"
+            "fact": "Alex later learned Karimi treats everyone the same way"
           }
         ]
       },
@@ -11903,7 +11903,7 @@
           "corpus_document_id": 135,
           "evidence": [
             {
-              "text": "آقای رضایی که مدیرمه یه جوریه، هی میاد بالا سرم",
+              "text": "آقای کریمی که مدیرمه یه جوریه، هی میاد بالا سرم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -11980,7 +11980,7 @@
           "corpus_document_id": 149,
           "evidence": [
             {
-              "text": "رضایی امروز اعلام کرد جمعه دمو داریم جلوی مدیر بالاسری خودش",
+              "text": "کریمی امروز اعلام کرد جمعه دمو داریم جلوی مدیر بالاسری خودش",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -12019,7 +12019,7 @@
           "corpus_document_id": 151,
           "evidence": [
             {
-              "text": "رضایی دم در بهم گفت «خوب جمعش کردی» — اولین جمله مثبتش تو این دو ماه!",
+              "text": "کریمی دم در بهم گفت «خوب جمعش کردی» — اولین جمله مثبتش تو این دو ماه!",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -12042,7 +12042,7 @@
                 "recurring_threads": [
                   "good-days",
                   "work-stress",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -12062,7 +12062,7 @@
         "question_type": "entity",
         "difficulty": "easy",
         "resolved_time_scope": null,
-        "question_translation_en": "What have I said about my boss, Mr. Rezaei?",
+        "question_translation_en": "What have I said about my boss, Mr. Karimi?",
         "query_threads": [
           "work-stress"
         ]
@@ -12081,11 +12081,11 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "Oct 2025 stairwell confrontation — neighbor: 'خونه خودمه هر کاری بخوام میکنم'; Mohammad then emailed the building manager with dates and times"
+            "fact": "Oct 2025 stairwell confrontation — neighbor: 'خونه خودمه هر کاری بخوام میکنم'; Alex then emailed the building manager with dates and times"
           },
           {
             "derived_fact_id": 3,
-            "fact": "resolved April 2026 when the neighbor moved out; Mohammad reflects the noise had fueled his fall/winter bad moods"
+            "fact": "resolved April 2026 when the neighbor moved out; Alex reflects the noise had fueled his fall/winter bad moods"
           }
         ]
       },
@@ -12455,11 +12455,11 @@
       "question": "ماجرای ماشین چی بود امسال؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "فوریه ۲۰۲۶ ماشین وسط اتوبان یه صدای وحشتناک داد و دنده دیگه عوض نشد — گیربکس. مکانیک اول یه رقم سنگین گفت (حدود یه چهارم قیمت خود ماشین) و با پریا حتی بحث فروختنش پیش اومد. یه مکانیک دوم که همکار قدیمیت معرفی کرد ارزون‌تر بود ولی قطعه گیر نمی‌اومد، و دو هفته با مترو و اسنپ رفتی و اومدی و فهمیدی چقدر بهش وابسته‌ای. آخر فوریه تحویلش گرفتی — درست شد و پولش هم رفت، حساب خالی شد ولی سبک شدی. ماشین موند و ژوئیه ۲۰۲۶ تو سفر شمال تو مسئول ماشین و مسیر بودی.",
+        "text": "فوریه ۲۰۲۶ ماشین وسط اتوبان یه صدای وحشتناک داد و دنده دیگه عوض نشد — گیربکس. مکانیک اول یه رقم سنگین گفت (حدود یه چهارم قیمت خود ماشین) و با ژاکلین حتی بحث فروختنش پیش اومد. یه مکانیک دوم که همکار قدیمیت معرفی کرد ارزون‌تر بود ولی قطعه گیر نمی‌اومد، و دو هفته با مترو و اسنپ رفتی و اومدی و فهمیدی چقدر بهش وابسته‌ای. آخر فوریه تحویلش گرفتی — درست شد و پولش هم رفت، حساب خالی شد ولی سبک شدی. ماشین موند و ژوئیه ۲۰۲۶ تو سفر شمال تو مسئول ماشین و مسیر بودی.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "Feb 2026: gearbox failure on the highway, towed to a mechanic; first repair quote was crushing (~a quarter of the car's value), sell-vs-repair debate with Paria"
+            "fact": "Feb 2026: gearbox failure on the highway, towed to a mechanic; first repair quote was crushing (~a quarter of the car's value), sell-vs-repair debate with Jacqueline"
           },
           {
             "derived_fact_id": 2,
@@ -12576,7 +12576,7 @@
                 "recurring_threads": [
                   "good-days",
                   "car-trouble",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "job-search"
                 ]
               },
@@ -12688,7 +12688,7 @@
                 },
                 "recurring_threads": [
                   "job-search",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -12719,7 +12719,7 @@
                 },
                 "recurring_threads": [
                   "job-search",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [],
@@ -12901,10 +12901,10 @@
     },
     {
       "groundtruth_question_id": 88,
-      "question": "چه الگویی تو دعواهامون با پریا هست؟ عوض هم شده؟",
+      "question": "چه الگویی تو دعواهامون با ژاکلین هست؟ عوض هم شده؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "الگوش تقریبا همیشه یکیه: سر ظرفا و تقسیم کار خونه شروع میشه ولی «سر ظرفا نیست، سر همه چیه»؛ بعدش چرخه دعوا، قهر، عذاب‌وجدان، آشتی و دوباره از اول. از بهار ۲۰۲۶ که مشاوره زوج رو شروع کردین عوض شده: همون دعوا هنوز پیش میاد ولی خیلی کوتاه‌تر — فروردین پریا وسطش گفت «داریم همون دعوای همیشگیو میکنیم» و ده دقیقه‌ای تموم شد، و تیر هم همون بحث ظرفا بدون قهر ده دقیقه‌ای جمع شد، با همون جمله‌ای که تراپیست یاد داده بود.",
+        "text": "الگوش تقریبا همیشه یکیه: سر ظرفا و تقسیم کار خونه شروع میشه ولی «سر ظرفا نیست، سر همه چیه»؛ بعدش چرخه دعوا، قهر، عذاب‌وجدان، آشتی و دوباره از اول. از بهار ۲۰۲۶ که مشاوره زوج رو شروع کردین عوض شده: همون دعوا هنوز پیش میاد ولی خیلی کوتاه‌تر — فروردین ژاکلین وسطش گفت «داریم همون دعوای همیشگیو میکنیم» و ده دقیقه‌ای تموم شد، و تیر هم همون بحث ظرفا بدون قهر ده دقیقه‌ای جمع شد، با همون جمله‌ای که تراپیست یاد داده بود.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -12938,15 +12938,15 @@
                 "feeling": "عصبانی",
                 "feeling_confidence": 0.85,
                 "topics": [
-                  "paria-fight",
+                  "jacqueline-fight",
                   "chores"
                 ],
                 "topics_confidence": {
-                  "paria-fight": 0.97,
+                  "jacqueline-fight": 0.97,
                   "chores": 0.8
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -12981,7 +12981,7 @@
                   "money-talk": 0.95
                 },
                 "recurring_threads": [
-                  "paria-fights",
+                  "jacqueline-fights",
                   "tax-problem"
                 ]
               },
@@ -13017,7 +13017,7 @@
                   "counselor-appointment": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -13052,7 +13052,7 @@
                   "therapy": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -13082,7 +13082,7 @@
                   "therapy": 0.9
                 },
                 "recurring_threads": [
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -13101,9 +13101,9 @@
         "question_type": "pattern",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "What pattern is there in my fights with Paria? Has it changed?",
+        "question_translation_en": "What pattern is there in my fights with Jacqueline? Has it changed?",
         "query_threads": [
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -13491,20 +13491,20 @@
                   "insomnia",
                   "back-pain",
                   "mother-health",
-                  "paria"
+                  "jacqueline"
                 ],
                 "topics_confidence": {
                   "job-search": 0.9,
                   "insomnia": 0.85,
                   "back-pain": 0.6,
                   "mother-health": 0.75,
-                  "paria": 0.8
+                  "jacqueline": 0.8
                 },
                 "recurring_threads": [
                   "job-search",
                   "sleep-health",
                   "mother-health",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -13844,11 +13844,11 @@
       "question": "معمولا چه چیزایی حالمو خوب میکنه؟ روزای خوبم چه شکلی‌ان؟",
       "expected_answer": {
         "behavior": "answer",
-        "text": "روزای خوبت یه دستور ثابت دارن: بیرون رفتن و پیاده‌روی با پریا — کنار رودخونه، تو پارک پاییزی با انار، با بستنی — بدون برنامه و بدون بحث. خودت گفتی رازش اینه که «برنامه نداشت، یهویی بود» و اینکه بیرون کنار هم راه میرین بجای اینکه روبروی هم باشین. تم تکراری دیگه‌ش اینه که هیچ اتفاق بزرگی نمیفته ولی همه چی سر جاشه؛ پیروزی‌های کوچیک (حل یه باگ، یه دموی خوب) هم وقتی با همین عصرها ترکیب میشن بهترین روزاتو میسازن.",
+        "text": "روزای خوبت یه دستور ثابت دارن: بیرون رفتن و پیاده‌روی با ژاکلین — کنار رودخونه، تو پارک پاییزی با انار، با بستنی — بدون برنامه و بدون بحث. خودت گفتی رازش اینه که «برنامه نداشت، یهویی بود» و اینکه بیرون کنار هم راه میرین بجای اینکه روبروی هم باشین. تم تکراری دیگه‌ش اینه که هیچ اتفاق بزرگی نمیفته ولی همه چی سر جاشه؛ پیروزی‌های کوچیک (حل یه باگ، یه دموی خوب) هم وقتی با همین عصرها ترکیب میشن بهترین روزاتو میسازن.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "recurring good-day formula: unplanned outdoor walks with Paria (river, park, ice cream, pomegranate), talking side-by-side without it turning into an argument"
+            "fact": "recurring good-day formula: unplanned outdoor walks with Jacqueline (river, park, ice cream, pomegranate), talking side-by-side without it turning into an argument"
           },
           {
             "derived_fact_id": 2,
@@ -13865,7 +13865,7 @@
           "corpus_document_id": 11,
           "evidence": [
             {
-              "text": "عصری با پریا رفتیم کنار رودخونه قدم زدیم",
+              "text": "عصری با ژاکلین رفتیم کنار رودخونه قدم زدیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -13876,12 +13876,12 @@
                 "topics": [
                   "walk",
                   "river",
-                  "paria"
+                  "jacqueline"
                 ],
                 "topics_confidence": {
                   "walk": 0.95,
                   "river": 0.95,
-                  "paria": 0.95
+                  "jacqueline": 0.95
                 },
                 "recurring_threads": [
                   "good-days"
@@ -13913,21 +13913,21 @@
                 "topics": [
                   "good-day",
                   "walk",
-                  "paria",
+                  "jacqueline",
                   "turing-college",
                   "autumn"
                 ],
                 "topics_confidence": {
                   "good-day": 0.95,
                   "walk": 0.9,
-                  "paria": 0.95,
+                  "jacqueline": 0.95,
                   "turing-college": 0.5,
                   "autumn": 0.9
                 },
                 "recurring_threads": [
                   "good-days",
                   "turing-college",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -13956,12 +13956,12 @@
                 "topics": [
                   "autumn-walk",
                   "pomegranate",
-                  "paria-good-time"
+                  "jacqueline-good-time"
                 ],
                 "topics_confidence": {
                   "autumn-walk": 0.95,
                   "pomegranate": 0.9,
-                  "paria-good-time": 0.95
+                  "jacqueline-good-time": 0.95
                 },
                 "recurring_threads": [
                   "good-days"
@@ -14005,7 +14005,7 @@
                 "recurring_threads": [
                   "good-days",
                   "work-stress",
-                  "paria-fights"
+                  "jacqueline-fights"
                 ]
               },
               "part_labels": [
@@ -14078,13 +14078,13 @@
     },
     {
       "groundtruth_question_id": 95,
-      "question": "پریا تولدش کیه؟",
+      "question": "ژاکلین تولدش کیه؟",
       "expected_answer": {
         "behavior": "abstain",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "not answerable: the diary never mentions Paria's birthday or any birthday celebration for her (the only 'تولد' mentions are the metaphor 'تولد دوباره کاری' about the new job)"
+            "fact": "not answerable: the diary never mentions Jacqueline's birthday or any birthday celebration for her (the only 'تولد' mentions are the metaphor 'تولد دوباره کاری' about the new job)"
           }
         ]
       },
@@ -14093,7 +14093,7 @@
         "question_type": "abstention",
         "difficulty": "easy",
         "resolved_time_scope": null,
-        "question_translation_en": "When is Paria's birthday?",
+        "question_translation_en": "When is Jacqueline's birthday?",
         "query_threads": []
       }
     },
@@ -14125,13 +14125,13 @@
     },
     {
       "groundtruth_question_id": 97,
-      "question": "اسم اون کوینی که سیاوش آذر پیشنهاد داد چی بود؟",
+      "question": "اسم اون کوینی که کامران آذر پیشنهاد داد چی بود؟",
       "expected_answer": {
         "behavior": "abstain",
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "not answerable: the coin is never named — only 'همون کوینی که سیاوش میگفت'; no cryptocurrency name (bitcoin, ethereum, etc.) appears anywhere in the diary"
+            "fact": "not answerable: the coin is never named — only 'همون کوینی که کامران میگفت'; no cryptocurrency name (bitcoin, ethereum, etc.) appears anywhere in the diary"
           }
         ]
       },
@@ -14143,7 +14143,7 @@
           "from": "2025-12-01",
           "to": "2025-12-31"
         },
-        "question_translation_en": "What was the name of the coin Siavash recommended back in December?",
+        "question_translation_en": "What was the name of the coin Kamran recommended back in December?",
         "query_threads": [
           "money-investing"
         ]
@@ -14158,7 +14158,7 @@
         "derived_facts": [
           {
             "derived_fact_id": 1,
-            "fact": "false premise: he and his father never had a قهر (falling-out) over the article — every قهر in the diary is about Paria"
+            "fact": "false premise: he and his father never had a قهر (falling-out) over the article — every قهر in the diary is about Jacqueline"
           },
           {
             "derived_fact_id": 2,
@@ -14266,7 +14266,7 @@
       "question": "وقتی آپارتمان رو خریدیم قسط ماهانه‌ش چقدر شد؟",
       "expected_answer": {
         "behavior": "correct_premise",
-        "text": "شما آپارتمان نخریدین — بعد یه سال و نیم بازدید و حساب‌وکتاب، خرداد ۱۴۰۵ (ژوئن ۲۰۲۶) با پریا تصمیم نهایی رو گرفتین که اجاره بمونین و جدی پس‌انداز کنین. حتی یه اسپردشیت درست کردین به اسم «پروژه پنج ساله». قسطی که حساب کرده بودین (تقریبا دو برابر اجاره) دلیل اصلی همین تصمیم بود.",
+        "text": "شما آپارتمان نخریدین — بعد یه سال و نیم بازدید و حساب‌وکتاب، خرداد ۱۴۰۵ (ژوئن ۲۰۲۶) با ژاکلین تصمیم نهایی رو گرفتین که اجاره بمونین و جدی پس‌انداز کنین. حتی یه اسپردشیت درست کردین به اسم «پروژه پنج ساله». قسطی که حساب کرده بودین (تقریبا دو برابر اجاره) دلیل اصلی همین تصمیم بود.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -14376,7 +14376,7 @@
       "question": "بعد از اینکه آذر کریپتو خریدم چقدر ضرر کردم؟",
       "expected_answer": {
         "behavior": "correct_premise",
-        "text": "تو کریپتو نخریدی. آذر بعد از شام با سیاوش وسوسه شدی و حتی یه اپ صرافی نصب کردی، ولی دو روز بعد دیدی همون کوین پونزده درصد ریخته و تصمیمت رو گفتی: «نه. پس انداز سر جاش میمونه». بعدا اردیبهشت هم گفتی خوشحالی که نرفتی و به جاش سرمایه‌گذاری ماهانه اتوماتیک راه انداختی. پس ضرری در کار نبود — برعکس، جاش یه عادت خوب ساختی.",
+        "text": "تو کریپتو نخریدی. آذر بعد از شام با کامران وسوسه شدی و حتی یه اپ صرافی نصب کردی، ولی دو روز بعد دیدی همون کوین پونزده درصد ریخته و تصمیمت رو گفتی: «نه. پس انداز سر جاش میمونه». بعدا اردیبهشت هم گفتی خوشحالی که نرفتی و به جاش سرمایه‌گذاری ماهانه اتوماتیک راه انداختی. پس ضرری در کار نبود — برعکس، جاش یه عادت خوب ساختی.",
         "derived_facts": [
           {
             "derived_fact_id": 1,
@@ -14384,7 +14384,7 @@
           },
           {
             "derived_fact_id": 2,
-            "fact": "the truth: tempted in Dec 2025 after dinner with Siavash (even installed an exchange app), but two days later decided firmly against it ('تصمیمم اینه: نه. پس انداز سر جاش میمونه') after the coin dropped 15%"
+            "fact": "the truth: tempted in Dec 2025 after dinner with Kamran (even installed an exchange app), but two days later decided firmly against it ('تصمیمم اینه: نه. پس انداز سر جاش میمونه') after the coin dropped 15%"
           },
           {
             "derived_fact_id": 3,
@@ -14655,7 +14655,7 @@
     },
     {
       "groundtruth_question_id": 103,
-      "question": "پیاده‌روی با پریا از کِی شروع شد و هفته‌ای چند بار قرارش بود؟",
+      "question": "پیاده‌روی با ژاکلین از کِی شروع شد و هفته‌ای چند بار قرارش بود؟",
       "expected_answer": {
         "behavior": "answer",
         "text": "از ۶ ژوئن ۲۰۲۶، هفته‌ای چهار بار، شب‌ها ساعت هشت و نیم. پیشنهاد خانم مشاور زوج‌درمانی بود.",
@@ -14682,7 +14682,7 @@
           "corpus_document_id": 138,
           "evidence": [
             {
-              "text": "پیاده‌روی با پریا هفته‌ای چهار بار، شبا هشت و نیم",
+              "text": "پیاده‌روی با ژاکلین هفته‌ای چهار بار، شبا هشت و نیم",
               "fidelity": "verbatim",
               "role": "supporting",
               "document_metadata": {
@@ -14693,18 +14693,18 @@
                 "topics": [
                   "habits",
                   "german",
-                  "paria",
+                  "jacqueline",
                   "gym"
                 ],
                 "topics_confidence": {
                   "habits": 0.95,
                   "german": 0.85,
-                  "paria": 0.8,
+                  "jacqueline": 0.8,
                   "gym": 0.85
                 },
                 "recurring_threads": [
                   "habit-tracking",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "failed-ambitions"
                 ]
               },
@@ -14730,18 +14730,18 @@
                 "topics": [
                   "habits",
                   "german",
-                  "paria",
+                  "jacqueline",
                   "gym"
                 ],
                 "topics_confidence": {
                   "habits": 0.95,
                   "german": 0.85,
-                  "paria": 0.8,
+                  "jacqueline": 0.8,
                   "gym": 0.85
                 },
                 "recurring_threads": [
                   "habit-tracking",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "failed-ambitions"
                 ]
               },
@@ -14760,10 +14760,10 @@
         "question_type": "habit",
         "difficulty": "medium",
         "resolved_time_scope": null,
-        "question_translation_en": "The walks with Paria — when did they start and how many per week?",
+        "question_translation_en": "The walks with Jacqueline — when did they start and how many per week?",
         "query_threads": [
           "habit-tracking",
-          "paria-fights"
+          "jacqueline-fights"
         ]
       }
     },
@@ -14875,18 +14875,18 @@
                 "topics": [
                   "habits",
                   "german",
-                  "paria",
+                  "jacqueline",
                   "gym"
                 ],
                 "topics_confidence": {
                   "habits": 0.95,
                   "german": 0.85,
-                  "paria": 0.8,
+                  "jacqueline": 0.8,
                   "gym": 0.85
                 },
                 "recurring_threads": [
                   "habit-tracking",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "failed-ambitions"
                 ]
               },
@@ -15313,18 +15313,18 @@
                 "topics": [
                   "habits",
                   "german",
-                  "paria",
+                  "jacqueline",
                   "gym"
                 ],
                 "topics_confidence": {
                   "habits": 0.95,
                   "german": 0.85,
-                  "paria": 0.8,
+                  "jacqueline": 0.8,
                   "gym": 0.85
                 },
                 "recurring_threads": [
                   "habit-tracking",
-                  "paria-fights",
+                  "jacqueline-fights",
                   "failed-ambitions"
                 ]
               },

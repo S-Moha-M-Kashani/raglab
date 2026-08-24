@@ -3,6 +3,12 @@ const ArchiveIO = (() => {
   const FORMAT = 'raglab-experiment';
   const VERSION = 1;
   const MAX_BYTES = 32 * 1024 * 1024;
+  // D3: `IndexConfig.dataset=''` still *means* the built-in diary, and is
+  // still dropped from the fingerprint payload so every collection name
+  // already recorded stays reproducible — the one dataset id this codec (and
+  // `ExperimentHandoff.reconcile`, which reads this same constant) ever
+  // fills in for an absent one, stated once rather than typed at each site.
+  const BUILTIN_DATASET = 'diary-fa';
   const LIMITS = Object.freeze({
     depth: 32, questions: 5000, chunks: 50000, traces: 5000,
     candidates_per_trace: 1000, list_items: 100000, string_chars: 2000000,
@@ -519,7 +525,7 @@ const ArchiveIO = (() => {
     if (integer(result.summary.n_questions, 'evaluation.result.summary.n_questions', 0) !== count) {
       fail(`evaluation.result.summary.n_questions: expected ${count}`);
     }
-    const datasetId = body.config.index.dataset || 'diary-fa';
+    const datasetId = body.config.index.dataset || BUILTIN_DATASET;
     if (result.dataset !== datasetId) {
       fail(`evaluation.result.dataset ${result.dataset}: expected settings dataset ${datasetId}`);
     }
@@ -611,7 +617,7 @@ const ArchiveIO = (() => {
     }
   };
   const datasetDisposition = (value, servedIds) => {
-    const dataset = value.settings.config.index.dataset || 'diary-fa';
+    const dataset = value.settings.config.index.dataset || BUILTIN_DATASET;
     const viewOnly = !servedIds.includes(dataset);
     if (viewOnly && !value.evaluation) {
       throw new Error(`settings.config.index.dataset ${dataset} is not available`);
@@ -625,7 +631,7 @@ const ArchiveIO = (() => {
     catch (error) { adapter.write(before); throw error; }
     return next;
   };
-  return Object.freeze({ FORMAT, VERSION, MAX_BYTES, settings, completed,
-    normalize, parse, stringify, equal, assertFileSize, stageResults,
+  return Object.freeze({ FORMAT, VERSION, MAX_BYTES, BUILTIN_DATASET, settings,
+    completed, normalize, parse, stringify, equal, assertFileSize, stageResults,
     datasetDisposition, transact });
 })();

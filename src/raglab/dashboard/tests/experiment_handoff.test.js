@@ -22,8 +22,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SOURCE = readFileSync(
-  join(HERE, '../frontend/experiment_handoff.js'), 'utf8');
+const read = (name) => readFileSync(join(HERE, '../frontend', name), 'utf8');
+// `archive_io.js` first, exactly as every real page loads them: `reconcile`
+// reads `ArchiveIO.BUILTIN_DATASET` for the one dataset id it ever fills in
+// for an absent one (D3), rather than a second copy of that string.
+const SOURCE = `${read('archive_io.js')}\n${read('experiment_handoff.js')}`;
 const Handoff = runInNewContext(SOURCE + '\n;ExperimentHandoff', {});
 
 // The smallest fake of `localStorage` these two functions actually touch.
@@ -169,6 +172,54 @@ test('a corpus this installation no longer has is named as uninstalled', () => {
   assert.equal(out.config.index.dataset, 'diary-fa');
   assert.deepEqual(plain(out.unserved), [{
     path: 'index.dataset', value: 'gone-fa', reason: 'not installed here',
+  }]);
+});
+
+// --- D3: an absent dataset still means the built-in diary -------------------
+// `IndexConfig.dataset=''` is how an archive from before this installation's
+// datasets carried ids of their own (D3) names the built-in corpus, and it
+// still means it — but `''` is not a value any served dataset's own id
+// equals any more, so left unresolved it would read as a corpus this lab
+// does not have, and a control whose options are named would select
+// nothing at all rather than the diary. Three cases, the same three the
+// live re-check that found this asked for: an absent id resolves and
+// selects, a served non-empty id selects as it always did, and a genuinely
+// unknown one keeps the ordinary honest naming — never a fourth case where
+// `''` and "unknown" are told apart differently from any other value.
+
+test('an absent dataset (\'\') resolves to the built-in diary and is applied,'
+  + ' not left unresolved and unservable', () => {
+  const recorded = copy(CURRENT);
+  recorded.index.dataset = '';
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+  assert.equal(out.config.index.dataset, 'diary-fa',
+    "'' must resolve to the same id `archive_io.js`'s own datasetDisposition "
+    + 'already falls back to, not stay empty');
+  assert.deepEqual(plain(out.unserved), [],
+    'the built-in corpus is always servable, so this must not be named as '
+    + 'unserved at all');
+  assert.ok(out.set.includes('index.dataset'));
+});
+
+test('a served, non-empty dataset id selects exactly as it always did', () => {
+  const recorded = copy(CURRENT);
+  recorded.index.dataset = 'smoke-mini';
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+  assert.equal(out.config.index.dataset, 'smoke-mini',
+    'a real id already equal to what this lab serves is never rewritten');
+  assert.deepEqual(plain(out.unserved), []);
+});
+
+test('an unknown, non-empty dataset id keeps the ordinary unserved naming — '
+  + 'the fix is for \'\' specifically, not for any absence of a match', () => {
+  const recorded = copy(CURRENT);
+  recorded.index.dataset = 'retired-corpus-xyz';
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+  assert.equal(out.config.index.dataset, CURRENT.index.dataset,
+    'left at the panel’s own value, exactly like any other unserved knob');
+  assert.deepEqual(plain(out.unserved), [{
+    path: 'index.dataset', value: 'retired-corpus-xyz',
+    reason: 'not installed here',
   }]);
 });
 

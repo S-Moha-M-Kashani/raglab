@@ -65,12 +65,27 @@ const ExperimentHandoff = (() => {
 
   // --- what this lab can serve ----------------------------------------------
 
+  // The value a servable knob is actually written under — almost always the
+  // recorded one unchanged. `index.dataset` is the one exception: an archive
+  // from before this installation's datasets carried ids of their own (D3)
+  // records an absent dataset as `''`, meaning the built-in diary, and `''`
+  // is not a value any served dataset's own id equals any more — so the
+  // record's own way of naming that corpus and this lab's way of listing it
+  // have to resolve to the *same* string before it reaches a control whose
+  // options are named, or the value that means "the diary" would still
+  // select nothing at all. `ArchiveIO.BUILTIN_DATASET` is read rather than
+  // typed here so the two codecs share one mapping instead of each stating it.
+  function resolvedDataset(value) {
+    return value || ArchiveIO.BUILTIN_DATASET;
+  }
+
   // One rule per knob the panel constrains, asked in the order that produces
   // the sentence a reader can act on: the corpus first, because a config
   // applied against the wrong corpus is not that experiment at all.
   function unservedReason(path, value, served) {
     if (path === 'index.dataset') {
-      return (served.datasets || []).includes(value) ? '' : 'not installed here';
+      return (served.datasets || []).includes(resolvedDataset(value))
+        ? '' : 'not installed here';
     }
     const choices = (served.choices || {})[path];
     if (choices) {
@@ -148,7 +163,11 @@ const ExperimentHandoff = (() => {
         }
         const reason = unservedReason(path, value, served);
         if (reason) unserved.push({ path, value, reason });
-        else { config[group][knob] = value; set.push(path); }
+        else {
+          config[group][knob] = path === 'index.dataset'
+            ? resolvedDataset(value) : value;
+          set.push(path);
+        }
       }
     }
     // The corpus first, whatever order the record listed its knobs in. A config

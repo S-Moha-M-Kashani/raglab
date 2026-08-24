@@ -38,6 +38,30 @@ const REAL_OPTIONS = JSON.parse(
   readFileSync(join(HERE, 'pre_branch_options_fixture.json'), 'utf8'));
 const EXPERIMENT_ID = ARCHIVE.evaluation.result.run_id;
 
+// A second real, pre-branch archive — fetched the same way, from a run
+// against a *served, non-empty* dataset id rather than the built-in diary's
+// `''`. The live re-check that found the `''` gap named this exact row by
+// name first, on the reasonable guess that `''`/`'meetings-de'` might be the
+// same fact about every pre-branch row; fetching both shows they are not —
+// this repository's own pre-branch rows split across both shapes, so a fix
+// for one must not regress the other.
+const MEETINGS_ARCHIVE = JSON.parse(
+  readFileSync(join(HERE, 'pre_branch_archive_meetings_fixture.json'), 'utf8'));
+const MEETINGS_EXPERIMENT_ID = MEETINGS_ARCHIVE.evaluation.result.run_id;
+
+// The third case has no real row to fetch — no experiment here has ever run
+// against a dataset this installation does not serve — so it is the one
+// fixture built by hand, from the real archive's own shape, changed in
+// exactly the one field the case is about.
+const UNKNOWN_DATASET_ID = 'retired-corpus-xyz';
+function unknownDatasetArchive() {
+  const archive = JSON.parse(JSON.stringify(ARCHIVE));
+  archive.settings.config.index.dataset = UNKNOWN_DATASET_ID;
+  archive.evaluation.result.dataset = UNKNOWN_DATASET_ID;
+  archive.evaluation.result.run_id = 'unknown-dataset-run-001';
+  return archive;
+}
+
 const copy = (value) => JSON.parse(JSON.stringify(value));
 
 // The confirming half of "fetched, not hand-written": the fixture must still
@@ -106,7 +130,8 @@ function seedStaticControls(byIdOf) {
   byIdOf('ragas_limit').value = '0';
 }
 
-function panelPage({ search = '', initialSavedConfig = null } = {}) {
+function panelPage({ search = '', initialSavedConfig = null,
+                    archives = { [EXPERIMENT_ID]: ARCHIVE } } = {}) {
   const byId = new Map();
   const byIdOf = (id) => {
     if (!byId.has(id)) byId.set(id, element(id));
@@ -161,9 +186,11 @@ function panelPage({ search = '', initialSavedConfig = null } = {}) {
         return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
           json: () => Promise.resolve(copy(REAL_OPTIONS)) });
       }
-      if (path === `/api/experiments/${encodeURIComponent(EXPERIMENT_ID)}/archive`) {
-        return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
-          json: () => Promise.resolve(copy(ARCHIVE)) });
+      for (const [id, archive] of Object.entries(archives)) {
+        if (path === `/api/experiments/${encodeURIComponent(id)}/archive`) {
+          return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
+            json: () => Promise.resolve(copy(archive)) });
+        }
       }
       return Promise.resolve({ ok: false, status: 404, statusText: 'Not Found',
         json: () => Promise.resolve({ detail: `no route registered for ${path}` }) });
@@ -283,4 +310,71 @@ test('a page that boots over an already-poisoned saved config still opens '
   const opened = page.requests.notes.find((note) => /^Laboratory settings are now/.test(note));
   assert.ok(opened);
   assert.match(opened, /key_facts_judge = true — not a knob this lab reads any more/);
+});
+
+// --- D3: an absent dataset still means the built-in diary, over the real ---
+// page-load path ------------------------------------------------------------
+// A live re-check after round 3 found the dropdown reading `'—'` (no
+// selection) for an experiment recorded with `index.dataset=''` — the
+// pre-D3 way of naming the built-in diary, which the datasets this
+// installation now serves list under a real id (`'diary-fa'`) rather than
+// `''`. `archive_io.js`'s own `datasetDisposition` already resolves that
+// same absence (`|| BUILTIN_DATASET`); `ExperimentHandoff.reconcile` reading
+// that one constant (pinned directly in `experiment_handoff.test.js`) is
+// the mechanism, and these three tests are that mechanism driven through
+// the real page-load entry point, over real archives, for the three cases
+// the fix has to tell apart: an absent id resolves and selects, a served
+// non-empty id selects exactly as it always did, and a genuinely unknown
+// one keeps the ordinary honest naming.
+
+test("an archive recorded with dataset='' selects diary-fa, not '—'",
+  async () => {
+    const page = panelPage({ search: `?experiment=${EXPERIMENT_ID}` });
+    await page.settled;
+    assert.equal(ARCHIVE.settings.config.index.dataset, '',
+      'this fixture must really be the pre-D3 shape the live re-check found');
+    assert.equal(page.byId('dataset').value, 'diary-fa',
+      "the dropdown must select the built-in corpus, not read back '' "
+      + '(no option carries that value, which is what produced the dash)');
+    assert.equal(page.sandbox.readConfig().index.dataset, 'diary-fa');
+    const failed = page.requests.notes.filter((note) => /^Opening experiment/.test(note)
+      || /was not opened/.test(note));
+    assert.deepEqual(failed, []);
+    const opened = page.requests.notes.find((note) => /^Laboratory settings are now/.test(note));
+    assert.ok(opened);
+    // Resolved and applied, so it is never named as something this lab
+    // could not serve — the built-in corpus is always servable.
+    assert.doesNotMatch(opened, /dataset.*not installed here/);
+  });
+
+test('an archive recorded with a served, non-empty dataset id selects that '
+  + 'dataset exactly as it always did', async () => {
+  const page = panelPage({ search: `?experiment=${MEETINGS_EXPERIMENT_ID}`,
+                           archives: { [MEETINGS_EXPERIMENT_ID]: MEETINGS_ARCHIVE } });
+  await page.settled;
+  assert.equal(MEETINGS_ARCHIVE.settings.config.index.dataset, 'meetings-de',
+    'this fixture must really carry a served, non-empty id, not the '
+    + "'' case the sibling test covers");
+  assert.equal(page.byId('dataset').value, 'meetings-de');
+  assert.equal(page.sandbox.readConfig().index.dataset, 'meetings-de');
+  const opened = page.requests.notes.find((note) => /^Laboratory settings are now/.test(note));
+  assert.ok(opened);
+  assert.doesNotMatch(opened, /dataset.*not installed here/);
+});
+
+test('an archive recorded with a dataset this installation does not serve '
+  + 'at all keeps the ordinary unserved naming, and the dropdown stays at '
+  + "the panel's own selection", async () => {
+  const archive = unknownDatasetArchive();
+  const runId = archive.evaluation.result.run_id;
+  const page = panelPage({ search: `?experiment=${runId}`,
+                           archives: { [runId]: archive } });
+  await page.settled;
+  assert.equal(page.byId('dataset').value, '',
+    "the panel's own starting selection (no prior save in this test) — "
+    + 'never the unknown id, and never diary-fa either: an unknown id is '
+    + "not '' and gets no free resolution");
+  const opened = page.requests.notes.find((note) => /^Laboratory settings are now/.test(note));
+  assert.ok(opened);
+  assert.match(opened, new RegExp(`dataset = ${UNKNOWN_DATASET_ID} — not installed here`));
 });

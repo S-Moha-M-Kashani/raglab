@@ -88,7 +88,7 @@ function element(name = '') {
 // answers with; anything absent 404s, which is the deleted-row and mistyped-id
 // case. `search` is the page's query string, so a deep link can be exercised
 // through the same entry point the browser uses.
-function inspector({ records = {}, groundtruth = {}, search = '' } = {}) {
+function inspector({ records = {}, groundtruth = {}, search = '', archives = {} } = {}) {
   const byId = new Map();
   const byIdOf = (id) => {
     if (!byId.has(id)) byId.set(id, element(id));
@@ -103,6 +103,13 @@ function inspector({ records = {}, groundtruth = {}, search = '' } = {}) {
     requests.push(path);
     if (path === '/inspector/api/config') return { ok: true, body: { chosen: LIVE_CONFIG } };
     if (path === '/inspector/api/explain') return { ok: true, body: { metrics: [], help: {} } };
+    if (path.startsWith('/inspector/api/imported-archives/')) {
+      const id = decodeURIComponent(
+        path.slice('/inspector/api/imported-archives/'.length));
+      return archives[id]
+        ? { ok: true, body: archives[id] }
+        : { ok: false, body: { detail: 'unknown archive' } };
+    }
     if (path.startsWith('/inspector/api/groundtruth')) {
       const dataset = decodeURIComponent(path.split('dataset=')[1] || '');
       const found = groundtruth[dataset];
@@ -213,6 +220,20 @@ async function open(id, options) {
   const page = inspector(options);
   await page.settled;
   await page.sandbox.followRecordedExperiment(id);
+  return page;
+}
+
+// The board's own open button — `followImportedArchive`, over
+// `/api/imported-archives/{id}` — rather than the `?experiment=` deep link
+// `open()` drives. The two both end in `renderImportedArchive`, but only this
+// one leaves its label alone afterwards: `renderRecordedExperiment` overwrites
+// `archive-state` with its own `recordLabel()` once `renderImportedArchive`
+// returns, so the old-shape label `renderImportedArchive` sets is only ever
+// the one actually shown by way of this path.
+async function openArchive(id, options) {
+  const page = inspector(options);
+  await page.settled;
+  await page.sandbox.followImportedArchive(id);
   return page;
 }
 
@@ -437,4 +458,116 @@ test('a deep link that failed keeps saying so, and keeps its way back', async ()
   assert.equal(page.byId('archive-state').textContent, stated,
     'a stated failure is not overwritten by an archive nobody asked for');
   assert.equal(page.byId('archive-return-live').textContent, 'Dismiss');
+});
+
+// --- an old-shape ground truth is named old-shape, never half-read ---------
+// `archivedGroundTruthIsPreMigration()` and the branch of `renderImportedArchive`
+// it guards are the read path CLAUDE.md requires for an archive stored before
+// the current dataset schema: it still opens, but its ground truth is named
+// for what it is rather than fed through a renderer built for
+// `groundtruth_dataset`/`corpus_dataset_metadata`, which the old shape never
+// carried at all.
+
+function archiveWithGroundTruth(runId, groundTruth, corpus) {
+  return {
+    format: 'raglab-experiment', version: 1,
+    settings: { config: RECORDED_CONFIG, ui: {} },
+    evaluation: {
+      result: { run_id: runId, config: RECORDED_CONFIG, dataset: 'smoke-mini',
+                rows: [], summary: { n_questions: 0 }, ragas: {} },
+      inspector: {
+        dataset: { id: 'smoke-mini', corpus, ground_truth: groundTruth },
+        chunks_by_session: [{ session_id: 's1', date: '2026-08-19',
+                              chunks: [{ id: 'c1', text: 'evidence' }] }],
+        summaries: [],
+        traces: [],
+      },
+    },
+  };
+}
+
+// The shape every archive carried before this schema.
+const OLD_SHAPE_GROUND_TRUTH = { meta: {}, questions: [{ id: 'q1', question_fa: 'x' }] };
+const OLD_SHAPE_CORPUS = { meta: { language: 'en' } };
+
+// The schema's own shape.
+const NEW_SHAPE_GROUND_TRUTH = {
+  groundtruth_dataset_metadata: { name: 'Smoke questions',
+                                  corpus_ref: { dataset: 'smoke-mini' } },
+  groundtruth_dataset: [{
+    groundtruth_question_id: 1, question: 'where was it stored?',
+    expected_answer: { behavior: 'answer', text: 'on the shelf' },
+    relevant_corpus_documents: [],
+  }],
+};
+const NEW_SHAPE_CORPUS = {
+  corpus_dataset_metadata: { dataset: 'smoke-mini', name: 'Smoke corpus',
+                             language: 'en' },
+  corpus_documents: [],
+};
+
+// This is a unit test.
+test('archivedGroundTruthIsPreMigration tells the old shape from the new one',
+  async () => {
+    const page = await open('probe-shape', { groundtruth: CORPUS, records: {} });
+    const isOld = page.sandbox.archivedGroundTruthIsPreMigration;
+    assert.equal(isOld(OLD_SHAPE_GROUND_TRUTH), true,
+      'meta/questions with no groundtruth_dataset is the old shape');
+    assert.equal(isOld(NEW_SHAPE_GROUND_TRUTH), false,
+      "the schema's own groundtruth_dataset_metadata/groundtruth_dataset "
+      + 'is not the old shape');
+    assert.equal(isOld({ groundtruth_dataset: [] }), false,
+      'an empty new-shape ground truth (an indexed-but-unasked rung) is not '
+      + 'old-shape either');
+    assert.equal(isOld(undefined), true,
+      'an absent ground truth is read in the direction that costs work, the '
+      + 'same rule every other absence in this format follows');
+  });
+
+// This is a unit test.
+test('the board open button names an old-shape archive old-shape, and '
+  + 'renders its ground truth for what it actually is', async () => {
+  const page = await openArchive('old-arch-1', {
+    groundtruth: CORPUS,
+    archives: {
+      'old-arch-1': archiveWithGroundTruth(
+        'old-arch-1', OLD_SHAPE_GROUND_TRUTH, OLD_SHAPE_CORPUS),
+    },
+  });
+  assert.equal(page.byId('archive-state').textContent,
+    'Imported archive (old-shape ground truth) · read-only · old-arch-1');
+  const groundtruth = page.byId('view-groundtruth').innerHTML;
+  assert.match(groundtruth, /old shape/i,
+    'the ground-truth panel must say this archive predates the schema');
+  // Never reinterpreted: no row built from fields (`meta`, `questions`) this
+  // shape carries under names the current renderer would have to guess mean
+  // `groundtruth_dataset_metadata`/`groundtruth_dataset`.
+  assert.doesNotMatch(groundtruth, /gt-row/,
+    'an old-shape ground truth must render no question rows at all, rather '
+    + 'than rows half-built from fields it does not actually carry');
+});
+
+// This is a unit test.
+test('the board open button renders a new-shape archive exactly as the live '
+  + 'ground-truth tab does, with no old-shape note', async () => {
+  const page = await openArchive('new-arch-1', {
+    groundtruth: CORPUS,
+    archives: {
+      'new-arch-1': archiveWithGroundTruth(
+        'new-arch-1', NEW_SHAPE_GROUND_TRUTH, NEW_SHAPE_CORPUS),
+    },
+  });
+  assert.equal(page.byId('archive-state').textContent,
+    'Imported archive · read-only · new-arch-1');
+  // `renderGroundTruth` appends one real element per question rather than
+  // writing `innerHTML` directly (the old-shape branch's note is the one
+  // exception, a plain string), so the rendered question lives on the root's
+  // children, not on its own `innerHTML`.
+  const root = page.byId('view-groundtruth');
+  assert.doesNotMatch(root.innerHTML, /old shape/i);
+  assert.equal(root.children.length, 1,
+    'one row per question, the same renderer the live corpus uses');
+  assert.match(root.children[0].innerHTML, /where was it stored\?/,
+    "a new-shape archive's questions render through the same path the live "
+    + 'corpus does');
 });

@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from raglab.corpora import corpus_store as corpora
+from raglab.evaluation import experiment_archive as archive
 from raglab.evaluation import experiment_archive_store as store
 from raglab.evaluation.tests import archive_examples as examples
 
@@ -13,6 +14,47 @@ from raglab.evaluation.tests import archive_examples as examples
 def _complete():
     """The ladder's fullest rung — the only shape this store accepts."""
     return examples.generated_rung()['archive']
+
+
+def test_an_archive_written_before_this_schema_still_serves_unchanged(
+        tmp_path, monkeypatch):
+    # this is a unit test
+    """D2/D8's promise kept at the one seam a schema migration could quietly
+    break: an archive stored in the shape every archive carried before this
+    branch (`sessions`/`questions`/`session_id`/`message_indices`/`types`,
+    not `corpus_documents`/`groundtruth_dataset`/…) still opens exactly as it
+    was written.
+
+    `validate_archive` now refuses this shape on the way *in* — that is
+    checked below, first — so this row stands in for one already on disk
+    from before that refusal existed, written back when this branch's own
+    (now retired) validator accepted it. `put()` is bypassed rather than
+    called, because calling it would apply *today's* validator to a write
+    that never happened under it; `serve()` is not bypassed, because it never
+    validates at all — it only splices the corpus back in by
+    content-addressed reference, which is exactly why an old-shape row still
+    opens.
+    """
+    old_shape = examples.pre_migration_archive()
+
+    # First: today's codec really does refuse a fresh write in this shape —
+    # otherwise this test would not be about an old row at all.
+    with pytest.raises(archive.ArchiveError):
+        archive.validate_archive(copy.deepcopy(old_shape))
+
+    db = store.connect(tmp_path / 'archives.db')
+    monkeypatch.setattr(archive, 'validate_archive', lambda value, **_: value)
+    store.put(db, 'pre-migration-run-001', old_shape)
+    # Restored *before* `serve()` runs, deliberately: the docstring's claim
+    # is that `serve()` itself needs no bypass, and leaving the patch active
+    # here would let a future regression that added a `validate_archive` call
+    # inside `serve()`/`swell()` pass this test right along with it.
+    monkeypatch.undo()
+
+    served = store.serve(db, 'pre-migration-run-001')
+    assert served == old_shape, (
+        'an archive predating this schema must be served byte-for-byte, '
+        'never reinterpreted through the current one')
 
 
 def test_an_archive_survives_storage_byte_for_byte(tmp_path):

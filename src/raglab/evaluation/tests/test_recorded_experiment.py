@@ -7,13 +7,16 @@ resolves an id through the board's own projection, and
 holds. They are tested together because a reader asking "what was this
 experiment, and where did it fail" calls both, and because the second is the
 only part of the answer the board has no column for."""
+import inspect
 import json
 
 import pytest
 
+from raglab.agents.extra_tools import sweep
 from raglab.evaluation import leaderboard
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.evaluation import service_experiment_ledger as ledger
+from raglab.evaluation.tests import archive_examples
 
 FOUR = {'faithfulness': 0.8, 'answer_relevancy': 0.7,
         'llm_context_precision_with_reference': 0.6, 'context_recall': 0.75}
@@ -240,3 +243,59 @@ def test_the_digest_and_the_board_describe_one_experiment_identically(
                       'started_at', 'seconds', 'provider', 'n_questions',
                       'decision', 'decision_stderr', 'metrics', 'judge',
                       'config', 'source'}
+
+
+def test_an_old_shape_archive_still_appears_on_the_board_and_never_ranks(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """The brief's own done-when, and a CLAUDE.md hard-rule scenario: an
+    archive written before this schema still opens on the board, under its
+    dataset, and stays outside anything a sweep could ever rank.
+
+    Stored the way an *imported* archive actually reaches the ledger —
+    `service_experiment_ledger.insert_archive` directly, never through
+    `ImportedArchiveStore`'s HTTP layer, which is where today's
+    `validate_archive` refusal of this shape lives (pinned in
+    `test_experiment_archive_store.py`). `insert_archive` itself never
+    inspects the corpus/ground-truth shape at all — it only projects the flat,
+    schema-unaffected columns (`config`/`ragas`/`dataset`, all `LabConfig`
+    fields untouched by this migration) and archives the rest of the payload
+    verbatim in `detail`. That is exactly why a row already on disk from
+    before this branch is unaffected by anything the migration changed in
+    the validator, and needs no bypass to write here at all.
+    """
+    # This experiment has no run file at all — it is a ledger-only, imported
+    # row — so `board_rows`'s own `.runs/` read must see none of the *other*
+    # tests' run files that land in the session-shared `RUNS_DIR`.
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    db = tmp_path / 'l.db'
+    old_shape = archive_examples.pre_migration_archive()
+    ledger.insert_archive(old_shape, path=db)
+
+    # Opens exactly as it was written — the ledger-side twin of
+    # `experiment_archive_store.serve()` — and, like `serve()`, never
+    # re-validates on the way out.
+    assert ledger.load_archive('pre-migration-run-001', path=db) == old_shape
+
+    rows = leaderboard.board_rows(db_path=db)
+    assert [row['experiment_id'] for row in rows] == ['pre-migration-run-001']
+    assert rows[0]['dataset'] == 'smoke-mini'
+
+    boards = {board.dataset: board for board in leaderboard.by_dataset(rows)}
+    assert 'smoke-mini' in boards
+    assert [row['experiment_id'] for row in boards['smoke-mini'].rows] == [
+        'pre-migration-run-001']
+
+    # And it never enters a sweep's ranking. `sweep.sweep` is the only caller
+    # of `leaderboard.group`/`verdict` in this repo, and it builds their input
+    # exclusively from the `RunResult`s it just produced in that same call
+    # (`replace_label`, off `result.brief()`) — never from the ledger or the
+    # archive store. Checked at the source, because nothing at the data layer
+    # could ever observe a call path that structurally does not exist.
+    source = (inspect.getsource(sweep.sweep)
+             + inspect.getsource(sweep.ranking_verdict)
+             + inspect.getsource(sweep.replace_label))
+    for absent in ('board_rows', 'insert_archive', 'load_archive',
+                  'experiment_archive_store', 'ledger.'):
+        assert absent not in source, (
+            f'sweep ranking must never read {absent!r} off a durable store')

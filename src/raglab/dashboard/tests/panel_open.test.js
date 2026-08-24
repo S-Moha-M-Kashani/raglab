@@ -117,11 +117,11 @@ function modelRoleElements() {
 }
 
 // The one control whose options a real page declares statically in
-// `panel.html` rather than filling by script (`ragas_mode`; `mode` and
-// `balance` are both built by JS from `/api/options`/the dataset, and
-// `reconcileUi` reads `mode` off `OPTIONS.modes` directly for exactly that
-// reason) — seeded here to match that markup, since this harness loads no
-// HTML at all.
+// `panel.html` rather than filling by script (`ragas_mode`; `mode` is built
+// by JS from `/api/options`, and `reconcileUi` reads it off `OPTIONS.modes`
+// directly for exactly that reason; `labels`/`balance` have no controls at
+// all — panel.js carries them in `QUESTION_SELECTION`) — seeded here to
+// match that markup, since this harness loads no HTML at all.
 function seedStaticControls(byIdOf) {
   const ragasMode = byIdOf('ragas_mode');
   ragasMode.value = 'offline';

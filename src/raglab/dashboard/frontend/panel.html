@@ -238,7 +238,7 @@
       <div><label>Levels <span class="muted">· blank = all</span></label><input type="text" id="summary_levels" placeholder="1 2"></div>
     </div>
     <div class="switches">
-      <label><input type="checkbox" id="time_filter"> Farsi time-scope filter</label>
+      <label><input type="checkbox" id="time_filter"> time-scope filter</label>
       <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
       <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
     </div>
@@ -275,14 +275,11 @@
       <div><label>Questions (0 = all)</label><input type="number" id="limit" min="0" max="200" value="0"></div>
       <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="200" value="0"></div>
     </div>
-    <div class="field">
-      <label>Balance sample by <span class="muted">· a declared question label, or an even spread</span></label>
-      <select id="balance"></select>
-    </div>
-    <div class="field">
-      <label>Question label filters <span class="muted">· none checked = all</span></label>
-      <div id="labelFilters"></div>
-    </div>
+    <!-- Question-type sampling has no controls on this page: `labels` and
+         `balance` still travel in a run's ui block and in the archive codec,
+         carried by panel.js the way UNSHOWN carries config fields with no
+         control — so an opened experiment's recorded selection survives
+         open/export without a widget to show it. -->
     <div class="field">
       <label>Run label</label>
       <input type="text" id="label" placeholder="e.g. semantic + hybrid + gate">

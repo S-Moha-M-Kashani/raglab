@@ -189,42 +189,15 @@ function renderDatasetLabels(found) {
     { label: 'Declared labels', text: [0, 1, 2, 3, 5] });
 }
 
-// One switch-group per question label the dataset declares with a closed
-// set of values or a glossary (D7) — data-driven, since the labels are the
-// dataset's own, not a fixed vocabulary every corpus must share. `balance`
-// lists the same labels plus "even spread" for a plain stride. Rebuilt on
-// every dataset switch, so a stale label from the previous corpus cannot
-// linger on screen offering values the new one has never declared.
-function fillLabelFilters(labels) {
-  const names = Object.keys(labels).sort();
-  $('labelFilters').innerHTML = names.map((name) =>
-    `<div class="switches" data-label="${escapeHtml(name)}">`
-    + `<span class="muted">${escapeHtml(name)}</span>`
-    + labels[name].map((value) =>
-      `<label><input type="checkbox" value="${escapeHtml(value)}"> `
-      + `${escapeHtml(value)}</label>`).join('') + '</div>').join('');
-  $('balance').innerHTML = '<option value="">even spread</option>'
-    + names.map((name) =>
-      `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
-}
-
-function selectedLabels() {
-  const labels = {};
-  for (const group of $('labelFilters').querySelectorAll('[data-label]')) {
-    const chosen = selected(group);
-    if (chosen.length) labels[group.dataset.label] = chosen;
-  }
-  return labels;
-}
-
-function applyWantedLabels(wanted) {
-  for (const group of $('labelFilters').querySelectorAll('[data-label]')) {
-    const values = new Set((wanted || {})[group.dataset.label] || []);
-    for (const input of group.querySelectorAll('input')) {
-      input.checked = values.has(input.value);
-    }
-  }
-}
+// The run's question selection — which declared labels to filter on, and the
+// one to balance the sample by. It has no controls on this page: both knobs
+// still travel in a run's ui block and in the archive codec, so they are
+// carried here the way UNSHOWN carries config fields with no control. '' and
+// {} for a run set up by hand; an opened experiment's recorded values, so its
+// export and its reruns stay faithful to the row. Reset on every dataset
+// switch, so a label from the previous corpus cannot ride into a run against
+// one that never declared it.
+let QUESTION_SELECTION = { labels: {}, balance: '' };
 
 // The label vocabulary a run's `labels`/`balance` are checked against. The
 // installed catalogue answers this for any dataset served here; a view-only
@@ -250,8 +223,9 @@ function labelVocabFor(config, archive) {
 
 // One line about the corpus in force, in the header where the corpus has always
 // been described — switching datasets has to move that line, or the page says
-// 167 documents while measuring twenty. Also rebuilds the declaration table
-// and the label filters below, since both are this dataset's own.
+// 167 documents while measuring twenty. Also rebuilds the declaration table,
+// which is this dataset's own, and drops the question selection for the same
+// reason the table is rebuilt: it named the previous dataset's labels.
 function describeDataset() {
   const found = datasetOf($('dataset').value);
   if (!found) return;
@@ -266,7 +240,7 @@ function describeDataset() {
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
   $('datasetInfo').textContent = found.description;
   renderDatasetLabels(found);
-  fillLabelFilters(found.question_labels || {});
+  QUESTION_SELECTION = { labels: {}, balance: '' };
 }
 
 // Import: a dataset is two files, paired by id (D1) — read here and posted as
@@ -374,16 +348,6 @@ function decorateExplainers() {
     btn.parentElement.insertAdjacentHTML('afterend',
       `<p class="explain">${escapeHtml(text)}</p>`);
   });
-}
-
-function checkboxes(host, values, checked) {
-  host.innerHTML = values.map((v) =>
-    `<label><input type="checkbox" value="${v}"${checked.includes(v) ? ' checked' : ''}> ${v}</label>`
-  ).join('');
-}
-
-function selected(host) {
-  return [...host.querySelectorAll('input:checked')].map((el) => el.value);
 }
 
 // Escaped and never null/undefined — the one guard every table cell and
@@ -992,8 +956,8 @@ $('run').onclick = async () => {
 // would put questions in the Inspector's retrieval window that no score was
 // ever about, which is the one thing this view must not do.
 function selectionBody() {
-  return { limit: +$('limit').value || null, labels: selectedLabels(),
-           balance: $('balance').value };
+  return { limit: +$('limit').value || null, labels: QUESTION_SELECTION.labels,
+           balance: QUESTION_SELECTION.balance };
 }
 
 // The same job `poll` already drives, awaited, so one click can chain a build
@@ -1056,8 +1020,8 @@ function archiveSettings() {
     ragas_mode: $('ragas_mode').value,
     limit: +$('limit').value,
     ragas_limit: +$('ragas_limit').value,
-    labels: selectedLabels(),
-    balance: $('balance').value,
+    labels: QUESTION_SELECTION.labels,
+    balance: QUESTION_SELECTION.balance,
   });
 }
 
@@ -1167,12 +1131,12 @@ function validateAgainstPanelOptions(imported) {
   if (![...$('ragas_mode').options].some((option) => option.value === ui.ragas_mode)) {
     throw new Error(`settings.ui.ragas_mode: ${ui.ragas_mode} is not available`);
   }
-  // D7: a question filter is one switch-group per label the *dataset*
-  // declares, not a fixed vocabulary every corpus shares — so `labels` and
-  // `balance` are checked against that dataset's own declaration rather
-  // than a served list. A view-only archive names a dataset this
-  // installation does not have installed at all; `labelVocabFor` falls back
-  // to the archive's own embedded ground truth for exactly that case.
+  // D7: a question filter names a label the *dataset* declares, not a fixed
+  // vocabulary every corpus shares — so `labels` and `balance` are checked
+  // against that dataset's own declaration rather than a served list. A
+  // view-only archive names a dataset this installation does not have
+  // installed at all; `labelVocabFor` falls back to the archive's own
+  // embedded ground truth for exactly that case.
   const declared = labelVocabFor(config, imported);
   if (ui.balance && !(ui.balance in declared)) {
     throw new Error(`settings.ui.balance: ${ui.balance} is not a label this `
@@ -1257,18 +1221,15 @@ function writeArchiveSettings(imported, restoration = null) {
   fillModels();
   applyDefaults(config);
   keepUnshown(config);
-  // A dataset this installation serves gets its own declaration and label
-  // filters rebuilt by `describeDataset`; a view-only one has no files to
-  // read here, so its label vocabulary comes off the archive's own embedded
-  // ground truth instead (`labelVocabFor`) — either way the filters exist
-  // before the checkboxes below are set.
+  // A dataset this installation serves gets its own declaration rebuilt by
+  // `describeDataset` — which also resets the question selection, so the
+  // archive's own has to land *after* it. A view-only one has no files to
+  // read here and nothing on screen to rebuild.
   if (!disposition.viewOnly) describeDataset();
-  else fillLabelFilters(labelVocabFor(config, value));
   $('ragas_mode').value = ui.ragas_mode;
   $('limit').value = ui.limit;
   $('ragas_limit').value = ui.ragas_limit;
-  $('balance').value = ui.balance || '';
-  applyWantedLabels(ui.labels);
+  QUESTION_SELECTION = { labels: ui.labels || {}, balance: ui.balance || '' };
   applyDependencies();
   setArchiveViewOnly(disposition.viewOnly);
 
@@ -1486,10 +1447,10 @@ $('archive-export').onclick = () => {
 // reconcile` applies to `config`, in miniature: a name this panel's own `ui`
 // no longer has (`types`, before `labels`/`balance` existed) is dropped and
 // named; a name it still has is applied when the value is one this panel can
-// actually represent — `applyWantedLabels`/`fillLabelFilters` already ignore
-// a label this dataset does not declare on their own, so only `mode`,
-// `ragas_mode` and `balance` need a check here, or an unmatched `<select>`
-// value would read back as `''` with nothing ever having said so.
+// actually represent. `labels` and `balance` have no controls any more —
+// they land in `QUESTION_SELECTION` — but the checks stay: a recorded value
+// naming a label this dataset does not declare must be left behind and
+// *said*, not carried silently into a run that would refuse it.
 function reconcileUi(recorded, current, config, archived) {
   const ui = Object.assign({}, current);
   const unserved = [];

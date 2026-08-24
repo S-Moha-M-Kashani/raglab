@@ -1425,6 +1425,122 @@ $('archive-export').onclick = () => {
 // one — the board opens the Inspector in a new tab, so the reader who has both
 // surfaces up is the reader this is for — and without it the button would set
 // the settings on the *next* reload, which is not what it said it did.
+//
+// This is deliberately *not* the archive-import path, even though it used to
+// share it. An imported file either arrives intact or it does not — that is
+// right for a file someone chose to hand this lab, which was never here
+// before. An experiment opened from this lab's own board is already a record
+// here: it has a job, a ledger row, everything `ImportedArchiveStore` exists
+// to give something that has none of those. So nothing here is re-posted to
+// `/api/imported-archives`, and — the rule CLAUDE.md and this plan's own
+// handoff design both state — a knob this installation cannot serve, or a
+// name this schema no longer has at all (every experiment recorded before
+// this branch carries `generation.key_facts_judge`, not `fact_judge`), is
+// left at the panel's own value and *named*, never made to refuse the whole
+// handoff the way the strict codec used to.
+
+// The `ui` block's own lenient reading, the same rule `ExperimentHandoff.
+// reconcile` applies to `config`, in miniature: a name this panel's own `ui`
+// no longer has (`types`, before `labels`/`balance` existed) is dropped and
+// named; a name it still has is applied when the value is one this panel can
+// actually represent — `applyWantedLabels`/`fillLabelFilters` already ignore
+// a label this dataset does not declare on their own, so only `mode`,
+// `ragas_mode` and `balance` need a check here, or an unmatched `<select>`
+// value would read back as `''` with nothing ever having said so.
+function reconcileUi(recorded, current, config, archived) {
+  const ui = Object.assign({}, current);
+  const unserved = [];
+  const set = [];
+  const modes = ['', ...(OPTIONS.modes || []).map((row) => row.key)];
+  const ragasModes = [...$('ragas_mode').options].map((option) => option.value);
+  const declared = labelVocabFor(config, archived);
+  for (const [knob, value] of Object.entries(recorded || {})) {
+    const path = `ui.${knob}`;
+    if (!(knob in current)) {
+      unserved.push({ path, value, reason: 'not a knob this lab reads any more' });
+      continue;
+    }
+    if (knob === 'mode' && !modes.includes(value)) {
+      unserved.push({ path, value, reason: 'not served by this lab' });
+      continue;
+    }
+    if (knob === 'ragas_mode' && !ragasModes.includes(value)) {
+      unserved.push({ path, value, reason: 'not available' });
+      continue;
+    }
+    if (knob === 'balance' && value && !(value in declared)) {
+      unserved.push({ path, value, reason: 'not a label this dataset declares' });
+      continue;
+    }
+    if (knob === 'labels') {
+      // Filtered per label rather than refused whole: one label this dataset
+      // does not declare must not cost every other filter the record named.
+      const kept = {};
+      const dropped = [];
+      for (const [label, values] of Object.entries(value || {})) {
+        if (label in declared) kept[label] = values; else dropped.push(label);
+      }
+      ui.labels = kept;
+      set.push(path);
+      if (dropped.length) {
+        unserved.push({ path: 'ui.labels', value: dropped,
+                        reason: 'not a label this dataset declares' });
+      }
+      continue;
+    }
+    ui[knob] = value;
+    set.push(path);
+  }
+  return { ui, unserved, set };
+}
+
+// A knob named `ui.*` has no stage `ExperimentHandoff.notice`'s own grouping
+// knows about, so it is named in its own sentence rather than silently
+// dropped from the "To set" list the way an unknown group would leave it.
+function uiUnservedNote(unserved) {
+  if (!unserved.length) return '';
+  const said = unserved.map((row) => `${row.path.slice(3)} = `
+    + `${JSON.stringify(row.value)} — ${row.reason}`).join('; ');
+  return ` Also left at the panel’s own value: ${said}.`;
+}
+
+// The lenient half of the handoff: every config and `ui` knob this
+// installation can serve is applied, and every one it cannot — including a
+// name this schema no longer has at all — is left at the panel's own value
+// and returned for the notice to name. Throws only for what genuinely leaves
+// nothing to open with (a representation `writeArchiveSettings` cannot square
+// with the panel after applying only what passed that check), never for a
+// knob this function itself already decided not to apply.
+function adoptHandedSettings(archived) {
+  const settingsBlock = (archived || {}).settings || {};
+  const recordedConfig = settingsBlock.config || {};
+  const recordedUi = settingsBlock.ui || {};
+  const currentSettings = archiveSettings().settings;
+  const served = servedKnobs(recordedUi.mode);
+  const configOut = ExperimentHandoff.reconcile(
+    recordedConfig, currentSettings.config, served);
+  const uiOut = reconcileUi(
+    recordedUi, currentSettings.ui, configOut.config, archived);
+  writeArchiveSettings(ArchiveIO.settings(configOut.config, uiOut.ui));
+  if (archived.evaluation) {
+    renderResult(archived.evaluation.result,
+      { remember: false, imported: true,
+        metric_catalogue: archived.evaluation.metric_catalogue });
+  }
+  // Never the archive this experiment recorded: `settings.config`/`ui` may
+  // now differ from `archived.evaluation.result.config` wherever a knob was
+  // left at the panel's own value, and claiming this screen re-exports that
+  // record byte for byte would be exactly the row-lying-about-what-produced-
+  // it CLAUDE.md forbids. A later export is settings-only, which is honest.
+  CURRENT_ARCHIVE = null;
+  remember(SAVED_CONFIG, readConfig());
+  // Kept apart rather than merged: `ExperimentHandoff.notice`'s own count of
+  // "N knobs could not be set" has to match the detail list it prints right
+  // beside it, and that list only knows the three config stages — folding the
+  // `ui` knobs into the same count without a place in that list would make
+  // the sentence claim more detail than it goes on to give.
+  return { config: configOut, ui: uiOut };
+}
 
 async function openHandedExperiment(experimentId) {
   let archived;
@@ -1441,18 +1557,25 @@ async function openHandedExperiment(experimentId) {
       + `(${error.message}). No knob was changed.`);
     return;
   }
+  // Snapshotted before anything is written, and restored on any failure below
+  // — a refused open must leave every control exactly as it was, never half
+  // one experiment's settings under a notice that never arrived.
+  const before = snapshotDashboard();
+  let out;
   try {
-    // The same object a downloaded export carries, taking the same path a
-    // chosen file takes — `normalize` rather than `parse` only because this
-    // arrived as JSON already parsed by `api()`; the validation either way is
-    // identical. Whatever this lab cannot serve is refused here, whole, exactly
-    // as it would be for a file: the experiment arrives or it does not.
-    await adoptArchive(ArchiveIO.normalize(archived));
+    out = adoptHandedSettings(archived);
   } catch (error) {
+    restoreDashboard(before);
     Widget.note(`Experiment ${experimentId} was not opened `
       + `(${error.message}). The panel is as it was.`);
     return;
   }
+  const result = archived.evaluation ? archived.evaluation.result : {};
+  const record = { experiment_id: experimentId, kind: 'run',
+                   label: result.label || '', started_at: result.started_at || '',
+                   dataset: result.dataset || '', source: 'both' };
+  Widget.note(ExperimentHandoff.notice(record, out.config)
+    + uiUnservedNote(out.ui.unserved));
   // The settings are this experiment's now, and so is the conversation: the
   // widget switches to the thread it kept for this id. Coming back to another
   // experiment brings that one's conversation back with it.

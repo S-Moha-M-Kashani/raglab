@@ -38,7 +38,11 @@ function store(initial = {}) {
 }
 
 // What the panel currently has on screen: every knob at some value, because
-// that is what an unserved knob has to be left at.
+// that is what an unserved knob has to be left at. Every field `LabConfig`
+// actually has, shown or not — a fixture that quietly dropped `rrf_k` would
+// make its own "carried through unshown" test pass for the wrong reason, and
+// one that still said `key_facts_judge` would make "an unknown key is dropped
+// and named" untestable, since that is the exact field this schema renamed.
 const CURRENT = {
   label: 'what the reader was doing',
   index: {
@@ -48,13 +52,16 @@ const CURRENT = {
     hierarchy_levels: 1, min_group: 3, summarizer: 'centroid',
   },
   retrieval: {
-    retriever: 'hybrid-rrf', k: 8, candidates: 40, time_filter: true,
-    multi_query: true, hyde: false, mmr_lambda: 1, reranker: 'lexical',
-    rerank_depth: 20, recency_half_life_days: 180, grader: 'none',
-    grade_threshold: 0, summary_scope: 'mixed', summary_boost: 1,
+    retriever: 'hybrid-rrf', k: 8, candidates: 40, rrf_k: 60,
+    time_filter: true, multi_query: true, hyde: false, expansion_model: '',
+    mmr_lambda: 1, reranker: 'lexical', rerank_depth: 20, reranker_model: '',
+    recency_half_life_days: 180, agentic_weights: [1, 0.3, 0.2],
+    grader: 'none', grade_threshold: 0, grader_model: '',
+    max_context_chars: 6000, summary_scope: 'mixed', summary_boost: 1,
     summary_levels: '',
   },
-  generation: { answerer: 'extractive', model: '', key_facts_judge: false },
+  generation: { answerer: 'extractive', model: '', fact_judge: false,
+                judge_model: '', ragas_model: '' },
 };
 
 // What this installation serves, in the shape the panel assembles from
@@ -356,4 +363,46 @@ test('every unserved knob is reported, not just the first', () => {
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
   assert.deepEqual(plain(out.unserved).map((row) => row.path).sort(),
     ['index.chunker', 'index.dataset', 'retrieval.k']);
+});
+
+// --- opening a pre-branch archive: a retired key name is not a refusal -----
+// The exact regression this covers: every experiment recorded before the
+// generic-dataset-schema branch carries `generation.key_facts_judge` instead
+// of `generation.fact_judge` — the field was renamed, not merely moved — and
+// the open path used to hand the recorded config straight to the strict
+// archive codec, whose exact-key-set check refused the whole handoff over
+// one renamed field. `reconcile` is where that has to be absorbed instead:
+// a name this lab's config no longer has is unservable by definition, so it
+// is dropped and named exactly like any other knob this lab cannot serve,
+// while the field it was renamed to — never named by the record, since the
+// record predates it — simply stays at whatever the panel already has,
+// exactly as any other knob the record does not mention does.
+
+test('opening a pre-branch archive drops its retired key and leaves the '
+  + 'renamed one at the panel value, naming the drop', () => {
+  const recorded = copy(CURRENT);
+  delete recorded.generation.fact_judge;
+  recorded.generation.key_facts_judge = true;
+  const out = Handoff.reconcile(recorded, CURRENT, SERVED);
+
+  // The open proceeds: no exception, a config comes back either way — this
+  // is the whole point, contrasted with the archive import's strict refusal.
+  assert.ok(out.config);
+
+  // The retired key never reaches the config this lab is about to run.
+  assert.equal('key_facts_judge' in out.config.generation, false,
+    'a name this schema no longer has must not land on the config that runs');
+
+  // The renamed field was never named by this record, so it is the reader's
+  // — untouched, exactly like `chunk_chars` in the ledger-only case above.
+  assert.equal(out.config.generation.fact_judge, CURRENT.generation.fact_judge);
+
+  // And the drop is named, not silent — the same contract every other
+  // unserved knob gets.
+  assert.deepEqual(plain(out.unserved), [{
+    path: 'generation.key_facts_judge', value: true,
+    reason: 'not a knob this lab reads any more',
+  }]);
+  const said = Handoff.notice(RECORD, out);
+  assert.match(said, /key_facts_judge = true — not a knob this lab reads any more/);
 });

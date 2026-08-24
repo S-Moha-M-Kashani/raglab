@@ -126,8 +126,26 @@ const ExperimentHandoff = (() => {
     const set = [];
     for (const group of GROUPS) {
       const knobs = (recorded || {})[group] || {};
+      const known = current[group] || {};
       for (const [knob, value] of Object.entries(knobs)) {
         const path = `${group}.${knob}`;
+        // A name this lab's own config no longer has at all — most often a
+        // field renamed since the row was recorded (`key_facts_judge` ->
+        // `fact_judge`) — is unservable by definition: there is nowhere on
+        // the panel it could go. Named exactly like any other unservable
+        // knob and dropped rather than written onto a key nothing reads, so
+        // a retired field from an old archive never lands on the config this
+        // lab is about to run (CLAUDE.md: a row must never lie about what
+        // produced it — carrying a name this schema no longer has would be
+        // exactly that, one step removed). Checked before `unservedReason`,
+        // which has no rule for a path that names nothing here at all and
+        // would otherwise read it as unconstrained and so servable.
+        if (!(knob in known)) {
+          unserved.push({
+            path, value, reason: 'not a knob this lab reads any more',
+          });
+          continue;
+        }
         const reason = unservedReason(path, value, served);
         if (reason) unserved.push({ path, value, reason });
         else { config[group][knob] = value; set.push(path); }

@@ -434,16 +434,28 @@ CONVENTIONS = [
      'reload, which is not what the button says it did'),
     ('panel.js', 'ExperimentHandoff.reconcile', None,
      'which knobs this installation can serve is decided in the one module '
-     'that decides it. There is one reader of that rule now — the archive '
-     'import — because opening a board row goes through the same import, so '
-     'the disagreement this used to guard against cannot arise; what it '
-     'still pins is that the rule is not reimplemented in the page'),
-    ('panel.js', 'adoptArchive(ArchiveIO.normalize', None,
-     'opening an experiment on the board is importing its exported archive: '
-     'one path, one strictness. Written out twice, an experiment opened here '
-     'and the same experiment imported as a file would come to disagree '
-     'about what this lab accepts — which is the whole defect this replaced, '
-     'where open applied what it could and import refused outright'),
+     'that decides it, never reimplemented in the page. Two readers now, in '
+     "the two directions the module's own header documents: the archive "
+     'import (`validateAgainstPanelOptions`) reads it strictly, refusing on '
+     'the first knob it cannot serve, because a file either arrives intact '
+     'or it does not; opening a row of this lab’s own board '
+     '(`adoptHandedSettings`) reads it leniently, applying what it can and '
+     'naming the rest — which is the only way an experiment recorded before '
+     'a field was renamed (`generation.key_facts_judge`, before '
+     '`fact_judge`) still opens at all'),
+    ('panel.js', 'adoptHandedSettings(archived)', None,
+     'opening an experiment on the board must not be importing its exported '
+     'archive: that row already has a job and a ledger entry, so nothing '
+     'about it is re-posted to `/api/imported-archives`, and a knob this '
+     'installation cannot serve — or a name this schema no longer has at '
+     'all — is left at the panel’s own value and named rather than refusing '
+     'the whole handoff, which is what the shared strict path used to do to '
+     'every experiment recorded before this schema'),
+    ('panel.js', 'not a knob this lab reads any more', None,
+     'a retired field name (`key_facts_judge`) is unservable by definition — '
+     'there is nowhere on this panel it could go — and must be named exactly '
+     'like any other knob this installation cannot serve, never silently '
+     'copied onto a config key nothing here reads'),
     ('widget.js', "widgetSayAfterDraw('note'", None,
      'the lab writes its own notices in its own voice: a line the page wrote '
      "must never arrive as `bot`, which is the model's. Pinned at the one "
@@ -930,6 +942,40 @@ def test_the_archive_exchange_uses_the_codec_and_no_run_routes(client):
                 '/api/retrievals', '/api/evaluations', '/api/credentials'))
     html = client.get('/').text
     assert html.index('src="/archive_io.js"') < html.index('src="/panel.js"')
+
+
+def test_opening_a_board_row_never_reimports_it_and_can_only_leave_no_trace():
+    # this is a convention test
+    """The open path's own strictness/leniency split, pinned at the source —
+    the fix round the shared `adoptArchive` path (above) used to collapse.
+
+    An experiment opened from this lab's own board already has a job and a
+    ledger row; it is not entering the lab, so nothing here may post it to
+    `/api/imported-archives` — that route, and `ArchiveIO.transact`'s
+    strict-refuse-outright reading of `ExperimentHandoff.reconcile`, are the
+    import path's alone (`adoptArchive`, checked above). And the two ways a
+    refused open could stop being atomic are both named directly: a snapshot
+    taken before anything is written and a restore on the one path that can
+    fail, so "the panel is as it was" is never a claim this file makes
+    without having just made it true.
+    """
+    source = PANEL_JS.read_text()
+    handoff = source[source.index('function reconcileUi'):
+                     source.index("window.addEventListener('storage'")]
+    assert "api('/api/imported-archives'" not in handoff, (
+        'an experiment already on this ledger must never be re-posted to it '
+        'as if it were a freshly imported file')
+    assert 'ArchiveIO.normalize(archived)' not in handoff, (
+        'the open path must not hand the recorded settings to the same '
+        'exact-key-set check the archive import uses — that is the strict '
+        'reading this fix round replaces')
+    assert 'adoptArchive(' not in handoff, (
+        'opening a board row must not share the import path’s all-or-'
+        'nothing transaction any more')
+    for needed in ('ExperimentHandoff.reconcile', 'reconcileUi(',
+                  'snapshotDashboard()', 'restoreDashboard(before)',
+                  'CURRENT_ARCHIVE = null'):
+        assert needed in handoff, f'{needed!r} missing from the open path'
 
 
 def test_archive_exchange_escapes_imported_table_labels_and_never_runs_work():

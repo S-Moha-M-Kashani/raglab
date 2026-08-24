@@ -302,6 +302,61 @@ def test_a_derived_facts_relevant_metadata_naming_an_uncarried_value_is_refused(
               for p in problems), problems
 
 
+def test_a_label_shared_by_both_files_with_a_different_type_is_refused_naming_it():
+    # this is a unit test
+    """x-cross-file #10: 'A label declared in both files must carry the same
+    meaning in both.' A label the corpus calls a string and the ground truth
+    calls a number is not one shared vocabulary entry — it is two different
+    fields that happen to share a spelling."""
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'severity': {'type': 'string', 'description': 'how bad',
+                            'applies_to': ['document']}}}})
+    ground_truth['groundtruth_dataset_metadata']['question_metadata_fields'] = {
+        'severity': {'type': 'number', 'description': 'how bad',
+                     'applies_to': ['question']}}
+    problems = datasets.validate(corpus, ground_truth)
+    assert any("label 'severity'" in p and 'does not carry the same meaning' in p
+              and 'type' in p for p in problems), problems
+
+
+def test_a_label_shared_by_both_files_with_a_different_closed_set_is_refused_naming_it():
+    # this is a unit test
+    """The same rule on the other honest slice of 'meaning': a label closed
+    to a different set of values in each file is not agreeing on what it
+    means, even though both sides call it a string."""
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'severity': {'type': 'string', 'description': 'how bad',
+                            'applies_to': ['document'],
+                            'values': ['low', 'high']}}}})
+    ground_truth['groundtruth_dataset_metadata']['question_metadata_fields'] = {
+        'severity': {'type': 'string', 'description': 'how bad',
+                     'applies_to': ['question'], 'values': ['low', 'medium', 'high']}}
+    problems = datasets.validate(corpus, ground_truth)
+    assert any("label 'severity'" in p and 'does not carry the same meaning' in p
+              and 'allowed values' in p for p in problems), problems
+
+
+def test_a_label_shared_by_both_files_agreeing_on_meaning_is_clean():
+    # this is a unit test
+    corpus, ground_truth = _valid_pair(corpus_overrides={
+        'corpus_dataset_metadata': {
+            'dataset': 'tiny-test', 'name': 'Tiny', 'language': 'en',
+            'label_fields': {
+                'severity': {'type': 'string', 'description': 'how bad',
+                            'applies_to': ['document'],
+                            'values': ['low', 'high']}}}})
+    ground_truth['groundtruth_dataset_metadata']['question_metadata_fields'] = {
+        'severity': {'type': 'string', 'description': 'how bad',
+                     'applies_to': ['question'], 'values': ['low', 'high']}}
+    assert datasets.validate(corpus, ground_truth) == []
+
+
 def test_an_abstention_question_needs_no_evidence():
     # this is a unit test
     """Abstention questions are the ones the corpus deliberately cannot
@@ -312,6 +367,21 @@ def test_an_abstention_question_needs_no_evidence():
         'groundtruth_question_id': 2, 'question': 'Who paid for the roof?',
         'expected_answer': {'behavior': 'abstain'},
         'relevant_corpus_documents': []})
+    assert datasets.validate(corpus, ground_truth) == []
+
+
+def test_the_schemas_own_x_authoring_examples_validate():
+    # this is a unit test
+    """`schema_corpus.json`'s `smallest_valid_corpus` and
+    `schema_groundtruth.json`'s `smallest_valid_question_set` are the first
+    thing an author copies (`x-authoring.steps`: "Start with the smallest
+    thing that validates, run it..."). An example that does not itself pass
+    `validate()` teaches the wrong lesson before a real dataset is written,
+    so the schemas' own worked example is pinned here the same way the
+    bundled pairs are below."""
+    corpus = datasets.CORPUS_SCHEMA['x-authoring']['smallest_valid_corpus']
+    ground_truth = datasets.GROUNDTRUTH_SCHEMA['x-authoring'][
+        'smallest_valid_question_set']
     assert datasets.validate(corpus, ground_truth) == []
 
 

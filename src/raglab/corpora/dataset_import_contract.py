@@ -411,12 +411,62 @@ def _groundtruth_consistency_problems(ground_truth: dict) -> list[str]:
     return problems
 
 
+def _closed_values(definition: dict) -> set | None:
+    """The set of values a label declaration closes itself to, read off
+    whichever of the two mechanisms names it — `glossary`'s keys or a bare
+    `values` list — or `None` when neither is declared, meaning any value of
+    the field's type is open. The representation a file chose is not part of
+    the label's meaning; the set it closes on is."""
+    if 'glossary' in definition:
+        return set(definition['glossary'])
+    if 'values' in definition:
+        return set(definition['values'])
+    return None
+
+
+def _label_meaning_mismatches(corpus_def: dict, groundtruth_def: dict) -> list[str]:
+    """x-cross-file's tenth rule, for one label name both files declare. The
+    honest, checkable slice of "meaning" a shared name promises is its
+    `type`, its closed set of allowed values however either file spells it,
+    and its own prose `description` — never `applies_to`, `extracted` or
+    `nullable`, which legitimately differ per file since a ground truth
+    reaches only the `question` level and a corpus never does. When both
+    sides also carry a `glossary`, the value set agreeing is not enough on
+    its own: the schema's own words are "each file declares its own
+    glossary so it can be read alone", so two glossaries naming the same
+    values with different prose still disagree about what those values
+    mean."""
+    mismatches: list[str] = []
+    if corpus_def.get('type') != groundtruth_def.get('type'):
+        mismatches.append(
+            f'type ({corpus_def.get("type")!r} in the corpus vs '
+            f'{groundtruth_def.get("type")!r} in the ground truth)')
+    if corpus_def.get('description') != groundtruth_def.get('description'):
+        mismatches.append('description differs between the two files')
+    corpus_values = _closed_values(corpus_def)
+    groundtruth_values = _closed_values(groundtruth_def)
+    if corpus_values != groundtruth_values:
+        mismatches.append(
+            'allowed values '
+            f'({sorted(corpus_values) if corpus_values is not None else "open"} '
+            'in the corpus vs '
+            f'{sorted(groundtruth_values) if groundtruth_values is not None else "open"} '
+            'in the ground truth)')
+    elif (corpus_def.get('glossary') is not None
+            and groundtruth_def.get('glossary') is not None
+            and corpus_def['glossary'] != groundtruth_def['glossary']):
+        mismatches.append(
+            'glossary text differs between the two files even though the '
+            'values agree')
+    return mismatches
+
+
 def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
     """`schema_groundtruth.json`'s `x-cross-file`: the pair join, every cited
     document exists, every verbatim quote is findable, every `supports` id is
     valid and every derived fact is covered by one, a computed piece names its
-    source label, and a copied `document_metadata`/`relevant_metadata` is
-    real."""
+    source label, a copied `document_metadata`/`relevant_metadata` is real,
+    and a label name declared in both files agrees on its meaning."""
     problems: list[str] = []
     corpus_id = _dataset_id(corpus)
     gt_meta = ground_truth.get('groundtruth_dataset_metadata') or {}
@@ -426,6 +476,17 @@ def _cross_file_problems(corpus: dict, ground_truth: dict) -> list[str]:
             f'{ref.get("dataset")!r}: corpus_ref.dataset does not match the '
             f'corpus it is paired with ({corpus_id!r}) — the pair join is '
             'broken')
+
+    corpus_fields = (corpus.get('corpus_dataset_metadata') or {}).get(
+        'label_fields') or {}
+    groundtruth_fields = gt_meta.get('question_metadata_fields') or {}
+    for name in sorted(set(corpus_fields) & set(groundtruth_fields)):
+        mismatches = _label_meaning_mismatches(
+            corpus_fields[name], groundtruth_fields[name])
+        if mismatches:
+            problems.append(
+                f'label {name!r} is declared in both files but does not '
+                f'carry the same meaning in both: {"; ".join(mismatches)}')
 
     documents = {document['corpus_document_id']: document
                 for document in corpus.get('corpus_documents') or []

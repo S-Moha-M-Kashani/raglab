@@ -108,13 +108,18 @@ HELP = {
         'a window, so only it reads this; an overlap at or above the piece '
         'size is halved rather than looping forever.'),
     'index.contextual': (
-        'Prepend a one-line header — date, mood, topics, threads — to every '
-        'chunk before embedding it (Anthropic call this contextual retrieval). '
-        'A chunk that says "it got better" is unsearchable without knowing '
-        'what "it" was. Built from the corpus\'s own metadata, so it costs no '
-        'model call and no summary; a field the corpus does not declare shows '
-        'as an em dash, and the header is written in the corpus\'s declared '
-        'language.'),
+        'Prepend a one-line header to every chunk before embedding it '
+        '(Anthropic call this contextual retrieval). A chunk that says "it '
+        'got better" is unsearchable without knowing what "it" was. Built '
+        'from the corpus\'s own metadata, so it costs no model call and no '
+        'summary: every label the corpus declares at the document level '
+        'that the document actually carries, in declaration order, list '
+        'values joined by the corpus\'s own language comma. A label the '
+        'document does not carry is left out rather than shown as a '
+        'placeholder, and a label that rates another one\'s confidence is '
+        'never written into chunk text — a caveat on a label is not '
+        'something to embed. The header is written in the corpus\'s '
+        'declared language.'),
     'index.embedder': (
         'Turns text into the vector the index is searched by, and the one '
         'choice that decides whether anything else matters. "ascii-hash" '

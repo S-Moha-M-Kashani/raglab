@@ -276,6 +276,28 @@ $('dataset-import').onclick = async () => {
   }
 };
 
+// The backend a first visit boots on. A preset, not a lock: the codex CLI
+// needs no key, so a fresh panel's model knobs work before anything is typed.
+const DEFAULT_MODE = 'codex';
+
+// The selected mode's served preset, written onto the controls (the choices
+// stay editable). Named because two callers apply it: the select's own
+// onchange, and boot() on a first visit with nothing saved.
+function applyModePreset() {
+  const mode = (OPTIONS.modes || []).find((m) => m.key === $('mode').value);
+  // Read the controls before the model dropdowns are rebuilt for the new
+  // backend's catalogue, then write the merged config back over them.
+  const cfg = readConfig();
+  if (mode && mode.config) {
+    for (const group of Object.keys(mode.config)) {
+      Object.assign(cfg[group], mode.config[group]);
+    }
+  }
+  fillModels();
+  applyDefaults(cfg);
+  applyDependencies();
+}
+
 // The mode dropdown: '' follows whatever backend the lab booted with; a mode
 // applies its served preset onto the controls (the choices stay editable) and
 // its provider rides along on every run.
@@ -286,18 +308,8 @@ function fillModes() {
     + (OPTIONS.modes || []).map((m) =>
       `<option value="${escapeHtml(m.key)}">${escapeHtml(m.label)}</option>`).join('');
   $('mode').onchange = () => {
-    const mode = (OPTIONS.modes || []).find((m) => m.key === $('mode').value);
-    // Read the controls before the model dropdowns are rebuilt for the new
-    // backend's catalogue, then write the merged config back over them.
-    const cfg = readConfig();
-    if (mode && mode.config) {
-      for (const group of Object.keys(mode.config)) {
-        Object.assign(cfg[group], mode.config[group]);
-      }
-    }
-    fillModels();
-    applyDefaults(cfg);
-    applyDependencies();
+    applyModePreset();
+    remember(SAVED_MODE, $('mode').value);
   };
 }
 
@@ -576,6 +588,7 @@ function applyDefaults(d) {
 // its served default. Remembered under the board's own `lodestar:` prefix.
 const SAVED_CONFIG = 'lodestar:raglab-config';
 const SAVED_RUN = 'lodestar:raglab-last-run';
+const SAVED_MODE = 'lodestar:raglab-mode';
 
 function saved(key) {
   try {
@@ -660,6 +673,22 @@ async function boot() {
   fillModes();
   applyDefaults(startingConfig(o.defaults));
   keepUnshown(startingConfig(o.defaults));
+  // The remembered backend comes back with the remembered config — the select
+  // set before the model dropdowns are rebuilt, so the saved model ids land on
+  // that backend's own catalogue rather than being lost against boot's. Only
+  // when nothing is saved at all — no config and no mode, a first visit — does
+  // the panel boot on DEFAULT_MODE's preset (fillModes above has already put
+  // the option in the select). A saved config is never overwritten by a
+  // preset: the preset is a starting point, not the reader's own choices.
+  const rememberedMode = saved(SAVED_MODE);
+  if (rememberedMode !== null) {
+    $('mode').value = rememberedMode;
+    fillModels();
+    applyDefaults(startingConfig(o.defaults));
+  } else if (saved(SAVED_CONFIG) === null) {
+    $('mode').value = DEFAULT_MODE;
+    applyModePreset();
+  }
   applyDependencies();
   describeDataset();
   decorateExplainers();

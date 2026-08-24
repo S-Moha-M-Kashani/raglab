@@ -606,6 +606,17 @@ CONVENTIONS = [
     ('leaderboard.html', None, 'Inspector <span class="port">:9003</span>',
      'and the leaderboard drops it for the same reason — the two surfaces '
      'wear one switcher, so a port shown on one and not the other is drift'),
+    # --- the panel's default backend and the time-scope label ------------
+    ("panel.js", "const DEFAULT_MODE = 'codex';", None,
+     "the panel's first-visit backend default is the codex CLI — the widget "
+     'keeps its own OpenRouter default, untouched by this row'),
+    ('panel.js', 'saved(SAVED_CONFIG) === null', None,
+     'the codex preset applies only on a first visit, when nothing is saved '
+     'at all — a preset must never overwrite a saved config'),
+    ('index.html', 'id="time_filter"', 'Farsi time-scope',
+     'the time-scope label makes no language claim: which knobs are '
+     "dataset-specific is the served help text's claim "
+     "(retrieval.time_filter), not the markup's"),
 ]
 
 

@@ -131,6 +131,7 @@ function seedStaticControls(byIdOf) {
 }
 
 function panelPage({ search = '', initialSavedConfig = null,
+                    initialSavedMode = null,
                     archives = { [EXPERIMENT_ID]: ARCHIVE } } = {}) {
   const byId = new Map();
   const byIdOf = (id) => {
@@ -147,6 +148,13 @@ function panelPage({ search = '', initialSavedConfig = null,
   const storage = new Map();
   if (initialSavedConfig) {
     storage.set('lodestar:raglab-config', JSON.stringify(initialSavedConfig));
+  }
+  // A remembered backend ('' is the lab-boot one). With nothing saved at all,
+  // boot() treats the page as a first visit and applies DEFAULT_MODE's own
+  // preset before anything else happens — a test whose claim needs the panel
+  // at the *served* defaults seeds this to opt out of that preset.
+  if (initialSavedMode !== null) {
+    storage.set('lodestar:raglab-mode', JSON.stringify(initialSavedMode));
   }
 
   const sandbox = {
@@ -216,7 +224,13 @@ test('the fixture still carries the defect this round fixes', () => {
 test('loading ?experiment=<pre-branch-id> opens it — the open proceeds, the '
   + 'retired key is dropped and named, and every servable knob is adopted',
   async () => {
-    const page = panelPage({ search: `?experiment=${EXPERIMENT_ID}` });
+    // The remembered lab-boot backend, not a bare first visit: the first-visit
+    // codex preset itself sets `fact_judge: true` — the same value the record's
+    // retired `key_facts_judge` carries — which would erase the distinction the
+    // fact_judge assertion below exists to read. A remembered backend keeps the
+    // panel at the served defaults, where the two values still differ.
+    const page = panelPage({ search: `?experiment=${EXPERIMENT_ID}`,
+                             initialSavedMode: '' });
     await page.settled;
 
     // The open proceeded: the fetch for this exact archive happened, and no

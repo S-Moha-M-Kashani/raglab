@@ -79,8 +79,10 @@ HELP = {
         'that misquotes its corpus does not score worse — it scores '
         'confidently about text it never contained. Every bundled pair in '
         'fixtures/corpus_groundtruth_datasets/ meets it and is the working '
-        'reference; schema_corpus.json and schema_groundtruth.json are the '
-        'templates, not files to import.'),
+        'reference; corpus_template.json and groundtruth_template.json in '
+        'that folder are the templates to copy, and schema_corpus.json / '
+        'schema_groundtruth.json are the contract checked above, not files '
+        'to import.'),
     'index.chunker': (
         'How one session is cut into the pieces that get embedded. "fixed" '
         'packs words up to a character budget; "fixed-overlap" slides a window '

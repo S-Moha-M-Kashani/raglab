@@ -306,6 +306,48 @@ def test_no_path_is_hardcoded_to_one_machine():
     assert not offenders, f'a home directory is hardcoded in {offenders}'
 
 
+# D2's retired dataset dialect (`sessions`/`messages`/`mood`/`answerable`/
+# `key_facts`/`type`/`difficulty`/`message_indices`/`question_fa` are gone
+# from the code, not aliased). Only the seven of those that are not also
+# ordinary English words with a legitimate life in prose — `sessions`,
+# `messages`, `type` and `difficulty` read fine in a sentence about anything;
+# these seven read, in code, only as the field they used to name.
+_RETIRED_DIALECT = ('mood', 'valence', 'arousal', 'answerable', 'key_facts',
+                     'message_indices', 'question_fa')
+# The shape a dict/JSON key access takes — `row['key_facts']`,
+# `document.get('mood')` — the word alone between its own quotes, nothing
+# else inside them. A bare substring scan would also trip on legitimate
+# prose that explains the retirement in the past tense
+# (`importance_of`'s own docstring: "`mood.valence`/`arousal` are gone");
+# names the diary's own domain content (the dataset-specific help text's
+# "date, mood, topics, threads"); or names the *concept* the schema still
+# has, just not as a stored field (`answerable`/`unanswerable` describing
+# what `behavior` implies) — none of which wrap the word alone in quotes.
+_RETIRED_DIALECT_AS_A_KEY = re.compile(
+    r"""['"](?:%s)['"]""" % '|'.join(_RETIRED_DIALECT))
+
+
+def test_no_raglab_module_reads_the_retired_dataset_dialect():
+    # this is a convention test
+    """Scoped to `_SRC_FILES` — what actually ships — not the full tree walk.
+    An old-shape recorded row is a record, not a corpus (D2/D8), so a test
+    fixture simulating one legitimately carries every word here forever:
+    `archive_examples.py` documents its old-shape dict verbatim from the
+    pre-migration code, and `experiment_handoff.test.js`/`panel_open.test.js`
+    (not Python, so outside this walk regardless) deliberately recorded
+    `key_facts_judge` — a different, still-current knob rename, not this
+    dialect — to prove a retired field name is dropped and named rather than
+    silently adopted. None of that is the dialect creeping back into the lab
+    itself; this guard is about the code, not about a fixture's memory of
+    what the code used to read."""
+    offenders = []
+    for path in _SRC_FILES:
+        for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+            if _RETIRED_DIALECT_AS_A_KEY.search(line):
+                offenders.append(f'{path.name}:{number}: {line.strip()}')
+    assert not offenders, f'retired dataset dialect read as a key at {offenders}'
+
+
 # `env` as well as `os.environ`: `load_lab_settings` takes the mapping as an
 # argument so a test can hand it one, and a name is what the reads go through.
 _ENV_READS = re.compile(r"""

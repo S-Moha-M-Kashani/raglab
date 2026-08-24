@@ -16,10 +16,13 @@ from raglab.rag_components.indexing.chunking_strategies import Chunk, is_present
 # knob whose only effect is to make that untrue.
 SEED = 20260812
 
-# What to install when a grouping's library is missing. Only Leiden has one —
-# everything else runs on networkx and scikit-learn, which are core.
+# What to install when a grouping's library is missing. Every grouping now
+# runs on core dependencies — leiden's compiled pair (leidenalg, python-igraph)
+# included — so a missing library means a broken environment, and leiden's
+# entry names the resync because its compiled wheels are the one import that
+# can realistically fail.
 HIERARCHY_EXTRAS = {
-    'leiden': "uv sync --extra graph-index",
+    'leiden': "uv sync — leidenalg and python-igraph are core dependencies",
     'louvain': 'nothing — networkx is a core dependency',
     'label-prop': 'nothing — networkx is a core dependency',
     'raptor': 'nothing — scikit-learn is a core dependency',

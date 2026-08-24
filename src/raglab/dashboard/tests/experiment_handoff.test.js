@@ -49,7 +49,11 @@ function store(initial = {}) {
 const CURRENT = {
   label: 'what the reader was doing',
   index: {
-    dataset: 'diary-fa', chunker: 'semantic-drift', chunk_chars: 500,
+    // The built-in corpus, spelled the way the panel's own control spells it:
+    // `''` is that corpus's config identity (`IndexConfig.fingerprint()` drops
+    // it), so it is the value the `<option>` carries and therefore the value
+    // this control can actually be holding.
+    dataset: '', chunker: 'semantic-drift', chunk_chars: 500,
     overlap: 100, contextual: true, embedder: 'token-hash', embed_model: '',
     hierarchy: '', graph_source: 'hybrid', graph_knn: 8, granularity: 1,
     hierarchy_levels: 1, min_group: 3, summarizer: 'centroid',
@@ -71,7 +75,9 @@ const CURRENT = {
 // /api/options and its own numeric controls.
 const SERVED = {
   mode: 'openrouter',
-  datasets: ['diary-fa', 'smoke-mini'],
+  // What `servedKnobs()` actually assembles: `datasetValues()`, which spells
+  // the built-in corpus `''` and every other corpus by its own id.
+  datasets: ['', 'smoke-mini'],
   choices: {
     'index.chunker': ['semantic-drift', 'session', 'fixed'],
     'index.embedder': ['token-hash', 'sentence-transformers'],
@@ -169,36 +175,52 @@ test('a corpus this installation no longer has is named as uninstalled', () => {
   const recorded = copy(CURRENT);
   recorded.index.dataset = 'gone-fa';
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
-  assert.equal(out.config.index.dataset, 'diary-fa');
+  assert.equal(out.config.index.dataset, CURRENT.index.dataset);
   assert.deepEqual(plain(out.unserved), [{
     path: 'index.dataset', value: 'gone-fa', reason: 'not installed here',
   }]);
 });
 
 // --- D3: an absent dataset still means the built-in diary -------------------
-// `IndexConfig.dataset=''` is how an archive from before this installation's
-// datasets carried ids of their own (D3) names the built-in corpus, and it
-// still means it — but `''` is not a value any served dataset's own id
-// equals any more, so left unresolved it would read as a corpus this lab
-// does not have, and a control whose options are named would select
-// nothing at all rather than the diary. Three cases, the same three the
-// live re-check that found this asked for: an absent id resolves and
-// selects, a served non-empty id selects as it always did, and a genuinely
-// unknown one keeps the ordinary honest naming — never a fourth case where
-// `''` and "unknown" are told apart differently from any other value.
+// `IndexConfig.dataset=''` is how an archive names the built-in corpus, and
+// it is also that corpus's config *identity*: the fingerprint payload drops
+// it, so every collection already built under it stays reproducible. So the
+// resolution to the corpus's id is for deciding which corpus a value means
+// and for what the reader is shown — never for what is written back. Four
+// cases: an absent id is servable and adopted verbatim, a served non-empty
+// id selects as it always did, a genuinely unknown one keeps the ordinary
+// honest naming, and a catalogue that happens to name the built-in corpus by
+// its id serves an archive that names it by absence just the same.
 
-test('an absent dataset (\'\') resolves to the built-in diary and is applied,'
-  + ' not left unresolved and unservable', () => {
+test("an absent dataset ('') is servable and adopted exactly as recorded, so "
+  + 'a rebuild lands on the collection the record was built under', () => {
   const recorded = copy(CURRENT);
   recorded.index.dataset = '';
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
-  assert.equal(out.config.index.dataset, 'diary-fa',
-    "'' must resolve to the same id `archive_io.js`'s own datasetDisposition "
-    + 'already falls back to, not stay empty');
+  assert.equal(out.config.index.dataset, '',
+    "'' is the built-in corpus's config identity — resolving it to "
+    + "'diary-fa' here would fingerprint a rebuild into a new collection");
   assert.deepEqual(plain(out.unserved), [],
     'the built-in corpus is always servable, so this must not be named as '
     + 'unserved at all');
   assert.ok(out.set.includes('index.dataset'));
+});
+
+test('a catalogue naming the built-in corpus by its id serves an archive '
+  + 'that names it by absence, and the other way round', () => {
+  const byId = Object.assign({}, SERVED, { datasets: ['diary-fa', 'smoke-mini'] });
+  const absent = copy(CURRENT);
+  absent.index.dataset = '';
+  const one = Handoff.reconcile(absent, CURRENT, byId);
+  assert.deepEqual(plain(one.unserved), [],
+    'one corpus under two spellings is still one corpus');
+  assert.equal(one.config.index.dataset, '', 'and still adopted verbatim');
+
+  const spelled = copy(CURRENT);
+  spelled.index.dataset = 'diary-fa';
+  const two = Handoff.reconcile(spelled, CURRENT, SERVED);
+  assert.deepEqual(plain(two.unserved), []);
+  assert.equal(two.config.index.dataset, 'diary-fa');
 });
 
 test('a served, non-empty dataset id selects exactly as it always did', () => {
@@ -211,7 +233,8 @@ test('a served, non-empty dataset id selects exactly as it always did', () => {
 });
 
 test('an unknown, non-empty dataset id keeps the ordinary unserved naming — '
-  + 'the fix is for \'\' specifically, not for any absence of a match', () => {
+  + "the leniency is for the built-in corpus's two spellings, not for any "
+  + 'absence of a match', () => {
   const recorded = copy(CURRENT);
   recorded.index.dataset = 'retired-corpus-xyz';
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);

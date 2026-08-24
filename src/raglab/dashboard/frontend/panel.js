@@ -144,7 +144,16 @@ function fillModels() {
 // reads one back, and the catalogue `servedKnobs()` calls served. Written out
 // three times they did not, and an experiment opened from the board announced
 // this lab's own default corpus as one it does not have.
-const datasetValue = (d) => (d.source === 'builtin' ? '' : d.id);
+//
+// Which corpus is the built-in one is asked by *id*, against the one constant
+// both codecs read (`ArchiveIO.BUILTIN_DATASET`). It used to be asked of a
+// `source` field reading `'builtin'` — a value the service stopped sending
+// when the diary became an ordinary bundled pair (D3), so the test was dead
+// and every fresh selection of the diary sent the explicit id instead, which
+// fingerprints away from every collection already recorded under `''`.
+// The id is what a dataset actually has; a source label was a second name
+// for it that could rot without a single reader noticing.
+const datasetValue = (d) => (d.id === ArchiveIO.BUILTIN_DATASET ? '' : d.id);
 const datasetValues = () => (OPTIONS.datasets || []).map(datasetValue);
 
 function fillDatasets() {
@@ -1286,7 +1295,10 @@ function snapshotDashboard() {
 
 function restoreDashboard(before) {
   writeArchiveSettings(before.settings, {
-    dataset: before.settings.settings.config.index.dataset || 'diary-fa',
+    // Same one mapping the codec and the handoff read, never a fourth copy of
+    // the string: an absent dataset names the built-in corpus.
+    dataset: before.settings.settings.config.index.dataset
+      || ArchiveIO.BUILTIN_DATASET,
     viewOnly: before.archiveViewOnly,
     optionText: before.archivedOption && before.archivedOption.text,
   });
@@ -1356,7 +1368,8 @@ async function adoptArchive(imported) {
         validate: validateAgainstPanelOptions,
         write: (next) => writeArchiveSettings(next,
           ArchiveIO.equal(next, before.settings) ? {
-            dataset: before.settings.settings.config.index.dataset || 'diary-fa',
+            dataset: before.settings.settings.config.index.dataset
+              || ArchiveIO.BUILTIN_DATASET,
             viewOnly: before.archiveViewOnly,
             optionText: before.archivedOption && before.archivedOption.text,
           } : null),

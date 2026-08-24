@@ -79,6 +79,10 @@ def panel_texts(client):
         # the foot of this file claim about the export template is a claim
         # about the file a browser is actually handed.
         'archive_io.js': client.get('/archive_io.js').text,
+        # The handoff, over its own route for the same reason: it reads the
+        # codec's own `BUILTIN_DATASET` rather than keeping a second copy of
+        # that id, which is a claim about this served file.
+        'experiment_handoff.js': client.get('/experiment_handoff.js').text,
         'widget.css': client.get('/widget.css').text,
         'widget.js': client.get('/widget.js').text,
         'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
@@ -600,18 +604,56 @@ def test_the_panel_spells_the_built_in_corpus_one_way(panel_texts):
     in the list — and an experiment opened from the board announced the lab's
     own default corpus as *not installed here* while quietly leaving the knob
     alone. A fabricated discrepancy in the one notice whose entire job is to
-    report real ones."""
+    report real ones.
+
+    What this test can honestly claim is the *one place* half: no served script
+    may carry the built-in corpus's id as a literal of its own, because the
+    mapping is read from `ArchiveIO.BUILTIN_DATASET` (`archive_io.js`, the one
+    file allowed to say it). Whether the mapping still *works* is behaviour,
+    not text — this test used to count the source of the branch that decided
+    it, and counting text is exactly what let that branch rot: it tested a
+    `source === 'builtin'` field the service stopped sending, so the count
+    stayed at one while every fresh selection of the diary sent the explicit
+    id. `panel_open.test.js` asks the served page for its own option values
+    instead, and `test_the_open_path_maps_the_built_in_corpus_by_id` below
+    runs it."""
     js = panel_texts['panel.js']
-    spelling = js.count("'builtin' ? '' : ")
-    assert spelling == 1, (
-        'the built-in corpus must be spelled in one place and read from there '
-        f'({spelling} copies of the rule found in panel.js)')
+    for name, text in panel_texts.items():
+        if not name.endswith('.js') or name == 'archive_io.js':
+            continue
+        for literal in (f"'{datasets.BUILTIN}'", f'"{datasets.BUILTIN}"'):
+            assert literal not in text, (
+                f'{name} spells the built-in corpus id as a literal of its '
+                'own; the one statement of that mapping is '
+                'ArchiveIO.BUILTIN_DATASET, and a second copy is what drifts')
     served = re.search(r'function servedKnobs\(.*?\n}', js, re.S)
     assert served, 'servedKnobs must exist for the handoff to ask what is served'
     assert 'datasetValues()' in served.group(0), (
         'what servedKnobs calls a served corpus must be the same value the '
         'dataset select offers, or the empty string that means the built-in '
         'corpus reads as a corpus this installation does not have')
+
+
+def test_the_open_path_maps_the_built_in_corpus_by_id():
+    # this is an integration test
+    """The behaviour the convention test above cannot claim, and the one thing
+    a text check demonstrably could not keep: what the dataset dropdown's
+    option *values* actually are, and what the config a page submits after
+    opening a recorded experiment actually carries.
+
+    `panel_open.test.js` boots the served `panel.js` itself over the real
+    `/api/options` and real archive responses saved beside it, so it sees the
+    option values the browser would see and the `readConfig()` a build would
+    be launched with. Run from here because the panel's served frontend is
+    asserted on in this file, and skipped rather than failed where `node` is
+    absent, like every other JavaScript suite in this folder."""
+    node = shutil.which('node')
+    if node is None:
+        pytest.skip('no node on PATH to boot the served panel with')
+    done = subprocess.run([node, '--test', 'panel_open.test.js'],
+                          cwd=RAGLAB_DIR / 'dashboard' / 'tests',
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stdout + done.stderr
 
 
 @pytest.mark.parametrize('file, must_contain, must_not_contain, reason', CONVENTIONS)

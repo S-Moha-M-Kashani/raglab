@@ -65,18 +65,30 @@ const ExperimentHandoff = (() => {
 
   // --- what this lab can serve ----------------------------------------------
 
-  // The value a servable knob is actually written under — almost always the
-  // recorded one unchanged. `index.dataset` is the one exception: an archive
-  // from before this installation's datasets carried ids of their own (D3)
-  // records an absent dataset as `''`, meaning the built-in diary, and `''`
-  // is not a value any served dataset's own id equals any more — so the
-  // record's own way of naming that corpus and this lab's way of listing it
-  // have to resolve to the *same* string before it reaches a control whose
-  // options are named, or the value that means "the diary" would still
-  // select nothing at all. `ArchiveIO.BUILTIN_DATASET` is read rather than
-  // typed here so the two codecs share one mapping instead of each stating it.
+  // One corpus, two spellings. `''` is the built-in diary's *config
+  // identity* — the value `IndexConfig.fingerprint()` drops from its payload
+  // (D3), so every collection ever built under it stays reproducible, and the
+  // value the panel's own `<option>` for that corpus therefore carries.
+  // `ArchiveIO.BUILTIN_DATASET` is that same corpus's *id*, which is how a
+  // catalogue names it in prose. Resolving decides which corpus a value
+  // means, and what a reader is shown; it is never what gets written back
+  // into a config, because rewriting a recorded `''` to the id would
+  // fingerprint a rebuild away from the exact collection the record was
+  // built under — the one thing the empty string exists to promise.
+  // `ArchiveIO.BUILTIN_DATASET` is read rather than typed here so the two
+  // codecs share one mapping instead of each stating it. Read inside the
+  // function body, not at load: `leaderboard.html` loads this file without
+  // `archive_io.js` and calls nothing that reaches here.
   function resolvedDataset(value) {
     return value || ArchiveIO.BUILTIN_DATASET;
+  }
+
+  // So servability asks about the corpus, never about the spelling: a
+  // catalogue that lists the built-in corpus under either name serves a
+  // record that names it under either name.
+  function servesDataset(value, served) {
+    const wanted = resolvedDataset(value);
+    return (served.datasets || []).some((id) => resolvedDataset(id) === wanted);
   }
 
   // One rule per knob the panel constrains, asked in the order that produces
@@ -84,8 +96,7 @@ const ExperimentHandoff = (() => {
   // applied against the wrong corpus is not that experiment at all.
   function unservedReason(path, value, served) {
     if (path === 'index.dataset') {
-      return (served.datasets || []).includes(resolvedDataset(value))
-        ? '' : 'not installed here';
+      return servesDataset(value, served) ? '' : 'not installed here';
     }
     const choices = (served.choices || {})[path];
     if (choices) {
@@ -164,8 +175,12 @@ const ExperimentHandoff = (() => {
         const reason = unservedReason(path, value, served);
         if (reason) unserved.push({ path, value, reason });
         else {
-          config[group][knob] = path === 'index.dataset'
-            ? resolvedDataset(value) : value;
+          // Written exactly as recorded, `index.dataset` included. A record
+          // naming the built-in corpus as `''` is adopted as `''`, which is
+          // the value the panel's own option for that corpus carries, so the
+          // reader sees the right corpus named while a rebuild under this
+          // config still lands on the collection the record was built under.
+          config[group][knob] = value;
           set.push(path);
         }
       }

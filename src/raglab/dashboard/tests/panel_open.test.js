@@ -327,16 +327,72 @@ test('a page that boots over an already-poisoned saved config still opens '
 // non-empty id selects exactly as it always did, and a genuinely unknown
 // one keeps the ordinary honest naming.
 
-test("an archive recorded with dataset='' selects diary-fa, not '—'",
-  async () => {
+// --- the option values themselves ------------------------------------------
+// Which value the dropdown offers for the built-in corpus is the whole of
+// this: `''` is that corpus's config identity — `IndexConfig.fingerprint()`
+// drops `dataset=''` from its payload, so `''` and `'diary-fa'` name one
+// corpus but fingerprint two different collections (`804444ae65db` and
+// `cc06e9e8bd3e`). The mapping was written against a `source === 'builtin'`
+// test that the service stopped satisfying when the diary became an ordinary
+// bundled pair (D3): `source` reads `'bundled'`, so the branch never matched
+// and every fresh selection of the diary sent `'diary-fa'`, fingerprinting
+// away from every collection already recorded. A count of the source text
+// was what guarded it, and text is exactly what a rename like that leaves
+// intact — so this asks the served page for its own option values instead.
+test('the dataset dropdown offers the built-in corpus as the empty string '
+  + 'and every other corpus under its own id', async () => {
+  // this is an integration test
+  const page = panelPage({});
+  await page.settled;
+  const options = [...page.byId('dataset').innerHTML
+    .matchAll(/<option value="([^"]*)">([^<]*)</g)]
+    .map(([, value, text]) => ({ value, text }));
+  const rows = REAL_OPTIONS.datasets;
+  assert.ok(rows.length >= 5, 'the real /api/options fixture lists the corpora');
+  assert.deepEqual(options.map((option) => option.value),
+    rows.map((row) => (row.id === 'diary-fa' ? '' : row.id)),
+    'one option per served corpus, in order: the built-in corpus under the '
+    + 'empty string, every other corpus under its own id');
+  // Not by absence of a match, but by the corpus the empty option actually
+  // names — a mapping that dropped the diary entirely would also produce no
+  // `value="diary-fa"`.
+  const builtin = options.find((option) => option.value === '');
+  const diary = rows.find((row) => row.id === 'diary-fa');
+  assert.ok(builtin.text.startsWith(diary.name),
+    'and the empty option is the diary itself, named by the catalogue');
+  // The other direction, said outright: the id must not be an option value,
+  // or selecting the diary would send a value no recorded collection has.
+  assert.equal(page.byId('dataset').innerHTML.includes('value="diary-fa"'), false);
+
+  // What a fresh page would actually submit for a build: the served default
+  // (`''`), read back through the control that shows it.
+  assert.equal(REAL_OPTIONS.defaults.index.dataset, '');
+  assert.equal(page.byId('dataset').value, '');
+  assert.equal(page.sandbox.readConfig().index.dataset, '');
+  // And the corpus card renders, which is the visible half of the same fact:
+  // the lookup reads the selected value back to a corpus, and under the dead
+  // mapping `''` matched no row at all, so `describeDataset` returned early
+  // and the header described nothing.
+  assert.equal(page.byId('corpusName').textContent, 'diary-fa');
+  assert.match(page.byId('corpus').textContent, /documents · \d+ parts/);
+});
+
+test("an archive recorded with dataset='' adopts '' — the corpus is named, "
+  + 'the recorded collection stays reproducible', async () => {
     const page = panelPage({ search: `?experiment=${EXPERIMENT_ID}` });
     await page.settled;
     assert.equal(ARCHIVE.settings.config.index.dataset, '',
       'this fixture must really be the pre-D3 shape the live re-check found');
-    assert.equal(page.byId('dataset').value, 'diary-fa',
-      "the dropdown must select the built-in corpus, not read back '' "
-      + '(no option carries that value, which is what produced the dash)');
-    assert.equal(page.sandbox.readConfig().index.dataset, 'diary-fa');
+    assert.equal(page.byId('dataset').value, '',
+      "the recorded '' is written through unchanged: it is the value the "
+      + "built-in corpus's own option carries, and the value a rebuild must "
+      + 'fingerprint under to land on the collection this run used');
+    // The config this page would submit next — the run payload's own
+    // `index.dataset` — is the promise `IndexConfig.fingerprint()` keeps.
+    assert.equal(page.sandbox.readConfig().index.dataset, '');
+    // Resolved for the reader, not for the record: the header names the
+    // corpus by id even though the knob holds the empty string.
+    assert.equal(page.byId('corpusName').textContent, 'diary-fa');
     const failed = page.requests.notes.filter((note) => /^Opening experiment/.test(note)
       || /was not opened/.test(note));
     assert.deepEqual(failed, []);

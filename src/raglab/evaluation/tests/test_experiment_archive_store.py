@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from raglab.corpora import corpus_store as corpora
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import experiment_archive as archive
 from raglab.evaluation import experiment_archive_store as store
 from raglab.evaluation.tests import archive_examples as examples
@@ -125,6 +126,40 @@ def test_the_corpus_is_in_the_corpus_store_before_the_row_that_names_it(tmp_path
                             'experiment_id = ?', ('exp-1',)).fetchone()['id_corpora']
     assert id_corpora > 0, 'the row must name a corpora row that exists'
     assert corpora.get(id_corpora) == (examples.CORPUS, examples.GROUND_TRUTH)
+
+
+def test_a_bundled_datasets_real_pair_is_written_by_shrink_with_no_new_code(
+        tmp_path):
+    # this is an integration test
+    """The refill decision (Task 10, D8): no new writer is needed.
+
+    Every experiment that finishes goes through `store.put` -> `shrink` ->
+    `keep` -> `corpus_store.put` (`panel_server.keep_archive` reaches this
+    same `store.put`) on its way onto the ledger. `shrink` stores whatever
+    `evaluation.inspector.dataset.{corpus, ground_truth}` the run actually
+    carried, and for a bundled dataset that is
+    `dataset_import_contract.load()`'s own real pair — the schema's shape,
+    unrewritten (D4) — not a synthetic stand-in. So the first evaluation
+    that finishes against each bundled dataset, post-migration, writes its
+    real pair through exactly this path: the code every archive has always
+    gone through, unchanged by this migration.
+    """
+    path = tmp_path / 'corpora.db'
+    keep = (lambda dataset_id, corpus, ground_truth:
+            corpora.put(dataset_id, corpus, ground_truth, path))
+    written = {}
+    for dataset_id in ('diary-fa', 'support-en', 'meetings-de',
+                       'research-multihop', 'smoke-mini'):
+        corpus, ground_truth = datasets.load(dataset_id)
+        value = {'evaluation': {'inspector': {'dataset': {
+            'id': dataset_id, 'corpus': corpus, 'ground_truth': ground_truth,
+        }}}}
+        thin, id_corpora = store.shrink(value, keep=keep)
+        reference = thin['evaluation']['inspector']['dataset'][store.CORPUS_REF]
+        assert reference['dataset'] == dataset_id
+        assert corpora.get(id_corpora, path) == (corpus, ground_truth)
+        written[dataset_id] = id_corpora
+    assert len(set(written.values())) == 5, 'five distinct pairs, five rows'
 
 
 def test_many_archives_over_one_corpus_share_one_corpora_row(tmp_path):

@@ -585,6 +585,40 @@ INSPECTOR_CONVENTIONS = [
      'the evidence highlight is CSS-driven and the class must exist'),
     ('inspector.css', '.retrieval-row:hover', None,
      'the reveal must open on hover, without a click'),
+    # --- fidelity: a verbatim quote is highlighted, a paraphrase or a
+    # computed fact is labelled and never highlighted. Each row below pins
+    # the ternary's own branch rather than merely that both substrings occur
+    # somewhere in the file, so swapping which fidelity gets which treatment
+    # — or dropping the distinction and always doing one or the other —
+    # fails the row, not just deleting the feature outright.
+    ('inspector.js', "const verbatim = ev.fidelity === 'verbatim';", None,
+     'evidence rendering must branch on fidelity itself, not on role or on '
+     'whether a quote happens to be short'),
+    ('inspector.js', 'const text = verbatim\n      ? `<mark class="evidence-mark">',
+     None,
+     'the <mark> highlight belongs to the ternary\'s verbatim branch — '
+     'pinned with the branch attached, so a swap that put the mark on the '
+     'paraphrase/computed side instead still fails this row'),
+    ('inspector.js', "const tag = verbatim ? '' : `<span class=\"fidelity-tag ",
+     None,
+     'the fidelity label is the mirror image: empty on the verbatim branch, '
+     'the tag on every other one — a computed date must never be boxed as '
+     'if the corpus had written it, and this is the line that keeps it so'),
+    ('inspector.js',
+     "class=\"gt-quote${verbatim ? '' : ' gt-quote--labelled'}\"", None,
+     'the dashed "not a literal excerpt" rule is the same shape again: only '
+     'a non-verbatim entry earns .gt-quote--labelled'),
+    ('inspector.js', '<span class="q-id">#${escapeHtml(f.derived_fact_id)}</span>',
+     None,
+     'the derived-facts list must be keyed by derived_fact_id, or a reader '
+     'has no id to match against the "supports #n" a piece of evidence '
+     'names'),
+    ('inspector.js', "`supports #${ev.supports.join(', #')}`", None,
+     "each evidence entry must name which derived_fact_id(s) it backs, by "
+     "id, not merely that it has some evidence"),
+    ('inspector.js', "'supports the answer as a whole'", None,
+     'an empty `supports` means the whole answer, per the schema — not '
+     '"supports nothing"'),
     ('inspector.html', 'add-question', None,
      'the question picker must expose the button that opens it'),
     ('inspector.html', 'id="question-picker"', None,

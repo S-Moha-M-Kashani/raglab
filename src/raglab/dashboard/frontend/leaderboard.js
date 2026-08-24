@@ -34,7 +34,8 @@ const COLUMNS = [
   // bar, so the count comes before the numbers rather than after them.
   { key: 'dataset', label: 'dataset', everyOnly: true },
   { key: 'questions', label: 'questions',
-    title: 'how many questions were scored' },
+    title: 'how many questions were scored, and the sample they were drawn '
+      + 'from when the run recorded one' },
   // Then the deciding score, its error, and the four metrics it is the mean of:
   // the only columns that decide anything, kept as close to the identity as the
   // frozen sentence allows. The descriptive columns wait behind them.
@@ -73,6 +74,35 @@ const judgeOf = (row) => {
   return judge.model ? `${judge.model} via ${judge.provider || '?'}` : '—';
 };
 
+// The `questions` column reads a row's own recorded selection identity —
+// `run_evaluation.selection_note`'s balance/limit/n/by_<balance> counts —
+// when the run carries one, falling back to the bare count for a row that
+// does not: an index build, a retrieval, an imported archive (none of which
+// score questions) or a run recorded before `selection_note` existed. Never
+// both, and never a count reinterpreted as an identity it never claimed.
+const selectionText = (row) => {
+  const selection = row.selection || {};
+  const n = selection.n;
+  if (n === null || n === undefined) return String(row.n_questions ?? 0);
+  const balance = selection.balance || '';
+  const counts = balance ? selection[`by_${balance}`] : null;
+  if (counts && Object.keys(counts).length) {
+    const parts = Object.entries(counts)
+      .map(([value, count]) => `${value}=${count}`).join(', ');
+    return `${n} (${parts})`;
+  }
+  return balance ? `${n}, ${balance}` : String(n);
+};
+
+// The sort key stays numeric even when the display text is not — the same
+// reason the pipeline column overrides its own `data-sort` below: a richer
+// "12 (easy=4, hard=8)" must still sort beside a bare "30" as 12 and 30, not
+// alphabetically as strings.
+const selectionSort = (row) => {
+  const n = (row.selection || {}).n;
+  return n === null || n === undefined ? (row.n_questions ?? 0) : n;
+};
+
 // The same sentence spelled out, as plain text: what the column sorts on, what
 // a filter on it reads, and what the reveal publishes. The board *draws* the
 // short form — an abbreviated cell that also sorted and filtered as its
@@ -102,7 +132,7 @@ function cell(row, key) {
     case 'decision': return fmt(row.decision, 4);
     case 'spread': return fmt(row.decision_stderr, 3);
     case 'judge': return escapeHtml(judgeOf(row));
-    case 'questions': return row.n_questions ?? 0;
+    case 'questions': return escapeHtml(selectionText(row));
     case 'dataset': return escapeHtml(row.dataset || '—');
     // Marked rather than merely printed: on `fake` every LLM number on the row
     // came from a stub that cannot fail, so the row is a rehearsal of the
@@ -174,8 +204,13 @@ function renderTable(dataset, rows) {
     // ordered by knobs the reader cannot see. `data-sort` is what the sorter
     // reads instead when a renderer knows better than its own text.
     const reveal = col.key === 'pipeline' ? settingsReveal(row) : '';
+    // Same reason as the pipeline row above: the questions cell's own text can
+    // be a richer "12 (easy=4, hard=8)" now, and a column sorted on that text
+    // would order "12 (...)" after "3 (...)" alphabetically. `data-sort` keeps
+    // the sort numeric regardless of what the cell says.
     const sortAs = col.key === 'pipeline'
-      ? ` data-sort="${escapeHtml(sentenceText(row))}"` : '';
+      ? ` data-sort="${escapeHtml(sentenceText(row))}"`
+      : col.key === 'questions' ? ` data-sort="${selectionSort(row)}"` : '';
     return `<td${cls ? ` class="${cls}"` : ''}${sortAs}`
       + `${col.key === 'pipeline' ? ' tabindex="0"' : ''}>`
       + `${cell(row, col.key)}${reveal}</td>`;

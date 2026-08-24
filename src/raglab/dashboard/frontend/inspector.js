@@ -226,15 +226,25 @@ function evidenceBlock(q) {
   return `<div class="gt-field"><div class="qh-label">evidence</div>${items}</div>`;
 }
 
-// The claims a right answer must contain, by `derived_fact_id` — the id is
-// what `evidenceBlock`'s "supports #n" points back at, so the two lists read
-// as one structure rather than two unconnected paragraphs.
+// The <li> markup for one question's derived facts, by `derived_fact_id` —
+// the id `evidenceBlock`'s "supports #n" points back at. One construction,
+// shared by every view that lists them (the ground-truth tab via
+// `factsBlock` below, the retrieval/generation question head via
+// `questionHead`, and the picker's own detail through `evidenceBlock`'s
+// supports label reading the same ids), so the two lists always read as one
+// structure and can never drift into two different renderings of it.
+function factsItems(q) {
+  return ((q.expected_answer || {}).derived_facts || [])
+    .map(f => `<li><span class="q-id">#${escapeHtml(f.derived_fact_id)}</span> `
+              + `${escapeHtml(f.fact)}</li>`).join('');
+}
+
+// The ground-truth tab's own wrapper around `factsItems` — a labelled field
+// beside the answer and the evidence, present only when there is something
+// to list.
 function factsBlock(q) {
-  const facts = ((q.expected_answer || {}).derived_facts) || [];
-  if (!facts.length) return '';
-  const items = facts.map(f =>
-    `<li><span class="q-id">#${escapeHtml(f.derived_fact_id)}</span> `
-    + `${escapeHtml(f.fact)}</li>`).join('');
+  const items = factsItems(q);
+  if (!items) return '';
   return `<div class="gt-field"><div class="qh-label">derived facts</div>`
     + `<ol class="qh-facts">${items}</ol></div>`;
 }
@@ -605,9 +615,7 @@ function retrievalTable(candidates) {
 function questionHead(questionId, fallbackQuestion) {
   const q = GT.get(questionId) || {};
   const meta = q.question_metadata || {};
-  const facts = ((q.expected_answer || {}).derived_facts || [])
-    .map(f => `<li><span class="q-id">#${escapeHtml(f.derived_fact_id)}</span> `
-              + `${escapeHtml(f.fact)}</li>`).join('');
+  const facts = factsItems(q);
   return `<div class="question-head">`
     + `<div class="qh-fa" dir="${CORPUS_DIR}">`
     + `${escapeHtml(q.question || fallbackQuestion || '')}</div>`

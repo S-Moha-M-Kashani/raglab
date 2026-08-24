@@ -22,8 +22,10 @@ def items(diary, ground_truth):
     the whole ground truth and its evidence to pair each answer with a
     fabricated one, and every test in this section is about that *same*
     six-pair screen, not a fresh one drawn per test."""
+    date_label = corpus.date_label(
+        diary['corpus_dataset_metadata'].get('label_fields') or {})
     return judgescreen.build_items(ground_truth, corpus.documents_by_id(diary),
-                                   pairs=6)
+                                   date_label, pairs=6)
 
 
 def test_the_screen_pairs_a_verified_answer_with_one_fabricated_number(items):
@@ -76,7 +78,9 @@ def test_a_screened_claim_is_one_sentence_not_a_whole_answer(items, ground_truth
     RAGAS's own faithfulness decomposes a response into atomic statements
     before judging, so an undecomposed paragraph would not resemble the
     real task either."""
-    answers = {q['id']: q['answer_fa'] for q in ground_truth['questions']}
+    answers = {q['groundtruth_question_id']: q['expected_answer']['text']
+               for q in ground_truth['groundtruth_dataset']
+               if q['expected_answer'].get('text')}
     for item in items:
         # One sentence. Not "shorter than the answer": a single-sentence answer
         # legitimately yields a claim of the same length, and asserting length
@@ -109,13 +113,16 @@ def test_the_fabricated_number_is_one_the_context_never_states(items):
 def test_a_question_that_cannot_be_mutated_cleanly_is_skipped(diary):
     # this is a unit test
     """No mutation is better than a mislabelled one."""
-    sessions = corpus.documents_by_id(diary)
+    documents = corpus.documents_by_id(diary)
+    document_id = next(iter(documents))
     # No numerals at all, so nothing can be fabricated.
-    ground_truth = {'questions': [
-        {'id': 'q-x', 'answerable': True, 'answer_fa': 'هیچ عددی اینجا نیست',
-         'evidence': [{'quote': 'متن بدون عدد', 'session_id': 'nope',
-                       'message_indices': []}]}]}
-    assert judgescreen.build_items(ground_truth, sessions, pairs=4) == []
+    ground_truth = {'groundtruth_dataset': [
+        {'groundtruth_question_id': 999, 'question': 'q',
+         'expected_answer': {'behavior': 'answer', 'text': 'هیچ عددی اینجا نیست'},
+         'relevant_corpus_documents': [
+             {'corpus_document_id': document_id,
+              'evidence': [{'text': 'متن بدون عدد', 'fidelity': 'paraphrase'}]}]}]}
+    assert judgescreen.build_items(ground_truth, documents, pairs=4) == []
 
 
 def test_the_screen_reads_a_ragas_shaped_reply_and_nothing_looser():

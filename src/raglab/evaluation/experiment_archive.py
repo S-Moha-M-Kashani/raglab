@@ -206,7 +206,7 @@ def _validate_settings(value, limits: dict) -> dict:
         _string(config[group][field], f'settings.config.{group}.{field}')
 
     ui = _dict(settings['ui'], 'settings.ui')
-    _keys(ui, ('mode', 'ragas_mode', 'limit', 'ragas_limit', 'types'),
+    _keys(ui, ('mode', 'ragas_mode', 'limit', 'ragas_limit', 'labels', 'balance'),
           'settings.ui')
     mode = _string(ui['mode'], 'settings.ui.mode')
     if mode not in ('', 'local', 'openrouter', 'claude', 'codex'):
@@ -218,26 +218,36 @@ def _validate_settings(value, limits: dict) -> dict:
     _integer(ui['limit'], 'settings.ui.limit', minimum=0, maximum=200)
     _integer(ui['ragas_limit'], 'settings.ui.ragas_limit',
              minimum=0, maximum=200)
-    types = _list(ui['types'], 'settings.ui.types')
-    if len(types) != len(set(types)):
-        raise ArchiveError('settings.ui.types: duplicate question types')
-    for index, question_type in enumerate(types):
-        _string(question_type, f'settings.ui.types[{index}]')
-        if question_type not in datasets.TYPES:
-            raise ArchiveError(
-                f'settings.ui.types[{index}]: unknown question type '
-                f'{question_type!r}')
+    _string(ui['balance'], 'settings.ui.balance')
+    # D7: a question filter is now one switch-group per question label the
+    # *dataset* declares, which is an open vocabulary — there is no fixed
+    # list left to check `labels`/`balance` against here. The panel checks
+    # them against the dataset the archived config names.
+    labels = _dict(ui['labels'], 'settings.ui.labels')
+    for label, values in labels.items():
+        values = _list(values, f'settings.ui.labels.{label}')
+        for index, value in enumerate(values):
+            _string(value, f'settings.ui.labels.{label}[{index}]', nonempty=True)
     return settings
 
 
-def _unique(rows: list[dict], key: str, path: str) -> dict[str, dict]:
+def _unique(rows: list[dict], key: str, path: str, *,
+           value_type: type = str) -> dict:
+    """Rows keyed by `key`, refusing a missing/wrong-typed or duplicate one.
+    `value_type` is `str` for a chunk/summary/trace id (an arbitrary label
+    assigned at index time) and `int` for a question/row id (the schema's own
+    `groundtruth_question_id`, an integer)."""
     found = {}
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise ArchiveError(f'{path}[{index}]: object required')
         value = row.get(key)
-        if not isinstance(value, str) or not value:
-            raise ArchiveError(f'{path}[{index}].{key}: non-empty string required')
+        if value_type is str:
+            if not isinstance(value, str) or not value:
+                raise ArchiveError(
+                    f'{path}[{index}].{key}: non-empty string required')
+        elif isinstance(value, bool) or not isinstance(value, int):
+            raise ArchiveError(f'{path}[{index}].{key}: integer required')
         if value in found:
             raise ArchiveError(f'{path}: duplicate {key} {value}')
         found[value] = row
@@ -296,7 +306,12 @@ def _metric_items(value, path: str):
         yield _metric_key(key, f'{path}.{key}'), metric
 
 
-def _validate_dataset(inspector_dataset: dict, limits: dict) -> dict[str, dict]:
+def _validate_dataset(inspector_dataset: dict, limits: dict) -> dict[int, dict]:
+    """The archived corpus/ground-truth pair, held to the same contract an
+    import is (D9's `dataset_import_contract.validate`, run directly on the
+    two file payloads D4 says every consumer reads unchanged) plus the one
+    check that is an archive's own: the corpus this run actually built over
+    is the corpus the archive's `id` names."""
     inspector_dataset = _dict(inspector_dataset,
                               'evaluation.inspector.dataset')
     _keys(inspector_dataset, ('id', 'corpus', 'ground_truth'),
@@ -307,60 +322,23 @@ def _validate_dataset(inspector_dataset: dict, limits: dict) -> dict[str, dict]:
                    'evaluation.inspector.dataset.corpus')
     ground_truth = _dict(inspector_dataset['ground_truth'],
                          'evaluation.inspector.dataset.ground_truth')
-    questions = _list(ground_truth.get('questions'),
-                      'evaluation.inspector.dataset.ground_truth.questions')
+    questions = _list(
+        ground_truth.get('groundtruth_dataset'),
+        'evaluation.inspector.dataset.ground_truth.groundtruth_dataset')
     if len(questions) > limits['questions']:
         raise ArchiveError(
-            'evaluation.inspector.dataset.ground_truth.questions: '
+            'evaluation.inspector.dataset.ground_truth.groundtruth_dataset: '
             f'questions exceed {limits["questions"]}')
     question_by_id = _unique(
-        questions, 'id',
-        'evaluation.inspector.dataset.ground_truth.questions')
-    sessions = _list(corpus.get('sessions'),
-                     'evaluation.inspector.dataset.corpus.sessions')
-    session_by_id = _unique(
-        sessions, 'session_id', 'evaluation.inspector.dataset.corpus.sessions')
-    for question_index, question in enumerate(questions):
-        if not isinstance(question, dict):
-            continue
-        evidence = question.get('evidence')
-        if not isinstance(evidence, list):
-            continue
-        for evidence_index, item in enumerate(evidence):
-            if not isinstance(item, dict):
-                continue
-            path = ('evaluation.inspector.dataset.ground_truth.questions'
-                    f'[{question_index}].evidence[{evidence_index}]')
-            session_id = item.get('session_id')
-            if not isinstance(session_id, str) or not session_id:
-                raise ArchiveError(f'{path}.session_id: non-empty string required')
-            session = session_by_id.get(session_id)
-            if session is None:
-                raise ArchiveError(
-                    f'{path}.session_id {session_id}: session is not archived')
-            indices = item.get('message_indices')
-            if not isinstance(indices, list):
-                continue
-            messages = session.get('messages')
-            message_count = len(messages) if isinstance(messages, list) else 0
-            for message_index in indices:
-                if (isinstance(message_index, bool)
-                        or not isinstance(message_index, int)
-                        or not 0 <= message_index < message_count):
-                    raise ArchiveError(
-                        f'{path}.message_indices {message_index}: outside session '
-                        f'{session_id} with {message_count} messages')
-    dataset_payload = {
-        'dataset': {
-            'id': dataset_id,
-            'name': f'Archived {dataset_id}',
-            'language': corpus.get('meta', {}).get('language')
-            if isinstance(corpus.get('meta'), dict) else None,
-        },
-        'sessions': sessions,
-        'questions': questions,
-    }
-    problems = datasets.validate(dataset_payload)
+        questions, 'groundtruth_question_id',
+        'evaluation.inspector.dataset.ground_truth.groundtruth_dataset',
+        value_type=int)
+    corpus_id = (corpus.get('corpus_dataset_metadata') or {}).get('dataset')
+    if corpus_id != dataset_id:
+        raise ArchiveError(
+            'evaluation.inspector.dataset.corpus.corpus_dataset_metadata.dataset '
+            f'{corpus_id!r}: expected archived dataset {dataset_id!r}')
+    problems = datasets.validate(corpus, ground_truth)
     if problems:
         raise ArchiveError('evaluation.inspector.dataset: ' + '; '.join(problems))
     return question_by_id
@@ -386,11 +364,14 @@ def _validate_chunks(inspector: dict, limits: dict) -> dict[str, dict]:
     return found
 
 
-def _ids(values, path: str) -> list[str]:
+def _ids(values, path: str, *, value_type: type = str) -> list:
     values = _list(values, path)
     found = set()
     for index, value in enumerate(values):
-        _string(value, f'{path}[{index}]', nonempty=True)
+        if value_type is str:
+            _string(value, f'{path}[{index}]', nonempty=True)
+        elif isinstance(value, bool) or not isinstance(value, int):
+            raise ArchiveError(f'{path}[{index}]: integer required')
         if value in found:
             raise ArchiveError(f'{path}: duplicate id {value}')
         found.add(value)
@@ -446,7 +427,7 @@ def _validate_completed(evaluation, settings: dict, limits: dict) -> None:
         duplicate = sorted(duplicate_source_ids)[0]
         raise ArchiveError(f'evaluation.inspector: duplicate chunk id {duplicate}')
 
-    row_by_id = _unique(rows, 'id', 'evaluation.result.rows')
+    row_by_id = _unique(rows, 'id', 'evaluation.result.rows', value_type=int)
     for row_index, row_id in enumerate(row_by_id):
         if row_id not in question_by_id:
             raise ArchiveError(
@@ -458,7 +439,7 @@ def _validate_completed(evaluation, settings: dict, limits: dict) -> None:
         raise ArchiveError(
             f'evaluation.inspector.traces: traces exceed {limits["traces"]}')
     trace_by_id = _unique(traces, 'question_id',
-                          'evaluation.inspector.traces')
+                          'evaluation.inspector.traces', value_type=int)
     sources = chunk_by_id | summary_by_id
     for trace_index, (question_id, trace_row) in enumerate(trace_by_id.items()):
         trace_path = f'evaluation.inspector.traces[{trace_index}]'
@@ -499,7 +480,8 @@ def _validate_completed(evaluation, settings: dict, limits: dict) -> None:
 
     selection = result['selection']
     question_ids = _ids(selection.get('question_ids'),
-                        'evaluation.result.selection.question_ids')
+                        'evaluation.result.selection.question_ids',
+                        value_type=int)
     row_ids = list(row_by_id)
     trace_ids = list(trace_by_id)
     if question_ids != row_ids:

@@ -31,8 +31,8 @@ const contents = (value) => {
   const traces = inspector.traces;
   return {
     evaluation: true,
-    sessions: inspector.dataset.corpus.sessions.length,
-    questions: inspector.dataset.ground_truth.questions.length,
+    documents: inspector.dataset.corpus.corpus_documents.length,
+    questions: inspector.dataset.ground_truth.groundtruth_dataset.length,
     chunks: inspector.chunks_by_session.reduce((n, g) => n + g.chunks.length, 0),
     summaries: inspector.summaries.length,
     traces: traces.length,

@@ -651,11 +651,6 @@ def test_every_hierarchy_control_is_dead_until_it_means_something():
 
 
 # Real evaluation, offline embedder, fake LLM.
-@pytest.mark.skip(reason='evaluation.run_evaluation.select_questions still '
-                  'reads the pre-generic ground_truth[\'questions\'] shape — '
-                  'migrating it is a later task in this plan (evaluation/ '
-                  'stays red until then); un-skip once it reads '
-                  'groundtruth_dataset.')
 def test_a_run_records_whether_the_hierarchy_was_actually_retrieved(diary):
     # this is an integration test
     """"The hierarchy was configured" and "the hierarchy was retrieved" are
@@ -695,11 +690,6 @@ def test_the_build_route_refuses_an_unavailable_grouping_by_name(monkeypatch):
 
 
 # FastAPI TestClient.
-@pytest.mark.skip(reason='panel_server._corpus_summary still reads the '
-                  'pre-generic diary[\'sessions\']/[\'threads\']/[\'habits\'] '
-                  'shape — the dashboard surface is a later task in this plan '
-                  '(dashboard/ stays red until then); un-skip once it reads '
-                  'the generic corpus.')
 def test_both_panels_are_served_the_hierarchy_lists_rather_than_keeping_them():
     # this is an integration test
     from fastapi.testclient import TestClient

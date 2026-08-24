@@ -181,7 +181,7 @@ def test_a_row_the_id_points_at_that_moved_is_refused(tmp_path):
 
     def replaced(*_args):
         corpus = copy.deepcopy(examples.CORPUS)
-        corpus['sessions'][0]['messages'][0]['content'] = 'a different diary'
+        corpus['corpus_documents'][0]['document_content'][0]['text'] = 'a different diary'
         return corpus, copy.deepcopy(examples.GROUND_TRUTH)
 
     with pytest.raises(store.ArchiveStoreError, match='not the one this experiment'):
@@ -204,7 +204,7 @@ def test_a_row_edited_in_place_under_its_id_is_refused_through_the_real_store(
     id_corpora = db.execute('SELECT id_corpora FROM archives WHERE '
                             'experiment_id = ?', ('exp-1',)).fetchone()['id_corpora']
     moved = copy.deepcopy(examples.CORPUS)
-    moved['sessions'][0]['messages'][0]['content'] = 'a different diary'
+    moved['corpus_documents'][0]['document_content'][0]['text'] = 'a different diary'
     with corpora.connect() as store_db:
         store_db.execute('UPDATE corpora SET corpus = ? WHERE id = ?',
                          (json.dumps(moved, ensure_ascii=False), id_corpora))

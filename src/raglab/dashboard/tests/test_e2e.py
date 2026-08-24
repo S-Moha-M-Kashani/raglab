@@ -27,18 +27,30 @@ def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
 
     def payload(question_id, text):
         return {
-            'dataset': {'id': 'archive-same-id', 'name': 'Archive replacement',
-                        'language': 'en'},
-            'sessions': [{'session_id': 's1', 'date': '2026-08-19',
-                          'messages': [{'role': 'user', 'content': text}]}],
-            'questions': [{'id': question_id, 'type': 'single-hop',
-                           'difficulty': 'easy', 'answerable': True,
-                           'question': 'What was recorded?', 'answer': text,
-                           'evidence': [{'session_id': 's1',
-                                         'message_indices': [0], 'quote': text}]}],
+            'corpus': {
+                'corpus_dataset_metadata': {'dataset': 'archive-same-id',
+                                            'name': 'Archive replacement',
+                                            'language': 'en'},
+                'corpus_documents': [{'corpus_document_id': 1,
+                                      'document_content': [{'text': text}]}],
+            },
+            'ground_truth': {
+                'groundtruth_dataset_metadata': {
+                    'name': 'Archive replacement questions',
+                    'corpus_ref': {'dataset': 'archive-same-id'}},
+                'groundtruth_dataset': [{
+                    'groundtruth_question_id': question_id,
+                    'question': 'What was recorded?',
+                    'expected_answer': {'behavior': 'answer', 'text': text},
+                    'relevant_corpus_documents': [{
+                        'corpus_document_id': 1,
+                        'evidence': [{'text': text, 'fidelity': 'verbatim',
+                                     'part_labels': [{}]}]}],
+                }],
+            },
         }
 
-    old = payload('old-question', 'old indexed evidence')
+    old = payload(1, 'old indexed evidence')
     assert client.post('/api/datasets', json=old).status_code == 200
     index = {'dataset': 'archive-same-id', 'chunker': 'session',
              'embedder': 'token-hash'}
@@ -46,7 +58,7 @@ def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
     assert built.status_code == 202, built.text
     assert _finished(client, built.json()['job_id'])['state'] == 'done'
 
-    replacement = payload('replacement-question', 'replacement archive evidence')
+    replacement = payload(1, 'replacement archive evidence')
     assert client.post('/api/datasets', json=replacement).status_code == 200
     started = client.post('/api/evaluations', json={
         'index': index, 'retrieval': {'k': 1, 'reranker': 'none', 'grader': 'none'},
@@ -56,7 +68,7 @@ def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
     assert job['state'] == 'done', job.get('error')
     result = job['result']
     evidence = result['archive_evidence']['inspector']['dataset']
-    archived_text = evidence['corpus']['sessions'][0]['messages'][0]['content']
+    archived_text = evidence['corpus']['corpus_documents'][0]['document_content'][0]['text']
     indexed_text = result['chunks_by_session'][0]['chunks'][0]['text']
     assert archived_text == 'replacement archive evidence'
     assert 'replacement archive evidence' in indexed_text
@@ -73,19 +85,31 @@ def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
 
     def payload(question_id, text):
         return {
-            'dataset': {'id': 'archive-race-id', 'name': 'Archive race',
-                        'language': 'en'},
-            'sessions': [{'session_id': 's1', 'date': '2026-08-19',
-                          'messages': [{'role': 'user', 'content': text}]}],
-            'questions': [{'id': question_id, 'type': 'single-hop',
-                           'difficulty': 'easy', 'answerable': True,
-                           'question': 'What was recorded?', 'answer': text,
-                           'evidence': [{'session_id': 's1',
-                                         'message_indices': [0], 'quote': text}]}],
+            'corpus': {
+                'corpus_dataset_metadata': {'dataset': 'archive-race-id',
+                                            'name': 'Archive race',
+                                            'language': 'en'},
+                'corpus_documents': [{'corpus_document_id': 1,
+                                      'document_content': [{'text': text}]}],
+            },
+            'ground_truth': {
+                'groundtruth_dataset_metadata': {
+                    'name': 'Archive race questions',
+                    'corpus_ref': {'dataset': 'archive-race-id'}},
+                'groundtruth_dataset': [{
+                    'groundtruth_question_id': question_id,
+                    'question': 'What was recorded?',
+                    'expected_answer': {'behavior': 'answer', 'text': text},
+                    'relevant_corpus_documents': [{
+                        'corpus_document_id': 1,
+                        'evidence': [{'text': text, 'fidelity': 'verbatim',
+                                     'part_labels': [{}]}]}],
+                }],
+            },
         }
 
-    original = payload('old-question', 'old evaluation evidence')
-    replacement = payload('replacement-question', 'replacement evaluation evidence')
+    original = payload(1, 'old evaluation evidence')
+    replacement = payload(1, 'replacement evaluation evidence')
     assert client.post('/api/datasets', json=original).status_code == 200
     index = {'dataset': 'archive-race-id', 'chunker': 'session',
              'embedder': 'token-hash'}
@@ -108,10 +132,10 @@ def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
 
     original_import = datasets.import_dataset
 
-    def paused_import(body):
+    def paused_import(corpus, ground_truth):
         entered_import.set()
         assert release_import.wait(2), 'test did not release dataset replacement'
-        return original_import(body)
+        return original_import(corpus, ground_truth)
 
     monkeypatch.setattr(IndexRegistry, 'get', paused_get)
     monkeypatch.setattr(datasets, 'import_dataset', paused_import)
@@ -168,19 +192,31 @@ def test_dataset_replacement_waits_for_a_standalone_index_build(
 
     def payload(question_id, text):
         return {
-            'dataset': {'id': 'archive-build-race', 'name': 'Archive build race',
-                        'language': 'en'},
-            'sessions': [{'session_id': 's1', 'date': '2026-08-19',
-                          'messages': [{'role': 'user', 'content': text}]}],
-            'questions': [{'id': question_id, 'type': 'single-hop',
-                           'difficulty': 'easy', 'answerable': True,
-                           'question': 'What was recorded?', 'answer': text,
-                           'evidence': [{'session_id': 's1',
-                                         'message_indices': [0], 'quote': text}]}],
+            'corpus': {
+                'corpus_dataset_metadata': {'dataset': 'archive-build-race',
+                                            'name': 'Archive build race',
+                                            'language': 'en'},
+                'corpus_documents': [{'corpus_document_id': 1,
+                                      'document_content': [{'text': text}]}],
+            },
+            'ground_truth': {
+                'groundtruth_dataset_metadata': {
+                    'name': 'Archive build race questions',
+                    'corpus_ref': {'dataset': 'archive-build-race'}},
+                'groundtruth_dataset': [{
+                    'groundtruth_question_id': question_id,
+                    'question': 'What was recorded?',
+                    'expected_answer': {'behavior': 'answer', 'text': text},
+                    'relevant_corpus_documents': [{
+                        'corpus_document_id': 1,
+                        'evidence': [{'text': text, 'fidelity': 'verbatim',
+                                     'part_labels': [{}]}]}],
+                }],
+            },
         }
 
-    original = payload('old-question', 'old standalone evidence')
-    replacement = payload('replacement-question', 'replacement standalone evidence')
+    original = payload(1, 'old standalone evidence')
+    replacement = payload(1, 'replacement standalone evidence')
     assert client.post('/api/datasets', json=original).status_code == 200
     index = {'dataset': 'archive-build-race', 'chunker': 'session',
              'embedder': 'token-hash'}
@@ -203,10 +239,10 @@ def test_dataset_replacement_waits_for_a_standalone_index_build(
 
     original_import = datasets.import_dataset
 
-    def paused_import(body):
+    def paused_import(corpus, ground_truth):
         entered_import.set()
         assert release_import.wait(2), 'test did not release dataset replacement'
-        return original_import(body)
+        return original_import(corpus, ground_truth)
 
     monkeypatch.setattr(IndexRegistry, 'get', paused_get)
     monkeypatch.setattr(datasets, 'import_dataset', paused_import)
@@ -251,7 +287,7 @@ def test_dataset_replacement_waits_for_a_standalone_index_build(
     assert evaluated['state'] == 'done', evaluated.get('error')
     result = evaluated['result']
     evidence = result['archive_evidence']['inspector']['dataset']
-    assert evidence['corpus']['sessions'][0]['messages'][0]['content'] == \
+    assert evidence['corpus']['corpus_documents'][0]['document_content'][0]['text'] == \
         'replacement standalone evidence'
     assert 'replacement standalone evidence' in \
         result['chunks_by_session'][0]['chunks'][0]['text']
@@ -280,7 +316,7 @@ def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):
     # judge on, ragas off.
     started = client.post('/api/evaluations', json={
         'index': index_cfg, 'retrieval': {'k': 3},
-        'generation': {'answerer': 'llm', 'key_facts_judge': True},
+        'generation': {'answerer': 'llm', 'fact_judge': True},
         'ragas_mode': 'off', 'limit': 3, 'label': 'e2e-smoke'})
     assert started.status_code == 202, started.text
     run_job = _finished(client, started.json()['job_id'])
@@ -297,8 +333,8 @@ def test_the_lab_runs_one_experiment_end_to_end(client, tmp_path, monkeypatch):
         role.key for role in models.ROLES}
     assert evidence['metric_catalogue'] == explain.measures()
     assert evidence['inspector']['dataset']['id'] == result['dataset']
-    assert evidence['inspector']['dataset']['corpus']['sessions']
-    assert evidence['inspector']['dataset']['ground_truth']['questions']
+    assert evidence['inspector']['dataset']['corpus']['corpus_documents']
+    assert evidence['inspector']['dataset']['ground_truth']['groundtruth_dataset']
     assert evidence['inspector']['chunks_by_session'] == result['chunks_by_session']
     assert evidence['inspector']['summaries'] == result['summaries']
     assert evidence['inspector']['traces'] == result['traces']

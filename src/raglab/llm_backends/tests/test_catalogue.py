@@ -496,7 +496,8 @@ def test_the_index_builds_with_the_embedding_model_from_its_config(monkeypatch,
     monkeypatch.setattr(index_module.embedding, 'make_embedder', spy)
     cfg = IndexConfig(chunker='session', embedder='fastembed',
                       embed_model='BAAI/bge-small-en-v1.5')
-    LabIndex.build(cfg, {'sessions': diary['sessions'][:2], 'threads': {}},
+    LabIndex.build(cfg, {'corpus_dataset_metadata': diary['corpus_dataset_metadata'],
+                        'corpus_documents': diary['corpus_documents'][:2]},
                    LAB_SETTINGS)
     assert seen == [('fastembed', 'BAAI/bge-small-en-v1.5')]
 

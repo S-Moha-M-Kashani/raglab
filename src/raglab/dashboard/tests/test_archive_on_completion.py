@@ -35,10 +35,10 @@ from raglab.conftest import SMOKE_INDEX, _finished
 # type filter. Written out rather than read back from the server, so the
 # projection is pinned by something that is not itself.
 RUN = {'index': dict(SMOKE_INDEX), 'retrieval': {'k': 3},
-       'generation': {'answerer': 'llm', 'key_facts_judge': True},
+       'generation': {'answerer': 'llm', 'fact_judge': True},
        'ragas_mode': 'off', 'limit': 3, 'label': 'archived-on-completion'}
 UI = {'mode': '', 'ragas_mode': 'off', 'limit': 3, 'ragas_limit': 0,
-      'types': []}
+      'labels': {}, 'balance': ''}
 
 
 @pytest.fixture

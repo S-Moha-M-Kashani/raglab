@@ -937,6 +937,18 @@ function setArchiveState(runId, label = 'Imported archive') {
   else state.textContent = recordProblem;
 }
 
+// Whether an archived ground truth is in the shape written before this
+// schema (`meta`/`questions`) rather than the schema's own
+// (`groundtruth_dataset_metadata`/`groundtruth_dataset`). An archive is a
+// record (CLAUDE.md) — one written before this branch still has to open —
+// so an old-shape payload is named as old-shape here rather than read as if
+// `questions` meant `groundtruth_dataset`: reinterpreting it would show a
+// reader ground truth the archive never actually carried in that vocabulary.
+function archivedGroundTruthIsPreMigration(groundTruth) {
+  return !groundTruth || (!('groundtruth_dataset' in groundTruth)
+    && 'questions' in groundTruth);
+}
+
 function renderImportedArchive(archive) {
   const evaluation = archive.evaluation;
   const evidence = evaluation.inspector;
@@ -945,17 +957,28 @@ function renderImportedArchive(archive) {
   FOLLOWED_CONFIG = result.config;
   ADDED.clear();
   renderAdded();
-  renderGroundTruth({ dataset: evidence.dataset.id,
-                      meta: evidence.dataset.ground_truth.meta,
-                      questions: evidence.dataset.ground_truth.questions,
-                      // The archive carries the corpus it was run against, and
-                      // the corpus half is where a language lives — so an
-                      // archive is read in its own direction rather than in
-                      // whatever the live corpus happened to be. An archive
-                      // written without one falls through to `auto`, which is
-                      // the honest answer for text whose language is unstated.
-                      language: ((evidence.dataset.corpus || {}).meta || {}).language,
-                      datasets: [] });
+  const groundTruth = evidence.dataset.ground_truth || {};
+  const corpus = evidence.dataset.corpus || {};
+  const preMigration = archivedGroundTruthIsPreMigration(groundTruth);
+  if (preMigration) {
+    GT.clear();
+    document.getElementById('view-groundtruth').innerHTML =
+      '<div class="gt-old-shape">This archive was written before the '
+      + 'current dataset schema, in the old shape — its ground truth is not '
+      + 'shown here, though it is still on record. The chunks, retrieval and '
+      + 'generation below are read from the archive exactly as recorded.</div>';
+  } else {
+    renderGroundTruth({ dataset: evidence.dataset.id,
+                        questions: groundTruth.groundtruth_dataset,
+                        // The archive carries the corpus it was run against,
+                        // and the corpus half is where a language lives — so
+                        // an archive is read in its own direction rather than
+                        // in whatever the live corpus happened to be. An
+                        // archive written without one falls through to
+                        // `auto`, the honest answer for unstated text.
+                        language: (corpus.corpus_dataset_metadata || {}).language,
+                        datasets: [] });
+  }
   renderChunkGroups(document.getElementById('chunks-body'),
                     evidence.chunks_by_session);
   setChunkSummaries(evidence.summaries);
@@ -972,7 +995,9 @@ function renderImportedArchive(archive) {
   }
   document.getElementById('retrieval-body').innerHTML = '';
   document.getElementById('retrieval-answer').textContent = '';
-  setArchiveState(result.run_id);
+  setArchiveState(result.run_id,
+                  preMigration ? 'Imported archive (old-shape ground truth)'
+                               : 'Imported archive');
 }
 
 async function archiveRequest(path, method = 'GET') {

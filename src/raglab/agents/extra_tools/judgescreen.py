@@ -95,22 +95,23 @@ def _mutate_number(claim: str, context: list[str]) -> str | None:
     return None
 
 
-def dated_context(sessions: dict, question: dict) -> list[str]:
-    """The cited evidence messages, each carrying the date of its session — as
-    `IndexConfig.contextual` does for the real pipeline."""
+def dated_context(documents: dict, question: dict, date_label: str = '') -> list[str]:
+    """The cited evidence's own text, one line per piece, dated from the
+    corpus's declared date-time label (D5) when it has one — as
+    `IndexConfig.contextual` dates a chunk for the real pipeline. A corpus
+    that declares no date label yields undated lines rather than inventing
+    one."""
     lines: list[str] = []
-    for evidence in question.get('evidence', []):
-        session = sessions.get(evidence['session_id'])
-        if not session:
-            continue
-        for index in evidence.get('message_indices', []):
-            if 0 <= index < len(session['messages']):
-                lines.append(f"[{session['date']}] "
-                             f"{session['messages'][index]['content']}")
-    if lines:
-        return lines
-    return [f"[{ev.get('session_id', '')[:10]}] {ev['quote']}"
-            for ev in question.get('evidence', [])]
+    for relevant in question.get('relevant_corpus_documents') or []:
+        document = documents.get(relevant.get('corpus_document_id')) or {}
+        date = ((document.get('document_metadata') or {}).get(date_label) or ''
+                if date_label else '')
+        for evidence in relevant.get('evidence') or []:
+            text = evidence.get('text', '')
+            if not text:
+                continue
+            lines.append(f'[{date[:10]}] {text}' if date else text)
+    return lines
 
 
 def _anchored_sentence(answer: str, context: list[str]) -> str | None:
@@ -127,17 +128,12 @@ def _anchored_sentence(answer: str, context: list[str]) -> str | None:
     return max(candidates, key=lambda s: _overlap(s, context))
 
 
-def build_items(ground_truth: dict, sessions: dict, pairs: int = 6) -> list[Item]:
+def build_items(ground_truth: dict, documents: dict, date_label: str = '',
+               pairs: int = 6) -> list[Item]:
     """`pairs` supported claims and `pairs` unsupported ones, perfectly balanced —
     a degenerate judge then scores exactly 0.5 rather than a misleadingly
     respectable accuracy. A question yielding no anchored sentence or clean
     mutation is skipped whole, so the classes stay equal in size and wording."""
-    # NOTE (raglab task-5): `answerable`/`answer_fa` renamed mechanically to
-    # `behavior`/`expected_answer.text` below, but `dated_context()` above
-    # still reads the old session/message shape (`evidence[].session_id` /
-    # `.message_indices`) against the new corpus's document/part shape — a
-    # deeper rewrite than a field rename, left for the task that reworks this
-    # tool's broader logic against the new corpus schema.
     usable = [q for q in ground_truth['groundtruth_dataset']
               if q['expected_answer']['behavior'] != 'abstain'
               and q.get('relevant_corpus_documents')
@@ -146,7 +142,7 @@ def build_items(ground_truth: dict, sessions: dict, pairs: int = 6) -> list[Item
     for question in usable:
         if len(items) >= pairs * 2:
             break
-        context = dated_context(sessions, question)
+        context = dated_context(documents, question, date_label)
         if not context:
             continue
         claim = _anchored_sentence(question['expected_answer']['text'], context)
@@ -266,7 +262,8 @@ def screen(models: list[str], pairs: int = 6) -> dict:
                  'for a remote candidate')
     diary, ground_truth = datasets.load()
     documents = corpus.documents_by_id(diary)
-    items = build_items(ground_truth, documents, pairs)
+    date_label = corpus.date_label(diary['corpus_dataset_metadata'].get('label_fields') or {})
+    items = build_items(ground_truth, documents, date_label, pairs)
     signal = lexical_signal(items)
     print(f'{len(items)} items · {len(models)} models · via {settings.provider}')
     print(f'lexical signal: supported {signal["supported"]} vs unsupported '

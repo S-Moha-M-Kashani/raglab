@@ -13,6 +13,15 @@ route existed — rows, judged metrics and a selection, no trace kept. It is a
 real shape of the format, not a degenerate one, so it belongs on the ladder;
 it is simply not a superset of the rung below, which is why the monotonicity
 test walks `SPINE` and checks this rung against `generated` by name.
+
+Every corpus/ground-truth pair here is the schema's own shape (D4): a
+`corpus_dataset_metadata`/`corpus_documents` pair joined to a
+`groundtruth_dataset_metadata`/`groundtruth_dataset` pair by dataset id, held
+to the same contract an import is (`dataset_import_contract.validate`).
+Chunk/summary/candidate ids stay the arbitrary strings index time assigns
+(`c1`, `g1-summary`) — unrelated to the schema, and unrenamed by it — while a
+question/row/trace id is the schema's own `groundtruth_question_id`, an
+integer.
 """
 import copy
 import json
@@ -41,7 +50,7 @@ def completed_archive(run_id: str = 'imported-run-001') -> dict:
         'settings': {
             'config': config,
             'ui': {'mode': '', 'ragas_mode': 'offline', 'limit': 1,
-                   'ragas_limit': 0, 'types': ['single-hop']},
+                   'ragas_limit': 0, 'labels': {}, 'balance': ''},
         },
         'evaluation': {
             'execution': {'provider': 'fake', 'models': {}},
@@ -61,53 +70,53 @@ def completed_archive(run_id: str = 'imported-run-001') -> dict:
                 'run_id': run_id, 'label': 'imported experiment',
                 'config': copy.deepcopy(config), 'dataset': 'smoke-mini',
                 'index': copy.deepcopy(index_stats),
-                'summary': {
-                    'overall': {'recall': 1.0},
-                    'by_type': {'single-hop': {'n': 1, 'recall': 1.0}},
-                    'by_difficulty': {'easy': {'n': 1, 'recall': 1.0}},
-                    'n_questions': 1,
-                },
-                'rows': [{'id': 'q1', 'type': 'single-hop', 'difficulty': 'easy',
-                          'recall': 1.0, 'latency_ms': 12.0, 'n_contexts': 1,
+                'summary': {'overall': {'recall': 1.0}, 'n_questions': 1},
+                'rows': [{'id': 1, 'behavior': 'answer', 'recall': 1.0,
+                          'latency_ms': 12.0, 'n_contexts': 1,
                           'abstained': False}],
                 'ragas': {}, 'seconds': 0.2,
                 'started_at': '2026-08-19 12:00:00', 'notes': [],
-                'selection': {'balance': 'stride', 'limit': 1, 'n': 1,
-                              'by_difficulty': {'easy': 1},
-                              'question_ids': ['q1']},
+                'selection': {'balance': '', 'limit': 1, 'n': 1,
+                              'question_ids': [1]},
             },
             'inspector': {
                 'dataset': {
                     'id': 'smoke-mini',
-                    'corpus': {'meta': {'language': 'en'}, 'persona': {},
-                               'threads': [], 'habits': {},
-                               'sessions': [{'session_id': 's1',
-                                             'date': '2026-08-19',
-                                             'messages': [{'role': 'user',
-                                                           'content': 'evidence'}]}]},
+                    'corpus': {
+                        'corpus_dataset_metadata': {
+                            'dataset': 'smoke-mini', 'name': 'Smoke corpus',
+                            'language': 'en'},
+                        'corpus_documents': [
+                            {'corpus_document_id': 1,
+                             'document_content': [{'text': 'evidence'}]}],
+                    },
                     'ground_truth': {
-                        'meta': {'corpus': 'smoke-mini',
-                                 'query_date': '2026-08-19'},
-                        'questions': [{'id': 'q1', 'type': 'single-hop',
-                                       'difficulty': 'easy', 'answerable': True,
-                                       'question_fa': 'question',
-                                       'question_en': 'question',
-                                       'answer_fa': 'answer',
-                                       'key_facts': ['fact'],
-                                       'evidence': [{'session_id': 's1',
-                                                     'message_indices': [0],
-                                                     'quote': 'evidence'}]}]},
+                        'groundtruth_dataset_metadata': {
+                            'name': 'Smoke questions',
+                            'corpus_ref': {'dataset': 'smoke-mini'}},
+                        'groundtruth_dataset': [{
+                            'groundtruth_question_id': 1,
+                            'question': 'question',
+                            'expected_answer': {'behavior': 'answer',
+                                                'text': 'answer'},
+                            'relevant_corpus_documents': [{
+                                'corpus_document_id': 1,
+                                'evidence': [{
+                                    'text': 'evidence', 'fidelity': 'verbatim',
+                                    'part_labels': [{}],
+                                }],
+                            }],
+                        }],
+                    },
                 },
-                'chunks_by_session': [{'session_id': 's1', 'date': '2026-08-19',
+                'chunks_by_session': [{'session_id': '1', 'date': '2026-08-19',
                                        'chunks': [{'id': 'c1', 'text': 'evidence'}]}],
                 'summaries': [],
-                'traces': [{'question_id': 'q1', 'question_fa': 'question',
-                            'question_en': 'question', 'type': 'single-hop',
-                            'difficulty': 'easy', 'answerable': True,
-                            'gold_available': 1,
+                'traces': [{'question_id': 1, 'question': 'question',
+                            'behavior': 'answer', 'gold_available': 1,
                             'trace': {'candidates': [{
                                 'chunk_id': 'c1', 'text': 'evidence',
-                                'session_id': 's1', 'date': '2026-08-19',
+                                'session_id': '1', 'date': '2026-08-19',
                                 'layer': 'leaf', 'level': 0, 'group_id': '',
                                 'members': 0, 'dense_rank': 1, 'bm25_rank': 1,
                                 'fused_rank': 1, 'retrieval_score': 1.0,
@@ -156,57 +165,70 @@ SHIFTED_CONFIG = {
     },
     'generation': {
         'answerer': 'llm', 'model': 'shifted-answer-model',
-        'key_facts_judge': True, 'judge_model': 'shifted-judge-model',
+        'fact_judge': True, 'judge_model': 'shifted-judge-model',
         'ragas_model': 'shifted-ragas-model',
     },
 }
 
-# Every UI control likewise off its default, for the same reason.
+# Every UI control likewise off its default, for the same reason. D7: a
+# question filter is one switch-group per question label the dataset itself
+# declares, so `labels` names a label the ladder's own ground truth declares
+# (`question_type`) and `balance` names the label sampling was equalised on.
 SHIFTED_UI = {'mode': 'openrouter', 'ragas_mode': 'llm', 'limit': 5,
-              'ragas_limit': 3, 'types': ['knowledge-update', 'single-hop']}
+              'ragas_limit': 3,
+              'labels': {'question_type': ['knowledge-update', 'single-hop']},
+              'balance': 'difficulty'}
 
 DATASET_ID = 'smoke-mini'
 
-# Two sessions and two questions, not one of each: a single row cannot catch an
-# export that keeps only the first, and the second question is the one whose
-# answer contradicts the first, so a dropped session is visible in the answer.
+# Two documents and two questions, not one of each: a single row cannot catch
+# an export that keeps only the first, and the second question is the one
+# whose answer contradicts the first, so a dropped document is visible in the
+# answer.
 _SHELF = 'the amber notebook is on the third shelf'
 _DESK = 'i moved the amber notebook to the desk'
 
 CORPUS = {
-    'meta': {'language': 'en'}, 'persona': {}, 'threads': [], 'habits': {},
-    'sessions': [
-        {'session_id': 's1', 'date': '2026-08-01',
-         'messages': [{'role': 'user', 'content': _SHELF},
-                      {'role': 'assistant', 'content': 'noted, the third shelf'}]},
-        {'session_id': 's2', 'date': '2026-08-02',
-         'messages': [{'role': 'user', 'content': _DESK},
-                      {'role': 'assistant', 'content': 'noted, the desk'}]},
+    'corpus_dataset_metadata': {'dataset': DATASET_ID, 'name': 'Ladder corpus',
+                                'language': 'en'},
+    'corpus_documents': [
+        {'corpus_document_id': 1,
+         'document_content': [{'text': _SHELF},
+                              {'text': 'noted, the third shelf'}]},
+        {'corpus_document_id': 2,
+         'document_content': [{'text': _DESK}, {'text': 'noted, the desk'}]},
     ],
 }
 
 GROUND_TRUTH = {
-    'meta': {'corpus': DATASET_ID, 'query_date': '2026-08-03'},
-    'questions': [
-        {'id': 'q1', 'type': 'single-hop', 'difficulty': 'easy',
-         'answerable': True, 'question_fa': 'دفترچه کجا بود؟',
-         'question_en': 'where was the notebook?',
-         'answer_fa': 'طبقه سوم', 'key_facts': ['third shelf'],
-         'evidence': [{'session_id': 's1', 'message_indices': [0],
-                       'quote': _SHELF}]},
-        {'id': 'q2', 'type': 'knowledge-update', 'difficulty': 'hard',
-         'answerable': True, 'question_fa': 'دفترچه الان کجاست؟',
-         'question_en': 'where is the notebook now?',
-         'answer_fa': 'روی میز', 'key_facts': ['the desk'],
-         'evidence': [{'session_id': 's2', 'message_indices': [0],
-                       'quote': _DESK}]},
+    'groundtruth_dataset_metadata': {
+        'name': 'Ladder questions', 'corpus_ref': {'dataset': DATASET_ID}},
+    'groundtruth_dataset': [
+        {'groundtruth_question_id': 1, 'question': 'where was the notebook?',
+         'expected_answer': {
+             'behavior': 'answer', 'text': 'third shelf',
+             'derived_facts': [{'derived_fact_id': 1,
+                                'fact': 'the notebook was on the third shelf'}]},
+         'relevant_corpus_documents': [{
+             'corpus_document_id': 1,
+             'evidence': [{'text': _SHELF, 'fidelity': 'verbatim',
+                          'part_labels': [{}]}]}]},
+        {'groundtruth_question_id': 2, 'question': 'where is the notebook now?',
+         'expected_answer': {
+             'behavior': 'answer', 'text': 'the desk',
+             'derived_facts': [{'derived_fact_id': 1,
+                                'fact': 'the notebook is now on the desk'}]},
+         'relevant_corpus_documents': [{
+             'corpus_document_id': 2,
+             'evidence': [{'text': _DESK, 'fidelity': 'verbatim',
+                          'part_labels': [{}]}]}]},
     ],
 }
 
 CHUNKS_BY_SESSION = [
-    {'session_id': 's1', 'date': '2026-08-01',
+    {'session_id': '1', 'date': '2026-08-01',
      'chunks': [{'id': 'c1', 'text': _SHELF}]},
-    {'session_id': 's2', 'date': '2026-08-02',
+    {'session_id': '2', 'date': '2026-08-02',
      'chunks': [{'id': 'c2', 'text': _DESK}]},
 ]
 
@@ -248,20 +270,18 @@ def _candidate(chunk_id: str, text: str, *, session_id: str, date: str,
 
 
 TRACES = [
-    {'question_id': 'q1', 'question_fa': 'دفترچه کجا بود؟',
-     'question_en': 'where was the notebook?', 'type': 'single-hop',
-     'difficulty': 'easy', 'answerable': True, 'gold_available': 1,
+    {'question_id': 1, 'question': 'where was the notebook?',
+     'behavior': 'answer', 'gold_available': 1,
      'trace': {'candidates': [
-         _candidate('c1', _SHELF, session_id='s1', date='2026-08-01',
+         _candidate('c1', _SHELF, session_id='1', date='2026-08-01',
                     layer='leaf', gold=True),
          _candidate('g1-summary', _SUMMARY_TEXT, session_id='', date='2026-08-02',
                     layer='summary', gold=False),
      ]}},
-    {'question_id': 'q2', 'question_fa': 'دفترچه الان کجاست؟',
-     'question_en': 'where is the notebook now?', 'type': 'knowledge-update',
-     'difficulty': 'hard', 'answerable': True, 'gold_available': 1,
+    {'question_id': 2, 'question': 'where is the notebook now?',
+     'behavior': 'answer', 'gold_available': 1,
      'trace': {'candidates': [
-         _candidate('c2', _DESK, session_id='s2', date='2026-08-02',
+         _candidate('c2', _DESK, session_id='2', date='2026-08-02',
                     layer='leaf', gold=True),
      ]}},
 ]
@@ -271,7 +291,7 @@ TRACES = [
 _METRIC_STEPS = {
     'recall': 'retrieval', 'mrr': 'retrieval',
     'llm_context_precision_with_reference': 'retrieval',
-    'context_recall': 'retrieval', 'key_facts_hit': 'generation',
+    'context_recall': 'retrieval', 'fact_coverage': 'generation',
     'faithfulness': 'generation', 'answer_relevancy': 'generation',
     'abstention_rate': 'overall',
 }
@@ -293,14 +313,13 @@ def _result(*, rows: list, question_ids: list, summary_overall: dict,
         'index': copy.deepcopy(INDEX_STATISTICS),
         'summary': {
             'overall': copy.deepcopy(summary_overall),
-            'by_type': {}, 'by_difficulty': {},
             'n_questions': len(question_ids),
         },
         'rows': copy.deepcopy(rows), 'ragas': copy.deepcopy(ragas),
         'seconds': 3.5, 'started_at': '2026-08-20 09:30:00',
         'notes': ['exported by the ladder fixture'],
-        'selection': {'balance': 'stride', 'limit': SHIFTED_UI['limit'],
-                      'n': len(question_ids), 'by_difficulty': {},
+        'selection': {'balance': SHIFTED_UI['balance'], 'limit': SHIFTED_UI['limit'],
+                      'n': len(question_ids),
                       'question_ids': list(question_ids)},
     }
 
@@ -324,9 +343,9 @@ def _stages(*, retrieval: dict, generation: dict, overall: dict) -> dict:
 
 
 _RETRIEVAL_ROWS = [
-    {'id': 'q1', 'type': 'single-hop', 'difficulty': 'easy', 'recall': 1.0,
+    {'id': 1, 'behavior': 'answer', 'recall': 1.0,
      'mrr': 1.0, 'n_contexts': 2, 'gold_available': 1, 'latency_ms': 21.0},
-    {'id': 'q2', 'type': 'knowledge-update', 'difficulty': 'hard',
+    {'id': 2, 'behavior': 'answer',
      'recall': 1.0, 'mrr': 0.5, 'n_contexts': 1, 'gold_available': 1,
      'latency_ms': 18.0},
 ]
@@ -334,10 +353,10 @@ _RETRIEVAL_ROWS = [
 # The same rows once an answerer has run: the retrieval columns are untouched,
 # and everything a generation stage adds sits beside them.
 _GENERATION_ROWS = [
-    dict(_RETRIEVAL_ROWS[0], answer='طبقه سوم', answer_error='',
-         abstained=False, key_facts_hit=1.0),
-    dict(_RETRIEVAL_ROWS[1], answer='روی میز', answer_error='',
-         abstained=False, key_facts_hit=0.8),
+    dict(_RETRIEVAL_ROWS[0], answer='third shelf', answer_error='',
+         abstained=False, fact_coverage=1.0),
+    dict(_RETRIEVAL_ROWS[1], answer='the desk', answer_error='',
+         abstained=False, fact_coverage=0.8),
 ]
 
 RAGAS = {
@@ -411,7 +430,7 @@ def retrieved_rung() -> dict:
     overall = {'recall': 1.0, 'mrr': 0.75}
     return _rung(
         'retrieved', 'plus per-question traces, candidates and retrieval metrics',
-        result=_result(rows=_RETRIEVAL_ROWS, question_ids=['q1', 'q2'],
+        result=_result(rows=_RETRIEVAL_ROWS, question_ids=[1, 2],
                        summary_overall=overall, ragas={}),
         evidence=_inspector(traces=TRACES),
         catalogue=_catalogue('recall', 'mrr'),
@@ -419,21 +438,21 @@ def retrieved_rung() -> dict:
 
 
 def _judged(name: str, description: str, *, traces: list) -> dict:
-    """A judged rung: answers, key-facts scores and the four judged metrics.
+    """A judged rung: answers, fact-coverage scores and the four judged metrics.
 
     Written once and built twice, because `generated` and
     `scored-without-traces` must differ in their traces and in *nothing else* —
     two rungs that also drifted in a metric would not isolate what the absent
     evidence costs.
     """
-    overall = {'recall': 1.0, 'mrr': 0.75, 'key_facts_hit': 0.9,
+    overall = {'recall': 1.0, 'mrr': 0.75, 'fact_coverage': 0.9,
                'abstention_rate': 0.0}
     return _rung(
         name, description,
-        result=_result(rows=_GENERATION_ROWS, question_ids=['q1', 'q2'],
+        result=_result(rows=_GENERATION_ROWS, question_ids=[1, 2],
                        summary_overall=overall, ragas=RAGAS),
         evidence=_inspector(traces=traces),
-        catalogue=_catalogue('recall', 'mrr', 'key_facts_hit',
+        catalogue=_catalogue('recall', 'mrr', 'fact_coverage',
                              'abstention_rate', 'faithfulness',
                              'answer_relevancy',
                              'llm_context_precision_with_reference',
@@ -442,7 +461,7 @@ def _judged(name: str, description: str, *, traces: list) -> dict:
             retrieval={'recall': 1.0, 'mrr': 0.75,
                        'llm_context_precision_with_reference': 0.82,
                        'context_recall': 0.88},
-            generation={'key_facts_hit': 0.9, 'faithfulness': 0.94,
+            generation={'fact_coverage': 0.9, 'faithfulness': 0.94,
                         'answer_relevancy': 0.91},
             overall={'abstention_rate': 0.0}))
 
@@ -455,7 +474,7 @@ def generated_rung() -> dict:
     """
     return _judged(
         'generated',
-        'plus answers, key-facts scores and the four judged metrics',
+        'plus answers, fact-coverage scores and the four judged metrics',
         traces=TRACES)
 
 
@@ -501,21 +520,21 @@ def ladder() -> list[dict]:
 # here beside the ladder because both codecs are held to it — Python's in
 # `test_archive_round_trip.py`, the browser's in `dashboard/tests`.
 CARRIED = {
-    'settings': {'evaluation': False, 'sessions': 0, 'questions': 0,
+    'settings': {'evaluation': False, 'documents': 0, 'questions': 0,
                  'chunks': 0, 'summaries': 0, 'traces': 0, 'candidates': 0,
                  'rows': 0, 'answers': 0, 'judged': False},
-    'indexed': {'evaluation': True, 'sessions': 2, 'questions': 2,
+    'indexed': {'evaluation': True, 'documents': 2, 'questions': 2,
                 'chunks': 2, 'summaries': 1, 'traces': 0, 'candidates': 0,
                 'rows': 0, 'answers': 0, 'judged': False},
-    'retrieved': {'evaluation': True, 'sessions': 2, 'questions': 2,
+    'retrieved': {'evaluation': True, 'documents': 2, 'questions': 2,
                   'chunks': 2, 'summaries': 1, 'traces': 2, 'candidates': 3,
                   'rows': 2, 'answers': 0, 'judged': False},
-    'generated': {'evaluation': True, 'sessions': 2, 'questions': 2,
+    'generated': {'evaluation': True, 'documents': 2, 'questions': 2,
                   'chunks': 2, 'summaries': 1, 'traces': 2, 'candidates': 3,
                   'rows': 2, 'answers': 2, 'judged': True},
     # The same numbers as `generated` but for the two counts that recorded
     # retrieval: rows and judged metrics survive with no trace behind them.
-    'scored-without-traces': {'evaluation': True, 'sessions': 2, 'questions': 2,
+    'scored-without-traces': {'evaluation': True, 'documents': 2, 'questions': 2,
                               'chunks': 2, 'summaries': 1, 'traces': 0,
                               'candidates': 0, 'rows': 2, 'answers': 2,
                               'judged': True},
@@ -533,8 +552,8 @@ def contents(value: dict) -> dict:
     rows = evaluation['result']['rows']
     return {
         'evaluation': True,
-        'sessions': len(dataset['corpus']['sessions']),
-        'questions': len(dataset['ground_truth']['questions']),
+        'documents': len(dataset['corpus']['corpus_documents']),
+        'questions': len(dataset['ground_truth']['groundtruth_dataset']),
         'chunks': sum(len(group['chunks'])
                       for group in inspector['chunks_by_session']),
         'summaries': len(inspector['summaries']),

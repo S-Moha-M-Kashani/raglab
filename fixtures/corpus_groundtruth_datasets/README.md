@@ -119,24 +119,25 @@ prove the shape, not enough to measure anything. `schema_corpus.json`'s own
 that *does* answer — `behavior: "answer"` with one verbatim quote — which is
 the shorter read if abstention is not what you are trying to see.
 
-## The five bundled pairs
+## The six bundled pairs
 
-Five corpora the lab ships with, one of them the bundled default (the Farsi
+Six corpora the lab ships with, one of them the bundled default (the English
 diary). They are here to answer one question a single fixture could not: **is
-this finding about retrieval, or about Farsi diaries?** Each also stands in
+this finding about retrieval, or about one corpus?** Each also stands in
 for a use case from the map in `skills/rag-use-case-architectures/SKILL.md`,
 so a row's suggested starting architecture can be tried against a corpus of
 its own shape without leaving the repository.
 
 | pair | language | documents | questions | what it is for |
 | --- | --- | --- | --- | --- |
-| `diary_year_fa_corpus.json` / `diary_year_fa_groundtruth.json` | Farsi | 167 | 112 | The bundled default: a year of synthetic colloquial Farsi diary chat — the flagship case study, not the project's scope. |
+| `diary_year_en_corpus.json` / `diary_year_en_groundtruth.json` | English | 167 | 112 | The bundled default: a year of synthetic colloquial diary chat, the English rendering of the Farsi original below — same sessions, same questions. |
+| `diary_year_fa_corpus.json` / `diary_year_fa_groundtruth.json` | Farsi | 167 | 112 | The Farsi original — the flagship case study, not the project's scope. An empty `dataset` still resolves to it, so recorded fingerprints keep their meaning. |
 | `support_en_corpus.json` / `support_en_groundtruth.json` | English | 20 | 15 | A year of support conversations for a fictional analytics product. Latin script, short factual turns, dates and identifiers — the corpus where an ASCII embedder is genuinely competitive rather than scoring at chance, which is the control the Farsi finding never had. |
 | `meetings_de_corpus.json` / `meetings_de_groundtruth.json` | German | 15 | 12 | Weekly meeting notes for a fictional software team. A third script family and compound nouns, where an English-only embedder separates sharply from a multilingual one. Each question carries an English translation. |
 | `research_multihop_corpus.json` / `research_multihop_groundtruth.json` | English | 18 | 14 | Reading notes following one replication dispute. Deliberately weighted to multi-hop and aggregation, declared as question labels: most answers need two or three documents, so a pipeline that retrieves one perfect chunk still scores badly. |
 | `smoke_mini_corpus.json` / `smoke_mini_groundtruth.json` | English | 5 | 6 | Too small to measure anything and not meant to — the fastest end-to-end check that a pipeline works before spending an hour on one that does not. Declares no date label and no `ranks` label on purpose, so the suite's fastest corpus also exercises those absent-declaration paths on every run. |
 
-All five are synthetic. Every person, company, product and finding in them
+All six are synthetic. Every person, company, product and finding in them
 is fictional; none of it is anybody's data.
 
 They are read-only reference points. Anything imported through the panel

@@ -179,10 +179,12 @@ def test_options_offer_models_embedders_and_datasets_per_backend(client):
     assert modes['local']['provider'] == 'ollama'
     assert all(isinstance(mode['models'], list) for mode in modes.values())
 
-    # --- datasets: the built-in corpus leads, and the bundled samples
-    # (the smoke set among them) are offered beside it.
+    # --- datasets: the default corpus leads (the picker's first option is
+    # what a fresh panel starts on), and the bundled samples (the Farsi
+    # original and the smoke set among them) are offered beside it.
     dataset_ids = [d['id'] for d in body['datasets']]
-    assert dataset_ids[0] == 'diary-fa'
+    assert dataset_ids[0] == 'diary-en'
+    assert 'diary-fa' in dataset_ids
     assert 'smoke-mini' in dataset_ids
 
 

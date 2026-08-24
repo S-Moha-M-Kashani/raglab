@@ -26,8 +26,8 @@ from raglab.evaluation import leaderboard
 
 from raglab.configuration.lab_config import IndexConfig
 
-BUNDLED = ('diary-fa', 'support-en', 'meetings-de', 'research-multihop',
-          'smoke-mini')
+BUNDLED = ('diary-en', 'diary-fa', 'support-en', 'meetings-de',
+          'research-multihop', 'smoke-mini')
 # The four control corpora cover every failure mode; the diary is excluded
 # from that specific check only because it is what every other check already
 # exercises, not because it is special (D3 — it is an ordinary bundled pair).

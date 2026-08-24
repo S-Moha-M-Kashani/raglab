@@ -162,11 +162,16 @@ def _question_vocab(ground_truth: dict) -> dict:
 
 
 def _config_defaults() -> dict:
+    served = LabConfig().to_dict()
+    # The panel starts on the served DEFAULT corpus, named explicitly. The
+    # dataclass default stays '' — the legacy spelling of BUILTIN that keeps
+    # every recorded fingerprint meaning what it meant.
+    served['index']['dataset'] = datasets.DEFAULT
     return {
         # Served rather than duplicated per panel, so both grey out the same
         # knobs for the same stated reason.
         'dependencies': DEPENDENCIES,
-        'defaults': LabConfig().to_dict(),
+        'defaults': served,
     }
 
 

@@ -45,6 +45,12 @@ IMPORTED_DIR = ROOT / '.datasets'
 # `''`, not this name, is what a config carries by default, so every fingerprint
 # and stored run keeps meaning what it meant.
 BUILTIN = 'diary-fa'
+# What a fresh panel starts on — the English rendering of the diary. A
+# different constant than BUILTIN on purpose: BUILTIN is what an *absent*
+# dataset id has always meant and must keep meaning; DEFAULT is merely the
+# first offer, carried explicitly so it lands in the fingerprint like any
+# other non-default knob.
+DEFAULT = 'diary-en'
 
 CORPUS_SUFFIX = '_corpus.json'
 GROUNDTRUTH_SUFFIX = '_groundtruth.json'

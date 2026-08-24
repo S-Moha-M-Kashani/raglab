@@ -186,6 +186,10 @@ def test_options_offer_models_embedders_and_datasets_per_backend(client):
     assert dataset_ids[0] == 'diary-en'
     assert 'diary-fa' in dataset_ids
     assert 'smoke-mini' in dataset_ids
+    # The served defaults name the starting corpus explicitly — a fresh panel
+    # boots on it, while the dataclass default stays '' (the legacy spelling
+    # of diary-fa that keeps recorded fingerprints meaning what they meant).
+    assert body['defaults']['index']['dataset'] == 'diary-en'
 
 
 def test_options_advertise_no_vector_database(client):

@@ -111,15 +111,25 @@ def list_experiments(dataset: str = '') -> str:
     return '\n'.join(lines)
 
 
-def _knobs(knobs: dict) -> list[str]:
-    """The config as one line per pipeline step, knobs it recorded only."""
+def _knobs(knobs: dict, inert: dict | None = None) -> list[str]:
+    """The config as one line per pipeline step: the run's own read knobs,
+    with any knob the run never read shown as `name=none` rather than the
+    value still sitting in the recorded config — a value that number would be
+    a lie about what produced the row (`inert`, dotted path -> reason, is
+    absent from a found dict no injected reader has touched yet, in which
+    case every knob renders exactly as it always has)."""
+    inert = inert or {}
     out = []
     for step in ('index', 'retrieval', 'generation', 'agent'):
         values = knobs.get(step) or {}
-        said = ', '.join(f'{name}={value}' for name, value in values.items()
-                         if value not in ('', None, [], {}))
-        if said:
-            out.append(f'    {step}: {said}')
+        parts = []
+        for name, value in values.items():
+            if f'{step}.{name}' in inert:
+                parts.append(f'{name}=none')
+            elif value not in ('', None, [], {}):
+                parts.append(f'{name}={value}')
+        if parts:
+            out.append(f'    {step}: {", ".join(parts)}')
     return out
 
 
@@ -189,7 +199,7 @@ def read_experiment(experiment_id: str) -> str:
                      'four, so it makes no decision claim.')
     if found.get('ragas_skipped'):
         lines.append(f"  judged rows skipped: {found['ragas_skipped']}")
-    knobs = _knobs(found.get('config') or {})
+    knobs = _knobs(found.get('config') or {}, found.get('inert') or {})
     if knobs:
         lines.append('  knobs recorded:')
         lines += knobs

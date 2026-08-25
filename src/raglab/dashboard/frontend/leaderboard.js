@@ -238,6 +238,10 @@ function renderTable(dataset, rows) {
 // else, which is why the tooltips on these pages were removed.
 function settingsReveal(row) {
   const config = row.config || {};
+  // Which recorded knobs this build never read, and why — `{}` for every row
+  // Tasks 1-2 did not touch, and for every row whose config left nothing
+  // inert. Keyed the same way the blocks below are built: `${step}.${key}`.
+  const inert = row.inert || {};
   // The abbreviation's expansion, first: the cell draws 'sem-drift·louv·ST' and
   // the reader who does not recognise one of those words has to be able to read
   // it here, not infer it from the knob list below. The knobs are still the
@@ -247,8 +251,20 @@ function settingsReveal(row) {
     .filter((step) => config[step] && Object.keys(config[step]).length)
     .map((step) => `<div class="reveal-step" data-step="${step}">`
       + `<b>${step}</b>`
-      + Object.entries(config[step]).map(([k, v]) =>
-        `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`).join('')
+      + Object.entries(config[step]).map(([k, v]) => {
+        // A knob this config recorded but the build never read (an overlap
+        // under a chunker that never slides a window) is a refusal, not a
+        // number to trust — so it reads `none`, never the value that sat
+        // unused, and the span carries its own class and the reason a reader
+        // would otherwise have to guess at. A knob genuinely recorded as the
+        // word 'none' takes neither: it falls through to the plain span
+        // below, unchanged, so the two are never mistaken for each other.
+        const reason = inert[`${step}.${k}`];
+        return reason === undefined
+          ? `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`
+          : `<span class="reveal-knob-off" title="${escapeHtml(reason)}`
+            + ` — recorded value never used">${escapeHtml(k)} <b>none</b></span>`;
+      }).join('')
       + '</div>').join('');
   // A tab stop of its own, because the box holds more than it can show and
   // scrolls: the part below its own fold is otherwise readable with a pointer

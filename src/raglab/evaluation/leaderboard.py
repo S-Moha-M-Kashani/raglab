@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from raglab.configuration.lab_config import RUNS_DIR
+from raglab.configuration.lab_config import RUNS_DIR, inert_knobs
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation.run_evaluation import load_run, load_runs
 from raglab.evaluation import ragas_judged_metrics as judged
@@ -458,6 +458,11 @@ def experiment_record(row: dict | None, run: dict | None) -> dict:
         'judge': ragas.get('judge') or {},
         'pipeline': pipeline_fragments(config),
         'config': config,
+        # Which of the config's own knobs this config never read, and why —
+        # {} for a ledger-only row, whose six flat fields never carry the
+        # knob that would need marking. Computed at read time, never stored:
+        # the recorded config stays verbatim.
+        'inert': inert_knobs(config) if config else {},
         # A reader is entitled to know why a metric column is blank.
         'source': source,
     }

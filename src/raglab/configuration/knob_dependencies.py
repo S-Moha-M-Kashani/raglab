@@ -165,3 +165,60 @@ def dependency_state(cfg_dict: dict) -> dict:
     for key in DEPENDENCIES:
         resolve(key, frozenset())
     return state
+
+
+def _field_present(cfg_dict: dict, field: str) -> bool:
+    """Whether `field`'s dotted group and name were both actually recorded
+    in `cfg_dict` — the distinction `_check` cannot draw, since it folds a
+    field nobody set and a field set to something falsy into the same
+    `None`."""
+    group, _, name = field.partition('.')
+    group_dict = cfg_dict.get(group)
+    return isinstance(group_dict, dict) and name in group_dict
+
+
+def _disabled_by_known_fields(cfg_dict: dict, state: dict, key: str,
+                               seen: frozenset) -> bool:
+    """Retraces the one branch of `dependency_state`'s chain that actually
+    disabled `key` — its own condition, then its owner's, then its `also` —
+    in the same order that resolve() checks them, to ask whether the
+    condition that fired named a field this config recorded. `_check` is
+    reused for every condition; only the walk is repeated, since
+    `dependency_state` does not hand back which branch decided."""
+    rule = DEPENDENCIES[key]
+    owner = rule['field']
+    enabled, _ = _check(cfg_dict, rule)
+    if not enabled:
+        return _field_present(cfg_dict, owner)
+    if (owner in DEPENDENCIES and owner not in seen
+            and not state[owner]['enabled']):
+        return _disabled_by_known_fields(cfg_dict, state, owner, seen | {key})
+    also = rule.get('also')
+    if also is not None:
+        also_enabled, _ = _check(cfg_dict, also)
+        if not also_enabled:
+            return _field_present(cfg_dict, also['field'])
+    raise AssertionError(
+        f'{key}: dependency_state reported this disabled but no branch of '
+        'the same walk disabled it — the table and this function disagree')
+
+
+def inert_knobs(cfg_dict: dict) -> dict[str, str]:
+    """Which recorded knobs this config never read, and why — {} when none.
+
+    Built on `dependency_state` rather than beside it: a knob is inert when
+    that table reports it disabled *and* every condition on the chain that
+    disabled it — the rule's own, an owner's, an `also` — named a field this
+    config actually recorded. A field the config never wrote is a question
+    nobody asked, not an answer of no, so it marks nothing inert (unknown is
+    not inert). The knob's own group and field must also have been
+    recorded, or there is nothing here to call inert — a config that never
+    wrote `retrieval` at all has nothing to mark there, only unlabelled."""
+    state = dependency_state(cfg_dict)
+    inert: dict[str, str] = {}
+    for key, result in state.items():
+        if result['enabled'] or not _field_present(cfg_dict, key):
+            continue
+        if _disabled_by_known_fields(cfg_dict, state, key, frozenset()):
+            inert[key] = result['reason']
+    return inert

@@ -14,13 +14,17 @@ from langchain.agents.middleware import (after_agent, after_model,
                                          before_agent, before_model,
                                          wrap_model_call, wrap_tool_call)
 
-from raglab.agents.widget.conversation_memory import MemoryPolicy, relevance_guard
+from raglab.agents.widget.conversation_memory import (
+    MAX_RELEVANCE_TEXT,
+    MemoryPolicy,
+    relevance_guard,
+)
 from raglab.agents.widget.prompts import MEMORY_POLICY_PROMPT
 
 HOOKS_VERBOSE = False        # __main__ turns this on; the route leaves it off
 HOOK_LOG: list[str] = []     # what fired, in order — the whole run at a glance
 
-MAX_QUESTION = 500           # the longest request it will accept
+MAX_QUESTION = MAX_RELEVANCE_TEXT  # the longest request it will accept
 MAX_HISTORY = 20             # how much history one model call sees
 
 

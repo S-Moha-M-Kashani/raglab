@@ -98,24 +98,21 @@ def relevance_guard(text: str) -> str | None:
 
 def policy_state(policy: MemoryPolicy, experiment_id: str = '') -> dict:
     """Convert a validated policy into the agent state's flat channels."""
-    return {**policy.model_dump(),
+    normalized = policy.model_copy(update={
+        'should_save': policy.relevant and policy.should_save,
+    })
+    return {**normalized.model_dump(),
             'experiment_id': (experiment_id or '').strip()}
 
 
 class WidgetState(AgentState):
-    """The agent's state beside its messages. Deliberately two fields: the
-    state is a real thing that persists and can be read back, and small enough
-    that redesigning it later is a rewrite of this class rather than an
-    unpicking of everything that grew into it.
+    """The agent's state beside its messages.
 
-    Both are written by `thread_stamp` below, handed to the graph as part of
-    `agent.invoke`'s own input by `backends.ask` — the same channel the
-    messages travel on, so the checkpointer persists them in the same write
-    and there is no second writer racing it. They were declared here and
-    written nowhere for a while, which meant `/api/widget/history` reported
-    two empty strings as facts about every thread: a field that always says
-    nothing is this project's own rule about a row that cannot say what
-    produced it, one layer out from where that rule is usually stated."""
+    Thread identity and start time, plus the structured memory-policy
+    decision, are written by `thread_stamp` and `backends.ask` as part of
+    `agent.invoke`'s own input. The checkpointer persists them in the same
+    write as the messages, so there is no second writer racing it and
+    `/api/widget/history` can report the state that produced the thread."""
     experiment_id: str   # '' in the general thread
     started_at: str      # ISO 8601, when this thread began
     relevant: bool       # structured policy decision; false before evaluation

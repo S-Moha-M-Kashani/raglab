@@ -20,12 +20,39 @@ def test_widget_state_policy_fields_have_safe_defaults():
     }
 
 
+def test_policy_state_never_allows_an_irrelevant_policy_to_save():
+    # this is a unit test
+    policy = memory.MemoryPolicy(
+        relevant=False,
+        should_save=True,
+        dataset_id='diary-fa',
+        subtopic='retrieval',
+        reason='The model incorrectly requested a save.',
+    )
+    state = memory.policy_state(policy, ' exp-42 ')
+    assert state == {
+        'relevant': False,
+        'should_save': False,
+        'dataset_id': 'diary-fa',
+        'subtopic': 'retrieval',
+        'reason': 'The model incorrectly requested a save.',
+        'experiment_id': 'exp-42',
+    }
+
+
 def test_relevance_guard_refuses_empty_long_and_unrelated_text():
     # this is a unit test
     assert 'question' in memory.relevance_guard('   ').lower()
     assert 'long' in memory.relevance_guard('x' * 501).lower()
     refusal = memory.relevance_guard("What's the weather in Berlin today?")
     assert refusal and 'RAG lab' in refusal
+
+
+def test_question_length_limit_is_shared_by_guard_and_widget_hook():
+    # this is a unit test
+    assert hooks.MAX_QUESTION == memory.MAX_RELEVANCE_TEXT
+    assert memory.relevance_guard('x' * hooks.MAX_QUESTION) is None
+    assert memory.relevance_guard('x' * (hooks.MAX_QUESTION + 1))
 
 
 def test_relevance_guard_accepts_a_lab_question():

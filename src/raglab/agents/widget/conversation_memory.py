@@ -23,6 +23,8 @@ from threading import RLock
 
 from langchain.agents import AgentState
 from langchain_core.tools import tool
+from pydantic import ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel
 
 from raglab.configuration.env_settings import ROOT
 
@@ -31,6 +33,73 @@ GENERAL = 'general'
 
 _SAVER = None
 _SAVER_LOCK = RLock()
+
+MAX_RELEVANCE_TEXT = 500
+
+
+class MemoryPolicy(BaseModel):
+    """The explicit, structured decision about long-term widget memory.
+
+    The answer text is intentionally absent: saving is allowed only from this
+    decision, never from a heuristic over whatever the answer happened to say.
+    Strict fields and forbidden extras make a malformed model response fail
+    closed at the seam that receives it.
+    """
+
+    model_config = ConfigDict(extra='forbid', strict=True)
+
+    relevant: StrictBool = False
+    should_save: StrictBool = False
+    dataset_id: StrictStr = ''
+    subtopic: StrictStr = ''
+    reason: StrictStr = ''
+
+
+def memory_policy_defaults(experiment_id: str = '') -> dict:
+    """Safe state values used before a policy has been evaluated."""
+    return {
+        'relevant': False,
+        'should_save': False,
+        'dataset_id': '',
+        'subtopic': '',
+        'reason': '',
+        'experiment_id': (experiment_id or '').strip(),
+    }
+
+
+# A descriptive alias keeps the state contract discoverable to callers while
+# retaining the longer name for code that wants to be explicit.
+widget_state_defaults = memory_policy_defaults
+
+
+def relevance_guard(text: str) -> str | None:
+    """Return a short refusal for deterministic, obviously bad prompts.
+
+    This is deliberately conservative: semantic relevance remains a model
+    decision. The guard only handles inputs that need no model call to reject.
+    """
+    import re
+
+    value = str(text or '').strip()
+    if not value:
+        return 'Please ask a question about the RAG lab.'
+    if len(value) > MAX_RELEVANCE_TEXT:
+        return (f'That question is too long; please keep it to '
+                f'{MAX_RELEVANCE_TEXT} characters or fewer.')
+    unrelated = re.compile(
+        r'\b(?:weather|forecast|joke|recipe|restaurant|sports? score|'
+        r'horoscope|stock price|personal advice|write my essay)\b',
+        re.IGNORECASE)
+    if unrelated.search(value):
+        return ('I can help with the RAG lab, its experiments, and RAG '
+                'techniques, but not that unrelated request.')
+    return None
+
+
+def policy_state(policy: MemoryPolicy, experiment_id: str = '') -> dict:
+    """Convert a validated policy into the agent state's flat channels."""
+    return {**policy.model_dump(),
+            'experiment_id': (experiment_id or '').strip()}
 
 
 class WidgetState(AgentState):
@@ -49,6 +118,11 @@ class WidgetState(AgentState):
     produced it, one layer out from where that rule is usually stated."""
     experiment_id: str   # '' in the general thread
     started_at: str      # ISO 8601, when this thread began
+    relevant: bool       # structured policy decision; false before evaluation
+    should_save: bool    # explicit save permission, never inferred from text
+    dataset_id: str      # validated dataset context, or '' when unavailable
+    subtopic: str        # policy's bounded topic label, or '' when unavailable
+    reason: str          # why the policy accepted, refused, or declined save
 
 
 def db_path(env: dict | None = None) -> Path:

@@ -14,11 +14,49 @@ from langchain.agents.middleware import (after_agent, after_model,
                                          before_agent, before_model,
                                          wrap_model_call, wrap_tool_call)
 
+from raglab.agents.widget.conversation_memory import MemoryPolicy, relevance_guard
+from raglab.agents.widget.prompts import MEMORY_POLICY_PROMPT
+
 HOOKS_VERBOSE = False        # __main__ turns this on; the route leaves it off
 HOOK_LOG: list[str] = []     # what fired, in order — the whole run at a glance
 
 MAX_QUESTION = 500           # the longest request it will accept
 MAX_HISTORY = 20             # how much history one model call sees
+
+
+def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
+                           dataset_id: str = '') -> MemoryPolicy:
+    """Ask a model for the structured memory decision, failing closed.
+
+    ``model`` is injected by the caller so this seam can be tested offline and
+    so policy availability is never confused with answer-model availability.
+    """
+    refusal = relevance_guard(text)
+    if refusal:
+        return MemoryPolicy(relevant=False, should_save=False, reason=refusal)
+    if model is None:
+        return MemoryPolicy(reason='Memory policy is unavailable; nothing was saved.')
+    try:
+        structured = model.with_structured_output(MemoryPolicy)
+        result = structured.invoke([
+            ('system', MEMORY_POLICY_PROMPT),
+            ('user', (f'Experiment: {experiment_id or "none"}\n'
+                      f'Dataset context: {dataset_id or "unknown"}\n'
+                      f'Question: {str(text).strip()}'))])
+        policy = result if isinstance(result, MemoryPolicy) \
+            else MemoryPolicy.model_validate(result)
+        if not policy.relevant:
+            return policy.model_copy(update={'should_save': False})
+        return policy
+    except Exception as error:
+        return MemoryPolicy(
+            reason=f'Memory policy unavailable or malformed; nothing was saved '
+                   f'({error}).')
+
+
+def refusal_for_message(message) -> str | None:
+    """The deterministic refusal copy for a human message, if any."""
+    return relevance_guard(getattr(message, 'content', ''))
 
 
 def _fired(hook: str, detail: str) -> None:

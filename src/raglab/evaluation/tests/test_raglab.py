@@ -983,6 +983,46 @@ def test_inert_knobs_never_marks_a_group_the_config_never_recorded():
     assert 'index.min_group' in marked
 
 
+def test_inert_knobs_walks_the_owner_chain_when_the_owner_is_itself_inert():
+    # this is a unit test
+    """`index.graph_knn` depends on `index.graph_source`, which itself
+    depends on `index.hierarchy` — the transitive branch
+    `_disabled_by_known_fields` retraces rather than re-derives. With the
+    whole chain recorded (a clustering hierarchy that builds no graph),
+    graph_knn is inert for graph_source's own reason. Strip the field the
+    chain ultimately turns on and the very same disablement becomes
+    unknown rather than inert."""
+    clustering = config.inert_knobs(
+        LabConfig(index=IndexConfig(hierarchy='kmeans')).to_dict())
+    assert clustering['index.graph_knn'] == \
+        config.DEPENDENCIES['index.graph_source']['reason']
+
+    # graph_source (hybrid, a KNN source) is recorded and graph_knn's own
+    # field is recorded, but the hierarchy the chain ultimately turns on
+    # never was — the config was never asked, so the knob stays unlabelled.
+    cfg = {'index': {'chunker': 'semantic-drift', 'graph_source': 'hybrid',
+                     'graph_knn': 8}}
+    assert 'index.graph_knn' not in config.inert_knobs(cfg)
+
+
+def test_inert_knobs_checks_the_also_condition_for_an_unrecorded_dataset_fact():
+    # this is a unit test
+    """`retrieval.recency_half_life_days` is a composed rule (D5/D6): its
+    primary condition can already be satisfied — a recency reranker is
+    active — while its `also` is what actually disables it. A config that
+    never recorded the synthetic `dataset` group was never told the corpus
+    has no date label, so the knob stays unlabelled rather than inert; one
+    that recorded the group and does say no is marked, with the same
+    reason `dependency_state` already reports."""
+    cfg = LabConfig(retrieval=RetrievalConfig(reranker='recency')).to_dict()
+    assert 'retrieval.recency_half_life_days' not in config.inert_knobs(cfg)
+
+    cfg['dataset'] = {'date_label': ''}
+    marked = config.inert_knobs(cfg)
+    assert marked['retrieval.recency_half_life_days'] == config.dependency_state(
+        cfg)['retrieval.recency_half_life_days']['reason']
+
+
 def test_every_disabled_control_says_why():
     # this is a convention test
     """A greyed-out control with no reason is indistinguishable from a broken

@@ -947,7 +947,40 @@ def test_streaming_says_nothing_for_a_tool_call_or_its_result():
         said = list(widget.stream('ports?', model=model))
     finally:
         widget.reset()
-    assert [e['delta'] for e in said[:-1]] == ['9002 it is']
+    assert [e['delta'] for e in said if 'delta' in e] == ['9002 it is']
+
+
+def test_streaming_names_the_tool_being_called():
+    # this is a unit test
+    """The one thing a tool call does say out loud is its own name — once, the
+    moment the first chunk carries it, as `{'status': <name>}`. That is what
+    the page shows while it waits; it is ephemeral, so the log never holds it.
+    The argument tokens that follow name nothing (`name=None`) and stay
+    silent, and the deltas and the final event are exactly what they were."""
+    from langchain_core.messages import (AIMessageChunk, HumanMessage,
+                                         ToolMessage)
+    naming = AIMessageChunk(content='', tool_call_chunks=[
+        {'name': 'search_knowledge_base', 'args': '{"query": "por',
+         'id': 'call-1', 'index': 0, 'type': 'tool_call_chunk'}])
+    continuing = AIMessageChunk(content='', tool_call_chunks=[
+        {'name': None, 'args': 'ts?"}',
+         'id': None, 'index': 0, 'type': 'tool_call_chunk'}])
+    events = [('messages', (naming, {})),
+              ('messages', (continuing, {})),
+              ('messages', (ToolMessage(content='9002', tool_call_id='call-1'), {}))]
+    events += _chunks('9002 it is')
+    stub = _StreamStub(events, {'messages': [HumanMessage(content='ports?'),
+                                             AIMessage(content='9002 it is')]})
+    model = _streaming(stub)
+    try:
+        said = list(widget.stream('ports?', model=model))
+    finally:
+        widget.reset()
+    statuses = [e for e in said if 'status' in e]
+    assert statuses == [{'status': 'search_knowledge_base'}]
+    assert said.index(statuses[0]) < said.index({'delta': '9002 it is'})
+    assert [e['delta'] for e in said if 'delta' in e] == ['9002 it is']
+    assert said[-1]['reply'] == '9002 it is'
 
 
 def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():

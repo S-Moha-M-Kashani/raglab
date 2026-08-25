@@ -163,6 +163,25 @@
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
                    font-size: var(--t-sm); padding-top: 0; margin-top: calc(var(--s-1) * -1); }
+/* The wait between Send and the first piece, named — "Thinking…", or the tool
+   being called. The page talking, not either party, so it takes the meta
+   line's own dress (the faint ink, no bubble) plus an italic to keep it from
+   reading as a reply that arrived. The pulse is what says "still waiting"
+   without a spinner: opacity only, in --ink-soft, which both themes already
+   define — so no dark block, and no step ink either, the widget being a
+   helper and not a stage. `prefers-reduced-motion` holds the line steady
+   rather than removing it, the same choice the streaming caret makes: a
+   reader who asked for less movement still needs to know nothing has come
+   back yet. */
+.widget-msg.thinking {
+  align-self: flex-start; background: none; color: var(--ink-soft);
+  font-size: var(--t-sm); font-style: italic;
+  animation: widget-thinking 1.6s ease-in-out infinite;
+}
+@keyframes widget-thinking { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) {
+  .widget-msg.thinking { animation: none; }
+}
 .widget-form { display: flex; gap: var(--s-2); padding: var(--s-2); border-top: 1px solid var(--rule); }
 .widget-form input { flex: 1; min-width: 0; }
 .widget-form button {

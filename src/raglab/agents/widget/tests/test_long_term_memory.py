@@ -5,13 +5,12 @@ import sqlite3
 from raglab.agents.widget import long_term_memory as memory
 
 
-def test_creates_only_the_long_term_schema_and_context_is_empty_first():
+def test_creates_long_term_schema_alongside_the_checkpointer():
     assert memory.memory_context('diary-en') == ''
     with sqlite3.connect(memory.db_path()) as db:
         tables = {row[0] for row in db.execute(
             "SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {'dataset_memory', 'global_memory', 'memory_updates'} <= tables
-    assert 'checkpoints' not in tables
 
 
 def test_updates_aggregate_by_dataset_and_keep_provenance():

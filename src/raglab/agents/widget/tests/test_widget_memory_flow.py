@@ -167,13 +167,19 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
                            model='openai/gpt-5-nano', thread='stream-exp')
 
     assert next(output) == {'delta': 'streamed answer'}
-    final = next(output)
-    assert final['reply'] == 'streamed answer'
+    reply = next(output)
+    assert reply == {'reply': 'streamed answer',
+                     'input_tokens': None, 'output_tokens': None}
     assert events == []
+    assert long_memory.memory_context('smoke-mini') == ''
+
+    status = next(output)
+    assert status['memory']['saved'] is True
+    assert status['memory']['dataset_id'] == 'smoke-mini'
+    assert events == ['summarize', 'save']
 
     with pytest.raises(StopIteration):
         next(output)
-    assert events == ['summarize', 'save']
 
 
 def test_save_failure_keeps_the_authoritative_answer(monkeypatch):

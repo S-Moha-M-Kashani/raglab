@@ -457,7 +457,8 @@ def _stream_agent(agent, message: str, thread: str, decision=None,
 
     Two modes and not one, because the pieces and the account answer different
     questions. `messages` is what the reader watches arrive. `values` is the
-    state the run ended in, and that is where the final event comes from: the
+    state the run ended in, and that is where the authoritative reply event
+    comes from: the
     reply is read back out of the log with `_turn_account`, so what the page
     settles on is what the lab now holds for that turn rather than whatever the
     concatenated pieces happened to spell. A run that streamed pieces but ended
@@ -492,17 +493,21 @@ def _stream_agent(agent, message: str, thread: str, decision=None,
             'read the reply back from')
     reply, used = _turn_account(final['messages'])
     output = _accounted(reply, used)
+    yield output
+    # The reply is authoritative and must reach the caller before the optional
+    # long-term-memory work begins. Memory is a separate status event so a
+    # streamed reader can render the answer without waiting for summarization.
     finished = _finish_memory(message, reply, decision, policy_model, thread)
     if decision is not None:
-        output['memory'] = finished if finished is not None else decision
-    yield output
+        yield {'memory': finished if finished is not None else decision}
 
 
 def stream(message: str, model: str = '', thread: str = ''):
     """The same turn as `ask`, handed over as it is written: an iterator of
-    events, `{'delta': text}` for each piece and then exactly one final
-    `{'reply', 'input_tokens', 'output_tokens'}` — the very dict `ask` returns.
-    The last event is the authoritative one; the deltas are how it arrived.
+    events, `{'delta': text}` for each piece and then an authoritative
+    `{'reply', 'input_tokens', 'output_tokens'}` event, followed when a policy
+    exists by a separate memory-status event. The reply event is the very dict
+    `ask` returns without memory metadata; the deltas are how it arrived.
 
     A call, not a generator function, and that distinction is the point:
     everything knowable before the first piece — an unserved model, a missing

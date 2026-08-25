@@ -403,7 +403,7 @@
   // event is returned. An `error` event is thrown, because that is what it is —
   // the stream's own way of saying the answer never finished, once the status
   // code has been spent on the first piece.
-  async function widgetStream(path, body, onDelta, onStatus) {
+  async function widgetStream(path, body, onDelta, onStatus, onMemoryStatus) {
     const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -440,8 +440,12 @@
         // would then hand back the chatter as the reply the lab supposedly
         // holds, which is exactly the substitution this file refuses.
         if (event.status != null) { onStatus(event.status); continue; }
+        if (event.memory != null && event.reply == null) {
+          if (onMemoryStatus) onMemoryStatus(event.memory);
+          continue;
+        }
         if (event.delta != null) onDelta(event.delta);
-        else final = event;
+        else if (event.reply != null) final = event;
       }
     };
     if (res.body) {
@@ -769,6 +773,12 @@
           if ($('widget-log').contains(thinking)) {
             thinking.textContent = `calling ${status}…`;
           }
+        },
+        (memoryStatus) => {
+          const fate = replyFate(mine, intended, wasPending || drawPending);
+          if (fate !== 'here') return;
+          const copy = widgetMemoryStatus(memoryStatus);
+          if (copy) widgetSay('meta', copy);
         });
       const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
@@ -782,8 +792,6 @@
       if (data.input_tokens != null) {
         widgetSay('meta', `out ${data.output_tokens} in ${data.input_tokens} tok.`);
       }
-      const memoryStatus = widgetMemoryStatus(data.memory);
-      if (memoryStatus) widgetSay('meta', memoryStatus);
     } catch (error) {
       // The wait line goes before the error is said: an error line landing
       // under a still-pulsing "Thinking…" would read as one more thing

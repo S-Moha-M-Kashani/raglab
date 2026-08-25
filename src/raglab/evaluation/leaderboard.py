@@ -468,6 +468,38 @@ def experiment_record(row: dict | None, run: dict | None) -> dict:
     }
 
 
+def live_job_record(job: dict) -> dict:
+    """A transient board row for the one job currently running in the lab.
+
+    It is deliberately not a ledger row: the job has not finished and may be
+    cancelled. It carries the same projection as a durable row so the board can
+    say what is running without pretending that it has a score or evidence.
+    """
+    config = job.get('config') or {}
+    index = config.get('index') or {}
+    return {
+        'experiment_id': job.get('id', ''),
+        'kind': job.get('kind', ''),
+        'state': job.get('state', 'running'),
+        'error': job.get('error') or '',
+        'label': config.get('label') or '',
+        'started_at': job.get('started_at', ''),
+        'seconds': job.get('seconds', 0),
+        'dataset': index.get('dataset') or datasets.BUILTIN,
+        'provider': config.get('provider') or '',
+        'n_questions': 0,
+        'selection': {},
+        'decision': None,
+        'decision_stderr': None,
+        'metrics': {},
+        'judge': {},
+        'pipeline': pipeline_fragments(config),
+        'config': config,
+        'inert': inert_knobs(config) if config else {},
+        'source': 'live',
+    }
+
+
 
 def experiment(experiment_id: str, db_path=None) -> dict | None:
     """One experiment by id, or None when neither record holds it.

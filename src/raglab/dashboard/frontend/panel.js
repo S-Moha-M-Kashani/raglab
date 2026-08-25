@@ -177,11 +177,11 @@ const datasetOf = (id) => (OPTIONS.datasets || []).find(
 // model extracted it, and the confidence rater that scores it, if any. Read
 // straight off the loaded files, never hardcoded, so a sparse corpus just
 // shows fewer rows rather than a placeholder for a label it lacks.
-function renderDatasetLabels(found) {
+function renderDatasetLabels(found, target = 'datasetLabels') {
   const rows = (found.label_declarations || []).map((row) => [row, 'corpus'])
     .concat((found.question_label_declarations || [])
       .map((row) => [row, 'question']));
-  renderTable('datasetLabels',
+  renderTable(target,
     ['name', 'declared on', 'type', 'levels', 'extracted', 'confidence rater'],
     rows.map(([row, scope]) => [safe(row.name), scope, safe(row.type),
       safe((row.levels || []).join(', ')), row.extracted ? 'yes' : '',
@@ -239,7 +239,11 @@ function describeDataset() {
     + `${found.questions} questions`
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
   $('datasetInfo').textContent = found.description;
+  $('dataset-detail-title').textContent = found.name || found.id || 'Dataset';
+  $('dataset-detail-census').textContent = $('corpus').textContent;
+  $('dataset-detail-description').textContent = found.description;
   renderDatasetLabels(found);
+  renderDatasetLabels(found, 'dataset-detail-labels');
   QUESTION_SELECTION = { labels: {}, balance: '' };
 }
 
@@ -662,7 +666,7 @@ async function restoreLastRun() {
 // held them, so a run renders settings-only and never becomes this page's own
 // CURRENT_ARCHIVE.
 async function reattachRunningJob() {
-  const jobs = await api('/api/jobs');
+  const jobs = (await api('/api/jobs')).jobs || [];
   const live = jobs.find((job) =>
     job.state === 'running' || job.state === 'cancelling');
   if (!live) return;

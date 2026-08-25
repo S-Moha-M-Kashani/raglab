@@ -846,6 +846,25 @@ def test_the_inspector_opens_a_recorded_experiment_from_the_url(inspector_texts)
     assert 'archive-state' in js and 'archive-return-live' in js
 
 
+def test_the_inspector_remembers_the_followed_experiment_across_navigation(
+        inspector_texts):
+    # this is a convention test
+    """The static surface links do not preserve `?experiment=` when a reader
+    leaves for the Leaderboard. The Inspector must therefore remember the
+    followed parent locally, restore it on a later visit, and clear that memory
+    only when the reader explicitly returns to live mode; otherwise persisted
+    added-question rows are invisible after navigation."""
+    js = inspector_texts['inspector.js']
+    assert 'lodestar:raglab-inspector-experiment' in js
+    assert 'localStorage.setItem' in js
+    assert 'localStorage.getItem' in js
+    assert 'localStorage.removeItem' in js
+    assert 'followRecordedExperiment' in js
+    leaving = js[js.index('async function leaveRecordMode'):
+                 js.index('async function renderFollow')]
+    assert 'forgetRememberedExperiment()' in leaving
+
+
 # `test_a_recorded_experiment_says_its_chunk_text_was_not_recorded` used to sit
 # here, asserting `'not recorded' in js` — a claim the *retrieval* empty state
 # satisfies on its own, so the pin for this branch's headline honesty claim could

@@ -167,6 +167,7 @@ function cell(row, key) {
 
 let CURRENT = '';        // the dataset in force, '' = the served default
 let CATALOGUE = [];      // the corpora the route named, as served
+let REFRESH_TIMER = null;
 
 // The corpus by the name the heading and the picker say, never by its id: the
 // caption and the region's name are read aloud, so an id there hands the screen
@@ -393,6 +394,10 @@ function renderPicker(dataset, datasets) {
 }
 
 async function loadBoard(dataset) {
+  if (REFRESH_TIMER !== null) {
+    clearTimeout(REFRESH_TIMER);
+    REFRESH_TIMER = null;
+  }
   const box = $('board');
   box.innerHTML = '<div class="card"><p class="prose">Reading the records…</p></div>';
   let body;
@@ -413,11 +418,14 @@ async function loadBoard(dataset) {
   CURRENT = body.dataset || '';
   CATALOGUE = body.datasets || [];
   const rows = body.rows || [];
+  const ordering = body.ordering || 'score';
+  const running = Boolean(body.running);
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
         <h2>${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
-        <span class="section-meta right">${rows.length} recorded</span>
+        <span class="section-meta right">${rows.length} ${ordering === 'newest'
+          ? 'visible · newest first · running' : 'recorded · best score first'}</span>
       </div>
       ${renderPicker(CURRENT, CATALOGUE)}
       ${rows.length ? renderFilter() + renderTable(CURRENT, rows)
@@ -464,6 +472,9 @@ async function loadBoard(dataset) {
   }
   applyFilter();
   wirePicker();
+  if (running) {
+    REFRESH_TIMER = setTimeout(() => loadBoard(dataset), 1200);
+  }
 }
 
 function wirePicker() {
@@ -605,4 +616,4 @@ document.addEventListener('click', (event) => {
 
 const ASKED = new URLSearchParams(window.location.search);
 QUERY = ASKED.get('filter') || '';
-loadBoard(ASKED.get('dataset') || '');
+loadBoard(ASKED.get('dataset') || EVERY);

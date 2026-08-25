@@ -420,6 +420,7 @@ class Jobs:
                          'wait for it to finish, or cancel it first')
             job_id = uuid.uuid4().hex[:10]
             self.jobs[job_id] = {'id': job_id, 'kind': kind, 'state': 'running',
+                                 'started_at': time.strftime('%Y-%m-%d %H:%M:%S'),
                                  'stage': 'starting', 'progress': 0.0,
                                  'detail': '', 'config': config,
                                  'result': None, 'error': None,
@@ -502,6 +503,7 @@ class Jobs:
     def list(self) -> list[dict]:
         """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
         return [{'id': job['id'], 'kind': job['kind'], 'state': job['state'],
+                 'started_at': job.get('started_at', ''),
                  'config': job.get('config')}
                 for job in reversed(list(self.jobs.values()))]
 
@@ -849,17 +851,30 @@ def create_app() -> FastAPI:
         command line cannot describe the same records differently. This route is
         why that module lives in `evaluation/` rather than among the terminal
         tools no route reaches."""
-        boards = leaderboard.build_board(limit)
-        wanted = dataset or datasets.BUILTIN
-        # `every_row`, not the boards concatenated: the page's own prose says the
-        # order it was served in is the ranking, and a concatenation is ordered
-        # by dataset block instead — so the unfiltered view would have said the
-        # served order meant something it did not.
-        rows = (leaderboard.every_row(boards) if dataset == '*' else
-                next((b.rows for b in boards if b.dataset == wanted), []))
-        return {'dataset': dataset or wanted,
+        wanted = dataset or '*'
+        running = jobs.get(jobs.current) if jobs.current else None
+        is_running = bool(running and running['state'] in ('running', 'cancelling'))
+        if is_running:
+            # A live job has no durable row yet. It still belongs on the board,
+            # newest first, so leaving the Laboratory does not make the reader
+            # lose the experiment currently in progress.
+            rows = leaderboard.board_rows(limit)
+            rows.append(leaderboard.live_job_record(running))
+            rows.sort(key=lambda row: row.get('started_at', ''), reverse=True)
+            if wanted != '*':
+                rows = [row for row in rows if row.get('dataset') == wanted]
+            ordering = 'newest'
+        else:
+            boards = leaderboard.build_board(limit)
+            # `every_row`, not the boards concatenated: the page's own prose says
+            # the order it was served in is the ranking, and a concatenation is
+            # ordered by dataset block instead.
+            rows = (leaderboard.every_row(boards) if wanted == '*' else
+                    next((b.rows for b in boards if b.dataset == wanted), []))
+            ordering = 'score'
+        return {'dataset': wanted,
                 'datasets': [found.as_dict() for found in datasets.catalogue()],
-                'rows': rows}
+                'rows': rows, 'ordering': ordering, 'running': is_running}
 
     @app.get('/api/experiments')
     def experiments(limit: int = 200):

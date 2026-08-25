@@ -161,6 +161,9 @@ CONVENTIONS = [
     ('panel.js', 'job.detail', None,
      'a judged local run spends hours in one stage, and the detail is the '
      'one thing that still moves'),
+    ('panel.js', ".jobs || []", None,
+     'returning from another surface must reattach to the jobs envelope, or '
+     'the footer says nothing is running while the server rejects a second run'),
     ('index.html', 'Stop experiment', None,
      'a run that cannot be stopped is one you kill the process to escape'),
     ('panel.js', "'/api/jobs/' + jobId + '/cancel'", None,
@@ -232,6 +235,13 @@ CONVENTIONS = [
      'the leaderboard must read the board route, not re-derive its own rows '
      'from the raw run list — two derivations is how two surfaces come to '
      'describe the same records differently'),
+    ('leaderboard.js', 'loadBoard(ASKED.get(\'dataset\') || EVERY)', None,
+     'the initial board must show the experiments population rather than '
+     'silently selecting the legacy Farsi builtin'),
+    ('leaderboard.js', 'ordering', None,
+     'the board must expose whether its server order is live-newest or score'),
+    ('leaderboard.js', 'running', None,
+     'the board must refresh while the Laboratory has a live job'),
     ('leaderboard.js', 'onApply', None,
      'the filter must re-run after every reorder: the sorter re-appends every '
      'row it holds, which drops the hidden ones back among the visible ones — '
@@ -1315,6 +1325,44 @@ def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
     body = client.get('/api/leaderboard').json()
     ids = {d['id'] for d in body['datasets']}
     assert 'diary-fa' in ids
+
+
+def test_the_default_leaderboard_is_the_experiment_population_not_farsi(client):
+    # this is an integration test
+    """An omitted dataset is a request for the board's experiment population,
+    not a request to display the legacy Farsi builtin. The latter makes an
+    empty Farsi table appear whenever the user returns from another surface."""
+    body = client.get('/api/leaderboard').json()
+    assert body['dataset'] == '*'
+    assert body['ordering'] == 'score'
+    assert body['running'] is False
+
+
+def test_the_leaderboard_contract_exposes_live_ordering_and_job_state(
+        panel_texts):
+    # this is a convention test
+    """The page must be able to distinguish a live newest-first board from an
+    idle score-first board; without these fields it cannot refresh after the
+    Laboratory starts or finishes a job."""
+    js = panel_texts['leaderboard.js']
+    assert 'body.ordering' in js
+    assert 'body.running' in js
+    assert 'setTimeout' in js
+
+
+def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
+        panel_texts):
+    # this is a convention test
+    """The inline dataset description is not enough for the full census and
+    declaration table. The selected dataset therefore needs an accessible
+    control and a top-layer detail surface that can be read at viewport size."""
+    html = panel_texts['index.html']
+    css = panel_texts['panel.css']
+    assert 'dataset-detail' in html
+    assert 'popovertarget="dataset-detail"' in html
+    assert 'popover' in html[html.index('id="dataset-detail"'):]
+    assert 'dataset-detail' in css
+    assert '100vw' in css or '100dvw' in css
 
 
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):

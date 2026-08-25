@@ -967,6 +967,22 @@ let liveDatasetBeforeArchive = '';
 let activeExperimentId = null;
 let recordLoadingId = null;
 let recordRequestGeneration = 0;
+const RECORDED_EXPERIMENT_KEY = 'lodestar:raglab-inspector-experiment';
+
+function rememberedExperiment() {
+  try { return localStorage.getItem(RECORDED_EXPERIMENT_KEY); }
+  catch (error) { return null; }
+}
+
+function rememberExperiment(experimentId) {
+  try { localStorage.setItem(RECORDED_EXPERIMENT_KEY, experimentId); }
+  catch (error) { /* private browsing must not make the Inspector unusable */ }
+}
+
+function forgetRememberedExperiment() {
+  try { localStorage.removeItem(RECORDED_EXPERIMENT_KEY); }
+  catch (error) { /* private browsing */ }
+}
 // Why a deep-linked record is *not* on screen, when that is the answer. Held
 // rather than written straight into the state line, because the page is still
 // following the lab in that case and the follow loop rewrites that line.
@@ -1160,6 +1176,7 @@ async function followRecordedExperiment(experimentId) {
     // from the ledger, a mistyped id and a lab that is down all land here.
     recordProblem = `${experimentId} could not be read from the lab `
       + `(${failure}) — showing live instead`;
+    if (rememberedExperiment() === experimentId) forgetRememberedExperiment();
     setArchiveState(null);
     // And the live fixture is asked for again: the page's own boot fetch was
     // turned away while this record was in flight, and the follow loop reloads
@@ -1177,6 +1194,7 @@ async function followRecordedExperiment(experimentId) {
   // follow loop re-enter archive mode once the reader goes back to live.
   activeArchiveId = null;
   activeExperimentId = experimentId;
+  rememberExperiment(experimentId);
   await renderRecordedExperiment(record,
     () => requestGeneration === recordRequestGeneration);
 }
@@ -1459,6 +1477,7 @@ async function leaveRecordMode() {
   const dataset = activeExperimentId !== null
     ? liveDatasetBeforeArchive : FOLLOWED_DATASET;
   activeExperimentId = null;
+  forgetRememberedExperiment();
   ADDED.clear();
   renderAdded();
   recordProblem = '';
@@ -1646,4 +1665,6 @@ pollFollow();
 // the live fixture from landing on top of the record.
 const deepLinkedExperiment =
   new URLSearchParams(window.location.search).get('experiment');
+const remembered = rememberedExperiment();
 if (deepLinkedExperiment) followRecordedExperiment(deepLinkedExperiment);
+else if (remembered) followRecordedExperiment(remembered);

@@ -1046,9 +1046,8 @@ def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
 
 def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch):
     # this is a unit test
-    """The final event is serialized before the stream is resumed, so its
-    memory status must already include the save performed after the answer is
-    read back from the checkpoint."""
+    """The authoritative reply is emitted before the stream resumes, and the
+    following event carries the memory status after the save is performed."""
     from langchain_core.messages import HumanMessage
 
     decision = {'relevant': True, 'should_save': True, 'saved': False,
@@ -1066,8 +1065,8 @@ def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch)
         assert next(events) == {'delta': 'answer'}
         assert next(events) == {
             'reply': 'answer', 'input_tokens': None, 'output_tokens': None,
-            'memory': {**decision, 'saved': True},
         }
+        assert next(events) == {'memory': {**decision, 'saved': True}}
     finally:
         widget.reset()
 

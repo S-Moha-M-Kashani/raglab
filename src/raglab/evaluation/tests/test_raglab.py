@@ -926,6 +926,63 @@ def test_a_reranker_choice_and_a_dataset_fact_both_gate_the_same_knob():
                  )['retrieval.time_filter']['enabled']
 
 
+def test_inert_knobs_names_only_the_knob_the_chunker_never_reads():
+    # this is a unit test
+    """`overlap` is dead weight under semantic-drift and live under
+    fixed-overlap — the same asymmetry `dependency_state` already proves,
+    now surfaced through the one function later callers (leaderboard rows,
+    board reveal, widget) will actually read."""
+    drift = config.inert_knobs(
+        LabConfig(index=IndexConfig(chunker='semantic-drift', overlap=100)
+                 ).to_dict())
+    assert drift['index.overlap'] == config.DEPENDENCIES['index.overlap']['reason']
+    assert 'index.chunk_chars' not in drift
+
+    fixed = config.inert_knobs(
+        LabConfig(index=IndexConfig(chunker='fixed-overlap')).to_dict())
+    assert 'index.overlap' not in fixed
+
+
+def test_inert_knobs_names_the_whole_hierarchy_gated_family_when_flat():
+    # this is a unit test
+    """A flat index (`hierarchy=''`) leaves every index knob a grouping
+    would have read, and every retrieval knob that scopes or boosts a
+    summary, with nothing recorded to act on."""
+    flat = config.inert_knobs(LabConfig(index=IndexConfig(hierarchy='')).to_dict())
+    for path in ('index.min_group', 'index.summarizer', 'index.graph_source',
+                 'retrieval.summary_scope', 'retrieval.summary_boost'):
+        assert path in flat, path
+
+
+def test_inert_knobs_treats_an_unrecorded_field_as_unknown_not_inert():
+    # this is a unit test
+    """A config with no synthetic `dataset` group was never asked whether
+    its corpus declares a date label — that is not the same as being told
+    no, so `retrieval.time_filter` stays off the map rather than inert.
+    Once the group is present and does say no, it is marked, with the same
+    reason `dependency_state` already reports."""
+    cfg = LabConfig().to_dict()
+    assert 'retrieval.time_filter' not in config.inert_knobs(cfg)
+
+    cfg['dataset'] = {'date_label': ''}
+    marked = config.inert_knobs(cfg)
+    assert marked['retrieval.time_filter'] == \
+        config.dependency_state(cfg)['retrieval.time_filter']['reason']
+
+
+def test_inert_knobs_never_marks_a_group_the_config_never_recorded():
+    # this is a unit test
+    """An archive missing the whole `retrieval` group was never asked about
+    any retrieval knob — there is nothing here to call inert, only
+    unlabelled, and that is a different problem than this function solves."""
+    cfg = LabConfig(index=IndexConfig(hierarchy='')).to_dict()
+    del cfg['retrieval']
+    marked = config.inert_knobs(cfg)
+    assert not any(path.startswith('retrieval.') for path in marked)
+    # the index group is still fully recorded, so it is still readable.
+    assert 'index.min_group' in marked
+
+
 def test_every_disabled_control_says_why():
     # this is a convention test
     """A greyed-out control with no reason is indistinguishable from a broken

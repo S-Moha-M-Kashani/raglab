@@ -357,12 +357,44 @@
     el.classList.add('stopped');
   }
 
+  // The stretch between Send and the first piece used to be the one part of a
+  // turn the log said nothing about: the reader's own bubble, then nothing,
+  // whether the lab was composing or off calling a tool. This line names that
+  // wait — "Thinking…", swapped for the tool's name when a status event says
+  // one is running. It is deliberately not a turn: never written through
+  // `widgetSay` (whose empty-state handling is for things said), never part
+  // of any history the lab keeps — a redraw of this thread comes back without
+  // it because it was never in it — and gone the moment the answer starts or
+  // the turn ends, whichever comes first. `textContent`, never markup: the
+  // swap writes a name the stream sent, untrusted like every other string
+  // that arrives over a wire.
+  function widgetThinking() {
+    const log = $('widget-log');
+    const el = document.createElement('div');
+    el.className = 'widget-msg thinking';
+    el.textContent = 'Thinking…';
+    log.append(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  // Removal, guarded by the same `contains` check every other writer to this
+  // log makes before touching it: a draw may already have cleared the log,
+  // and a line the log no longer holds is not this turn's to act on — the
+  // screen has moved on, and the fate check at the end of `widgetAsk` is
+  // what decides honestly where the turn itself lands.
+  function widgetThinkingOver(el) {
+    const log = $('widget-log');
+    if (el && log.contains(el)) el.remove();
+  }
+
   // One SSE reader: `data: ` lines carrying one JSON object each, events
-  // separated by a blank line. Deltas go to `onDelta` as they land; the final
+  // separated by a blank line. Deltas go to `onDelta` as they land, status
+  // events — the lab naming the tool it is calling — to `onStatus`; the final
   // event is returned. An `error` event is thrown, because that is what it is —
   // the stream's own way of saying the answer never finished, once the status
   // code has been spent on the first piece.
-  async function widgetStream(path, body, onDelta) {
+  async function widgetStream(path, body, onDelta, onStatus) {
     const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -391,6 +423,14 @@
           throw new Error('the lab sent an answer this page could not read');
         }
         if (event.error) throw new Error(event.error);
+        // A status event is the lab saying what it is doing right now — a
+        // tool being called — not part of the answer. It is ephemeral by
+        // contract (no history ever holds one), so it must not fall through
+        // to the `final = event` line below the way everything without a
+        // `delta` otherwise does: a stream that died after a status event
+        // would then hand back the chatter as the reply the lab supposedly
+        // holds, which is exactly the substitution this file refuses.
+        if (event.status != null) { onStatus(event.status); continue; }
         if (event.delta != null) onDelta(event.delta);
         else final = event;
       }
@@ -677,6 +717,14 @@
       return;
     }
     widgetLock(true);
+    // The wait is named up front, where the reply's bubble deliberately is
+    // not: "Thinking…" is a claim about this page — a question is out and
+    // nothing has come back — which is true from this line on, where an
+    // empty bubble would be a claim about an answer the lab has not started
+    // making. It lasts exactly as long as the wait does: the first piece
+    // removes it, and the catch and finally below clear it on every other
+    // way out, so it can never outlive the turn it announces.
+    const thinking = widgetThinking();
     // The bubble the answer is typed into, created on the first piece rather
     // than up front: a bubble that appears and then never fills is a claim
     // the lab has not made yet.
@@ -693,9 +741,25 @@
           // second, cheaper way: a bubble the log no longer holds was wiped
           // by a draw, whatever the generation says.
           if (supersedes(mine) || !stillCurrent(intended)) { live = null; return; }
+          // The first piece is the answer starting, which is the end of the
+          // wait the indicator names — it goes here, where the bubble that
+          // replaces it is born, so the two never sit on screen together.
+          widgetThinkingOver(thinking);
           if (live && !$('widget-log').contains(live)) live = null;
           if (!live) live = widgetLiveReply();
           widgetType(live, delta);
+        },
+        (status) => {
+          // The swap answers to the same rule the live bubble does: only a
+          // line the log still holds is this turn's to retitle. A redraw
+          // that wiped it means the log has moved on, and recreating it
+          // would paint a claim about this turn onto a screen that is no
+          // longer showing it — so a wiped indicator stays gone. The name
+          // is assigned as text, never markup, because it arrived over the
+          // stream like every other untrusted string.
+          if ($('widget-log').contains(thinking)) {
+            thinking.textContent = `calling ${status}…`;
+          }
         });
       const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
@@ -710,6 +774,10 @@
         widgetSay('meta', `out ${data.output_tokens} in ${data.input_tokens} tok.`);
       }
     } catch (error) {
+      // The wait line goes before the error is said: an error line landing
+      // under a still-pulsing "Thinking…" would read as one more thing
+      // being worked on, when the truth is that the work just stopped.
+      widgetThinkingOver(thinking);
       // Whatever had arrived stays, marked as stopped rather than dressed up
       // as a finished reply; an empty bubble goes, having said nothing.
       widgetStopped(live);
@@ -718,6 +786,12 @@
       if (fate === 'stale') { widgetSayAfterDraw('err', error.message, intended); return; }
       widgetSay('err', error.message);
     } finally {
+      // Cleared once more on every way out, the success paths included: a
+      // turn whose answer arrived whole (a final event with no pieces)
+      // never reached the first-delta removal, and an indicator that
+      // outlived its turn would be this page claiming the lab is thinking
+      // about nothing.
+      widgetThinkingOver(thinking);
       widgetLock(false);
       $('widget-input').focus();
     }

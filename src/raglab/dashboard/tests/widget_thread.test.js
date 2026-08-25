@@ -48,6 +48,54 @@ function load(stored) {
   return context;
 }
 
+// The SSE reader, run whole rather than read. `widgetStream` itself needs no
+// DOM — only `fetch` — and its buffered fallback (a response with no `.body`)
+// drains the same events through the same parser as the streaming path, so a
+// fake fetch handing back the whole SSE text at once exercises exactly the
+// routing under test: which callback each kind of event reaches, and which
+// event gets to be final.
+function loadStream(sse) {
+  const context = {
+    fetch: async () => ({ ok: true, text: async () => sse }),
+  };
+  const reader = source.slice(source.indexOf('async function widgetStream'),
+                              source.indexOf('// --- what you can ask'));
+  runInNewContext(reader, context);
+  return context;
+}
+
+// A status event is the lab saying what it is doing — a tool being called —
+// not part of the answer: it must reach `onStatus` and nothing else. The trap
+// this pins shut is the reader's old shape, where anything without a `delta`
+// was captured as the final event; a status event falling into that bucket
+// would be ephemeral chatter promoted to the turn the log holds.
+test('a status event is routed to onStatus and never becomes the final event', async () => {
+  const sse = 'data: {"status": "search_notes"}\n\n'
+            + 'data: {"delta": "he"}\n\n'
+            + 'data: {"delta": "llo"}\n\n'
+            + 'data: {"reply": "hello"}\n\n';
+  const deltas = [];
+  const statuses = [];
+  const final = await loadStream(sse).widgetStream('/api/widget/stream', {},
+    (delta) => deltas.push(delta), (status) => statuses.push(status));
+  assert.deepEqual(statuses, ['search_notes']);
+  assert.deepEqual(deltas, ['he', 'llo']);
+  assert.equal(final.reply, 'hello');
+  assert.equal(final.status, undefined);
+});
+
+// The sharper edge of the same rule: a stream that dies after a status event
+// has still never said what the lab holds. The old reader would have handed
+// the status event back as the reply's own final event — an answer the lab
+// never gave — where the honest reading is the "stopped before" refusal.
+test('a stream that ends on a status event has no final and is refused', async () => {
+  const sse = 'data: {"delta": "hi"}\n\n'
+            + 'data: {"status": "search_notes"}\n\n';
+  await assert.rejects(
+    loadStream(sse).widgetStream('/api/widget/stream', {}, () => {}, () => {}),
+    /stopped before the lab said what it holds/);
+});
+
 test('with no experiment open, every surface shares the general thread', () => {
   assert.equal(load({}).widgetThread(), 'general');
 });
@@ -187,4 +235,49 @@ test('every streamed piece re-asks whether it still belongs on this screen', () 
   assert.ok(ask.indexOf('widgetFinish(live, data.reply)') > ask.indexOf('replyFate'),
     'the reply the lab holds must replace the typed pieces, and only after '
     + 'the fate check has said this screen is still the right one');
+});
+
+// The wait line is ephemeral by construction, and that is a lifecycle claim
+// about widgetAsk — named before the post, ended by the first piece, cleared
+// again on every way out — which, like the two pins above, is about *where*
+// the calls sit and so is read from the source rather than run: the sandbox
+// has no DOM to mount an indicator into, and building one to watch a div be
+// removed would replace this contract with a fake browser.
+test('the thinking line is born with the post and cannot outlive the turn', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  const born = ask.indexOf('const thinking = widgetThinking()');
+  const posted = ask.indexOf('await widgetStream(');
+  assert.ok(born > -1 && born < posted,
+    'the wait must be named before the post, or the reader watches nothing');
+  const delta = ask.slice(ask.indexOf('(delta) =>'), ask.indexOf('(status) =>'));
+  assert.ok(delta.includes('widgetThinkingOver(thinking)'),
+    'the first piece must end the wait it answers');
+  const out = ask.slice(ask.indexOf('} catch'));
+  assert.ok((out.match(/widgetThinkingOver\(thinking\)/g) || []).length >= 2,
+    'both the catch and the finally must clear a wait no delta ever ended');
+  const over = source.slice(source.indexOf('function widgetThinkingOver'),
+                            source.indexOf('// One SSE reader'));
+  assert.ok(over.includes('contains(el)'),
+    'removal must re-ask whether the log still holds the line — the same '
+    + 'contains check every other writer to a moved-on log makes');
+});
+
+// The swap to "calling <tool>…" answers to the same rule the live bubble
+// does: a redraw that wiped the line means the log has moved on, and the
+// status handler must fall silent rather than recreate what a draw removed.
+test('a status event retitles the indicator only while the log still holds it', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  const status = ask.slice(ask.indexOf('(status) =>'), ask.indexOf('const fate'));
+  assert.ok(status.includes('contains(thinking)'),
+    'the swap must check the indicator is still on screen');
+  assert.ok(status.includes('textContent'),
+    'the tool name is untrusted stream data and must be assigned as text, '
+    + 'never as markup');
+  assert.ok(!status.includes('widgetThinking()'),
+    'a wiped indicator is never recreated — the log has moved on');
+  assert.ok(!ask.includes("widgetSay('thinking'") && !ask.includes('widgetSay(\'meta\', `calling'),
+    'no status text goes through widgetSay: it is not a turn and must never '
+    + 'look like one');
 });

@@ -327,6 +327,21 @@ def _delta(chunk) -> str:
     return memory._text(getattr(chunk, 'content', ''))
 
 
+def _tool_named(chunk) -> list:
+    """The tool names this chunk states for the first time — usually none. A
+    tool call announces its name exactly once, on the chunk that opens it; the
+    argument tokens that follow carry `name=None` and name nothing. That one
+    moment is the only part of a tool call the reader gets to see, as an
+    ephemeral `{'status': <name>}` the page shows while it waits — the log
+    never holds it, the same way `_delta` keeps the call itself off the
+    answer channel."""
+    if getattr(chunk, 'type', '') not in ('ai', 'AIMessageChunk'):
+        return []
+    return [piece['name']
+            for piece in getattr(chunk, 'tool_call_chunks', None) or []
+            if piece.get('name')]
+
+
 def _stream_cli(cli: str, message: str):
     """A CLI streaming: one piece, because one subprocess reports one complete
     reply and there is no partial output to forward. It still travels this path
@@ -360,6 +375,8 @@ def _stream_agent(agent, message: str, thread: str):
             if mode == 'values':
                 final = event
                 continue
+            for name in _tool_named(event[0]):
+                yield {'status': name}
             text = _delta(event[0])
             if text:
                 yield {'delta': text}

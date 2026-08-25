@@ -1109,6 +1109,65 @@ def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
         source.index('function snapshotDashboard'), source.index('function exportArchive'))
 
 
+def test_boot_reattaches_to_a_job_the_server_is_already_running():
+    # this is a convention test
+    """A reload loses the poll a click started, but never the job: the service
+    holds one job at a time and 409s a second, so a fresh page saying "nothing
+    running" is lying about what the server is doing. Boot must ask the job
+    table (`GET /api/jobs`) and re-enter the same `poll` on a job still running
+    or cancelling — and a run finishing under a reattached poll stays
+    settings-only: the settings that launched it left with the page that held
+    them, so this page can never vouch for the evidence as its own."""
+    source = PANEL_JS.read_text()
+    assert 'async function reattachRunningJob' in source, (
+        'boot has no way to discover a job the server is already running')
+    reattach = source[source.index('async function reattachRunningJob'):
+                      source.index('async function boot()')]
+    assert "api('/api/jobs')" in reattach, (
+        'the job table is the one place the running job can be learned from')
+    assert "'running'" in reattach and "'cancelling'" in reattach, (
+        'both live states must reattach — a cancelling job still needs its '
+        'spine and its cancel button')
+    assert 'poll(' in reattach, (
+        'the reattached job must ride the same poll a click would have '
+        'started, not a second progress path')
+    assert 'ArchiveIO.completed' not in reattach, (
+        'a reattached run must never be claimed as this page’s own '
+        'archive evidence')
+    boot = source[source.index('async function boot()'):
+                  source.index('async function refreshOptions()')]
+    assert 'reattachRunningJob(' in boot, (
+        'discovering the running job is part of booting the page')
+
+
+def test_a_running_job_makes_the_chrome_line_pronounced(panel_texts):
+    # this is a convention test
+    """Idle, the chrome line is a 3px edge with zero width — correctly
+    nothing. Running, it must announce itself: taller than the idle edge,
+    visible from the first tick (a starting job is at 0% and an invisible bar
+    reads as "nothing running"), and moving even when the fraction is not."""
+    js = panel_texts['panel.js']
+    render = js[js.index('function renderSpine'):
+                js.index('function renderIndexes')]
+    assert "track.dataset.running" in render, (
+        'renderSpine must mark the chrome line while a job runs and clear '
+        'the mark after')
+    css = panel_texts['chrome.css']
+    track = re.search(
+        r'\.chrome-progress\[data-running="true"\]\s*\{([^}]*)\}', css)
+    assert track and 'height' in track.group(1), (
+        'a running chrome line must be taller than the idle 3px edge')
+    assert '3px' not in track.group(1), (
+        'pronounced means taller than idle, not the same height restated')
+    fill = re.search(
+        r'\.chrome-progress\[data-running="true"\] i\s*\{([^}]*)\}', css)
+    assert fill and 'min-width' in fill.group(1), (
+        'the fill must be visible at 0%, or a starting job shows nothing')
+    assert 'animation' in fill.group(1), (
+        'the fill must move on its own — a stalled-looking bar and a dead '
+        'one must not look alike')
+
+
 def test_the_lab_page_no_longer_holds_the_experiment_ledger(panel_texts):
     # this is a convention test
     """It moved to the leaderboard, which is the surface for cross-run reading —

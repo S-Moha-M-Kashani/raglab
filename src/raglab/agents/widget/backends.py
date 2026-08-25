@@ -9,20 +9,24 @@ through `stream` for the same answer handed over as it is written.
 import os
 from threading import RLock
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from raglab.agents.widget import conversation_memory as memory
+from raglab.agents.widget import hooks
 from raglab.agents.widget import skills_corpus_loader as skills
 from raglab.llm_backends.cli_subprocess_chat import (
     CliChat,
     checked_effort,
     cli_available)
 from raglab.configuration.env_settings import PROVIDER_MODELS
-from raglab.agents.widget.hooks import MIDDLEWARE, _account, _validate
+from raglab.agents.widget.hooks import (MIDDLEWARE, _account, _validate,
+                                        evaluate_memory_policy,
+                                        summarize_memory_update)
 from raglab.agents.widget.prompts import (
     _PROMPTS,
     KNOWLEDGE_BASE,
     SYSTEM_PROMPT)
+from raglab.agents.widget import tools
 from raglab.agents.widget.tools import TOOLS
 
 # Read at build time, never at import: the suite runs offline, and a missing
@@ -216,7 +220,8 @@ def _model_kind(model: str) -> tuple[str, str]:
     return choice, kind
 
 
-def _run(message: str, thread: str) -> tuple[dict, dict]:
+def _run(message: str, thread: str, *, memory_state: dict | None = None,
+         memory_text: str = '') -> tuple[dict, dict]:
     """The graph's input and its config for one turn — read once, so `ask` and
     `stream` cannot come to disagree about which thread a turn ran under or
     what it stamped on the way in.
@@ -240,8 +245,10 @@ def _run(message: str, thread: str) -> tuple[dict, dict]:
     hard ceiling rather than a budget.
     """
     name = (thread or '').strip() or memory.GENERAL
-    return ({'messages': [HumanMessage(content=message)],
-             **memory.thread_stamp(name)},
+    messages = ([SystemMessage(content=memory_text)] if memory_text else [])
+    messages.append(HumanMessage(content=message))
+    return ({'messages': messages, **memory.thread_stamp(name),
+             **(memory_state or {})},
             {'recursion_limit': 24, 'configurable': {'thread_id': name}})
 
 
@@ -275,6 +282,79 @@ def _agent_for(model: str):
         return _AGENTS[model]
 
 
+def _memory_model(model: str):
+    """Build the separate structured-output seam used before/after the agent."""
+    openrouter_api_key = _openrouter_key()
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(model=model, api_key=openrouter_api_key,
+                      base_url=_openrouter_url())
+
+
+def _memory_turn(message: str, model: str, thread: str) -> tuple[dict | None, object | None, str]:
+    """Run deterministic and structured policy before invoking the agent."""
+    refusal = hooks.relevance_guard(message)
+    if refusal:
+        return ({'relevant': False, 'should_save': False, 'dataset_id': '',
+                 'subtopic': '', 'reason': refusal, 'saved': False,
+                 'blocked': True}, None, '')
+    try:
+        policy_model = _memory_model(model)
+    except Exception:
+        return None, None, ''
+    policy = evaluate_memory_policy(message, policy_model, experiment_id=thread)
+    if not policy.reason and not policy.relevant:
+        return None, None, ''
+    decision = {**policy.model_dump(), 'saved': False}
+    reader = tools.read_long_term_memory
+    context = ((reader.invoke({'dataset_id': policy.dataset_id})
+                if hasattr(reader, 'invoke')
+                else reader(policy.dataset_id)) if policy.relevant else '')
+    return decision, policy_model, context
+
+
+def _policy_state(decision: dict, thread: str) -> dict:
+    fields = memory.MemoryPolicy.model_fields
+    policy = memory.MemoryPolicy.model_validate(
+        {key: value for key, value in decision.items() if key in fields})
+    return memory.policy_state(policy, thread)
+
+
+def _summarize_memory_update(**kwargs):
+    return summarize_memory_update(**kwargs)
+
+
+def _finish_memory(question: str, answer: str, decision: dict | None,
+                   model, thread: str) -> dict | None:
+    if not decision:
+        return None
+    if not decision.get('relevant') or not decision.get('should_save'):
+        return decision
+    try:
+        summary = _summarize_memory_update(
+            question=question, answer=answer,
+            dataset_id=decision.get('dataset_id', ''), experiment_id=thread,
+            subtopic=decision.get('subtopic', ''), model=model)
+        dataset_summary = (summary.get('dataset_summary', '')
+                           if isinstance(summary, dict)
+                           else summary.dataset_summary)
+        global_summary = (summary.get('global_summary', '')
+                          if isinstance(summary, dict)
+                          else summary.global_summary)
+        arguments = {
+            'dataset_id': decision.get('dataset_id', ''),
+            'experiment_id': thread, 'subtopic': decision.get('subtopic', ''),
+            'question': question, 'answer': answer,
+            'dataset_summary': dataset_summary,
+            'global_summary': global_summary}
+        writer = tools.save_widget_memory
+        stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
+                  else writer(**arguments))
+        decision.update({'saved': bool(stored.get('saved')), 'save': stored})
+    except Exception as error:
+        decision.update({'saved': False, 'save_error': str(error)})
+    return decision
+
+
 def ask(message: str, model: str = '', thread: str = '') -> dict:
     """One question in, one answer out: `{'reply', 'input_tokens',
     'output_tokens'}` — the account read from the `usage_metadata` LangChain
@@ -298,8 +378,20 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
         # memory either — the thread is accepted and ignored, the label
         # already says what a CLI cannot do.
         return _cli_turn(choice, _validate(message))
+    decision, policy_model, context = _memory_turn(message, choice, thread)
+    if decision and decision.get('blocked'):
+        return {'reply': decision['reason'], 'input_tokens': None,
+                'output_tokens': None, 'memory': decision}
+    if context and decision:
+        memory_state = _policy_state(decision, thread)
+    else:
+        memory_state = None
     agent = _agent_for(choice)
-    payload, config = _run(message, thread)
+    if context and decision:
+        payload, config = _run(message, thread, memory_state=memory_state,
+                               memory_text=context)
+    else:
+        payload, config = _run(message, thread)
     try:
         result = agent.invoke(payload, config=config)
     except WidgetUnavailable:
@@ -310,7 +402,11 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
     reply, used = _turn_account(result['messages'])
     # `close_the_log` already accounted for this run from inside the graph.
-    return _accounted(reply, used)
+    output = _accounted(reply, used)
+    finished = _finish_memory(message, reply, decision, policy_model, thread)
+    if finished is not None:
+        output['memory'] = finished
+    return output
 
 
 def _delta(chunk) -> str:
@@ -352,7 +448,8 @@ def _stream_cli(cli: str, message: str):
     yield done
 
 
-def _stream_agent(agent, message: str, thread: str):
+def _stream_agent(agent, message: str, thread: str, decision=None,
+                  policy_model=None, context: str = ''):
     """The graph streaming: `stream_mode=['messages', 'values']` on the same
     run `ask` invokes — the same nodes, the same middleware, the same
     checkpoint write, so a streamed turn is in widget.db exactly as an asked
@@ -367,7 +464,12 @@ def _stream_agent(agent, message: str, thread: str):
     with no state is a refusal, not a reply assembled here from the fragments —
     the same rule the rest of the lab keeps about a row that cannot say what
     produced it."""
-    payload, config = _run(message, thread)
+    if context and decision:
+        state = _policy_state(decision, thread)
+        payload, config = _run(message, thread, memory_state=state,
+                               memory_text=context)
+    else:
+        payload, config = _run(message, thread)
     final = None
     try:
         for mode, event in agent.stream(payload, config=config,
@@ -389,7 +491,14 @@ def _stream_agent(agent, message: str, thread: str):
             'the widget streamed no answer — the run ended with no state to '
             'read the reply back from')
     reply, used = _turn_account(final['messages'])
-    yield _accounted(reply, used)
+    output = _accounted(reply, used)
+    if decision is not None:
+        output['memory'] = decision
+    # This runs only after the authoritative final event has been yielded.
+    yield output
+    finished = _finish_memory(message, reply, decision, policy_model, thread)
+    if finished is not None and output.get('memory') is not finished:
+        output['memory'] = finished
 
 
 def stream(message: str, model: str = '', thread: str = ''):
@@ -412,4 +521,10 @@ def stream(message: str, model: str = '', thread: str = ''):
                 f'the {choice} command is not on this machine — install and '
                 'log in, or pick an OpenRouter model')
         return _stream_cli(choice, text)
-    return _stream_agent(_agent_for(choice), message, thread)
+    decision, policy_model, context = _memory_turn(message, choice, thread)
+    if decision and decision.get('blocked'):
+        return iter([{'delta': decision['reason']}, {
+            'reply': decision['reason'], 'input_tokens': None,
+            'output_tokens': None, 'memory': decision}])
+    return _stream_agent(_agent_for(choice), message, thread, decision,
+                         policy_model, context)

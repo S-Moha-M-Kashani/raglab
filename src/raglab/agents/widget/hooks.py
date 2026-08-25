@@ -19,6 +19,8 @@ from raglab.agents.widget.conversation_memory import (
     MemoryPolicy,
     relevance_guard,
 )
+from pydantic import BaseModel, ConfigDict, Field, StrictStr
+from raglab.agents.widget import long_term_memory
 from raglab.agents.widget.prompts import MEMORY_POLICY_PROMPT
 
 HOOKS_VERBOSE = False        # __main__ turns this on; the route leaves it off
@@ -26,6 +28,14 @@ HOOK_LOG: list[str] = []     # what fired, in order — the whole run at a glanc
 
 MAX_QUESTION = MAX_RELEVANCE_TEXT  # the longest request it will accept
 MAX_HISTORY = 20             # how much history one model call sees
+
+
+class MemoryUpdate(BaseModel):
+    """The bounded, structured output accepted by the memory writer."""
+
+    model_config = ConfigDict(extra='forbid', strict=True)
+    dataset_summary: StrictStr = Field(default='', max_length=long_term_memory.MAX_SUMMARY_CHARS)
+    global_summary: StrictStr = Field(default='', max_length=long_term_memory.MAX_SUMMARY_CHARS)
 
 
 def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
@@ -56,6 +66,25 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
         return MemoryPolicy(
             reason=f'Memory policy unavailable or malformed; nothing was saved '
                    f'({error}).')
+
+
+def summarize_memory_update(question: str, answer: str, *, dataset_id: str,
+                            experiment_id: str = '', subtopic: str = '',
+                            model=None) -> MemoryUpdate:
+    """Summarize an accepted turn after its authoritative answer exists."""
+    if model is None:
+        raise RuntimeError('memory summarizer is unavailable')
+    structured = model.with_structured_output(MemoryUpdate)
+    result = structured.invoke([
+        ('system', 'Summarize this accepted RAG-lab answer for bounded long-term '
+                    'memory. Return only dataset_summary and optional '
+                    'global_summary. Do not invent measurements.'),
+        ('user', (f'Question: {str(question).strip()}\n'
+                  f'Answer: {str(answer).strip()}\n'
+                  f'Dataset: {dataset_id or "unknown"}\n'
+                  f'Experiment: {experiment_id or "none"}\n'
+                  f'Subtopic: {subtopic or "general"}'))])
+    return result if isinstance(result, MemoryUpdate) else MemoryUpdate.model_validate(result)
 
 
 def refusal_for_message(message) -> str | None:

@@ -27,7 +27,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const read = (name) => readFileSync(join(HERE, '../frontend', name), 'utf8');
-const SOURCE = `${read('sorttable.js')}\n${read('lab.js')}\n${read('inspector.js')}`;
+const SOURCE = `${read('sorttable.js')}\n${read('lab.js')}\n`
+  + `${read('experiment_handoff.js')}\n${read('inspector.js')}`;
 
 // --- the smallest DOM the page runs against ---------------------------------
 // Every element is the same stub, because what this file asserts on is what a
@@ -88,13 +89,20 @@ function element(name = '') {
 // answers with; anything absent 404s, which is the deleted-row and mistyped-id
 // case. `search` is the page's query string, so a deep link can be exercised
 // through the same entry point the browser uses.
-function inspector({ records = {}, groundtruth = {}, search = '', archives = {} } = {}) {
+function inspector({ records = {}, groundtruth = {}, search = '', archives = {},
+                     additions = {}, deferredExperiments = {}, labJobs = {} } = {}) {
   const byId = new Map();
   const byIdOf = (id) => {
     if (!byId.has(id)) byId.set(id, element(id));
     return byId.get(id);
   };
   const requests = [];
+  const posts = [];
+  const listeners = {};
+  const historyCalls = [];
+  const pageHistory = { replaceState(...args) { historyCalls.push(args); } };
+  const deferredResolvers = {};
+  const timers = { rejectPollSleep: false };
 
   // Every request the page makes goes through its own `api()` helper now,
   // which prefixes the mount — so the routes this fake answers are the
@@ -117,6 +125,21 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
         ? { ok: true, body: found }
         : { ok: false, body: { detail: `unknown dataset ${dataset}` } };
     }
+    if (path.startsWith('/inspector/api/experiments/') && path.endsWith('/questions')) {
+      const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length,
+        -'/questions'.length));
+      return { ok: true, body: { questions: additions[id] || [] } };
+    }
+    if (path.startsWith('/inspector/api/lab-jobs/')) {
+      const jobId = decodeURIComponent(
+        path.slice('/inspector/api/lab-jobs/'.length));
+      return labJobs[jobId] || { ok: true, body: {
+        id: 'question-job', state: 'done', result: {
+          traces: [{ question_id: 'q7', trace: { candidates: [] } }],
+          rows: [{ id: 'q7', answer: 'added answer' }],
+        },
+      } };
+    }
     if (path.startsWith('/inspector/api/experiments/')) {
       const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length));
       return records[id]
@@ -135,10 +158,32 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
     Set,
     // Never called back: the follow loop would otherwise re-enter itself for
     // the length of the test run, and nothing here is about the second tick.
-    setTimeout() {},
+    setTimeout() {
+      if (timers.rejectPollSleep) throw new Error('poll did not terminate');
+    },
     getComputedStyle: () => ({ position: 'static' }),
-    history: { replaceState() {} },
-    fetch: (path) => {
+    history: pageHistory,
+    localStorage: {
+      removeItem() { throw new Error('Inspector must not consume the handoff slot'); },
+    },
+    fetch: (path, init = {}) => {
+      if (init.method === 'POST') {
+        requests.push(path);
+        posts.push({ path, body: JSON.parse(init.body) });
+        return Promise.resolve({ ok: true, status: 202, statusText: 'Accepted',
+          json: () => Promise.resolve({ job_id: 'question-job' }) });
+      }
+      if (path.startsWith('/inspector/api/experiments/')) {
+        const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length));
+        if (deferredExperiments[id]) {
+          return new Promise((resolve) => {
+            deferredResolvers[id] = () => resolve({
+              ok: true, status: 200, statusText: 'OK',
+              json: () => Promise.resolve(deferredExperiments[id]),
+            });
+          });
+        }
+      }
       const { ok, body } = answer(path);
       return Promise.resolve({
         ok,
@@ -160,7 +205,10 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
       innerHeight: 1000,
       innerWidth: 1400,
       location: { search, href: `http://localhost:9002/inspector/${search}` },
-      history: { replaceState() {} },
+      history: pageHistory,
+      addEventListener(type, fn) {
+        (listeners[type] = listeners[type] || []).push(fn);
+      },
     },
   };
   sandbox.window.document = sandbox.document;
@@ -170,7 +218,8 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
   // promise chain several microtasks deep. Drained here so a test reads the
   // page as it stands once the boot has settled.
   const settled = (async () => { for (let i = 0; i < 30; i += 1) await null; })();
-  return { sandbox, byId: byIdOf, requests, settled };
+  return { sandbox, byId: byIdOf, requests, posts, listeners, historyCalls,
+           deferredResolvers, timers, settled };
 }
 
 const LIVE_CONFIG = {
@@ -195,6 +244,44 @@ const CORPUS = {
 const record = (over) => ({
   experiment_id: 'exp-1', kind: 'run', state: 'done', error: '',
   dataset: 'smoke-mini', detail: { config: RECORDED_CONFIG }, ...over,
+});
+
+test('a handoff storage event pins an already-open Inspector without consuming it',
+  async () => {
+    // this is an integration test
+    const page = inspector({ records: { 'exp-2': record({ experiment_id: 'exp-2' }) },
+                             groundtruth: CORPUS });
+    await page.settled;
+    const event = {
+      key: 'lodestar:raglab-open-experiment',
+      newValue: JSON.stringify({ experiment_id: 'exp-2', at: 2 }),
+    };
+    for (const listener of page.listeners.storage || []) listener(event);
+    await page.settled;
+    assert.ok(page.requests.includes('/inspector/api/experiments/exp-2'));
+    assert.equal(page.historyCalls.at(-1)?.[2].toString(),
+      'http://localhost:9002/inspector/?experiment=exp-2');
+  });
+
+test('a stale handoff response cannot overwrite the latest handoff', async () => {
+  // this is an integration test
+  const page = inspector({
+    groundtruth: CORPUS,
+    deferredExperiments: {
+      'exp-old': record({ experiment_id: 'exp-old' }),
+      'exp-new': record({ experiment_id: 'exp-new' }),
+    },
+  });
+  await page.settled;
+  const oldRequest = page.sandbox.followRecordedExperiment('exp-old');
+  const newRequest = page.sandbox.followRecordedExperiment('exp-new');
+  page.deferredResolvers['exp-old']();
+  for (let i = 0; i < 20; i += 1) await null;
+  assert.doesNotMatch(page.byId('archive-state').textContent, /exp-old/);
+  page.deferredResolvers['exp-new']();
+  await Promise.all([oldRequest, newRequest]);
+  assert.match(page.byId('archive-state').textContent, /read-only · exp-new/);
+  assert.doesNotMatch(page.byId('archive-state').textContent, /exp-old/);
 });
 
 // What each view says, once a record is on screen.
@@ -236,6 +323,73 @@ async function openArchive(id, options) {
   await page.sandbox.followImportedArchive(id);
   return page;
 }
+
+// This is an integration test.
+test('a pinned record loads durable additions, enables its picker, and sends '
+  + 'new ones through the Laboratory proxy', async () => {
+  const persisted = {
+    experiment_id: 'addition-1',
+    detail: {
+      question_id: 'q6',
+      traces: [{ question_id: 'q6', trace: { candidates: [] } }],
+      rows: [{ id: 'q6', answer: 'persisted answer' }],
+    },
+  };
+  const page = await open('exp-1', {
+    groundtruth: CORPUS,
+    records: { 'exp-1': record({
+      detail: { config: RECORDED_CONFIG, traces: [], rows: [] },
+    }) },
+    additions: { 'exp-1': [persisted] },
+  });
+
+  assert.equal(page.byId('add-question').disabled, false,
+    'a job-shaped record with loaded ground truth can add one selected question');
+  assert.ok(page.requests.includes('/inspector/api/experiments/exp-1/questions'),
+    'reload asks the proxy for additions already linked to this record');
+  assert.match(page.byId('retrieval-added').children[0].textContent,
+    /added by you later — not part of the run's own sample/);
+
+  await page.sandbox.addQuestion('q7');
+  assert.deepEqual(page.posts, [{
+    path: '/inspector/api/experiments/exp-1/questions', body: { question_id: 'q7' },
+  }]);
+  assert.ok(page.requests.includes('/inspector/api/lab-jobs/question-job'),
+    'a durable question is polled on the lab job table, not the Inspector\'s');
+  assert.match(page.byId('retrieval-added').children[0].textContent,
+    /added by you later — not part of the run's own sample/);
+});
+
+test('recorded-question polling reports proxy failures and terminal bad jobs',
+  async () => {
+    // This names the three shapes the Inspector proxy can truthfully return:
+    // its own HTTP refusal, a cancellation the lab recorded, and a completed
+    // job with no evidence.  None may leave the picker on "running" forever.
+    const proxyDown = inspector({ groundtruth: CORPUS, labJobs: {
+      'proxy-down': { ok: false, body: { detail: 'lab is unavailable' } },
+    } });
+    await proxyDown.settled;
+    proxyDown.timers.rejectPollSleep = true;
+    await assert.rejects(() => proxyDown.sandbox.pollLabJob('proxy-down'),
+      /lab is unavailable/);
+
+    const cancelled = inspector({ groundtruth: CORPUS, labJobs: {
+      cancelled: { ok: true, body: { state: 'cancelled',
+                                     detail: 'stopped before answering' } },
+    } });
+    await cancelled.settled;
+    cancelled.timers.rejectPollSleep = true;
+    await assert.rejects(() => cancelled.sandbox.pollLabJob('cancelled'),
+      /cancelled.*stopped before answering/);
+
+    const malformed = inspector({ groundtruth: CORPUS, labJobs: {
+      malformed: { ok: true, body: { state: 'done' } },
+    } });
+    await malformed.settled;
+    malformed.timers.rejectPollSleep = true;
+    await assert.rejects(() => malformed.sandbox.pollLabJob('malformed'),
+      /finished without a result/);
+  });
 
 // This is a unit test.
 test('a cancelled run says it was cancelled, and carries its reason', async () => {

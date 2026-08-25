@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.configuration import explainer_assembly as explain
@@ -37,6 +37,7 @@ from raglab.dashboard.service_presentation import (
 from raglab.dashboard.panel_server import Jobs
 from raglab.dashboard.service_route_plumbing import (
     _accepted,
+    _find_question,
     ground_truth_for,
     scaled_progress,
     screen)
@@ -54,14 +55,45 @@ def lab_base_url() -> str:
     return os.environ.get(LAB_URL_ENV, DEFAULT_LAB_URL).rstrip('/')
 
 
-def _lab_get(path: str) -> dict | None:
-    """GET one path from the lab; every failure — refused, timeout, non-200, bad JSON — comes back as `None`."""
+def _lab_get_response(path: str) -> dict | tuple[int, str] | None:
+    """GET one lab path, retaining explicit HTTP refusals for proxy routes."""
     url = f'{lab_base_url()}{path}'
     try:
         with urllib.request.urlopen(url, timeout=LAB_TIMEOUT) as response:
             if response.status != 200:
                 return None
             return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.loads(error.read().decode('utf-8')).get('detail', '')
+        except (ValueError, OSError):
+            detail = ''
+        return error.code, detail or f'lab refused request ({error.code})'
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return None
+
+
+def _lab_get(path: str) -> dict | None:
+    """GET one path from the lab for legacy callers that treat every failure alike."""
+    found = _lab_get_response(path)
+    return found if isinstance(found, dict) else None
+
+
+def _lab_post(path: str, payload: dict) -> dict | tuple[int, str] | None:
+    """POST to the lab, preserving its refusal but bounding transport failure."""
+    body = json.dumps(payload).encode('utf-8')
+    request = urllib.request.Request(
+        f'{lab_base_url()}{path}', data=body, method='POST',
+        headers={'content-type': 'application/json'})
+    try:
+        with urllib.request.urlopen(request, timeout=LAB_TIMEOUT) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.loads(error.read().decode('utf-8')).get('detail', '')
+        except (ValueError, OSError):
+            detail = ''
+        return error.code, detail or f'lab refused request ({error.code})'
     except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return None
 
@@ -85,17 +117,6 @@ CHOSEN_CONFIG = {
     'retrieval': {'retriever': 'hybrid-rrf', 'k': 8, 'reranker': 'lexical',
                   'time_filter': True, 'grader': 'llm', 'grade_threshold': 0.4},
 }
-
-
-def _find_question(ground_truth: dict, qid) -> dict | None:
-    """One question by its `groundtruth_question_id`, matched as a string so a
-    DOM `dataset` attribute (always a string) still finds an id the schema
-    declares as a number."""
-    if qid is None:
-        return None
-    wanted = str(qid)
-    return next((q for q in ground_truth['groundtruth_dataset']
-                if str(q.get('groundtruth_question_id')) == wanted), None)
 
 
 def _default_query_date(ground_truth: dict) -> str:
@@ -396,6 +417,36 @@ def create_inspector_app() -> FastAPI:
         if found is None:
             raise HTTPException(
                 404, 'that experiment is unavailable from the lab')
+        return found
+
+    @app.post('/api/experiments/{experiment_id}/questions')
+    def add_recorded_question(experiment_id: str, payload: dict):
+        encoded_id = urllib.parse.quote(experiment_id, safe='')
+        found = _lab_post(f'/api/experiments/{encoded_id}/questions', payload)
+        if found is None:
+            raise HTTPException(503, 'lab is unavailable; question was not added')
+        if isinstance(found, tuple):
+            raise HTTPException(found[0], found[1])
+        return JSONResponse(found, status_code=202)
+
+    @app.get('/api/experiments/{experiment_id}/questions')
+    def recorded_questions(experiment_id: str):
+        encoded_id = urllib.parse.quote(experiment_id, safe='')
+        found = _lab_get_response(f'/api/experiments/{encoded_id}/questions')
+        if found is None:
+            raise HTTPException(503, 'lab is unavailable; recorded questions cannot load')
+        if isinstance(found, tuple):
+            raise HTTPException(found[0], found[1])
+        return found
+
+    @app.get('/api/lab-jobs/{job_id}')
+    def lab_job_status(job_id: str):
+        encoded_id = urllib.parse.quote(job_id, safe='')
+        found = _lab_get_response(f'/api/jobs/{encoded_id}')
+        if found is None:
+            raise HTTPException(503, 'lab is unavailable; job status cannot load')
+        if isinstance(found, tuple):
+            raise HTTPException(found[0], found[1])
         return found
 
     @app.delete('/api/imported-archives/active')

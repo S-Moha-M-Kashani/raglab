@@ -680,6 +680,14 @@ async function reattachRunningJob() {
   });
 }
 
+function pinInspector(experimentId) {
+  const link = document.querySelector('.topnav a[href^="/inspector"]');
+  if (!link) return;
+  link.href = experimentId === null
+    ? '/inspector'
+    : '/inspector?experiment=' + encodeURIComponent(experimentId);
+}
+
 async function boot() {
   OPTIONS = await api('/api/options');
   const o = OPTIONS;
@@ -959,14 +967,25 @@ async function poll(jobId, onDone) {
       renderSpine(null);
       return;
     }
+    noteInspectorReady(job.kind);
     onDone(job.result);
   };
   tick();
 }
 
+function noteInspectorReady(kind) {
+  const notes = {
+    run: 'Evaluation finished — its answers, scores and per-question traces are ready to read on the Inspector tab.',
+    retrieve: 'Retrieval finished — the per-question candidate tables are ready to read on the Inspector tab.',
+    index: 'Index built — its chunks and summaries are ready to read on the Inspector tab.',
+  };
+  if (notes[kind]) Widget.note(notes[kind]);
+}
+
 $('build').onclick = () => doBuild(false);
 $('rebuild').onclick = () => doBuild(true);
 async function doBuild(force) {
+  pinInspector(null);
   try {
     const body = Object.assign(readConfig(), { force });
     const { job_id } = await api('/api/indexes', body);
@@ -986,6 +1005,7 @@ function renderBuildResult(result) {
 }
 
 $('run').onclick = async () => {
+  pinInspector(null);
   const requested = archiveSettings();
   const body = Object.assign({}, requested.settings.config, pickedProvider(), {
     ragas_mode: requested.settings.ui.ragas_mode,
@@ -1031,6 +1051,7 @@ function selectionBody() {
 // into a retrieval. A failed or cancelled job never resolves — deliberately:
 // `poll` has put the error on screen, and the step after it must not run.
 function runJob(path, body) {
+  pinInspector(null);
   return new Promise((resolve, reject) => {
     api(path, body).then(({ job_id }) => poll(job_id, resolve), reject);
   });
@@ -1498,7 +1519,7 @@ $('archive-export').onclick = () => {
 // Two ways it arrives, because both happen: this page loading with a slot
 // already written, and a `storage` event, which is the only thing that reaches
 // a Laboratory already open in another tab. That second case is the ordinary
-// one — the board opens the Inspector in a new tab, so the reader who has both
+// one — the board opens the Laboratory in this tab, so the reader who has both
 // surfaces up is the reader this is for — and without it the button would set
 // the settings on the *next* reload, which is not what it said it did.
 //
@@ -1651,10 +1672,12 @@ async function openHandedExperiment(experimentId) {
                    label: result.label || '', started_at: result.started_at || '',
                    dataset: result.dataset || '', source: 'both' };
   Widget.note(ExperimentHandoff.notice(record, out.config)
-    + uiUnservedNote(out.ui.unserved));
+    + uiUnservedNote(out.ui.unserved)
+    + ' The Inspector link above now leads to this experiment.');
   // The settings are this experiment's now, and so is the conversation: the
   // widget switches to the thread it kept for this id. Coming back to another
   // experiment brings that one's conversation back with it.
+  pinInspector(experimentId);
   Widget.about(experimentId);
 }
 
@@ -1695,7 +1718,7 @@ function handOver(experimentId) {
 // Two ways one experiment arrives here, and the address is the reliable one now
 // that the board's link lands on this page. A slot is written by a click and
 // read once; it cannot survive a reload, a bookmark, a copied link, or a click
-// whose new tab boots before the writing page has finished — and every one of
+// whose page boots before the writing page has finished — and every one of
 // those looks to the reader like the button doing nothing. The slot is still
 // read, and still consumed either way so it cannot re-announce itself days
 // later, because it remains the only thing that reaches a Laboratory that was

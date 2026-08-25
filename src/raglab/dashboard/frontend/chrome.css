@@ -52,9 +52,8 @@
 .brand:hover { text-decoration: none; }
 
 /* ── the surface switcher ──────────────────────────────────────────────────
-   Three surfaces, and the Inspector is a different process on a different
-   port rather than a route — so these are honest links, not tabs pretending
-   a click stays in the page. The current one is marked with aria-current, and
+   Three surfaces in one process and origin, linked as routes. The current one
+   is marked with aria-current, and
    marked visibly by more than colour: it carries the underline as well. */
 .topnav { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
 .topnav a {

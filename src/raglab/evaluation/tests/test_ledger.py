@@ -225,3 +225,24 @@ def test_an_imported_archive_is_inserted_once_without_overwriting(tmp_path):
     assert found['label'] == 'imported experiment'
     assert found['detail'] == original
     assert ledger.load_archive('same-id', path=path) == original
+
+
+def test_annotations_returns_only_done_question_rows_for_its_parent(tmp_path):
+    # this is a unit test
+    path = tmp_path / 'raglab.db'
+    for job_id, state, annotates in (
+        ('kept', 'done', 'parent'),
+        ('other-parent', 'done', 'someone-else'),
+        ('unfinished', 'error', 'parent'),
+    ):
+        ledger.record({
+            'id': job_id,
+            'kind': 'question',
+            'config': {'index': {'dataset': 'smoke-mini'}},
+            'result': {'annotates': annotates,
+                       'selection': {'n': 1, 'question_ids': [job_id]}},
+        }, state, path=path)
+
+    rows = ledger.annotations('parent', path=path)
+    assert [row['experiment_id'] for row in rows] == ['kept']
+    assert rows[0]['detail']['annotates'] == 'parent'

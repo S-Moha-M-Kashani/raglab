@@ -305,6 +305,77 @@ def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
     assert client.get('/api/experiments/no-such-id').status_code == 404
 
 
+def test_the_inspector_proxies_recorded_question_additions_and_lab_jobs(monkeypatch):
+    # this is an integration test
+    posted = []
+
+    def lab_post(path, payload):
+        posted.append((path, payload))
+        return {'job_id': 'question-job'}
+
+    def lab_get(path):
+        return ({'questions': [{'experiment_id': 'addition-1'}]}
+                if path == '/api/experiments/exp-1/questions'
+                else {'id': 'question-job', 'state': 'done'})
+
+    monkeypatch.setattr(inspector, '_lab_post', lab_post, raising=False)
+    monkeypatch.setattr(inspector, '_lab_get_response', lab_get)
+    client = _client(monkeypatch)
+
+    created = client.post('/api/experiments/exp-1/questions',
+                          json={'question_id': 'q7'})
+    assert created.status_code == 202
+    assert created.json() == {'job_id': 'question-job'}
+    assert posted == [('/api/experiments/exp-1/questions', {'question_id': 'q7'})]
+    assert client.get('/api/experiments/exp-1/questions').json()['questions'] == [
+        {'experiment_id': 'addition-1'}]
+    assert client.get('/api/lab-jobs/question-job').json()['state'] == 'done'
+
+
+def test_question_proxies_preserve_lab_refusals_and_name_transport_outages(
+        monkeypatch):
+    # this is an integration test
+    client = _client(monkeypatch)
+    monkeypatch.setattr(inspector, '_lab_post',
+                        lambda _path, _payload: (409, 'a question job is already running'),
+                        raising=False)
+    refused = client.post('/api/experiments/exp-1/questions',
+                          json={'question_id': 'q7'})
+    assert refused.status_code == 409
+    assert refused.json()['detail'] == 'a question job is already running'
+
+    monkeypatch.setattr(inspector, '_lab_post', lambda _path, _payload: None,
+                        raising=False)
+    unavailable = client.post('/api/experiments/exp-1/questions',
+                              json={'question_id': 'q7'})
+    assert unavailable.status_code == 503
+    assert 'lab is unavailable' in unavailable.json()['detail']
+
+    monkeypatch.setattr(inspector, '_lab_get_response', lambda _path: None)
+    assert client.get('/api/experiments/exp-1/questions').status_code == 503
+    assert client.get('/api/lab-jobs/question-job').status_code == 503
+
+
+def test_question_get_proxies_preserve_lab_refusals(monkeypatch):
+    # this is an integration test
+    def lab_get_response(path):
+        if path == '/api/experiments/exp-1/questions':
+            return 404, 'unknown experiment: exp-1'
+        return 409, 'question job was cancelled'
+
+    monkeypatch.setattr(inspector, '_lab_get_response', lab_get_response,
+                        raising=False)
+    client = _client(monkeypatch)
+
+    questions = client.get('/api/experiments/exp-1/questions')
+    assert questions.status_code == 404
+    assert questions.json()['detail'] == 'unknown experiment: exp-1'
+
+    job = client.get('/api/lab-jobs/question-job')
+    assert job.status_code == 409
+    assert job.json()['detail'] == 'question job was cancelled'
+
+
 # FastAPI TestClient over the read-only app.
 def test_groundtruth_endpoint_returns_full_pairs(monkeypatch):
     # this is an integration test

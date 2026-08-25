@@ -22,6 +22,15 @@ def ground_truth_for(cfg, ground_truth: dict) -> dict:
     return datasets.load(cfg.index.dataset)[1]
 
 
+def _find_question(ground_truth: dict, qid) -> dict | None:
+    """One ground-truth question, accepting a DOM string for numeric ids."""
+    if qid is None:
+        return None
+    wanted = str(qid)
+    return next((question for question in ground_truth['groundtruth_dataset']
+                 if str(question.get('groundtruth_question_id')) == wanted), None)
+
+
 def screen(cfg, run_settings) -> None:
     """Validate a config and check the resolved backend serves what it names; 400s with every problem at once. Not the index-build route's check — a build reads no model."""
     problems = cfg.validate() + models.provider_problems(cfg, run_settings)

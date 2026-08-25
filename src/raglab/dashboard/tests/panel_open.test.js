@@ -271,6 +271,8 @@ test('loading ?experiment=<pre-branch-id> opens it — the open proceeds, the '
     const opened = page.requests.notes.find((note) => /^Laboratory settings are now/.test(note));
     assert.ok(opened, 'the widget must say the settings are now this experiment’s');
     assert.match(opened, /key_facts_judge = true — not a knob this lab reads any more/);
+    assert.match(opened, /The Inspector link above now leads to this experiment\.$/,
+      'after a successful open, the widget must name the Inspector destination');
 
     // Nothing here was reinterpreted onto the running config either: the
     // in-memory config this page would submit next carries no trace of the

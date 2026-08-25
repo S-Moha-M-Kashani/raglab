@@ -1672,7 +1672,8 @@ async function openHandedExperiment(experimentId) {
                    label: result.label || '', started_at: result.started_at || '',
                    dataset: result.dataset || '', source: 'both' };
   Widget.note(ExperimentHandoff.notice(record, out.config)
-    + uiUnservedNote(out.ui.unserved));
+    + uiUnservedNote(out.ui.unserved)
+    + ' The Inspector link above now leads to this experiment.');
   // The settings are this experiment's now, and so is the conversation: the
   // widget switches to the thread it kept for this id. Coming back to another
   // experiment brings that one's conversation back with it.

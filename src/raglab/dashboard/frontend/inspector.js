@@ -65,6 +65,36 @@ async function pollJob(jobId) {
   }
 }
 
+async function pollLabJob(jobId) {
+  for (;;) {
+    const response = await api(`/api/lab-jobs/${jobId}`);
+    let job;
+    try { job = await response.json(); } catch (error) { job = {}; }
+    if (!response.ok) {
+      throw new Error(job.detail || response.statusText
+        || `lab job request failed (${response.status || 'unknown status'})`);
+    }
+    if (!job || typeof job !== 'object') {
+      throw new Error('lab job response is malformed');
+    }
+    if (job.state === 'done') {
+      if (!job.result || typeof job.result !== 'object') {
+        throw new Error('job finished without a result');
+      }
+      return job.result;
+    }
+    if (job.state === 'error') throw new Error(job.error || 'job failed');
+    if (job.state === 'cancelled') {
+      throw new Error(`job cancelled${job.detail || job.error
+        ? `: ${job.detail || job.error}` : ''}`);
+    }
+    if (job.state !== 'running' && job.state !== 'cancelling') {
+      throw new Error('lab job response is malformed');
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
+
 window.addEventListener('storage', (event) => {
   if (event.key !== ExperimentHandoff.KEY || !event.newValue) return;
   let offered;
@@ -780,16 +810,32 @@ async function addQuestion(questionId) {
   try {
     status.textContent = `running ${questionId}…`;
     await chosenReady;
-    const response = await api('/api/questions',
-      { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...activeConfig(), question_id: questionId }) });
-    const result = await pollJob(await startedJob(response));
-    ADDED.set(questionId, result);
+    const recorded = activeExperimentId !== null;
+    const response = await api(recorded
+      ? `/api/experiments/${encodeURIComponent(activeExperimentId)}/questions`
+      : '/api/questions',
+    { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(recorded ? { question_id: questionId }
+        : { ...activeConfig(), question_id: questionId }) });
+    const result = await (recorded ? pollLabJob : pollJob)(
+      await startedJob(response));
+    ADDED.set(questionId, addedQuestionResult(result));
     renderAdded();
-    status.textContent = `${questionId} added — it is in both tabs`;
+    status.textContent = recorded
+      ? `${questionId} added — saved with this recorded experiment`
+      : `${questionId} added — it is in both tabs`;
   } catch (error) {
     status.textContent = `${questionId}: ${error.message}`;
   }
+}
+
+function addedQuestionResult(result) {
+  const detail = (result && result.detail) || result || {};
+  if (detail.retrieval && detail.generation) return detail;
+  return {
+    retrieval: (detail.traces || [])[0] || { trace: { candidates: [] } },
+    generation: (detail.rows || [])[0] || {},
+  };
 }
 
 function renderAdded() {
@@ -801,8 +847,10 @@ function renderAdded() {
   const heading = () => {
     const label = document.createElement('div');
     label.className = 'qh-label added-label';
-    label.textContent = `added by you — scored the same way, but not part of `
-      + `the run's own sample`;
+    label.textContent = activeExperimentId !== null
+      ? `added by you later — not part of the run's own sample (under this `
+        + `experiment's config, against the corpus as installed now)`
+      : `added by you — scored the same way, but not part of the run's own sample`;
     return label;
   };
   retrievalHost.appendChild(heading());
@@ -929,7 +977,7 @@ let recordProblem = '';
 // read-only for different reasons. The chrome is deliberately the same: this
 // line and the control beside it already mean "you are pinned to something
 // recorded, and here is the way back", which is exactly both states.
-function setArchiveState(runId, label = 'Imported archive') {
+function setArchiveState(runId, label = 'Imported archive', canAdd = false) {
   const state = document.getElementById('archive-state');
   const button = document.getElementById('archive-return-live');
   const readOnly = runId !== null;
@@ -944,7 +992,7 @@ function setArchiveState(runId, label = 'Imported archive') {
   button.hidden = !readOnly && !recordProblem;
   button.textContent = readOnly ? 'Return to live' : 'Dismiss';
   document.getElementById('build-chunks').disabled = readOnly;
-  document.getElementById('add-question').disabled = readOnly;
+  document.getElementById('add-question').disabled = readOnly && !canAdd;
   if (readOnly) state.textContent = `${label} · read-only · ${runId}`;
   else state.textContent = recordProblem;
 }
@@ -1188,8 +1236,8 @@ async function renderRecordedExperiment(record, isCurrent = () => true) {
   const shape = recordShape(record);
   const config = detail.config || {};
   FOLLOWED_CONFIG = config;
-  // Questions added by hand were run against the live corpus under the live
-  // config, so they are not evidence about this record.
+  setArchiveState(record.experiment_id, recordLabel(record));
+  // Replaced below by the rows linked to this record, if they can be read.
   ADDED.clear();
   renderAdded();
 
@@ -1208,10 +1256,12 @@ async function renderRecordedExperiment(record, isCurrent = () => true) {
   // The record names its own corpus, and a corpus is read in the direction its
   // own language reads — so the fixture is fetched for *that* dataset rather
   // than left showing whatever the lab happens to be working on.
+  let groundTruthLoaded = false;
   try {
     const groundTruth = await fetchGroundTruth(record.dataset || '');
     if (!isCurrent()) return;
     renderGroundTruth(groundTruth);
+    groundTruthLoaded = true;
   } catch (error) {
     if (!isCurrent()) return;
     // A corpus this installation no longer has is a stated gap, not an empty
@@ -1317,7 +1367,26 @@ async function renderRecordedExperiment(record, isCurrent = () => true) {
                     'retrieval-set-config', 'generation-active-config']) {
     document.getElementById(id).textContent = shown;
   }
-  setArchiveState(record.experiment_id, recordLabel(record));
+  const canAdd = shape !== 'unfinished' && groundTruthLoaded;
+  if (canAdd) {
+    try {
+      const persisted = await (await api('/api/experiments/'
+        + `${encodeURIComponent(record.experiment_id)}/questions`)).json();
+      if (!isCurrent()) return;
+      for (const addition of persisted.questions || []) {
+        const detail = addition.detail || addition;
+        const questionId = detail.question_id;
+        if (questionId !== undefined && questionId !== null) {
+          ADDED.set(String(questionId), addedQuestionResult(addition));
+        }
+      }
+      renderAdded();
+    } catch (error) {
+      // The recorded experiment remains readable when its additions cannot be
+      // reached; refusing a convenience list must not erase its own evidence.
+    }
+  }
+  setArchiveState(record.experiment_id, recordLabel(record), canAdd);
 }
 
 // Only the stages this experiment actually ran. A build stores a whole config

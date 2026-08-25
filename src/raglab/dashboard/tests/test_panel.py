@@ -135,6 +135,13 @@ CONVENTIONS = [
      'each score must join the one help registry under metric.<key>'),
     ('panel.js', None, 'SCORE_CARDS',
      'the hard-coded score list must not come back'),
+    ('panel.js', 'noteInspectorReady(job.kind)', None,
+     'poll completion must announce the Inspector-ready evidence once per '
+     'finished job'),
+    ('index.html', None, 'target="_blank"',
+     'the Laboratory no longer opens a redundant Inspector tab'),
+    ('leaderboard.js', None, 'target="_blank"',
+     'the board open arrow must navigate the current tab by default'),
     ('index.html (embedding-model label)', 'sentence-transformers', None,
      'the embedding-model label must name the sentence-transformers backend'),
     ('index.html (embedding-model label)', 'fastembed', None,
@@ -164,13 +171,11 @@ CONVENTIONS = [
     ('index.html', 'href="/inspector"', None,
      'the panel must link to the Inspector by path — all three surfaces are '
      'one origin now, so a port is not something a reader ever has to know'),
-    ('index.html', 'Inspector &rarr;', None,
-     'the panel must still name the Inspector in its link text — checked '
-     'against the link text itself rather than the bare word "Inspector", '
-     'which also appears in unrelated HTML comments (the shared-tokens note '
-     'by the stylesheet links, the retrieval-window note above the actions '
-     'row, and the note beside the link itself) that a rename of the '
-     'visible link would not touch'),
+    ('index.html', None, 'id="open-inspector"',
+     'the redundant in-panel Inspector door is replaced by the topnav and a '
+     'ready notice, so the retired button must not return'),
+    ('panel.js', 'ready to read on the Inspector tab', None,
+     'completed work must tell the reader when Inspector data is ready'),
     ('index.html', None, 'id="question"',
      'asking one question moved to the Inspector; a control left behind is '
      'how a retired feature quietly comes back'),
@@ -1957,12 +1962,11 @@ def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
     assert 'href="/?experiment=' in panel_texts['leaderboard.js'], (
         'the board must open the experiment by path on this origin, with the '
         'id carried in the query string')
-    # The panel's own door to the Inspector, opened from 3 · Generation once a
-    # run exists: same requirement, same reason, a second place the origin
-    # could have been left behind.
-    assert 'id="open-inspector" href="/inspector"' in panel_texts['index.html'], (
-        "the panel's lab-link to the Inspector must be a path on this "
-        'origin, not a link to a port')
+    # The Inspector carrier is now the topnav link rewritten in panel.js when
+    # an experiment is opened; the resting markup remains the root path.
+    assert "'/inspector?experiment='" in panel_texts['panel.js'], (
+        'the opened experiment must be carried to the Inspector by path on '
+        'this origin, not by a second tab or a port')
 
 
 # --- the knob surface, end to end -------------------------------------------

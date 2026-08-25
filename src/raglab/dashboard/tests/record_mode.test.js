@@ -27,7 +27,8 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const read = (name) => readFileSync(join(HERE, '../frontend', name), 'utf8');
-const SOURCE = `${read('sorttable.js')}\n${read('lab.js')}\n${read('inspector.js')}`;
+const SOURCE = `${read('sorttable.js')}\n${read('lab.js')}\n`
+  + `${read('experiment_handoff.js')}\n${read('inspector.js')}`;
 
 // --- the smallest DOM the page runs against ---------------------------------
 // Every element is the same stub, because what this file asserts on is what a
@@ -88,13 +89,18 @@ function element(name = '') {
 // answers with; anything absent 404s, which is the deleted-row and mistyped-id
 // case. `search` is the page's query string, so a deep link can be exercised
 // through the same entry point the browser uses.
-function inspector({ records = {}, groundtruth = {}, search = '', archives = {} } = {}) {
+function inspector({ records = {}, groundtruth = {}, search = '', archives = {},
+                     deferredExperiments = {} } = {}) {
   const byId = new Map();
   const byIdOf = (id) => {
     if (!byId.has(id)) byId.set(id, element(id));
     return byId.get(id);
   };
   const requests = [];
+  const listeners = {};
+  const historyCalls = [];
+  const pageHistory = { replaceState(...args) { historyCalls.push(args); } };
+  const deferredResolvers = {};
 
   // Every request the page makes goes through its own `api()` helper now,
   // which prefixes the mount — so the routes this fake answers are the
@@ -137,8 +143,22 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
     // the length of the test run, and nothing here is about the second tick.
     setTimeout() {},
     getComputedStyle: () => ({ position: 'static' }),
-    history: { replaceState() {} },
+    history: pageHistory,
+    localStorage: {
+      removeItem() { throw new Error('Inspector must not consume the handoff slot'); },
+    },
     fetch: (path) => {
+      if (path.startsWith('/inspector/api/experiments/')) {
+        const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length));
+        if (deferredExperiments[id]) {
+          return new Promise((resolve) => {
+            deferredResolvers[id] = () => resolve({
+              ok: true, status: 200, statusText: 'OK',
+              json: () => Promise.resolve(deferredExperiments[id]),
+            });
+          });
+        }
+      }
       const { ok, body } = answer(path);
       return Promise.resolve({
         ok,
@@ -160,7 +180,10 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
       innerHeight: 1000,
       innerWidth: 1400,
       location: { search, href: `http://localhost:9002/inspector/${search}` },
-      history: { replaceState() {} },
+      history: pageHistory,
+      addEventListener(type, fn) {
+        (listeners[type] = listeners[type] || []).push(fn);
+      },
     },
   };
   sandbox.window.document = sandbox.document;
@@ -170,7 +193,8 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {} 
   // promise chain several microtasks deep. Drained here so a test reads the
   // page as it stands once the boot has settled.
   const settled = (async () => { for (let i = 0; i < 30; i += 1) await null; })();
-  return { sandbox, byId: byIdOf, requests, settled };
+  return { sandbox, byId: byIdOf, requests, listeners, historyCalls,
+           deferredResolvers, settled };
 }
 
 const LIVE_CONFIG = {
@@ -195,6 +219,44 @@ const CORPUS = {
 const record = (over) => ({
   experiment_id: 'exp-1', kind: 'run', state: 'done', error: '',
   dataset: 'smoke-mini', detail: { config: RECORDED_CONFIG }, ...over,
+});
+
+test('a handoff storage event pins an already-open Inspector without consuming it',
+  async () => {
+    // this is an integration test
+    const page = inspector({ records: { 'exp-2': record({ experiment_id: 'exp-2' }) },
+                             groundtruth: CORPUS });
+    await page.settled;
+    const event = {
+      key: 'lodestar:raglab-open-experiment',
+      newValue: JSON.stringify({ experiment_id: 'exp-2', at: 2 }),
+    };
+    for (const listener of page.listeners.storage || []) listener(event);
+    await page.settled;
+    assert.ok(page.requests.includes('/inspector/api/experiments/exp-2'));
+    assert.equal(page.historyCalls.at(-1)?.[2].toString(),
+      'http://localhost:9002/inspector/?experiment=exp-2');
+  });
+
+test('a stale handoff response cannot overwrite the latest handoff', async () => {
+  // this is an integration test
+  const page = inspector({
+    groundtruth: CORPUS,
+    deferredExperiments: {
+      'exp-old': record({ experiment_id: 'exp-old' }),
+      'exp-new': record({ experiment_id: 'exp-new' }),
+    },
+  });
+  await page.settled;
+  const oldRequest = page.sandbox.followRecordedExperiment('exp-old');
+  const newRequest = page.sandbox.followRecordedExperiment('exp-new');
+  page.deferredResolvers['exp-old']();
+  for (let i = 0; i < 20; i += 1) await null;
+  assert.doesNotMatch(page.byId('archive-state').textContent, /exp-old/);
+  page.deferredResolvers['exp-new']();
+  await Promise.all([oldRequest, newRequest]);
+  assert.match(page.byId('archive-state').textContent, /read-only · exp-new/);
+  assert.doesNotMatch(page.byId('archive-state').textContent, /exp-old/);
 });
 
 // What each view says, once a record is on screen.

@@ -284,16 +284,13 @@
       <label>Run label</label>
       <input type="text" id="label" placeholder="e.g. semantic + hybrid + gate">
     </div>
-    <!-- The lab measures; the Inspector shows why. A run in progress is
-         polled from this page, so the door to the Inspector opens in its own
-         tab rather than navigating away — meant to be read beside this page,
-         not instead of it. -->
+    <!-- The lab measures; the Inspector shows why. Its topnav link is the
+         route between these surfaces; completion notices point there when the
+         corresponding evidence is ready. -->
     <div class="actions">
       <button class="step-action" id="run">Run evaluation</button>
       <button class="ghost" id="cancel" disabled>Stop experiment</button>
       <button class="ghost" id="stopPoll">Refresh</button>
-      <a class="lab-link right" id="open-inspector" href="/inspector"
-         target="_blank" rel="noopener">Inspector &rarr;</a>
     </div>
     <div id="jobBox"></div>
   </section>

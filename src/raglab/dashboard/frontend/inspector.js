@@ -65,6 +65,17 @@ async function pollJob(jobId) {
   }
 }
 
+window.addEventListener('storage', (event) => {
+  if (event.key !== ExperimentHandoff.KEY || !event.newValue) return;
+  let offered;
+  try { offered = JSON.parse(event.newValue); } catch (e) { return; }
+  if (!offered || !offered.experiment_id) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('experiment', offered.experiment_id);
+  history.replaceState(null, '', url);
+  followRecordedExperiment(offered.experiment_id);
+});
+
 // Turn a POST response into its job id, or throw the server's own reason
 // (400/404/409) instead of letting callers poll `/api/jobs/undefined` forever.
 async function startedJob(response) {
@@ -907,6 +918,7 @@ let liveDatasetBeforeArchive = '';
 // read-only chrome and only one of them can be on screen.
 let activeExperimentId = null;
 let recordLoadingId = null;
+let recordRequestGeneration = 0;
 // Why a deep-linked record is *not* on screen, when that is the answer. Held
 // rather than written straight into the state line, because the page is still
 // following the lab in that case and the follow loop rewrites that line.
@@ -1079,6 +1091,7 @@ document.getElementById('archive-return-live').addEventListener('click', async (
 
 async function followRecordedExperiment(experimentId) {
   if (experimentId === activeExperimentId) return;
+  const requestGeneration = ++recordRequestGeneration;
   recordLoadingId = experimentId;
   let record = null;
   let failure = '';
@@ -1090,8 +1103,9 @@ async function followRecordedExperiment(experimentId) {
   } finally {
     // Cleared before anything below asks for the live fixture, since the guard
     // that holds a live fetch off while a record is in flight reads this.
-    recordLoadingId = null;
+    if (requestGeneration === recordRequestGeneration) recordLoadingId = null;
   }
+  if (requestGeneration !== recordRequestGeneration) return;
   if (failure) {
     // Left on live rather than pinned to nothing: a read-only view with no
     // evidence in it reads as an experiment that recorded none. A row deleted
@@ -1115,7 +1129,8 @@ async function followRecordedExperiment(experimentId) {
   // follow loop re-enter archive mode once the reader goes back to live.
   activeArchiveId = null;
   activeExperimentId = experimentId;
-  await renderRecordedExperiment(record);
+  await renderRecordedExperiment(record,
+    () => requestGeneration === recordRequestGeneration);
 }
 
 // Which of the ledger's shapes a record is, told from the two columns the row
@@ -1168,7 +1183,7 @@ function unfinishedNote(record, missing) {
 // text, so the config, the per-question traces and the answered rows all
 // survive into it. What is missing is stated where it is missing, in the terms
 // of the shape this record actually is.
-async function renderRecordedExperiment(record) {
+async function renderRecordedExperiment(record, isCurrent = () => true) {
   const detail = record.detail || {};
   const shape = recordShape(record);
   const config = detail.config || {};
@@ -1194,8 +1209,11 @@ async function renderRecordedExperiment(record) {
   // own language reads — so the fixture is fetched for *that* dataset rather
   // than left showing whatever the lab happens to be working on.
   try {
-    renderGroundTruth(await fetchGroundTruth(record.dataset || ''));
+    const groundTruth = await fetchGroundTruth(record.dataset || '');
+    if (!isCurrent()) return;
+    renderGroundTruth(groundTruth);
   } catch (error) {
+    if (!isCurrent()) return;
     // A corpus this installation no longer has is a stated gap, not an empty
     // question list: the rows below still came from one.
     GT.clear();
@@ -1372,6 +1390,8 @@ async function leaveRecordMode() {
   const dataset = activeExperimentId !== null
     ? liveDatasetBeforeArchive : FOLLOWED_DATASET;
   activeExperimentId = null;
+  ADDED.clear();
+  renderAdded();
   recordProblem = '';
   // The record's own note about its missing chunk text goes when the record
   // does — but only if it is still what the view holds. A rebuild the reader

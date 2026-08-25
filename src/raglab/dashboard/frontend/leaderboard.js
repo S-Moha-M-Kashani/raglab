@@ -152,12 +152,9 @@ function cell(row, key) {
     // name the experiment, because a link that navigated and a handler that
     // read a row index would be two accounts of one click.
     //
-    // The Laboratory, not the Inspector. The slot alone only ever reached a
-    // Laboratory that happened to be open already, so a reader with just the
-    // board up clicked "open", got the Inspector, and never saw the knobs it
-    // promised. The evidence is still one link away, from the page that now
-    // holds this experiment's settings.
-    case 'open': return `<a class="open-run" target="_blank" rel="noopener"`
+    // Same-tab navigation is the requested in-app move; the browser still
+    // keeps middle-click, cmd/ctrl-click and other modifier-key choices.
+    case 'open': return `<a class="open-run"`
       + ` href="/?experiment=${encodeURIComponent(row.experiment_id)}"`
       + ` data-experiment="${escapeHtml(row.experiment_id)}"`
       + ` aria-label="Open ${escapeHtml(row.experiment_id)} in the Laboratory,`
@@ -436,11 +433,11 @@ async function loadBoard(dataset) {
         failing, so those rows are a rehearsal of the pipeline and not a
         measurement of it. This table names no winner: rows graded by different
         judges over different question sets share it, so <b>judge</b> and
-        <b>questions</b> are columns you compare on. The <b>open</b> arrow does
-        two things: it reads the experiment in the Inspector, and it makes that
-        experiment's settings the <a href="/">Laboratory</a>'s — every knob this
-        installation can serve, with anything it cannot named in the lab
-        helper rather than quietly left behind.</p>
+        <b>questions</b> are columns you compare on. The <b>open</b> arrow opens
+        the <a href="/">Laboratory</a> in this tab with the experiment's
+        settings on the knobs, pins the Inspector link above to that same
+        experiment, and names any unserved knob in the lab helper rather than
+        quietly leaving it behind.</p>
       <p class="table-hint" id="filter-syntax"><b>Filter</b> takes one term per
         column, all of which must hold, each written as the column's own heading
         and what you want of it: <code>questions&gt;30</code>,

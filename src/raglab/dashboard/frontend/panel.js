@@ -653,6 +653,33 @@ async function restoreLastRun() {
   }
 }
 
+// A reload loses the poll a click started, but never the job: the service
+// holds one job at a time and refuses a second, so a fresh page that assumes
+// silence means idle contradicts the server it is fronting. Boot asks the job
+// table and re-enters the same poll a click would have started — spine,
+// detail and cancel button included. A reattached finish may claim less than
+// a launched one: the settings that requested the job left with the page that
+// held them, so a run renders settings-only and never becomes this page's own
+// CURRENT_ARCHIVE.
+async function reattachRunningJob() {
+  const jobs = await api('/api/jobs');
+  const live = jobs.find((job) =>
+    job.state === 'running' || job.state === 'cancelling');
+  if (!live) return;
+  poll(live.id, (result) => {
+    if (live.kind === 'index') { renderBuildResult(result); return; }
+    if (live.kind === 'retrieve') { renderRetrieveSummary(result); return; }
+    if (live.kind !== 'run') return;
+    const canonical = Object.assign({}, result);
+    delete canonical.archive_evidence;
+    renderResult(canonical);
+    setArchiveStatus(
+      'Readings belong to a run this page did not launch; export will '
+      + 'contain settings only.',
+      'warning');
+  });
+}
+
 async function boot() {
   OPTIONS = await api('/api/options');
   const o = OPTIONS;
@@ -719,6 +746,9 @@ async function boot() {
 
   renderIndexes(o.indexes);
   restoreLastRun();
+  // Unawaited: a job the server is already running should light the spine as
+  // soon as it is found, but finding it must not hold up the handoff below.
+  reattachRunningJob();
   // Last, so an experiment handed over by the board writes its knobs over a
   // panel that is already fully built rather than one still filling its selects.
   takeHandedExperiment();
@@ -845,6 +875,10 @@ function renderSpine(job) {
   const caption = $('spineCaption');
   track.dataset.step = step;
   caption.dataset.step = step;
+  // Pronounced only while live: a finished bar at 100% is a report, not an
+  // announcement, and must not keep pulsing.
+  track.dataset.running =
+    job && (job.state === 'running' || job.state === 'cancelling') ? 'true' : '';
   track.firstElementChild.style.width =
     ((job ? job.progress : 0) * 100).toFixed(1) + '%';
   if (!job) { caption.innerHTML = '<span>nothing running</span>'; return; }
@@ -936,15 +970,19 @@ async function doBuild(force) {
   try {
     const body = Object.assign(readConfig(), { force });
     const { job_id } = await api('/api/indexes', body);
-    poll(job_id, (result) => {
-      $('indexInfo').innerHTML =
-        `<b>${escapeHtml(result.collection)}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
-        `p95 ${result.p95_chars}, dim ${result.embed_dim}, ${result.build_seconds}s` +
-        (result.reused ? ' (reused)' : '') +
-        hierarchyReport(result.hierarchy) +
-        (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
-    });
+    poll(job_id, renderBuildResult);
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
+}
+
+// Named rather than inline in doBuild: a build found already running at boot
+// finishes under the same reattached poll, and its result reads the same way.
+function renderBuildResult(result) {
+  $('indexInfo').innerHTML =
+    `<b>${escapeHtml(result.collection)}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
+    `p95 ${result.p95_chars}, dim ${result.embed_dim}, ${result.build_seconds}s` +
+    (result.reused ? ' (reused)' : '') +
+    hierarchyReport(result.hierarchy) +
+    (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
 }
 
 $('run').onclick = async () => {
@@ -1000,7 +1038,12 @@ function runJob(path, body) {
 
 async function doRetrieve() {
   const body = Object.assign(readConfig(), pickedProvider(), selectionBody());
-  const result = await runJob('/api/retrievals', body);
+  renderRetrieveSummary(await runJob('/api/retrievals', body));
+}
+
+// Named for the same reason as renderBuildResult: a retrieval found already
+// running at boot reports through the same line.
+function renderRetrieveSummary(result) {
   const questions = result.questions || [];
   const gold = questions.reduce((sum, q) =>
     sum + (q.trace.candidates || []).filter((c) => c.gold).length, 0);

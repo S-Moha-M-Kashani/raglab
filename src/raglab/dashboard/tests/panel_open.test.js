@@ -194,6 +194,12 @@ function panelPage({ search = '', initialSavedConfig = null,
         return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
           json: () => Promise.resolve(copy(REAL_OPTIONS)) });
       }
+      // Boot asks the job table for a job already running (reattachRunningJob);
+      // this harness models an idle installation, which answers an empty list.
+      if (path === '/api/jobs') {
+        return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
+          json: () => Promise.resolve([]) });
+      }
       for (const [id, archive] of Object.entries(archives)) {
         if (path === `/api/experiments/${encodeURIComponent(id)}/archive`) {
           return Promise.resolve({ ok: true, status: 200, statusText: 'OK',

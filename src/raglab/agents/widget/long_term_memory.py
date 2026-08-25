@@ -128,10 +128,10 @@ def save_memory_update(dataset_id: str, experiment_id: str, subtopic: str,
             'question, answer, decision, created_at) VALUES (?, ?, ?, ?, ?, '
             '?, ?)', values + ('accepted', now))
 
+        old_global = db.execute(
+            'SELECT summary FROM global_memory WHERE id = 1').fetchone()
         stored_global = ''
         if (global_summary or '').strip():
-            old_global = db.execute(
-                'SELECT summary FROM global_memory WHERE id = 1').fetchone()
             stored_global = _aggregate(old_global[0] if old_global else '',
                                        global_summary)
             db.execute(
@@ -139,8 +139,6 @@ def save_memory_update(dataset_id: str, experiment_id: str, subtopic: str,
                 '(1, ?, ?) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, '
                 'updated_at=excluded.updated_at', (stored_global, now))
         else:
-            old_global = db.execute(
-                'SELECT summary FROM global_memory WHERE id = 1').fetchone()
             stored_global = old_global[0] if old_global else ''
         update_id = update.lastrowid
     return {'saved': True, 'dataset_id': dataset_id, 'update_id': update_id,

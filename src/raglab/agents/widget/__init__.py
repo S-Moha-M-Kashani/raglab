@@ -34,6 +34,7 @@ from raglab.agents.widget import backends
 from raglab.agents.widget import conversation_memory
 from raglab.agents.widget import experiment_tools
 from raglab.agents.widget import hooks
+from raglab.agents.widget import long_term_memory
 from raglab.agents.widget import probe
 from raglab.agents.widget import prompts
 from raglab.agents.widget import tools
@@ -58,6 +59,12 @@ from raglab.agents.widget.conversation_memory import (
     forget,
     history,
     recall_conversation)
+from raglab.agents.widget.long_term_memory import (
+    MAX_SUMMARY_CHARS,
+    clear_long_term_memory,
+    db_path,
+    memory_context,
+    save_memory_update)
 from raglab.agents.widget.hooks import (
     HOOK_LOG,
     MAX_HISTORY,

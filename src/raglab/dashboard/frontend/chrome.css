@@ -496,11 +496,14 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
 /* A knob the recorded config held but this build never read (an `overlap`
    under a chunker that never slides a window): drawn as `none`, and never
    inked as a real value — the `<b>` stays the label's own `--ink-soft`
-   instead of stepping up to `--ink`, and the whole span dims further, so a
-   scan for real settings passes over it without a new colour to learn. Both
-   tokens already colour muted text on this page; nothing here is new. */
-.reveal-knob-off { display: block; color: var(--ink-soft); opacity: .55; }
-.reveal-knob-off > b { color: var(--ink-soft); }
+   instead of stepping up to `--ink` (inherited, not restated), so a scan for
+   real settings passes over it without a new colour to learn. This is
+   informational text, not a disabled control, so muting stops at the token
+   — no `opacity` on top of it: `--ink-soft` alone already reads at ~5.7:1
+   against the reveal's card background in both themes, comfortably past
+   WCAG AA, and stacking opacity on it would drop that below the 4.5:1
+   floor. */
+.reveal-knob-off { display: block; color: var(--ink-soft); }
 /* The sentence the cell abbreviates, spelled out, at the head of the box that
    opens on it. The knobs below it are the whole recorded config and say more
    than the sentence does — but an abbreviation whose expansion is nowhere on

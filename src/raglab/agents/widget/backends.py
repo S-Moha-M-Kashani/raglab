@@ -492,13 +492,10 @@ def _stream_agent(agent, message: str, thread: str, decision=None,
             'read the reply back from')
     reply, used = _turn_account(final['messages'])
     output = _accounted(reply, used)
-    if decision is not None:
-        output['memory'] = decision
-    # This runs only after the authoritative final event has been yielded.
-    yield output
     finished = _finish_memory(message, reply, decision, policy_model, thread)
-    if finished is not None and output.get('memory') is not finished:
-        output['memory'] = finished
+    if decision is not None:
+        output['memory'] = finished if finished is not None else decision
+    yield output
 
 
 def stream(message: str, model: str = '', thread: str = ''):

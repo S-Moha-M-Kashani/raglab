@@ -349,9 +349,12 @@ def _safe_widget_event(event):
     memory = event.get('memory')
     if not isinstance(memory, dict):
         return {key: value for key, value in event.items() if key != 'memory'}
-    if memory.get('relevant') is not True:
+    if not all(isinstance(memory.get(key), bool)
+               for key in ('relevant', 'should_save', 'saved')):
+        return {key: value for key, value in event.items() if key != 'memory'}
+    if not memory['relevant']:
         status = 'irrelevant'
-    elif memory.get('saved') is True:
+    elif memory['saved']:
         status = 'saved'
     else:
         status = 'not_saved'

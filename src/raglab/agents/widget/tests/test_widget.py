@@ -1044,6 +1044,34 @@ def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
     assert events[-1]['reply'] == 'half an answer, whole'
 
 
+def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch):
+    # this is a unit test
+    """The final event is serialized before the stream is resumed, so its
+    memory status must already include the save performed after the answer is
+    read back from the checkpoint."""
+    from langchain_core.messages import HumanMessage
+
+    decision = {'relevant': True, 'should_save': True, 'saved': False,
+                'dataset_id': 'dataset', 'subtopic': 'topic', 'reason': 'retain'}
+    stub = _StreamStub(
+        _chunks('answer'),
+        {'messages': [HumanMessage(content='q'), AIMessage(content='answer')]})
+    monkeypatch.setattr(widget.backends, '_memory_turn',
+                        lambda message, model, thread: (decision, object(), ''))
+    monkeypatch.setattr(widget.backends, '_finish_memory',
+                        lambda *args: {**decision, 'saved': True})
+    model = _streaming(stub)
+    try:
+        events = widget.stream('q', model=model)
+        assert next(events) == {'delta': 'answer'}
+        assert next(events) == {
+            'reply': 'answer', 'input_tokens': None, 'output_tokens': None,
+            'memory': {**decision, 'saved': True},
+        }
+    finally:
+        widget.reset()
+
+
 def test_a_cli_answer_arrives_as_one_piece_because_that_is_what_it_is(monkeypatch):
     # this is a unit test
     """A CLI is one process and one complete reply: there is no partial output
@@ -1157,6 +1185,30 @@ def test_the_stream_route_sanitizes_memory_on_the_authoritative_final_event(
     }]
     assert seen == {'message': 'what should I retain?',
                     'model': 'openai/gpt-5-mini', 'thread': 'exp-stream'}
+
+
+@pytest.mark.parametrize('memory', [
+    {},
+    {'relevant': 'false', 'saved': True},
+    {'relevant': True, 'saved': 'yes'},
+])
+def test_the_stream_route_omits_status_for_malformed_or_missing_policy_booleans(
+        client, monkeypatch, memory):
+    # this is an integration test
+    """Reader metadata must not turn malformed policy fields into a false
+    claim that the request was irrelevant."""
+    monkeypatch.setattr(widget, 'stream', lambda message, model='', thread='': iter([{
+        'reply': 'answer from the lab', 'input_tokens': 4,
+        'output_tokens': 2, 'memory': memory,
+    }]))
+
+    answer = client.post('/api/widget/stream', json={'message': 'hello'})
+
+    assert answer.status_code == 200
+    assert _sse(answer) == [{
+        'reply': 'answer from the lab', 'input_tokens': 4,
+        'output_tokens': 2,
+    }]
 
 
 def test_an_unavailable_widget_is_a_502_before_the_stream_opens(client, monkeypatch):

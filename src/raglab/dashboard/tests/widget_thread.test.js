@@ -84,6 +84,19 @@ test('a status event is routed to onStatus and never becomes the final event', a
   assert.equal(final.status, undefined);
 });
 
+test('memory decisions render as safe metadata, never as a model answer', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  assert.ok(source.includes('function widgetMemoryStatus(memory)'),
+    'the browser needs one small mapping from API memory metadata to reader copy');
+  assert.ok(ask.includes('widgetMemoryStatus(data.memory)'),
+    'the final event must be the source of the displayed memory status');
+  assert.ok(ask.includes("widgetSay('meta', memoryStatus)"),
+    'memory status must be a concise metadata line, not a conversation turn');
+  assert.ok(!ask.includes("widgetSay('bot', data.memory"),
+    'internal memory state must never be displayed as the model answer');
+});
+
 // The sharper edge of the same rule: a stream that dies after a status event
 // has still never said what the lab holds. The old reader would have handed
 // the status event back as the reply's own final event — an answer the lab

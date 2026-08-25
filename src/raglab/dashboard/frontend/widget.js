@@ -347,6 +347,15 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  function widgetMemoryStatus(memory) {
+    const copy = {
+      saved: 'Memory saved for future lab conversations.',
+      not_saved: 'Memory was not saved.',
+      irrelevant: 'No memory saved: this was not relevant to the lab.',
+    };
+    return copy[memory && memory.status] || '';
+  }
+
   function widgetStopped(el) {
     const log = $('widget-log');
     if (!el || !log.contains(el)) return;
@@ -773,6 +782,8 @@
       if (data.input_tokens != null) {
         widgetSay('meta', `out ${data.output_tokens} in ${data.input_tokens} tok.`);
       }
+      const memoryStatus = widgetMemoryStatus(data.memory);
+      if (memoryStatus) widgetSay('meta', memoryStatus);
     } catch (error) {
       // The wait line goes before the error is said: an error line landing
       // under a still-pulsing "Thinking…" would read as one more thing

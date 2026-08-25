@@ -584,6 +584,48 @@ def test_an_unavailable_widget_is_a_502_naming_the_reason(client, monkeypatch):
     assert 'OPENROUTER_API_KEY' in answer.json()['detail']
 
 
+def test_the_route_exposes_irrelevant_memory_as_a_safe_status(client, monkeypatch):
+    # this is an integration test
+    """The model's memory-policy internals are not panel metadata. An
+    irrelevant refusal is useful to the reader only as the bounded status,
+    while its reason, dataset and save payload stay on the server side."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': 'I can only help with the RAG lab.',
+        'input_tokens': None, 'output_tokens': None,
+        'memory': {
+            'relevant': False, 'should_save': False, 'saved': False,
+            'dataset_id': 'private-dataset',
+            'reason': 'unrelated request details',
+            'save': {'dataset_summary': 'private summary'},
+        }})
+
+    answer = client.post('/api/widget', json={'message': 'tell me a joke'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'irrelevant'}
+
+
+def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
+        client, monkeypatch):
+    # this is an integration test
+    """A successful long-term write is a useful reader-facing fact, but the
+    policy and writer payload are not part of the widget API."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': 'The comparison is worth retaining.',
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {
+            'relevant': True, 'should_save': True, 'saved': True,
+            'dataset_id': 'private-dataset', 'subtopic': 'private-topic',
+            'reason': 'private policy reasoning',
+            'save': {'dataset_summary': 'private summary'},
+        }})
+
+    answer = client.post('/api/widget', json={'message': 'remember this'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'saved'}
+
+
 # --- the real build, when the extra is installed --------------------------
 
 def test_the_agent_builds_offline_when_the_extra_is_present(monkeypatch):
@@ -1082,6 +1124,39 @@ def test_the_stream_route_passes_the_model_and_thread_through(client, monkeypatc
                                             'thread': 'exp-one'})
     assert seen == {'message': 'hello', 'model': 'openai/gpt-5-mini',
                     'thread': 'exp-one'}
+
+
+def test_the_stream_route_sanitizes_memory_on_the_authoritative_final_event(
+        client, monkeypatch):
+    # this is an integration test
+    """The final event remains the answer the browser adopts, with only the
+    safe memory status added beside it; the request's thread is unchanged."""
+    seen = {}
+
+    def fake_stream(message, model='', thread=''):
+        seen.update(message=message, model=model, thread=thread)
+        return iter([{
+            'reply': 'answer from the lab', 'input_tokens': 4,
+            'output_tokens': 2,
+            'memory': {
+                'relevant': True, 'should_save': False, 'saved': False,
+                'dataset_id': 'private-dataset',
+                'reason': 'private policy reasoning',
+            },
+        }])
+
+    monkeypatch.setattr(widget, 'stream', fake_stream)
+    answer = client.post('/api/widget/stream', json={
+        'message': 'what should I retain?', 'model': 'openai/gpt-5-mini',
+        'thread': 'exp-stream'})
+
+    assert answer.status_code == 200
+    assert _sse(answer) == [{
+        'reply': 'answer from the lab', 'input_tokens': 4,
+        'output_tokens': 2, 'memory': {'status': 'not_saved'},
+    }]
+    assert seen == {'message': 'what should I retain?',
+                    'model': 'openai/gpt-5-mini', 'thread': 'exp-stream'}
 
 
 def test_an_unavailable_widget_is_a_502_before_the_stream_opens(client, monkeypatch):

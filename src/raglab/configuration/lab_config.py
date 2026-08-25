@@ -32,7 +32,7 @@ from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKER
 # Re-exported: DEPENDENCIES lives in knob_dependencies.py, which now reads the
 # option tuples from option_vocabularies.py rather than from here, so this import carries
 # no ordering requirement of its own — kept in the same spot as before.
-from .knob_dependencies import DEPENDENCIES, dependency_state  # noqa: F401,E402
+from .knob_dependencies import DEPENDENCIES, dependency_state, inert_knobs  # noqa: F401,E402
 
 
 @dataclass(frozen=True)

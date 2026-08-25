@@ -4,13 +4,15 @@ A generic retrieval workbench. Build an index over a ground-truth corpus,
 retrieve against its questions, score what comes back, and keep the account of
 every experiment, so a RAG architecture for any use case can be chosen by
 measurement instead of by taste. The corpus is a config field, not an
-assumption: point `dataset` at any file matching the stated contract, or use
-one of the six that ship. The bundled default is `diary-en`
+assumption: point `dataset` at an imported dataset id matching the stated
+contract, or use one of the six that ship. The bundled default is `diary-en`
 (`fixtures/corpus_groundtruth_datasets/diary_year_en_corpus.json` and
 `diary_year_en_groundtruth.json`), a year of synthetic colloquial diary chat
 with ground-truth questions and cited evidence, translated from its Farsi
 original (`diary-fa`), which ships beside it — one case study among the
-shipped corpora, not the project's scope.
+shipped corpora, not the project's scope. For compatibility with older
+fingerprints, an empty `IndexConfig.dataset` still means `diary-fa`; the fresh
+panel setting explicitly selects `diary-en`.
 
 **Who this is for:** anyone who has to choose a RAG architecture and wants the
 choice to rest on numbers — an engineer picking chunking and retrieval settings
@@ -18,21 +20,32 @@ for a product, a researcher ablating one knob at a time, or a learner who wants
 to see what each advanced-RAG technique actually buys on a corpus with known
 answers.
 
+## Requirements
+
+- Python 3.13 and [uv](https://docs.astral.sh/uv/).
+- Node.js, for the standalone browser-contract tests.
+- Docker with Compose v2, if you want to run the containerized service.
+- Optional model backends: Ollama, a logged-in Claude or Codex CLI, or an
+  OpenRouter API key. The test suite uses the offline `fake` backend.
+
 ## Quick start
 
-### raglab
+From the repository root:
 
 ```sh
-uv run --extra local-embeddings raglab      # the panel on :9002, the read-only Inspector at /inspector
+uv sync --extra local-embeddings
+cp .env.example .env
+uv run raglab
 ```
 
-The extra is required because the default embedder is a sentence-transformers
-checkpoint. Without it the service starts fine and then fails on the first
-index build. The ~2.2 GB model downloads on first index build, not at boot.
+The default backend is Ollama. To use another backend, set `RAGLAB_LLM` in
+`.env`; the panel starts without a chat backend, but answering and judging
+require one. Open <http://localhost:9002>.
 
-The panel serves without any model, and index builds need none — but
-answering and judging need a chat backend. `RAGLAB_LLM` (in a `.env` copied
-from `.env.example`) picks one of four, and each needs a one-time setup:
+The `local-embeddings` extra installs the default embedder; its ~2.2 GB model
+downloads on the first index build. The panel and index builds need no chat
+backend, but answering and judging do. Set `RAGLAB_LLM` in `.env` to one of
+the following values:
 
 - `ollama` (the default) — a local model server, so a fresh install can never
   silently spend credit. Install it from <https://ollama.com>, then pull the
@@ -132,22 +145,24 @@ installation has already recorded. It is described below.
 
 ## Datasets
 
-The lab measures whatever corpus it is pointed at. Five ship with it: the
-default Farsi diary, and four controls in `fixtures/corpus_groundtruth_datasets/` —
-English support tickets, German meeting notes, English research notes weighted
-to multi-hop, and a five-session smoke set. Each maps to a different use case,
-so a finding can be checked against a corpus of a different language, domain
-or question shape.
+The lab measures whatever corpus it is pointed at. Six ship with it:
+`diary-en` (the fresh panel default), `diary-fa` (the legacy built-in identity),
+`support-en`, `meetings-de`, `research-multihop`, and `smoke-mini`. They live in
+`fixtures/corpus_groundtruth_datasets/` as ordinary corpus/ground-truth pairs.
+Each maps to a different use case, so a finding can be checked against a corpus
+of a different language, domain or question shape.
 
 Bring your own with **Import a dataset** in the panel, or `POST
-/api/datasets`. One JSON file; the panel states the shape it expects behind the
-`!` beside the file picker. The lab refuses a file that does not match it
-rather than repairing it, and names every problem it found.
+/api/datasets`. Import a pair of JSON files: one corpus file and one
+ground-truth file, joined by the declared dataset id. The panel states the
+shape it expects behind the `!` beside the file picker. The lab refuses a pair
+that does not match it rather than repairing it, and names every problem it
+found.
 
 ## Choosing an architecture
 
 The lab prescribes none — every pipeline stage is a config knob, and the right
-combination depends on the use case. `fixtures/skills/` is the guidance layer: fourteen
+combination depends on the use case. `fixtures/skills/` is the guidance layer: twelve
 skill files covering the advanced-RAG technique landscape, a use-case →
 starting-architecture map with a per-use-case experiment ladder, the
 experiment methodology (dev/test discipline, error analysis), and the sources
@@ -232,8 +247,12 @@ shares the process, or the run is traced too.
 ## What gets written where
 
 - `.runs/` — one JSON file per evaluation run. Git-ignored.
-- `databases/raglab.db` — one row per finished experiment. `RAGLAB_DB`
-  overrides the path.
+- `databases/raglab.db` — one ledger row per job, including terminal success,
+  error and cancellation. `RAGLAB_DB` overrides the path.
+- `databases/corpora.db` — content-addressed corpus and ground-truth versions
+  used by archived experiments. `RAGLAB_CORPORA_DB` overrides the path.
+- `.datasets/` — imported corpus/ground-truth pairs. `RAGLAB_DATASETS`
+  overrides the directory.
 - `databases/widget.db` — the widget's conversations, one thread per
   experiment plus `general`; see `.env.example` for what it is and is not.
   `RAGLAB_WIDGET_DB` overrides the path — the suite redirects it
@@ -243,21 +262,85 @@ shares the process, or the run is traced too.
   was allowed to grade the deciding metrics. Git-ignored, so keep it if you
   care which judge produced a number.
 
+## Command-line tools
+
+| Command | What it does |
+| --- | --- |
+| `uv run raglab` | Serve the Laboratory, Inspector and Leaderboard on port 9002. |
+| `uv run raglab-lab` | Run the Python suite, then serve the panel. Use `--test-only` to stop after tests or `--no-test` to skip the preflight suite. |
+| `uv run raglab-sweep` | Run one-knob-at-a-time candidates and report the decision-score comparison. |
+| `uv run raglab-judgescreen --models MODEL [MODEL ...]` | Screen judge models before allowing them to grade. `--pairs` controls claim pairs per model. |
+| `uv run raglab-leaderboard` | Print the recorded board; supports `--json`, `--limit` and `--write PATH`. |
+
 ## Development
 
 | Command | What it does |
 | --- | --- |
 | `uv run pytest` | the suite |
 | `uv run raglab-lab` | the suite, then the panel — refuses to serve on a red suite |
+| `uv run raglab-lab --test-only` | run the suite and stop |
+| `uv run raglab-lab --no-test` | start the panel without the preflight suite |
 
 The suite is offline and safe to run anywhere: fixtures pin the `fake`
 backend, blank any API keys, and redirect every artifact path, so no test can
 call a model, spend credit, or write into the real `.runs/`, ledger or
-conversation store. The only exception is the `*_live.py` probes, and each of
-those skips unless its file is named on the pytest command line.
+conversation store. The Python command is the canonical full check:
+
+```sh
+uv run pytest src/raglab -q
+```
+
+The browser-facing JavaScript contracts are normally exercised by the Python
+tests that invoke Node. To run the standalone dashboard contracts that do not
+need generated fixtures:
+
+```sh
+cd src/raglab/dashboard/tests
+node --test panel_open.test.js board_reveal.test.js
+```
+
+`archive_ladder.test.js` is generated and run by its Python companion, which
+sets `RAGLAB_LADDER` to a temporary fixture. Running every `.test.js` file
+directly without that environment variable will fail before the test starts.
+
+The only Python tests excluded from the offline suite are the five intentional
+live probes in `src/raglab/agents/widget/tests/test_skills_live.py`: one real
+Codex CLI call, three real LLM calls, and one test that loads the 2.2 GB
+encoder. Run them explicitly when credentials, network access, and the model
+download are available:
+
+```sh
+uv run pytest src/raglab/agents/widget/tests/test_skills_live.py -v -s
+```
 
 Tests are colocated — each section's `tests/` folder holds its own, and
 `src/raglab/tests/test_conventions.py` holds the repo-wide guards. Branch from
 `development`, never `master`; `master` is the squash-merged release.
 
-The extra tools (`agents/extra_tools/`) are under construction.
+## Docker
+
+Docker runs the same composed application as one service: the Laboratory at
+`/`, Inspector at `/inspector`, and Leaderboard at `/leaderboard`. It binds the
+durable run files, databases and imported datasets from the host, and keeps the
+embedding cache in a named volume.
+
+Before the first start, create the bind-mounted directories so Docker does not
+create them as root:
+
+```sh
+mkdir -p .runs databases .datasets
+docker compose up -d --build
+```
+
+Open <http://localhost:9002>. Useful lifecycle commands:
+
+```sh
+docker compose logs -f panel
+docker compose down
+```
+
+The container expects Ollama on the host at `host.docker.internal:11434` by
+default, as configured in `compose.yaml`. Alternatively set another backend in
+`.env`; do not put a panel-entered OpenRouter key in Compose, because the panel
+keeps that key only in process memory. The first index build downloads the
+local embedding checkpoint into the persistent `hf-cache` volume.

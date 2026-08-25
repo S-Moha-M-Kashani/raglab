@@ -177,11 +177,11 @@ const datasetOf = (id) => (OPTIONS.datasets || []).find(
 // model extracted it, and the confidence rater that scores it, if any. Read
 // straight off the loaded files, never hardcoded, so a sparse corpus just
 // shows fewer rows rather than a placeholder for a label it lacks.
-function renderDatasetLabels(found) {
+function renderDatasetLabels(found, target = 'datasetLabels') {
   const rows = (found.label_declarations || []).map((row) => [row, 'corpus'])
     .concat((found.question_label_declarations || [])
       .map((row) => [row, 'question']));
-  renderTable('datasetLabels',
+  renderTable(target,
     ['name', 'declared on', 'type', 'levels', 'extracted', 'confidence rater'],
     rows.map(([row, scope]) => [safe(row.name), scope, safe(row.type),
       safe((row.levels || []).join(', ')), row.extracted ? 'yes' : '',
@@ -239,7 +239,11 @@ function describeDataset() {
     + `${found.questions} questions`
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
   $('datasetInfo').textContent = found.description;
+  $('dataset-detail-title').textContent = found.name || found.id || 'Dataset';
+  $('dataset-detail-census').textContent = $('corpus').textContent;
+  $('dataset-detail-description').textContent = found.description;
   renderDatasetLabels(found);
+  renderDatasetLabels(found, 'dataset-detail-labels');
   QUESTION_SELECTION = { labels: {}, balance: '' };
 }
 
@@ -653,6 +657,41 @@ async function restoreLastRun() {
   }
 }
 
+// A reload loses the poll a click started, but never the job: the service
+// holds one job at a time and refuses a second, so a fresh page that assumes
+// silence means idle contradicts the server it is fronting. Boot asks the job
+// table and re-enters the same poll a click would have started — spine,
+// detail and cancel button included. A reattached finish may claim less than
+// a launched one: the settings that requested the job left with the page that
+// held them, so a run renders settings-only and never becomes this page's own
+// CURRENT_ARCHIVE.
+async function reattachRunningJob() {
+  const jobs = (await api('/api/jobs')).jobs || [];
+  const live = jobs.find((job) =>
+    job.state === 'running' || job.state === 'cancelling');
+  if (!live) return;
+  poll(live.id, (result) => {
+    if (live.kind === 'index') { renderBuildResult(result); return; }
+    if (live.kind === 'retrieve') { renderRetrieveSummary(result); return; }
+    if (live.kind !== 'run') return;
+    const canonical = Object.assign({}, result);
+    delete canonical.archive_evidence;
+    renderResult(canonical);
+    setArchiveStatus(
+      'Readings belong to a run this page did not launch; export will '
+      + 'contain settings only.',
+      'warning');
+  });
+}
+
+function pinInspector(experimentId) {
+  const link = document.querySelector('.topnav a[href^="/inspector"]');
+  if (!link) return;
+  link.href = experimentId === null
+    ? '/inspector'
+    : '/inspector?experiment=' + encodeURIComponent(experimentId);
+}
+
 async function boot() {
   OPTIONS = await api('/api/options');
   const o = OPTIONS;
@@ -719,6 +758,9 @@ async function boot() {
 
   renderIndexes(o.indexes);
   restoreLastRun();
+  // Unawaited: a job the server is already running should light the spine as
+  // soon as it is found, but finding it must not hold up the handoff below.
+  reattachRunningJob();
   // Last, so an experiment handed over by the board writes its knobs over a
   // panel that is already fully built rather than one still filling its selects.
   takeHandedExperiment();
@@ -845,6 +887,10 @@ function renderSpine(job) {
   const caption = $('spineCaption');
   track.dataset.step = step;
   caption.dataset.step = step;
+  // Pronounced only while live: a finished bar at 100% is a report, not an
+  // announcement, and must not keep pulsing.
+  track.dataset.running =
+    job && (job.state === 'running' || job.state === 'cancelling') ? 'true' : '';
   track.firstElementChild.style.width =
     ((job ? job.progress : 0) * 100).toFixed(1) + '%';
   if (!job) { caption.innerHTML = '<span>nothing running</span>'; return; }
@@ -925,29 +971,45 @@ async function poll(jobId, onDone) {
       renderSpine(null);
       return;
     }
+    noteInspectorReady(job.kind);
     onDone(job.result);
   };
   tick();
 }
 
+function noteInspectorReady(kind) {
+  const notes = {
+    run: 'Evaluation finished — its answers, scores and per-question traces are ready to read on the Inspector tab.',
+    retrieve: 'Retrieval finished — the per-question candidate tables are ready to read on the Inspector tab.',
+    index: 'Index built — its chunks and summaries are ready to read on the Inspector tab.',
+  };
+  if (notes[kind]) Widget.note(notes[kind]);
+}
+
 $('build').onclick = () => doBuild(false);
 $('rebuild').onclick = () => doBuild(true);
 async function doBuild(force) {
+  pinInspector(null);
   try {
     const body = Object.assign(readConfig(), { force });
     const { job_id } = await api('/api/indexes', body);
-    poll(job_id, (result) => {
-      $('indexInfo').innerHTML =
-        `<b>${escapeHtml(result.collection)}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
-        `p95 ${result.p95_chars}, dim ${result.embed_dim}, ${result.build_seconds}s` +
-        (result.reused ? ' (reused)' : '') +
-        hierarchyReport(result.hierarchy) +
-        (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
-    });
+    poll(job_id, renderBuildResult);
   } catch (e) { $('jobBox').innerHTML = `<div class="note">${escapeHtml(e.message)}</div>`; }
 }
 
+// Named rather than inline in doBuild: a build found already running at boot
+// finishes under the same reattached poll, and its result reads the same way.
+function renderBuildResult(result) {
+  $('indexInfo').innerHTML =
+    `<b>${escapeHtml(result.collection)}</b> — ${result.chunks} chunks, avg ${result.avg_chars} chars, ` +
+    `p95 ${result.p95_chars}, dim ${result.embed_dim}, ${result.build_seconds}s` +
+    (result.reused ? ' (reused)' : '') +
+    hierarchyReport(result.hierarchy) +
+    (result.notes || []).map((n) => `<div class="note">${escapeHtml(n)}</div>`).join('');
+}
+
 $('run').onclick = async () => {
+  pinInspector(null);
   const requested = archiveSettings();
   const body = Object.assign({}, requested.settings.config, pickedProvider(), {
     ragas_mode: requested.settings.ui.ragas_mode,
@@ -993,6 +1055,7 @@ function selectionBody() {
 // into a retrieval. A failed or cancelled job never resolves — deliberately:
 // `poll` has put the error on screen, and the step after it must not run.
 function runJob(path, body) {
+  pinInspector(null);
   return new Promise((resolve, reject) => {
     api(path, body).then(({ job_id }) => poll(job_id, resolve), reject);
   });
@@ -1000,7 +1063,12 @@ function runJob(path, body) {
 
 async function doRetrieve() {
   const body = Object.assign(readConfig(), pickedProvider(), selectionBody());
-  const result = await runJob('/api/retrievals', body);
+  renderRetrieveSummary(await runJob('/api/retrievals', body));
+}
+
+// Named for the same reason as renderBuildResult: a retrieval found already
+// running at boot reports through the same line.
+function renderRetrieveSummary(result) {
   const questions = result.questions || [];
   const gold = questions.reduce((sum, q) =>
     sum + (q.trace.candidates || []).filter((c) => c.gold).length, 0);
@@ -1455,7 +1523,7 @@ $('archive-export').onclick = () => {
 // Two ways it arrives, because both happen: this page loading with a slot
 // already written, and a `storage` event, which is the only thing that reaches
 // a Laboratory already open in another tab. That second case is the ordinary
-// one — the board opens the Inspector in a new tab, so the reader who has both
+// one — the board opens the Laboratory in this tab, so the reader who has both
 // surfaces up is the reader this is for — and without it the button would set
 // the settings on the *next* reload, which is not what it said it did.
 //
@@ -1608,10 +1676,12 @@ async function openHandedExperiment(experimentId) {
                    label: result.label || '', started_at: result.started_at || '',
                    dataset: result.dataset || '', source: 'both' };
   Widget.note(ExperimentHandoff.notice(record, out.config)
-    + uiUnservedNote(out.ui.unserved));
+    + uiUnservedNote(out.ui.unserved)
+    + ' The Inspector link above now leads to this experiment.');
   // The settings are this experiment's now, and so is the conversation: the
   // widget switches to the thread it kept for this id. Coming back to another
   // experiment brings that one's conversation back with it.
+  pinInspector(experimentId);
   Widget.about(experimentId);
 }
 
@@ -1652,7 +1722,7 @@ function handOver(experimentId) {
 // Two ways one experiment arrives here, and the address is the reliable one now
 // that the board's link lands on this page. A slot is written by a click and
 // read once; it cannot survive a reload, a bookmark, a copied link, or a click
-// whose new tab boots before the writing page has finished — and every one of
+// whose page boots before the writing page has finished — and every one of
 // those looks to the reader like the button doing nothing. The slot is still
 // read, and still consumed either way so it cannot re-announce itself days
 // later, because it remains the only thing that reaches a Laboratory that was

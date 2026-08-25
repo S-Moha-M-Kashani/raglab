@@ -17,7 +17,7 @@ from raglab.configuration.lab_config import ROOT
 # Order matters: it is the column order of the table and of every row returned.
 COLUMNS = (
     'experiment_id',        # a run's own id, else the job id — never both
-    'kind',                 # index | retrieve | run | query
+    'kind',                 # index | retrieve | run | query | question
     'state',                # done | error | cancelled
     'label', 'started_at', 'seconds',
     'dataset',              # which corpus — a score means nothing without it
@@ -275,3 +275,28 @@ def experiment(experiment_id: str, path: Path | None = None) -> dict | None:
         # columns beside it are still true.
         row['detail'] = {'unreadable': True}
     return row
+
+
+def annotations(experiment_id: str, path: Path | None = None) -> list[dict]:
+    """Finished question rows that explicitly annotate one experiment.
+
+    `detail` is deliberately parsed and compared here instead of through
+    SQLite's optional json1 extension: the ledger is portable SQLite, not a
+    database whose available functions are an installation requirement.
+    """
+    with connect(path) as db:
+        found = db.execute(
+            f'SELECT {", ".join(COLUMNS)}, detail FROM experiments '
+            "WHERE kind = 'question' AND state = 'done' ORDER BY rowid ASC"
+        ).fetchall()
+    rows = []
+    for found_row in found:
+        row = dict(found_row)
+        try:
+            detail = json.loads(row['detail'] or '{}')
+        except json.JSONDecodeError:
+            continue
+        if isinstance(detail, dict) and detail.get('annotates') == experiment_id:
+            row['detail'] = detail
+            rows.append(row)
+    return rows

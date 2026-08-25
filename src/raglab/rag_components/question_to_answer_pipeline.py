@@ -2,6 +2,7 @@
 assemble → answer, with every stage's output kept for the panel.
 Diagnostics say *which stage* lost the evidence, so tuning is not guesswork.
 """
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -17,6 +18,14 @@ from raglab.llm_backends.chat_model_factory import lab_chat
 from raglab.llm_backends.model_role_catalogue import Roles
 
 REFUSAL = 'تو دفترچه چیزی دربارهٔ این پیدا نکردم.'
+REFUSALS = {
+    'Persian': REFUSAL,
+    'English': 'I could not find anything about this in the diary.',
+    'German': 'Ich habe dazu im Tagebuch nichts gefunden.',
+}
+GERMAN_WORDS = {'der', 'die', 'das', 'ist', 'sind', 'wie', 'wer', 'welche',
+                'welcher', 'welches', 'heute', 'gestern', 'warum', 'wann',
+                'wo', 'wurde', 'nicht'}
 # «نمیدونم» is deliberately absent: the diarist says it constantly in
 # non-refusals, so counting it would misread quoted answers as abstentions.
 REFUSAL_MARKERS = ('پیدا نکردم', 'چیزی ثبت نشده', 'اطلاعاتی ندارم',
@@ -390,12 +399,28 @@ def _fit_budget(contexts, max_chars: int):
     return out
 
 
+def question_language(question: str) -> str:
+    """Return the answer language using the question's text, not the corpus."""
+    if re.search(r'[\u0600-\u06ff]', question):
+        return 'Persian'
+    if re.search(r'[äöüß]', question.lower()):
+        return 'German'
+    words = set(re.findall(r"[a-zA-ZÀ-ÿ]+", question.lower()))
+    if words & GERMAN_WORDS:
+        return 'German'
+    return 'English'
+
+
+def refusal_for(question: str) -> str:
+    return REFUSALS[question_language(question)]
+
+
 ANSWER_PROMPT = (
-    'تو دستیار یادداشت‌های روزانه یک کاربر فارسی‌زبانی. فقط بر اساس تکه‌های '
-    'دفترچه که در ادامه می‌آید جواب بده. کوتاه و مشخص جواب بده و تاریخ‌ها را '
-    'ذکر کن. اگر چیزی عوض شده، وضعیت *آخر* را بگو. بعد از هر ادعا شناسه نشستی '
-    f'که از آن برداشتی را داخل [] بگذار. اگر جواب در تکه‌ها نیست، دقیقاً بنویس: '
-    f'«{REFUSAL}» و چیزی از خودت نساز. اگر فرض سؤال غلط است، آن را اصلاح کن.')
+    'You answer questions about a diary using only the provided excerpts. '
+    'answer in {language}. Be concise and specific, include dates, and say '
+    'what happened last when something changed. Put the session id in [] '
+    'after each claim. If the answer is not in the excerpts, write exactly: '
+    '“{refusal}”. Do not invent information. Correct a false premise.')
 
 
 def answer(outcome: Outcome, cfg: GenerationConfig, llm=None,
@@ -403,7 +428,7 @@ def answer(outcome: Outcome, cfg: GenerationConfig, llm=None,
     if cfg.answerer == 'none':
         return outcome
     if outcome.abstained or not outcome.contexts:
-        outcome.answer = REFUSAL
+        outcome.answer = refusal_for(outcome.question)
         return outcome
     started = time.perf_counter()
     if cfg.answerer == 'extractive':
@@ -420,7 +445,7 @@ def answer(outcome: Outcome, cfg: GenerationConfig, llm=None,
 def reads_as_refusal(answer: str, answerer: str) -> bool:
     """Did the model decline? Only the LLM answerer can decline in its own
     words, and only in the opening sentence — a refusal phrase deep in a long answer is the model quoting the diary."""
-    if answer.strip() == REFUSAL:
+    if answer.strip() in REFUSALS.values():
         return True
     if answerer != 'llm':
         return False
@@ -450,16 +475,19 @@ def context_blocks(outcome: Outcome) -> str:
 
 def _llm_answer(outcome: Outcome, llm, model: str) -> str:
     if llm is None:
-        return REFUSAL
+        return refusal_for(outcome.question)
     try:
-        turn = lab_chat(llm, [{'role': 'system', 'content': ANSWER_PROMPT},
+        language = question_language(outcome.question)
+        prompt = ANSWER_PROMPT.format(language=language,
+                                      refusal=REFUSALS[language])
+        turn = lab_chat(llm, [{'role': 'system', 'content': prompt},
                               {'role': 'user', 'content':
                                f"سؤال: {outcome.question}\n\nتکه‌های دفترچه:\n"
                                + context_blocks(outcome)}], model)
-        return (turn.content or '').strip() or REFUSAL
+        return (turn.content or '').strip() or refusal_for(outcome.question)
     except Exception as error:
         outcome.diagnostics['answer_error'] = str(error)[:200]
-        return REFUSAL
+        return refusal_for(outcome.question)
 
 
 def retrieve_traced(index, cfg: RetrievalConfig, question: str, query_date: str,

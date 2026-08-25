@@ -1,4 +1,9 @@
 """The route the open button reads: one experiment, as the export file."""
+import json
+
+from raglab.configuration.lab_config import IndexConfig, LabConfig
+from raglab.conftest import SMOKE_INDEX
+from raglab.evaluation import experiment_archive as archive
 from raglab.evaluation import experiment_archive_store as archive_store
 from raglab.evaluation import service_experiment_ledger as ledger
 from raglab.evaluation.tests import archive_examples as examples
@@ -39,6 +44,45 @@ def test_an_experiment_without_a_complete_archive_is_a_404_that_says_why(client)
     missing = client.get('/api/experiments/never-archived/archive')
     assert missing.status_code == 404
     assert 'complete archive' in missing.json()['detail']
+
+
+def test_a_done_question_row_opens_with_its_own_settings_not_a_fake_archive(
+        client):
+    # this is an integration test
+    """Question jobs keep evidence in the ledger, not in the archive store.
+
+    The board still needs an openable handoff.  It may use the settings this
+    job recorded, but must neither rewrite the row nor fabricate an evaluation
+    archive or a historical corpus that the question row never stored.
+    """
+    settings_config = json.loads(json.dumps(
+        LabConfig(index=IndexConfig(**SMOKE_INDEX)).to_dict()))
+    config = settings_config | {'provider': 'fake'}
+    result = {
+        'label': 'adds 1 to parent-run', 'annotates': 'parent-run',
+        'question_id': '1', 'config': config, 'dataset': 'smoke-mini',
+        'selection': {'n': 1, 'question_ids': ['1']},
+        'traces': [{'question_id': '1', 'trace': {'candidates': []}}],
+        'rows': [{'id': '1', 'answer': 'recorded answer'}],
+    }
+    ledger.record({'id': 'question-row', 'kind': 'question',
+                   'config': config, 'result': result}, 'done')
+    before = ledger.experiment('question-row')
+
+    response = client.get('/api/experiments/question-row/archive')
+
+    assert response.status_code == 200
+    handoff = response.json()
+    assert archive.validate_archive(handoff) == handoff
+    assert handoff == {
+        'format': 'raglab-experiment', 'version': 1,
+        'settings': {
+            'config': settings_config,
+            'ui': {'mode': '', 'ragas_mode': 'offline', 'limit': 0,
+                   'ragas_limit': 0, 'labels': {}, 'balance': ''},
+        },
+    }
+    assert ledger.experiment('question-row') == before
 
 
 def test_a_corpus_the_store_lost_is_refused_over_http_not_substituted(

@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from raglab.configuration.lab_config import RUNS_DIR
+from raglab.configuration.lab_config import RUNS_DIR, inert_knobs
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation.run_evaluation import load_run, load_runs
 from raglab.evaluation import ragas_judged_metrics as judged
@@ -458,8 +458,45 @@ def experiment_record(row: dict | None, run: dict | None) -> dict:
         'judge': ragas.get('judge') or {},
         'pipeline': pipeline_fragments(config),
         'config': config,
+        # Which of the config's own knobs this config never read, and why —
+        # {} for a ledger-only row, whose six flat fields never carry the
+        # knob that would need marking. Computed at read time, never stored:
+        # the recorded config stays verbatim.
+        'inert': inert_knobs(config) if config else {},
         # A reader is entitled to know why a metric column is blank.
         'source': source,
+    }
+
+
+def live_job_record(job: dict) -> dict:
+    """A transient board row for the one job currently running in the lab.
+
+    It is deliberately not a ledger row: the job has not finished and may be
+    cancelled. It carries the same projection as a durable row so the board can
+    say what is running without pretending that it has a score or evidence.
+    """
+    config = job.get('config') or {}
+    index = config.get('index') or {}
+    return {
+        'experiment_id': job.get('id', ''),
+        'kind': job.get('kind', ''),
+        'state': job.get('state', 'running'),
+        'error': job.get('error') or '',
+        'label': config.get('label') or '',
+        'started_at': job.get('started_at', ''),
+        'seconds': job.get('seconds', 0),
+        'dataset': index.get('dataset') or datasets.BUILTIN,
+        'provider': config.get('provider') or '',
+        'n_questions': 0,
+        'selection': {},
+        'decision': None,
+        'decision_stderr': None,
+        'metrics': {},
+        'judge': {},
+        'pipeline': pipeline_fragments(config),
+        'config': config,
+        'inert': inert_knobs(config) if config else {},
+        'source': 'live',
     }
 
 

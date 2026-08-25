@@ -52,9 +52,8 @@
 .brand:hover { text-decoration: none; }
 
 /* ── the surface switcher ──────────────────────────────────────────────────
-   Three surfaces, and the Inspector is a different process on a different
-   port rather than a route — so these are honest links, not tabs pretending
-   a click stays in the page. The current one is marked with aria-current, and
+   Three surfaces in one process and origin, linked as routes. The current one
+   is marked with aria-current, and
    marked visibly by more than colour: it carries the underline as well. */
 .topnav { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
 .topnav a {
@@ -191,11 +190,25 @@
    say which stage is running and how far along, and a 3px line does that in
    no vertical space at all. `--step` is set by the page from the job's stage;
    with nothing running it falls back to a neutral and the width is zero. */
-.chrome-progress { height: 3px; background: var(--chassis-soft); }
+.chrome-progress { height: 3px; background: var(--chassis-soft); transition: height .2s; }
 .chrome-progress i {
-  display: block; height: 3px; width: 0;
+  display: block; height: 100%; width: 0;
   background: var(--step, var(--chassis-ink-soft));
   transition: width .25s linear;
+}
+/* Running, the line announces itself: twice the idle height, a fill visible
+   before any progress has accrued (a starting job is at 0%, and an invisible
+   bar reads as "nothing running"), and a breathing pulse so a bar parked
+   inside one long stage still looks alive rather than dead. The page sets
+   `data-running` from the job's state, never from mere presence — a finished
+   bar at 100% holds still. */
+.chrome-progress[data-running="true"] { height: 6px; }
+.chrome-progress[data-running="true"] i {
+  min-width: 36px;
+  animation: chrome-progress-breathe 1.6s ease-in-out infinite;
+}
+@keyframes chrome-progress-breathe {
+  50% { opacity: .55; }
 }
 
 @media (max-width: 720px) {
@@ -479,6 +492,17 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
                    display: block; margin-bottom: var(--s-1); }
 .reveal-knob { display: block; color: var(--ink-soft); }
 .reveal-knob > b { color: var(--ink); }
+/* A knob the recorded config held but this build never read (an `overlap`
+   under a chunker that never slides a window): drawn as `none`, and never
+   inked as a real value — the `<b>` stays the label's own `--ink-soft`
+   instead of stepping up to `--ink` (inherited, not restated), so a scan for
+   real settings passes over it without a new colour to learn. This is
+   informational text, not a disabled control, so muting stops at the token
+   — no `opacity` on top of it: `--ink-soft` alone already reads at ~5.7:1
+   against the reveal's card background in both themes, comfortably past
+   WCAG AA, and stacking opacity on it would drop that below the 4.5:1
+   floor. */
+.reveal-knob-off { display: block; color: var(--ink-soft); }
 /* The sentence the cell abbreviates, spelled out, at the head of the box that
    opens on it. The knobs below it are the whole recorded config and say more
    than the sentence does — but an abbreviation whose expansion is nowhere on

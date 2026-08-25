@@ -44,6 +44,7 @@ from raglab.configuration.lab_config import (
     GRADERS,
     GRAPH_SOURCES,
     HIERARCHIES,
+    LLM_PROVIDERS,
     RERANKERS,
     RETRIEVERS,
     ROOT,
@@ -51,7 +52,10 @@ from raglab.configuration.lab_config import (
     STEPS,
     SUMMARIZERS,
     SUMMARY_SCOPES,
+    GenerationConfig,
+    IndexConfig,
     LabConfig,
+    RetrievalConfig,
     load_lab_settings,
     settings_for_provider)
 from raglab.rag_components.indexing import (
@@ -60,12 +64,14 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.llm_backends.chat_model_factory import lab_llm
 from raglab.dashboard.service_presentation import (
     chunks_by_session,
+    gold_available,
     mark_gold,
     summary_rows)
 from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
     _accepted,
     cancel_checker,
+    _find_question,
     ground_truth_for,
     screen,
     scaled_progress)
@@ -88,6 +94,82 @@ def _relative(path: Path) -> str:
 def _with_backend(cfg: LabConfig, run_settings) -> dict:
     """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
     return cfg.to_dict() | {'provider': run_settings.provider}
+
+
+def _recorded_config_problem(recorded: object) -> str | None:
+    """The strict counterpart to ``LabConfig.from_dict`` for old records.
+
+    The normal parser is intentionally forgiving of a stale *browser* payload.
+    A recorded experiment is different evidence: dropping a retired field or
+    coercing a malformed value here would run a question under settings the
+    record never named.  ``provider`` is execution metadata Jobs adds beside a
+    LabConfig, not a knob, and is the one accepted top-level companion field.
+    """
+    if not isinstance(recorded, dict) or not recorded:
+        return 'recorded experiment has no config'
+    lab_fields = set(LabConfig.__dataclass_fields__)
+    unknown = sorted(set(recorded) - lab_fields - {'provider'})
+    if unknown:
+        return f'{unknown[0]} is not a knob this lab reads any more'
+    if 'label' in recorded and not isinstance(recorded['label'], str):
+        return 'recorded label has malformed type'
+
+    for name, kind in (('index', IndexConfig),
+                       ('retrieval', RetrievalConfig),
+                       ('generation', GenerationConfig)):
+        if name not in recorded:
+            return f'recorded {name} is missing'
+        knobs = recorded[name]
+        if not isinstance(knobs, dict):
+            return f'recorded {name} has malformed shape'
+        retired = sorted(set(knobs) - set(kind.__dataclass_fields__))
+        if retired:
+            return f'{retired[0]} is not a knob this lab reads any more'
+        missing = sorted(set(kind.__dataclass_fields__) - set(knobs))
+        if missing:
+            return f'recorded {name}.{missing[0]} is missing'
+        for knob, value in knobs.items():
+            expected = kind.__dataclass_fields__[knob].type
+            if expected is str and not isinstance(value, str):
+                return f'recorded {name}.{knob} has malformed type'
+            if expected is bool and type(value) is not bool:
+                return f'recorded {name}.{knob} has malformed type'
+            if expected is int and type(value) is not int:
+                return f'recorded {name}.{knob} has malformed type'
+            if expected is float and (type(value) not in (int, float)):
+                return f'recorded {name}.{knob} has malformed type'
+            if knob == 'agentic_weights' and (
+                    not isinstance(value, (list, tuple))
+                    or len(value) != 3
+                    or any(type(weight) not in (int, float)
+                           for weight in value)):
+                return f'recorded {name}.{knob} has malformed type'
+    if 'provider' not in recorded:
+        return 'recorded provider is missing'
+    if not isinstance(recorded['provider'], str):
+        return 'recorded provider has malformed type'
+    provider = recorded['provider']
+    if provider and provider not in LLM_PROVIDERS:
+        return f'unknown recorded provider: {provider!r}'
+    return None
+
+
+def _recorded_config(detail: object, row: dict | None = None) -> object:
+    """The config a job recorded, with only its separately-recorded backend.
+
+    Run results predate the backend field and keep their `config` in the
+    portable archive spelling, where provider is deliberately execution
+    metadata rather than a knob.  The ledger records that resolved provider in
+    its own column from the same job.  Joining those two stored facts restores
+    the complete job config; it never consults the lab's current provider and
+    never mutates the detail object being read.
+    """
+    config = detail.get('config') if isinstance(detail, dict) else None
+    provider = (row or {}).get('provider')
+    if (isinstance(config, dict) and 'provider' not in config
+            and isinstance(provider, str) and provider):
+        return config | {'provider': provider}
+    return config
 
 
 def _archive_ui(payload: dict) -> dict:
@@ -338,6 +420,7 @@ class Jobs:
                          'wait for it to finish, or cancel it first')
             job_id = uuid.uuid4().hex[:10]
             self.jobs[job_id] = {'id': job_id, 'kind': kind, 'state': 'running',
+                                 'started_at': time.strftime('%Y-%m-%d %H:%M:%S'),
                                  'stage': 'starting', 'progress': 0.0,
                                  'detail': '', 'config': config,
                                  'result': None, 'error': None,
@@ -420,6 +503,7 @@ class Jobs:
     def list(self) -> list[dict]:
         """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
         return [{'id': job['id'], 'kind': job['kind'], 'state': job['state'],
+                 'started_at': job.get('started_at', ''),
                  'config': job.get('config')}
                 for job in reversed(list(self.jobs.values()))]
 
@@ -767,17 +851,30 @@ def create_app() -> FastAPI:
         command line cannot describe the same records differently. This route is
         why that module lives in `evaluation/` rather than among the terminal
         tools no route reaches."""
-        boards = leaderboard.build_board(limit)
-        wanted = dataset or datasets.BUILTIN
-        # `every_row`, not the boards concatenated: the page's own prose says the
-        # order it was served in is the ranking, and a concatenation is ordered
-        # by dataset block instead — so the unfiltered view would have said the
-        # served order meant something it did not.
-        rows = (leaderboard.every_row(boards) if dataset == '*' else
-                next((b.rows for b in boards if b.dataset == wanted), []))
-        return {'dataset': dataset or wanted,
+        wanted = dataset or '*'
+        running = jobs.get(jobs.current) if jobs.current else None
+        is_running = bool(running and running['state'] in ('running', 'cancelling'))
+        if is_running:
+            # A live job has no durable row yet. It still belongs on the board,
+            # newest first, so leaving the Laboratory does not make the reader
+            # lose the experiment currently in progress.
+            rows = leaderboard.board_rows(limit)
+            rows.append(leaderboard.live_job_record(running))
+            rows.sort(key=lambda row: row.get('started_at', ''), reverse=True)
+            if wanted != '*':
+                rows = [row for row in rows if row.get('dataset') == wanted]
+            ordering = 'newest'
+        else:
+            boards = leaderboard.build_board(limit)
+            # `every_row`, not the boards concatenated: the page's own prose says
+            # the order it was served in is the ranking, and a concatenation is
+            # ordered by dataset block instead.
+            rows = (leaderboard.every_row(boards) if wanted == '*' else
+                    next((b.rows for b in boards if b.dataset == wanted), []))
+            ordering = 'score'
+        return {'dataset': wanted,
                 'datasets': [found.as_dict() for found in datasets.catalogue()],
-                'rows': rows}
+                'rows': rows, 'ordering': ordering, 'running': is_running}
 
     @app.get('/api/experiments')
     def experiments(limit: int = 200):
@@ -828,6 +925,35 @@ def create_app() -> FastAPI:
         not hold is a refusal rather than a substitution: 409, because the
         archive is intact and it is this installation that has moved.
         """
+        # A question is a complete, durable record but deliberately not a
+        # completed evaluation: it has one answer and trace, no run file or
+        # corpus snapshot to turn into an export archive.  The open handoff
+        # therefore carries only the settings it actually recorded.  It does
+        # not touch the parent, manufacture evaluation evidence, or splice in
+        # today's corpus; a later Inspector visit reads the question row's own
+        # ledger evidence through its ordinary recorded-mode route.
+        question = ledger.experiment(experiment_id)
+        if (question or {}).get('kind') == 'question' and question.get('state') == 'done':
+            detail = question.get('detail')
+            recorded = _recorded_config(detail, question)
+            problem = _recorded_config_problem(recorded)
+            if problem:
+                raise HTTPException(409, problem)
+            handoff = {
+                'format': archive.FORMAT,
+                'version': archive.VERSION,
+                'settings': {
+                    'config': {name: recorded[name]
+                               for name in LabConfig.__dataclass_fields__},
+                    'ui': _archive_ui(detail | {
+                        'provider': recorded['provider']}),
+                },
+            }
+            try:
+                return archive.validate_archive(handoff)
+            except archive.ArchiveError as error:
+                raise HTTPException(409, str(error)) from error
+
         db = archive_store.connect(ledger.db_path())
         try:
             found = archive_store.serve(db, experiment_id)
@@ -840,6 +966,87 @@ def create_app() -> FastAPI:
                 404, f'{experiment_id} has no complete archive: only '
                 'experiments whose evidence survives in full are archived')
         return found
+
+    @app.post('/api/experiments/{experiment_id}/questions')
+    def add_recorded_question(experiment_id: str, payload: dict):
+        """Run one ground-truth question under an experiment's recorded config.
+
+        The parent record is evidence of work already done, so this route only
+        ever starts a distinct `question` job whose result names what it
+        annotates.  It never accepts a config from the browser: accepting one
+        would make the Inspector claim an experiment supplied settings it did
+        not actually record.
+        """
+        if leaderboard.experiment(experiment_id) is None:
+            raise HTTPException(404, f'unknown experiment: {experiment_id}')
+        row = ledger.experiment(experiment_id)
+        run = evaluate.load_run(experiment_id)
+        detail = (row or {}).get('detail') or run or {}
+        if not isinstance(detail, dict):
+            raise HTTPException(409, 'recorded experiment detail is malformed')
+        if detail.get('format') == 'raglab-experiment':
+            raise HTTPException(409, 'recorded archive has no runnable job config')
+        recorded = _recorded_config(detail, row)
+        problem = _recorded_config_problem(recorded)
+        if problem:
+            raise HTTPException(409, problem)
+
+        cfg = LabConfig.from_dict(recorded)
+        asked = questions_for(cfg)
+        question_id = payload.get('question_id') if isinstance(payload, dict) else None
+        question = _find_question(asked, question_id)
+        if question is None:
+            raise HTTPException(404, f'unknown question id: {question_id!r}')
+        run_settings = settings_for_provider(settings_now(),
+                                             recorded.get('provider') or '')
+        screen(cfg, run_settings)
+        job_config = _with_backend(cfg, run_settings)
+        selected_id = str(question_id)
+
+        def work(report, cancelled):
+            check_cancelled = cancel_checker(cancelled, JobCancelled)
+            check_cancelled()
+            with dataset_lock(cfg.index.dataset):
+                check_cancelled()
+                index = registry.get(cfg.index,
+                                     progress=scaled_progress(report, 0.6))
+                llm = lab_llm(run_settings)
+                roles = models.resolve(cfg, run_settings)
+                query_date = (asked.get('groundtruth_dataset_metadata') or {}
+                              ).get('default_question_asked_at',
+                                    '2026-07-28T00:00:00Z')[:10]
+                report('retrieving', 0.65, question['question'][:80])
+                outcome, trace = pipeline.retrieve_traced(
+                    index, cfg.retrieval, question['question'], query_date,
+                    llm=llm, models=roles)
+                trace_row = evaluate.trace_row(
+                    question, trace,
+                    gold_present=gold_available(
+                        index, metrics.verbatim_quotes(question)))
+                check_cancelled()
+                report('answering', 0.85)
+                outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
+                                          models=roles)
+                answer_row = evaluate.json_safe(
+                    metrics.score_question(question, outcome, cfg.retrieval.k))
+                return {
+                    'label': f'adds {selected_id} to {experiment_id}',
+                    'annotates': experiment_id,
+                    'question_id': selected_id,
+                    'config': job_config,
+                    'models': roles.as_dict(),
+                    'selection': {'n': 1, 'question_ids': [selected_id]},
+                    'traces': [trace_row],
+                    'rows': [answer_row],
+                }
+
+        return _accepted(jobs.start('question', work, config=job_config))
+
+    @app.get('/api/experiments/{experiment_id}/questions')
+    def recorded_questions(experiment_id: str):
+        if leaderboard.experiment(experiment_id) is None:
+            raise HTTPException(404, f'unknown experiment: {experiment_id}')
+        return {'questions': ledger.annotations(experiment_id)}
 
     @app.post('/api/imported-archives')
     def import_archive(payload: dict):

@@ -477,6 +477,12 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .prose code { font: var(--t-xs) var(--mono); }
 #indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
 #datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
+#dataset-detail-open { margin-top: var(--s-2); }
+.dataset-detail {
+  width: min(90vw, 76rem); max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem); overflow: auto;
+}
+.dataset-detail-census { color: var(--ink-soft); font: var(--t-xs)/1.5 var(--mono); }
 #dataset-file { font-size: var(--t-xs); padding: var(--s-1); }
 #jobBox pre {
   white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;

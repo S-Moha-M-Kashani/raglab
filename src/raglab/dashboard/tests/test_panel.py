@@ -135,6 +135,13 @@ CONVENTIONS = [
      'each score must join the one help registry under metric.<key>'),
     ('panel.js', None, 'SCORE_CARDS',
      'the hard-coded score list must not come back'),
+    ('panel.js', 'noteInspectorReady(job.kind)', None,
+     'poll completion must announce the Inspector-ready evidence once per '
+     'finished job'),
+    ('index.html', None, 'target="_blank"',
+     'the Laboratory no longer opens a redundant Inspector tab'),
+    ('leaderboard.js', None, 'target="_blank"',
+     'the board open arrow must navigate the current tab by default'),
     ('index.html (embedding-model label)', 'sentence-transformers', None,
      'the embedding-model label must name the sentence-transformers backend'),
     ('index.html (embedding-model label)', 'fastembed', None,
@@ -154,6 +161,9 @@ CONVENTIONS = [
     ('panel.js', 'job.detail', None,
      'a judged local run spends hours in one stage, and the detail is the '
      'one thing that still moves'),
+    ('panel.js', ".jobs || []", None,
+     'returning from another surface must reattach to the jobs envelope, or '
+     'the footer says nothing is running while the server rejects a second run'),
     ('index.html', 'Stop experiment', None,
      'a run that cannot be stopped is one you kill the process to escape'),
     ('panel.js', "'/api/jobs/' + jobId + '/cancel'", None,
@@ -164,13 +174,11 @@ CONVENTIONS = [
     ('index.html', 'href="/inspector"', None,
      'the panel must link to the Inspector by path — all three surfaces are '
      'one origin now, so a port is not something a reader ever has to know'),
-    ('index.html', 'Inspector &rarr;', None,
-     'the panel must still name the Inspector in its link text — checked '
-     'against the link text itself rather than the bare word "Inspector", '
-     'which also appears in unrelated HTML comments (the shared-tokens note '
-     'by the stylesheet links, the retrieval-window note above the actions '
-     'row, and the note beside the link itself) that a rename of the '
-     'visible link would not touch'),
+    ('index.html', None, 'id="open-inspector"',
+     'the redundant in-panel Inspector door is replaced by the topnav and a '
+     'ready notice, so the retired button must not return'),
+    ('panel.js', 'ready to read on the Inspector tab', None,
+     'completed work must tell the reader when Inspector data is ready'),
     ('index.html', None, 'id="question"',
      'asking one question moved to the Inspector; a control left behind is '
      'how a retired feature quietly comes back'),
@@ -227,6 +235,13 @@ CONVENTIONS = [
      'the leaderboard must read the board route, not re-derive its own rows '
      'from the raw run list — two derivations is how two surfaces come to '
      'describe the same records differently'),
+    ('leaderboard.js', 'loadBoard(ASKED.get(\'dataset\') || EVERY)', None,
+     'the initial board must show the experiments population rather than '
+     'silently selecting the legacy Farsi builtin'),
+    ('leaderboard.js', 'ordering', None,
+     'the board must expose whether its server order is live-newest or score'),
+    ('leaderboard.js', 'running', None,
+     'the board must refresh while the Laboratory has a live job'),
     ('leaderboard.js', 'onApply', None,
      'the filter must re-run after every reorder: the sorter re-appends every '
      'row it holds, which drops the hidden ones back among the visible ones — '
@@ -1109,6 +1124,65 @@ def test_boot_keeps_hidden_defaults_before_any_archive_or_run_action():
         source.index('function snapshotDashboard'), source.index('function exportArchive'))
 
 
+def test_boot_reattaches_to_a_job_the_server_is_already_running():
+    # this is a convention test
+    """A reload loses the poll a click started, but never the job: the service
+    holds one job at a time and 409s a second, so a fresh page saying "nothing
+    running" is lying about what the server is doing. Boot must ask the job
+    table (`GET /api/jobs`) and re-enter the same `poll` on a job still running
+    or cancelling — and a run finishing under a reattached poll stays
+    settings-only: the settings that launched it left with the page that held
+    them, so this page can never vouch for the evidence as its own."""
+    source = PANEL_JS.read_text()
+    assert 'async function reattachRunningJob' in source, (
+        'boot has no way to discover a job the server is already running')
+    reattach = source[source.index('async function reattachRunningJob'):
+                      source.index('async function boot()')]
+    assert "api('/api/jobs')" in reattach, (
+        'the job table is the one place the running job can be learned from')
+    assert "'running'" in reattach and "'cancelling'" in reattach, (
+        'both live states must reattach — a cancelling job still needs its '
+        'spine and its cancel button')
+    assert 'poll(' in reattach, (
+        'the reattached job must ride the same poll a click would have '
+        'started, not a second progress path')
+    assert 'ArchiveIO.completed' not in reattach, (
+        'a reattached run must never be claimed as this page’s own '
+        'archive evidence')
+    boot = source[source.index('async function boot()'):
+                  source.index('async function refreshOptions()')]
+    assert 'reattachRunningJob(' in boot, (
+        'discovering the running job is part of booting the page')
+
+
+def test_a_running_job_makes_the_chrome_line_pronounced(panel_texts):
+    # this is a convention test
+    """Idle, the chrome line is a 3px edge with zero width — correctly
+    nothing. Running, it must announce itself: taller than the idle edge,
+    visible from the first tick (a starting job is at 0% and an invisible bar
+    reads as "nothing running"), and moving even when the fraction is not."""
+    js = panel_texts['panel.js']
+    render = js[js.index('function renderSpine'):
+                js.index('function renderIndexes')]
+    assert "track.dataset.running" in render, (
+        'renderSpine must mark the chrome line while a job runs and clear '
+        'the mark after')
+    css = panel_texts['chrome.css']
+    track = re.search(
+        r'\.chrome-progress\[data-running="true"\]\s*\{([^}]*)\}', css)
+    assert track and 'height' in track.group(1), (
+        'a running chrome line must be taller than the idle 3px edge')
+    assert '3px' not in track.group(1), (
+        'pronounced means taller than idle, not the same height restated')
+    fill = re.search(
+        r'\.chrome-progress\[data-running="true"\] i\s*\{([^}]*)\}', css)
+    assert fill and 'min-width' in fill.group(1), (
+        'the fill must be visible at 0%, or a starting job shows nothing')
+    assert 'animation' in fill.group(1), (
+        'the fill must move on its own — a stalled-looking bar and a dead '
+        'one must not look alike')
+
+
 def test_the_lab_page_no_longer_holds_the_experiment_ledger(panel_texts):
     # this is a convention test
     """It moved to the leaderboard, which is the surface for cross-run reading —
@@ -1251,6 +1325,44 @@ def test_the_leaderboard_route_names_every_dataset_the_picker_can_offer(client):
     body = client.get('/api/leaderboard').json()
     ids = {d['id'] for d in body['datasets']}
     assert 'diary-fa' in ids
+
+
+def test_the_default_leaderboard_is_the_experiment_population_not_farsi(client):
+    # this is an integration test
+    """An omitted dataset is a request for the board's experiment population,
+    not a request to display the legacy Farsi builtin. The latter makes an
+    empty Farsi table appear whenever the user returns from another surface."""
+    body = client.get('/api/leaderboard').json()
+    assert body['dataset'] == '*'
+    assert body['ordering'] == 'score'
+    assert body['running'] is False
+
+
+def test_the_leaderboard_contract_exposes_live_ordering_and_job_state(
+        panel_texts):
+    # this is a convention test
+    """The page must be able to distinguish a live newest-first board from an
+    idle score-first board; without these fields it cannot refresh after the
+    Laboratory starts or finishes a job."""
+    js = panel_texts['leaderboard.js']
+    assert 'body.ordering' in js
+    assert 'body.running' in js
+    assert 'setTimeout' in js
+
+
+def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
+        panel_texts):
+    # this is a convention test
+    """The inline dataset description is not enough for the full census and
+    declaration table. The selected dataset therefore needs an accessible
+    control and a top-layer detail surface that can be read at viewport size."""
+    html = panel_texts['index.html']
+    css = panel_texts['panel.css']
+    assert 'dataset-detail' in html
+    assert 'popovertarget="dataset-detail"' in html
+    assert 'popover' in html[html.index('id="dataset-detail"'):]
+    assert 'dataset-detail' in css
+    assert '100vw' in css or '100dvw' in css
 
 
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
@@ -1898,12 +2010,11 @@ def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
     assert 'href="/?experiment=' in panel_texts['leaderboard.js'], (
         'the board must open the experiment by path on this origin, with the '
         'id carried in the query string')
-    # The panel's own door to the Inspector, opened from 3 · Generation once a
-    # run exists: same requirement, same reason, a second place the origin
-    # could have been left behind.
-    assert 'id="open-inspector" href="/inspector"' in panel_texts['index.html'], (
-        "the panel's lab-link to the Inspector must be a path on this "
-        'origin, not a link to a port')
+    # The Inspector carrier is now the topnav link rewritten in panel.js when
+    # an experiment is opened; the resting markup remains the root path.
+    assert "'/inspector?experiment='" in panel_texts['panel.js'], (
+        'the opened experiment must be carried to the Inspector by path on '
+        'this origin, not by a second tab or a port')
 
 
 # --- the knob surface, end to end -------------------------------------------

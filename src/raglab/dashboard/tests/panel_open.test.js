@@ -5,7 +5,7 @@
 // `handOver()` -> `openHandedExperiment()` in `dashboard/frontend/panel.js`
 // — the exact function panel.js runs on its own when the page loads with
 // `?experiment=<id>` in the URL, which is what the leaderboard's `↗` open
-// arrow opens in a new tab. Round 1 and round 2's unit tests exercised
+// arrow navigates in the same tab. Round 1 and round 2's unit tests exercised
 // `ExperimentHandoff.reconcile()`/`reconcileUi()` directly; this is the first
 // test that drives the real page-load entry point end to end, over a real
 // archive fetched from a running server before this branch's schema existed
@@ -141,6 +141,8 @@ function panelPage({ search = '', initialSavedConfig = null,
   seedStaticControls(byIdOf);
   const ragModels = modelRoleElements();
   const requests = [];
+  const inspectorLink = element('inspector-link');
+  inspectorLink.href = '/inspector';
   // Seeded *before* the script below ever runs, so a saved config already
   // sits in storage the moment the automatic `boot()` call at the foot of
   // panel.js starts — the only way to exercise `startingConfig()`'s own read
@@ -171,7 +173,8 @@ function panelPage({ search = '', initialSavedConfig = null,
       activeElement: null,
       getElementById: byIdOf,
       createElement: (tag) => element(`<${tag}>`),
-      querySelector: () => element('querySelector'),
+      querySelector: (selector) => selector === '.topnav a[href^="/inspector"]'
+        ? inspectorLink : element('querySelector'),
       querySelectorAll: (selector) => (selector === '.rag-model' ? ragModels : []),
       addEventListener() {},
     },
@@ -194,6 +197,12 @@ function panelPage({ search = '', initialSavedConfig = null,
         return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
           json: () => Promise.resolve(copy(REAL_OPTIONS)) });
       }
+      // Boot asks the job table for a job already running (reattachRunningJob);
+      // this harness models an idle installation, which answers an empty list.
+      if (path === '/api/jobs') {
+        return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
+          json: () => Promise.resolve([]) });
+      }
       for (const [id, archive] of Object.entries(archives)) {
         if (path === `/api/experiments/${encodeURIComponent(id)}/archive`) {
           return Promise.resolve({ ok: true, status: 200, statusText: 'OK',
@@ -211,7 +220,7 @@ function panelPage({ search = '', initialSavedConfig = null,
   // handed-over experiment — needs several microtask turns to settle, the
   // same wait `record_mode.test.js`'s harness uses.
   const settled = (async () => { for (let i = 0; i < 40; i += 1) await null; })();
-  return { sandbox, byId: byIdOf, requests, settled };
+  return { sandbox, byId: byIdOf, requests, inspectorLink, settled };
 }
 
 test('the fixture still carries the defect this round fixes', () => {
@@ -262,11 +271,23 @@ test('loading ?experiment=<pre-branch-id> opens it — the open proceeds, the '
     const opened = page.requests.notes.find((note) => /^Laboratory settings are now/.test(note));
     assert.ok(opened, 'the widget must say the settings are now this experiment’s');
     assert.match(opened, /key_facts_judge = true — not a knob this lab reads any more/);
+    assert.match(opened, /The Inspector link above now leads to this experiment\.$/,
+      'after a successful open, the widget must name the Inspector destination');
 
     // Nothing here was reinterpreted onto the running config either: the
     // in-memory config this page would submit next carries no trace of the
     // retired name.
     assert.equal('key_facts_judge' in page.sandbox.readConfig().generation, false);
+  });
+
+test('opening an experiment pins the topnav Inspector link to that record',
+  async () => {
+    // this is an integration test
+    const page = panelPage({ search: `?experiment=${EXPERIMENT_ID}`,
+                             initialSavedMode: '' });
+    await page.settled;
+    assert.equal(page.inspectorLink.href,
+      `/inspector?experiment=${encodeURIComponent(EXPERIMENT_ID)}`);
   });
 
 test('a fresh page load leaves no poison behind for the next one', async () => {

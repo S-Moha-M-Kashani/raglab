@@ -581,3 +581,31 @@ def test_an_answerer_that_could_not_be_reached_says_so_on_the_row():
     answer2 = pipeline._llm_answer(worked, Working(), 'sonnet')
     assert answer2 == 'یک جواب'
     assert 'answer_error' not in worked.diagnostics
+
+
+def test_llm_answer_prompt_requires_the_question_language():
+    # this is a unit test
+    """The prompt must tell the model to answer in the question's language."""
+    class Answered:
+        content = 'answer'
+
+    class RecordingModel:
+        def __init__(self):
+            self.messages = None
+
+        def invoke(self, messages, **kwargs):
+            self.messages = messages
+            return Answered()
+
+    for question, language in (
+            ('امروز چه خبر بود؟', 'Persian'),
+            ('What happened today?', 'English'),
+            ('Was ist heute passiert?', 'German')):
+        model = RecordingModel()
+        outcome = pipeline.Outcome(
+            question=question,
+            contexts=[pipeline.Context('chunk-1', 'Evidence text.', 'session-1',
+                                       '2026-01-01', 1.0)],
+        )
+        assert pipeline._llm_answer(outcome, model, 'answerer') == 'answer'
+        assert f'answer in {language}' in model.messages[0]['content']

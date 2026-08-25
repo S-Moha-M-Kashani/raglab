@@ -92,7 +92,11 @@ function board() {
     assert.ok(wired.length, `nothing listens for ${type}`);
     for (const fn of wired) fn({ target: null, relatedTarget: null, ...event });
   };
-  return { fire, reveal, cell, elsewhere };
+  // `runInNewContext` makes `sandbox` the script's global object, so every
+  // top-level function declaration in `SOURCE` — `settingsReveal` included —
+  // lands on it as a property. Exposed for tests that call a renderer
+  // directly rather than through a DOM event.
+  return { fire, reveal, cell, elsewhere, sandbox };
 }
 
 // This is a unit test.
@@ -153,6 +157,46 @@ test('the pointer leaving the row closes the reveal, and so does leaving the '
   // to say the row was left.
   fire('mouseout', { target: cell, relatedTarget: null });
   assert.equal(reveal.open, false, 'the pointer left the window');
+});
+
+// This is a unit test.
+test('an inert knob renders as none, off, and without its recorded value', () => {
+  // `overlap` was recorded (100), but this row's chunker never reads it —
+  // `row.inert` names the path and says why. The reveal must not leak the
+  // ignored number, and must mark the span so a reader does not mistake a
+  // number that was never used for one that was.
+  const { sandbox } = board();
+  const row = {
+    config: { index: { chunker: 'semantic-drift', overlap: 100 } },
+    inert: { 'index.overlap': 'only the fixed-overlap chunker slides a window' },
+  };
+  const html = sandbox.settingsReveal(row);
+
+  assert.match(html,
+    /<span class="reveal-knob-off" title="only the fixed-overlap chunker slides a window — recorded value never used">overlap <b>none<\/b><\/span>/,
+    'the inert knob reads none, carries the off class and its reason');
+  assert.doesNotMatch(html, /100/, 'the recorded-but-unread value never appears');
+  // A knob the config recorded and this build actually read renders exactly
+  // as it always has — plain class, its real value.
+  assert.match(html,
+    /<span class="reveal-knob">chunker <b>semantic-drift<\/b><\/span>/,
+    'a knob not named in row.inert still shows its recorded value');
+});
+
+// This is a unit test.
+test('a genuinely recorded "none" stays distinguishable from an inert knob', () => {
+  // Nothing in `row.inert` names this knob — the config really did record the
+  // word 'none' as a value (an unset optional, say). It must not pick up the
+  // off class or a title meant for a knob that was never read at all.
+  const { sandbox } = board();
+  const row = { config: { index: { embedder: 'none' } }, inert: {} };
+  const html = sandbox.settingsReveal(row);
+
+  assert.match(html,
+    /<span class="reveal-knob">embedder <b>none<\/b><\/span>/,
+    'a recorded none keeps the plain class');
+  assert.ok(!html.includes('reveal-knob-off'),
+    'a recorded none is never mistaken for an inert knob');
 });
 
 // This is a unit test.

@@ -152,12 +152,9 @@ function cell(row, key) {
     // name the experiment, because a link that navigated and a handler that
     // read a row index would be two accounts of one click.
     //
-    // The Laboratory, not the Inspector. The slot alone only ever reached a
-    // Laboratory that happened to be open already, so a reader with just the
-    // board up clicked "open", got the Inspector, and never saw the knobs it
-    // promised. The evidence is still one link away, from the page that now
-    // holds this experiment's settings.
-    case 'open': return `<a class="open-run" target="_blank" rel="noopener"`
+    // Same-tab navigation is the requested in-app move; the browser still
+    // keeps middle-click, cmd/ctrl-click and other modifier-key choices.
+    case 'open': return `<a class="open-run"`
       + ` href="/?experiment=${encodeURIComponent(row.experiment_id)}"`
       + ` data-experiment="${escapeHtml(row.experiment_id)}"`
       + ` aria-label="Open ${escapeHtml(row.experiment_id)} in the Laboratory,`
@@ -170,6 +167,7 @@ function cell(row, key) {
 
 let CURRENT = '';        // the dataset in force, '' = the served default
 let CATALOGUE = [];      // the corpora the route named, as served
+let REFRESH_TIMER = null;
 
 // The corpus by the name the heading and the picker say, never by its id: the
 // caption and the region's name are read aloud, so an id there hands the screen
@@ -238,6 +236,10 @@ function renderTable(dataset, rows) {
 // else, which is why the tooltips on these pages were removed.
 function settingsReveal(row) {
   const config = row.config || {};
+  // Which recorded knobs this build never read, and why — `{}` for every row
+  // Tasks 1-2 did not touch, and for every row whose config left nothing
+  // inert. Keyed the same way the blocks below are built: `${step}.${key}`.
+  const inert = row.inert || {};
   // The abbreviation's expansion, first: the cell draws 'sem-drift·louv·ST' and
   // the reader who does not recognise one of those words has to be able to read
   // it here, not infer it from the knob list below. The knobs are still the
@@ -247,8 +249,20 @@ function settingsReveal(row) {
     .filter((step) => config[step] && Object.keys(config[step]).length)
     .map((step) => `<div class="reveal-step" data-step="${step}">`
       + `<b>${step}</b>`
-      + Object.entries(config[step]).map(([k, v]) =>
-        `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`).join('')
+      + Object.entries(config[step]).map(([k, v]) => {
+        // A knob this config recorded but the build never read (an overlap
+        // under a chunker that never slides a window) is a refusal, not a
+        // number to trust — so it reads `none`, never the value that sat
+        // unused, and the span carries its own class and the reason a reader
+        // would otherwise have to guess at. A knob genuinely recorded as the
+        // word 'none' takes neither: it falls through to the plain span
+        // below, unchanged, so the two are never mistaken for each other.
+        const reason = inert[`${step}.${k}`];
+        return reason === undefined
+          ? `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`
+          : `<span class="reveal-knob-off" title="${escapeHtml(reason)}`
+            + ` — recorded value never used">${escapeHtml(k)} <b>none</b></span>`;
+      }).join('')
       + '</div>').join('');
   // A tab stop of its own, because the box holds more than it can show and
   // scrolls: the part below its own fold is otherwise readable with a pointer
@@ -380,6 +394,10 @@ function renderPicker(dataset, datasets) {
 }
 
 async function loadBoard(dataset) {
+  if (REFRESH_TIMER !== null) {
+    clearTimeout(REFRESH_TIMER);
+    REFRESH_TIMER = null;
+  }
   const box = $('board');
   box.innerHTML = '<div class="card"><p class="prose">Reading the records…</p></div>';
   let body;
@@ -400,11 +418,14 @@ async function loadBoard(dataset) {
   CURRENT = body.dataset || '';
   CATALOGUE = body.datasets || [];
   const rows = body.rows || [];
+  const ordering = body.ordering || 'score';
+  const running = Boolean(body.running);
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
         <h2>${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
-        <span class="section-meta right">${rows.length} recorded</span>
+        <span class="section-meta right">${rows.length} ${ordering === 'newest'
+          ? 'visible · newest first · running' : 'recorded · best score first'}</span>
       </div>
       ${renderPicker(CURRENT, CATALOGUE)}
       ${rows.length ? renderFilter() + renderTable(CURRENT, rows)
@@ -420,11 +441,11 @@ async function loadBoard(dataset) {
         failing, so those rows are a rehearsal of the pipeline and not a
         measurement of it. This table names no winner: rows graded by different
         judges over different question sets share it, so <b>judge</b> and
-        <b>questions</b> are columns you compare on. The <b>open</b> arrow does
-        two things: it reads the experiment in the Inspector, and it makes that
-        experiment's settings the <a href="/">Laboratory</a>'s — every knob this
-        installation can serve, with anything it cannot named in the lab
-        helper rather than quietly left behind.</p>
+        <b>questions</b> are columns you compare on. The <b>open</b> arrow opens
+        the <a href="/">Laboratory</a> in this tab with the experiment's
+        settings on the knobs, pins the Inspector link above to that same
+        experiment, and names any unserved knob in the lab helper rather than
+        quietly leaving it behind.</p>
       <p class="table-hint" id="filter-syntax"><b>Filter</b> takes one term per
         column, all of which must hold, each written as the column's own heading
         and what you want of it: <code>questions&gt;30</code>,
@@ -451,6 +472,9 @@ async function loadBoard(dataset) {
   }
   applyFilter();
   wirePicker();
+  if (running) {
+    REFRESH_TIMER = setTimeout(() => loadBoard(dataset), 1200);
+  }
 }
 
 function wirePicker() {
@@ -592,4 +616,4 @@ document.addEventListener('click', (event) => {
 
 const ASKED = new URLSearchParams(window.location.search);
 QUERY = ASKED.get('filter') || '';
-loadBoard(ASKED.get('dataset') || '');
+loadBoard(ASKED.get('dataset') || EVERY);

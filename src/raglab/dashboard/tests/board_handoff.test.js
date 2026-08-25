@@ -143,3 +143,12 @@ test('the open link lands on the Laboratory, where the knobs are', () => {
   assert.ok(href[1].startsWith('/?experiment='),
     `the open link must go to the Laboratory, not ${href[1]}`);
 });
+
+// This is a convention test.
+test('the open cell chooses same-tab navigation by default', () => {
+  const source = read('leaderboard.js');
+  const start = source.indexOf("case 'open':");
+  const openCell = source.slice(start, source.indexOf('default:', start));
+  assert.doesNotMatch(openCell, /target=/,
+    'the board must leave same-tab navigation as the browser default');
+});

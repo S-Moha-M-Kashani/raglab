@@ -780,6 +780,46 @@ def test_a_recorded_none_survives_into_the_reveal(tmp_path, monkeypatch):
     assert 'generation' not in config
 
 
+def test_a_run_backed_row_names_its_inert_knobs(tmp_path, monkeypatch):
+    # this is an integration test
+    """The run file's own config is the one place the full knob set survives —
+    `semantic-drift` never reads `overlap`, so the reveal has to say so next to
+    the recorded value rather than silently keeping it. `board_rows` reaches
+    this row through the ledger-never-saw branch: no ledger row at all, only a
+    run file, which is what a plain evaluation predating the ledger looks
+    like."""
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
+    db = tmp_path / 'l.db'
+    (tmp_path / '20260801-100000-abc123.json').write_text(json.dumps({
+        'run_id': '20260801-100000-abc123',
+        'config': {'index': {'chunker': 'semantic-drift', 'overlap': 100}},
+    }), encoding='utf-8')
+    row, = leaderboard.board_rows(db_path=db)
+    assert 'index.overlap' in row['inert']
+    assert row['inert']['index.overlap'], (
+        'a reason has to accompany the flag, or the reveal cannot say why')
+
+
+def test_a_ledger_only_row_marks_nothing_inert(tmp_path, monkeypatch):
+    # this is an integration test
+    """The ledger's six flat fields never carry `overlap` at all — `ledger_config`
+    only ever reshapes `chunker`/`embedder`/`retriever`/`reranker`/`grader`/
+    `answerer` — so there is nothing here for `inert_knobs` to call inert: a
+    field the config never wrote is a question nobody asked, not an answer of
+    no."""
+    from raglab.evaluation import service_experiment_ledger as ledger
+    db = tmp_path / 'l.db'
+    monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
+    ledger.record({'id': 'job-3', 'kind': 'index',
+                   'config': {'index': {'chunker': 'semantic-drift',
+                                        'embedder': 'token-hash'}},
+                   'seconds': 3, 'result': {}}, 'done', path=db)
+    row, = leaderboard.board_rows(db_path=db)
+    assert row['inert'] == {}, (
+        'a ledger-only row never recorded overlap at all, so nothing about it '
+        'is inert — only unlabelled')
+
+
 def test_a_row_agrees_with_the_table_it_is_filed_under(tmp_path, monkeypatch):
     # this is an integration test
     """`by_dataset` files a row with no dataset under the built-in corpus — no

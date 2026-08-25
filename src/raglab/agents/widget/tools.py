@@ -127,7 +127,8 @@ def save_widget_memory(dataset_id: str, experiment_id: str, subtopic: str,
 # concern (what this lab has already measured), and the only tools whose data
 # is injected rather than read from a fixture.
 TOOLS = [search_knowledge_base, calculate, search_rag_skills, read_rag_skill,
-         measure_bilingual_alignment, recall_conversation] + EXPERIMENT_TOOLS
+         measure_bilingual_alignment, read_long_term_memory,
+         recall_conversation] + EXPERIMENT_TOOLS
 
 # The YAML page is what the model reads; assigning it here makes the fixture
 # the single source, and the import fails on a tool the page does not name.

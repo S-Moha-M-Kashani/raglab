@@ -163,10 +163,16 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
 
     stream_agent = StreamAgent('streamed answer')
     monkeypatch.setattr(widget.backends, '_agent_for', lambda model: stream_agent)
-    output = list(widget.stream('What should we retain?',
-                                model='openai/gpt-5-nano', thread='stream-exp'))
+    output = widget.stream('What should we retain?',
+                           model='openai/gpt-5-nano', thread='stream-exp')
 
-    assert output[-1]['reply'] == 'streamed answer'
+    assert next(output) == {'delta': 'streamed answer'}
+    final = next(output)
+    assert final['reply'] == 'streamed answer'
+    assert events == []
+
+    with pytest.raises(StopIteration):
+        next(output)
     assert events == ['summarize', 'save']
 
 

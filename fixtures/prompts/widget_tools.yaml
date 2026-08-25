@@ -53,6 +53,18 @@ measure_bilingual_alignment: |-
           [["I slept badly.", "بد خوابیدم."], ["It rained.", "باران آمد."]].
           Pass sentences the user provides in this shape. Empty means the
           bundled diary-like pairs (fixtures/bilingual_probe_pairs.json).
+read_long_term_memory: |-
+  Read accepted long-term memory for a dataset and the reusable patterns
+  shared across datasets. This is a read-only summary, not experiment
+  evidence or a measured result; do not present it as proof of a claim.
+
+  Use this when prior widget conversations may contain a reusable finding.
+  The memory is selected by the system's memory policy, so do not infer or
+  save anything from this tool's availability alone.
+
+  Args:
+      dataset_id: The corpus id whose memory should be read, e.g. "diary-en"
+          or "smoke-mini".
 recall_conversation: |-
   Read what was said about one experiment in an earlier conversation, by its
   experiment id. Use it when the reader asks about an experiment that is not

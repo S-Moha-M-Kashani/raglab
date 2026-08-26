@@ -408,6 +408,8 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      // Keep the request alive while the reader navigates between surfaces.
+      keepalive: true,
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({ detail: res.statusText }));

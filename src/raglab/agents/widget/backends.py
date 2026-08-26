@@ -310,6 +310,19 @@ def _turn_steps(messages: list) -> list[dict]:
     return steps
 
 
+def _policy_transcript(thread: str) -> str:
+    """Render prior visible turns for short follow-ups such as ``and?``."""
+    if not (thread or '').strip():
+        return ''
+    try:
+        turns = memory.history(thread).get('turns') or []
+    except Exception:
+        return ''
+    return '\n'.join(f"{turn.get('role', 'message')}: {turn.get('text', '')}"
+                     for turn in turns[-memory.MAX_RECALLED:]
+                     if turn.get('text'))
+
+
 def _log_turn(*, message: str, reply: str, thread: str, started: float,
               input_tokens=None, output_tokens=None, messages=None,
               decision=None, status='answered', ai_message_id='') -> str:
@@ -366,9 +379,9 @@ def _memory_turn(message: str, model: str, thread: str) -> tuple[dict | None, ob
     except Exception:
         return None, None, ''
     trusted = experiment_tools.trusted_dataset_id(thread)
-    policy = evaluate_memory_policy(message, policy_model, experiment_id=thread,
-                                    dataset_id=trusted,
-                                    trusted_dataset_id=trusted)
+    policy = evaluate_memory_policy(
+        message, policy_model, experiment_id=thread, dataset_id=trusted,
+        trusted_dataset_id=trusted, conversation=_policy_transcript(thread))
     if not policy.relevant:
         if policy.reason and 'unavailable' not in policy.reason.lower():
             decision = {**policy.model_dump(), 'saved': False, 'blocked': True}

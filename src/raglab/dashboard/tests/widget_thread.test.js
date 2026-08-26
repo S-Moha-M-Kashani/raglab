@@ -98,6 +98,12 @@ test('a memory event is routed after the authoritative reply', async () => {
   assert.equal(memory[0].status, 'saved');
 });
 
+test('the widget keeps its request alive across a page navigation', () => {
+  const start = source.indexOf('async function widgetStream');
+  const end = source.indexOf('// --- what you can ask');
+  assert.match(source.slice(start, end), /keepalive:\s*true/);
+});
+
 test('memory decisions render as safe metadata, never as a model answer', () => {
   const ask = source.slice(source.indexOf('async function widgetAsk'),
                            source.indexOf('async function widgetLoadOptions'));

@@ -13,6 +13,7 @@ has somewhere obvious to put a breakpoint.
 from langchain.agents.middleware import (after_agent, after_model,
                                          before_agent, before_model,
                                          wrap_model_call, wrap_tool_call)
+from langchain_core.messages import AIMessage
 
 from raglab.agents.widget.conversation_memory import (
     MAX_RELEVANCE_TEXT,
@@ -28,6 +29,18 @@ HOOK_LOG: list[str] = []     # what fired, in order — the whole run at a glanc
 
 MAX_QUESTION = MAX_RELEVANCE_TEXT  # the longest request it will accept
 MAX_HISTORY = 20             # how much history one model call sees
+MAX_TOOL_HOPS = 8             # hard stop before a pathological tool loop
+
+
+def stop_repeated_tool_hops(state) -> str | None:
+    """Return a final fallback once a run has called tools too many times."""
+    calls = sum(len(getattr(message, 'tool_calls', None) or [])
+                for message in state.get('messages', []))
+    if calls >= MAX_TOOL_HOPS:
+        return ('I could not complete this lookup safely because the tool '
+                'calls started repeating. Please ask for the run by its '
+                'experiment ID.')
+    return None
 
 
 class MemoryUpdate(BaseModel):
@@ -40,7 +53,8 @@ class MemoryUpdate(BaseModel):
 
 def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
                            dataset_id: str = '',
-                           trusted_dataset_id: str = '') -> MemoryPolicy:
+                           trusted_dataset_id: str = '',
+                           conversation: str = '') -> MemoryPolicy:
     """Ask a model for the structured memory decision, failing closed.
 
     ``model`` is injected by the caller so this seam can be tested offline and
@@ -57,6 +71,7 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
             ('system', MEMORY_POLICY_PROMPT),
             ('user', (f'Experiment: {experiment_id or "none"}\n'
                       f'Dataset context: {dataset_id or "unknown"}\n'
+                      f'Prior conversation:\n{conversation or "(none)"}\n'
                       f'Question: {str(text).strip()}'))])
         policy = result if isinstance(result, MemoryPolicy) \
             else MemoryPolicy.model_validate(result)
@@ -145,6 +160,10 @@ def note_prompt(state, runtime):
     """Before each LLM call: say what the loop is about to send. This is where
     context injection would go; the trim itself belongs one hook further in,
     where it can be applied to the request instead of to the transcript."""
+    stop = stop_repeated_tool_hops(state)
+    if stop:
+        _fired('before_model', 'tool-hop guard stopped the run')
+        return {'messages': [AIMessage(content=stop)]}
     _fired('before_model', f'{len(state["messages"])} messages in state')
     return None
 

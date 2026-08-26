@@ -25,6 +25,7 @@ _PROMPTS = _prompts('widget')
 _TOOL_PROMPTS = _prompts('widget_tools')
 
 SYSTEM_PROMPT = _PROMPTS['system'].strip()
+MEMORY_POLICY_PROMPT = _PROMPTS['memory_policy'].strip()
 
 # The four questions the empty log offers. Model-facing text like the prompts
 # either side of it: clicking one sends exactly this string.

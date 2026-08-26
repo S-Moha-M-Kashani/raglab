@@ -84,6 +84,33 @@ test('a status event is routed to onStatus and never becomes the final event', a
   assert.equal(final.status, undefined);
 });
 
+test('a memory event is routed after the authoritative reply', async () => {
+  const sse = 'data: {"delta": "hello"}\n\n'
+            + 'data: {"reply": "hello"}\n\n'
+            + 'data: {"memory": {"status": "saved"}}\n\n';
+  const deltas = [];
+  const memory = [];
+  const final = await loadStream(sse).widgetStream('/api/widget/stream', {},
+    (delta) => deltas.push(delta), () => {}, (status) => memory.push(status));
+  assert.deepEqual(deltas, ['hello']);
+  assert.equal(final.reply, 'hello');
+  assert.equal(memory.length, 1);
+  assert.equal(memory[0].status, 'saved');
+});
+
+test('memory decisions render as safe metadata, never as a model answer', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  assert.ok(source.includes('function widgetMemoryStatus(memory)'),
+    'the browser needs one small mapping from API memory metadata to reader copy');
+  assert.ok(ask.includes('widgetMemoryStatus(memoryStatus)'),
+    'the later memory event must be the source of the displayed status');
+  assert.ok(ask.includes("widgetSay('meta', copy)"),
+    'memory status must be a concise metadata line, not a conversation turn');
+  assert.ok(!ask.includes("widgetSay('bot', data.memory"),
+    'internal memory state must never be displayed as the model answer');
+});
+
 // The sharper edge of the same rule: a stream that dies after a status event
 // has still never said what the lab holds. The old reader would have handed
 // the status event back as the reply's own final event — an answer the lab
@@ -212,6 +239,7 @@ test('a question captures whether a draw was already in flight before it posts',
     'the capture must happen before the post, or it is not a capture');
   const fates = ask.match(/replyFate\([^)]*\)/g) || [];
   assert.deepEqual(fates, ['replyFate(mine, intended, wasPending || drawPending)',
+                           'replyFate(mine, intended, wasPending || drawPending)',
                            'replyFate(mine, intended, wasPending || drawPending)'],
     'both the answer and the failure path must weigh the whole wait: a draw '
     + 'in flight when the question was asked counts even once it has settled');

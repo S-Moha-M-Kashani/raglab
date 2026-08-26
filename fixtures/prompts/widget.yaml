@@ -34,6 +34,16 @@ cli_system: |-
 
   {skills_index}
 
+memory_policy: >-
+  Decide whether the user's question is relevant to the RAG lab and whether it
+  contains a useful, reusable conclusion for long-term memory. Return only the
+  structured MemoryPolicy fields: relevant (boolean), should_save (boolean),
+  dataset_id (string), subtopic (string), and reason (brief string). Use the
+  active dataset and experiment context when provided; never invent an id.
+  A relevant question may still have should_save false. If uncertain, set both
+  relevant and should_save false and explain why. Never infer save eligibility
+  from the answer text.
+
 # What the empty log offers, as four buttons. These strings are sent to the
 # model verbatim when one is clicked, which makes them model-facing text and
 # puts them here with the rest of it rather than in the page.

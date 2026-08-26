@@ -1,7 +1,8 @@
 """What the widget remembers: one SQLite checkpointer, the thread reader behind
 /api/widget/history, and the tool that recalls another experiment's conversation.
 
-`databases/widget.db` is a conversation log and nothing else. It holds no
+`databases/widget.db` holds internal short-term checkpoints, readable turn
+logs, and selective long-term memory. It holds no
 metric, decides nothing, and no board, ranking or run file may ever read it —
 the widget sits outside the measured seam, and this module is why that stays
 true now that the helper writes something durable.
@@ -9,7 +10,7 @@ true now that the helper writes something durable.
 One thread per experiment: `thread_id` is the id of the experiment the lab has
 open, or `general` when it has none. That is the whole of the recall — open an
 experiment and last week's conversation about it is simply there, because
-SQLite kept it. Nothing is embedded, ranked or summarised.
+SQLite kept it. Nothing is embedded or ranked.
 
 A thread this file cannot find reads as empty, never as invented turns: the
 same rule the rest of the lab keeps about a row never lying about what produced
@@ -23,6 +24,8 @@ from threading import RLock
 
 from langchain.agents import AgentState
 from langchain_core.tools import tool
+from pydantic import ConfigDict, StrictBool, StrictStr
+from pydantic import BaseModel
 
 from raglab.configuration.env_settings import ROOT
 
@@ -32,23 +35,92 @@ GENERAL = 'general'
 _SAVER = None
 _SAVER_LOCK = RLock()
 
+MAX_RELEVANCE_TEXT = 500
+
+
+class MemoryPolicy(BaseModel):
+    """The explicit, structured decision about long-term widget memory.
+
+    The answer text is intentionally absent: saving is allowed only from this
+    decision, never from a heuristic over whatever the answer happened to say.
+    Strict fields and forbidden extras make a malformed model response fail
+    closed at the seam that receives it.
+    """
+
+    model_config = ConfigDict(extra='forbid', strict=True)
+
+    relevant: StrictBool = False
+    should_save: StrictBool = False
+    dataset_id: StrictStr = ''
+    subtopic: StrictStr = ''
+    reason: StrictStr = ''
+
+
+def memory_policy_defaults(experiment_id: str = '') -> dict:
+    """Safe state values used before a policy has been evaluated."""
+    return {
+        'relevant': False,
+        'should_save': False,
+        'dataset_id': '',
+        'subtopic': '',
+        'reason': '',
+        'experiment_id': (experiment_id or '').strip(),
+    }
+
+
+# A descriptive alias keeps the state contract discoverable to callers while
+# retaining the longer name for code that wants to be explicit.
+widget_state_defaults = memory_policy_defaults
+
+
+def relevance_guard(text: str) -> str | None:
+    """Return a short refusal for deterministic, obviously bad prompts.
+
+    This is deliberately conservative: semantic relevance remains a model
+    decision. The guard only handles inputs that need no model call to reject.
+    """
+    import re
+
+    value = str(text or '').strip()
+    if not value:
+        return 'Please ask a question about the RAG lab.'
+    if len(value) > MAX_RELEVANCE_TEXT:
+        return (f'That question is too long; please keep it to '
+                f'{MAX_RELEVANCE_TEXT} characters or fewer.')
+    unrelated = re.compile(
+        r'\b(?:weather|forecast|joke|recipe|restaurant|sports? score|'
+        r'horoscope|stock price|personal advice|write my essay)\b',
+        re.IGNORECASE)
+    if unrelated.search(value):
+        return ('I can help with the RAG lab, its experiments, and RAG '
+                'techniques, but not that unrelated request.')
+    return None
+
+
+def policy_state(policy: MemoryPolicy, experiment_id: str = '') -> dict:
+    """Convert a validated policy into the agent state's flat channels."""
+    normalized = policy.model_copy(update={
+        'should_save': policy.relevant and policy.should_save,
+    })
+    return {**normalized.model_dump(),
+            'experiment_id': (experiment_id or '').strip()}
+
 
 class WidgetState(AgentState):
-    """The agent's state beside its messages. Deliberately two fields: the
-    state is a real thing that persists and can be read back, and small enough
-    that redesigning it later is a rewrite of this class rather than an
-    unpicking of everything that grew into it.
+    """The agent's state beside its messages.
 
-    Both are written by `thread_stamp` below, handed to the graph as part of
-    `agent.invoke`'s own input by `backends.ask` — the same channel the
-    messages travel on, so the checkpointer persists them in the same write
-    and there is no second writer racing it. They were declared here and
-    written nowhere for a while, which meant `/api/widget/history` reported
-    two empty strings as facts about every thread: a field that always says
-    nothing is this project's own rule about a row that cannot say what
-    produced it, one layer out from where that rule is usually stated."""
+    Thread identity and start time, plus the structured memory-policy
+    decision, are written by `thread_stamp` and `backends.ask` as part of
+    `agent.invoke`'s own input. The checkpointer persists them in the same
+    write as the messages, so there is no second writer racing it and
+    `/api/widget/history` can report the state that produced the thread."""
     experiment_id: str   # '' in the general thread
     started_at: str      # ISO 8601, when this thread began
+    relevant: bool       # structured policy decision; false before evaluation
+    should_save: bool    # explicit save permission, never inferred from text
+    dataset_id: str      # validated dataset context, or '' when unavailable
+    subtopic: str        # policy's bounded topic label, or '' when unavailable
+    reason: str          # why the policy accepted, refused, or declined save
 
 
 def db_path(env: dict | None = None) -> Path:

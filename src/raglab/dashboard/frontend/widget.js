@@ -347,6 +347,15 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  function widgetMemoryStatus(memory) {
+    const copy = {
+      saved: 'Memory saved for future lab conversations.',
+      not_saved: 'Memory was not saved.',
+      irrelevant: 'No memory saved: this was not relevant to the lab.',
+    };
+    return copy[memory && memory.status] || '';
+  }
+
   function widgetStopped(el) {
     const log = $('widget-log');
     if (!el || !log.contains(el)) return;
@@ -394,7 +403,7 @@
   // event is returned. An `error` event is thrown, because that is what it is —
   // the stream's own way of saying the answer never finished, once the status
   // code has been spent on the first piece.
-  async function widgetStream(path, body, onDelta, onStatus) {
+  async function widgetStream(path, body, onDelta, onStatus, onMemoryStatus) {
     const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -431,8 +440,12 @@
         // would then hand back the chatter as the reply the lab supposedly
         // holds, which is exactly the substitution this file refuses.
         if (event.status != null) { onStatus(event.status); continue; }
+        if (event.memory != null && event.reply == null) {
+          if (onMemoryStatus) onMemoryStatus(event.memory);
+          continue;
+        }
         if (event.delta != null) onDelta(event.delta);
-        else final = event;
+        else if (event.reply != null) final = event;
       }
     };
     if (res.body) {
@@ -760,6 +773,12 @@
           if ($('widget-log').contains(thinking)) {
             thinking.textContent = `calling ${status}…`;
           }
+        },
+        (memoryStatus) => {
+          const fate = replyFate(mine, intended, wasPending || drawPending);
+          if (fate !== 'here') return;
+          const copy = widgetMemoryStatus(memoryStatus);
+          if (copy) widgetSay('meta', copy);
         });
       const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;

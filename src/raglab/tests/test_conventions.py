@@ -20,6 +20,7 @@ imports chromadb (here), a build opens no socket (test_store_index.py
 import importlib
 import json
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -617,6 +618,39 @@ def test_every_path_env_example_names_is_a_path_that_exists():
         elif not (ROOT / ref).exists():
             missing.append(ref)
     assert not missing, f'.env.example names {missing}, which do not exist'
+
+
+def _run_pre_push(update: str) -> subprocess.CompletedProcess[str]:
+    hook = ROOT / '.githooks' / 'pre-push'
+    assert hook.is_file(), 'the repository must ship its master-only push hook'
+    return subprocess.run(
+        [str(hook), 'origin', 'https://example.invalid/raglab.git'],
+        input=update,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def test_the_push_hook_allows_master_to_master():
+    # this is a convention test
+    sha = '1' * 40
+    result = _run_pre_push(
+        f'refs/heads/master {sha} refs/heads/master {"0" * 40}\n')
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('update', [
+    f'refs/heads/development {"1" * 40} refs/heads/development {"0" * 40}\n',
+    f'refs/tags/v1.0.0 {"1" * 40} refs/tags/v1.0.0 {"0" * 40}\n',
+    f'refs/heads/master {"1" * 40} refs/heads/public {"0" * 40}\n',
+    f'(delete) {"0" * 40} refs/heads/master {"1" * 40}\n',
+])
+def test_the_push_hook_rejects_everything_except_master(update):
+    # this is a convention test
+    result = _run_pre_push(update)
+    assert result.returncode != 0
+    assert 'only master' in result.stderr.lower()
 
 
 # --- The sanctioned duplication: two readable templates mirror the two JSON

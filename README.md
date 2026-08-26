@@ -255,6 +255,9 @@ shares the process, or the run is traced too.
   overrides the directory.
 - `databases/widget.db` — the widget's conversations, one thread per
   experiment plus `general`; see `.env.example` for what it is and is not.
+  The same database also contains `widget_turn_log`, one readable row per
+  question with nested steps, token totals, latency, and the linked memory
+  update when a relevant summary is saved.
   `RAGLAB_WIDGET_DB` overrides the path — the suite redirects it
   automatically, but a hand-run server does not, so set it yourself or a
   manual check writes into your real conversation store.

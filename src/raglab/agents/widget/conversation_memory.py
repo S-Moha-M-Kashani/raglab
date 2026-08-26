@@ -1,7 +1,8 @@
 """What the widget remembers: one SQLite checkpointer, the thread reader behind
 /api/widget/history, and the tool that recalls another experiment's conversation.
 
-`databases/widget.db` is a conversation log and nothing else. It holds no
+`databases/widget.db` holds internal short-term checkpoints, readable turn
+logs, and selective long-term memory. It holds no
 metric, decides nothing, and no board, ranking or run file may ever read it —
 the widget sits outside the measured seam, and this module is why that stays
 true now that the helper writes something durable.
@@ -9,7 +10,7 @@ true now that the helper writes something durable.
 One thread per experiment: `thread_id` is the id of the experiment the lab has
 open, or `general` when it has none. That is the whole of the recall — open an
 experiment and last week's conversation about it is simply there, because
-SQLite kept it. Nothing is embedded, ranked or summarised.
+SQLite kept it. Nothing is embedded or ranked.
 
 A thread this file cannot find reads as empty, never as invented turns: the
 same rule the rest of the lab keeps about a row never lying about what produced

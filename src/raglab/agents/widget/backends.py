@@ -442,14 +442,13 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     if decision and decision.get('blocked'):
         return {'reply': decision['reason'], 'input_tokens': None,
                 'output_tokens': None, 'memory': decision}
-    if context and decision:
-        memory_state = _policy_state(decision, thread)
-    else:
-        memory_state = None
+    memory_state = _policy_state(decision, thread) if decision else None
     agent = _agent_for(choice)
     if context and decision:
         payload, config = _run(message, thread, memory_state=memory_state,
                                memory_text=context)
+    elif memory_state:
+        payload, config = _run(message, thread, memory_state=memory_state)
     else:
         payload, config = _run(message, thread)
     try:
@@ -530,6 +529,9 @@ def _stream_agent(agent, message: str, thread: str, decision=None,
         state = _policy_state(decision, thread)
         payload, config = _run(message, thread, memory_state=state,
                                memory_text=context)
+    elif decision:
+        payload, config = _run(message, thread,
+                               memory_state=_policy_state(decision, thread))
     else:
         payload, config = _run(message, thread)
     final = None

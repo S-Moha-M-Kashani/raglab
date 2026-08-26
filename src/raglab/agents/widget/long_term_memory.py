@@ -142,8 +142,8 @@ def save_memory_update(dataset_id: str, experiment_id: str, subtopic: str,
         stored_global = ''
         dataset_ids = {str(value).strip() for value in
                        (validated_dataset_ids or set()) if str(value).strip()}
-        if ((global_summary or '').strip() and old_global and old_global[0]
-                and len(dataset_ids) >= 2 and dataset_id in dataset_ids):
+        if ((global_summary or '').strip() and len(dataset_ids) >= 2
+                and dataset_id in dataset_ids):
             stored_global = _aggregate(old_global[0] if old_global else '',
                                        global_summary)
             db.execute(

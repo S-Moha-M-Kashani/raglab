@@ -8,6 +8,7 @@ each accepted update so a summary never loses the experiment that produced it.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from threading import RLock
 from raglab.configuration.env_settings import ROOT
 
 MAX_SUMMARY_CHARS = 2_000
+MAX_SUBTOPIC_CHARS = 64
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dataset_memory (
@@ -67,6 +69,12 @@ def _bounded(summary: str) -> str:
     return str(summary or '').strip()[-MAX_SUMMARY_CHARS:]
 
 
+def _normalize_subtopic(subtopic: str) -> str:
+    """Store a compact, stable label rather than model punctuation or prose."""
+    words = re.findall(r'[\w]+', str(subtopic or '').casefold(), re.UNICODE)
+    return '-'.join(words)[:MAX_SUBTOPIC_CHARS].strip('-')
+
+
 def _aggregate(previous: str, incoming: str) -> str:
     previous, incoming = previous.strip(), incoming.strip()
     if not previous:
@@ -97,7 +105,8 @@ def memory_context(dataset_id: str) -> str:
 
 def save_memory_update(dataset_id: str, experiment_id: str, subtopic: str,
                        question: str, answer: str, dataset_summary: str,
-                       global_summary: str = '') -> dict:
+                       global_summary: str = '',
+                       validated_dataset_ids: set[str] | None = None) -> dict:
     """Persist one accepted update and return its stored summary state.
 
     An empty dataset has no valid provenance, so it is a no-op.  The caller may
@@ -109,7 +118,7 @@ def save_memory_update(dataset_id: str, experiment_id: str, subtopic: str,
         return {'saved': False, 'dataset_id': '', 'reason': 'empty dataset'}
 
     values = (dataset_id, (experiment_id or '').strip(),
-              (subtopic or '').strip(), (question or '').strip(),
+              _normalize_subtopic(subtopic), (question or '').strip(),
               (answer or '').strip())
     now = _now()
     with _LOCK, _connect() as db:
@@ -131,7 +140,10 @@ def save_memory_update(dataset_id: str, experiment_id: str, subtopic: str,
         old_global = db.execute(
             'SELECT summary FROM global_memory WHERE id = 1').fetchone()
         stored_global = ''
-        if (global_summary or '').strip():
+        dataset_ids = {str(value).strip() for value in
+                       (validated_dataset_ids or set()) if str(value).strip()}
+        if ((global_summary or '').strip() and old_global and old_global[0]
+                and len(dataset_ids) >= 2 and dataset_id in dataset_ids):
             stored_global = _aggregate(old_global[0] if old_global else '',
                                        global_summary)
             db.execute(

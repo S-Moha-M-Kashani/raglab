@@ -116,11 +116,12 @@ def read_long_term_memory(dataset_id: str) -> str:
 @tool
 def save_widget_memory(dataset_id: str, experiment_id: str, subtopic: str,
                        question: str, answer: str, dataset_summary: str,
-                       global_summary: str = '') -> dict:
+                       global_summary: str = '',
+                       validated_dataset_ids: set[str] | None = None) -> dict:
     """Persist one structured, policy-approved summarizer result."""
     return long_term_memory.save_memory_update(
         dataset_id, experiment_id, subtopic, question, answer,
-        dataset_summary, global_summary)
+        dataset_summary, global_summary, validated_dataset_ids)
 
 
 # The recorded-experiment tools are defined in their own module: they are one

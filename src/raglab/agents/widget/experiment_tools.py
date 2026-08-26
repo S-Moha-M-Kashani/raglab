@@ -43,6 +43,53 @@ def set_experiment_reader(reader) -> None:
     _READER = reader
 
 
+def experiment_reader_wired() -> bool:
+    """Whether experiment provenance is available to validate a thread."""
+    return _READER is not None
+
+
+def trusted_dataset_id(experiment_id: str) -> str:
+    """Return the dataset named by the injected experiment record, or empty.
+
+    The record reader is the panel's validated projection of the ledger and
+    run artifacts; model text is never trusted as experiment identity.
+    """
+    experiment_id = (experiment_id or '').strip()
+    if not experiment_id or _READER is None:
+        return ''
+    try:
+        found = _READER.experiment(experiment_id)
+    except Exception:
+        return ''
+    if not isinstance(found, dict):
+        return ''
+    found_id = found.get('experiment_id')
+    dataset = found.get('dataset')
+    if not isinstance(found_id, str) or found_id.strip() != experiment_id:
+        return ''
+    if not isinstance(dataset, str):
+        return ''
+    return dataset.strip()
+
+
+def validated_dataset_ids(experiment_id: str = '') -> set[str]:
+    """Return dataset ids present in the injected, validated experiment view."""
+    if _READER is None:
+        return set()
+    rows = []
+    try:
+        rows = _READER.board_rows(limit=SCAN) or []
+    except Exception:
+        rows = []
+    ids = {row['dataset'].strip() for row in rows
+           if isinstance(row, dict) and isinstance(row.get('dataset'), str)
+           and row['dataset'].strip()}
+    active = trusted_dataset_id(experiment_id)
+    if active:
+        ids.add(active)
+    return ids
+
+
 def _number(value, digits: int = 3) -> str:
     """A number, or an em dash — never a zero standing in for a missing one."""
     if not isinstance(value, (int, float)):

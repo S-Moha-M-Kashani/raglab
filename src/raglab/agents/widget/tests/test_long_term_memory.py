@@ -41,12 +41,48 @@ def test_updates_aggregate_by_dataset_and_keep_provenance():
 
 
 def test_global_summary_is_stored_and_context_includes_both_scopes():
+    memory.clear_long_term_memory()
+    with memory._connect() as db:
+        db.execute("INSERT INTO global_memory(id, summary, updated_at) "
+                   "VALUES (1, 'Existing global context.', 'now')")
+        db.commit()
+    memory.save_memory_update(
+        'diary-fa', 'exp-fa', 'chunking', 'q', 'a', 'Farsi finding.')
     memory.save_memory_update(
         'diary-en', 'exp-1', 'chunking', 'q', 'a', 'Dataset finding.',
-        'Across datasets, semantic drift favored session chunking.')
+        'Across datasets, semantic drift favored session chunking.',
+        {'diary-fa', 'diary-en'})
     context = memory.memory_context('diary-en')
     assert 'Dataset finding.' in context
     assert 'Across datasets, semantic drift favored session chunking.' in context
+
+
+def test_global_summary_requires_existing_context_and_two_dataset_ids():
+    memory.clear_long_term_memory()
+    memory.save_memory_update('diary-en', 'exp-1', 'chunking', 'q', 'a',
+                              'Dataset finding.', 'unsupported global')
+    assert 'unsupported global' not in memory.memory_context('diary-en')
+
+
+def test_subtopic_is_normalized_and_bounded():
+    memory.clear_long_term_memory()
+    value = '  Retrieval / Reranking!!  ' + ('x' * 500)
+    memory.save_memory_update('diary-en', 'exp-1', value, 'q', 'a', 'finding')
+    with sqlite3.connect(memory.db_path()) as db:
+        subtopic = db.execute(
+            'SELECT subtopic FROM memory_updates ORDER BY id DESC').fetchone()[0]
+    assert subtopic.startswith('retrieval-reranking-')
+    assert len(subtopic) <= memory.MAX_SUBTOPIC_CHARS
+
+
+def test_subtopic_normalization_keeps_unicode_words_bounded():
+    memory.clear_long_term_memory()
+    memory.save_memory_update('diary-fa', 'exp-1', 'بازیابی / رتبه‌بندی!!',
+                              'q', 'a', 'finding')
+    with sqlite3.connect(memory.db_path()) as db:
+        subtopic = db.execute(
+            'SELECT subtopic FROM memory_updates ORDER BY id DESC').fetchone()[0]
+    assert subtopic == 'بازیابی-رتبه-بندی'
 
 
 def test_summaries_are_bounded_and_empty_dataset_is_not_stored():
@@ -60,12 +96,12 @@ def test_summaries_are_bounded_and_empty_dataset_is_not_stored():
         dataset = db.execute(
             'SELECT summary FROM dataset_memory WHERE dataset_id = ?',
             ('diary-en',)).fetchone()[0]
-        global_summary = db.execute(
-            'SELECT summary FROM global_memory WHERE id = 1').fetchone()[0]
+        global_row = db.execute(
+            'SELECT summary FROM global_memory WHERE id = 1').fetchone()
         empty_updates = db.execute(
             "SELECT COUNT(*) FROM memory_updates WHERE dataset_id = ''").fetchone()[0]
     assert len(dataset) <= memory.MAX_SUMMARY_CHARS
-    assert len(global_summary) <= memory.MAX_SUMMARY_CHARS
+    assert global_row is None
     assert empty_updates == 0
 
 

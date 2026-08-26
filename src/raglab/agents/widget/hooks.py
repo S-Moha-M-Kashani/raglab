@@ -39,7 +39,8 @@ class MemoryUpdate(BaseModel):
 
 
 def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
-                           dataset_id: str = '') -> MemoryPolicy:
+                           dataset_id: str = '',
+                           trusted_dataset_id: str = '') -> MemoryPolicy:
     """Ask a model for the structured memory decision, failing closed.
 
     ``model`` is injected by the caller so this seam can be tested offline and
@@ -60,7 +61,17 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
         policy = result if isinstance(result, MemoryPolicy) \
             else MemoryPolicy.model_validate(result)
         if not policy.relevant:
-            return policy.model_copy(update={'should_save': False})
+            return policy.model_copy(update={
+                'should_save': False,
+                'reason': policy.reason or
+                'This request is not relevant to the RAG lab, so it was not processed.'})
+        if trusted_dataset_id and policy.dataset_id != trusted_dataset_id:
+            return MemoryPolicy(
+                relevant=False, should_save=False,
+                dataset_id=trusted_dataset_id,
+                reason=(f'The policy named dataset {policy.dataset_id!r}, but '
+                        f'the active experiment uses {trusted_dataset_id!r}; '
+                        'nothing was processed.'))
         return policy
     except Exception as error:
         return MemoryPolicy(

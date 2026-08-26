@@ -2,6 +2,7 @@
 """The policy-to-memory flow is selective and delivery ordered."""
 from langchain_core.messages import AIMessage
 import pytest
+import time
 
 from raglab.agents import widget
 from raglab.agents.widget import long_term_memory as long_memory
@@ -9,9 +10,19 @@ from raglab.agents.widget import long_term_memory as long_memory
 
 @pytest.fixture(autouse=True)
 def _clean_long_term_memory():
+    widget.experiment_tools.set_experiment_reader(None)
     long_memory.clear_long_term_memory()
     yield
     long_memory.clear_long_term_memory()
+    widget.experiment_tools.set_experiment_reader(None)
+
+
+class _ExperimentReader:
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def experiment(self, experiment_id):
+        return {'experiment_id': experiment_id, 'dataset': self.dataset}
 
 
 class _Agent:
@@ -52,6 +63,14 @@ def _setup(monkeypatch, policy, answer='authoritative answer'):
     return agent, policy_model
 
 
+def _eventually(predicate):
+    for _ in range(100):
+        if predicate():
+            return
+        time.sleep(0.005)
+    assert predicate()
+
+
 def test_deterministic_rejection_happens_before_agent_and_memory(monkeypatch):
     agent = _Agent()
     monkeypatch.setattr(widget.backends, '_agent_for', lambda model: agent)
@@ -82,13 +101,125 @@ def test_irrelevant_policy_result_does_not_write(monkeypatch):
     result = widget.ask('Which index should I use?', model='openai/gpt-5-nano',
                         thread='exp-irrelevant')
 
-    assert result['reply'] == 'authoritative answer'
+    assert 'not reusable' in result['reply']
     assert result['memory']['should_save'] is False
-    assert agent.invocations == 1
+    assert agent.invocations == 0
     assert long_memory.memory_context('diary-en') == ''
 
 
+def test_relevant_policy_cannot_invent_dataset_without_active_experiment(monkeypatch):
+    agent, _ = _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable',
+    })
+
+    result = widget.ask('Which retrieval setting should we retain?',
+                        model='openai/gpt-5-nano', thread='general')
+
+    assert agent.invocations == 1
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory']['saved'] is False
+    assert result['memory']['status'] == 'not_saved'
+
+
+def test_policy_dataset_mismatch_refuses_before_agent_and_save(monkeypatch):
+    class Reader:
+        def experiment(self, experiment_id):
+            return {'experiment_id': experiment_id, 'dataset': 'diary-en'}
+
+    widget.experiment_tools.set_experiment_reader(Reader())
+    try:
+        agent, policy_model = _setup(monkeypatch, {
+            'relevant': True, 'should_save': True, 'dataset_id': 'diary-fa',
+            'subtopic': 'retrieval', 'reason': 'wrong dataset',
+        })
+        result = widget.ask('Which index should I use?',
+                            model='openai/gpt-5-nano', thread='exp-context')
+    finally:
+        widget.experiment_tools.set_experiment_reader(None)
+
+    assert agent.invocations == 0
+    assert result['memory']['saved'] is False
+    assert 'dataset' in result['reply'].lower()
+    assert 'diary-en' in str(policy_model.messages)
+
+
+def test_same_dataset_experiment_receives_dataset_and_global_memory(monkeypatch):
+    class Reader:
+        def experiment(self, experiment_id):
+            return {'experiment_id': experiment_id, 'dataset': 'diary-en'}
+
+    widget.experiment_tools.set_experiment_reader(Reader())
+    try:
+        long_memory.save_memory_update(
+            'diary-en', 'old-exp', 'chunking', 'old question', 'old answer',
+            'previous dataset finding')
+        with long_memory._connect() as db:
+            db.execute('INSERT INTO global_memory(id, summary, updated_at) '
+                       "VALUES (1, 'existing cross-dataset context', 'now')")
+            db.commit()
+        long_memory.save_memory_update(
+            'diary-fa', 'other-exp', 'retrieval', 'q', 'a', 'other finding')
+        policy = {'relevant': True, 'should_save': False,
+                  'dataset_id': 'diary-en', 'subtopic': 'retrieval',
+                  'reason': 'useful'}
+        agent, _ = _setup(monkeypatch, policy)
+        widget.ask('Did reranking help?', model='openai/gpt-5-nano',
+                   thread='new-exp')
+    finally:
+        widget.experiment_tools.set_experiment_reader(None)
+
+    context = str(agent.payloads[0]['messages'][0].content)
+    assert 'previous dataset finding' in context
+    assert 'existing cross-dataset context' in context
+
+
+def test_malformed_active_experiment_cannot_supply_dataset_identity(monkeypatch):
+    class Reader:
+        def experiment(self, experiment_id):
+            return {'experiment_id': experiment_id, 'dataset': ['diary-en']}
+
+    widget.experiment_tools.set_experiment_reader(Reader())
+    try:
+        agent, _ = _setup(monkeypatch, {
+            'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+            'subtopic': 'retrieval', 'reason': 'reusable',
+        })
+        result = widget.ask('Which retrieval setting should we retain?',
+                            model='openai/gpt-5-nano', thread='bad-context')
+    finally:
+        widget.experiment_tools.set_experiment_reader(None)
+
+    assert agent.invocations == 0
+    assert result['memory']['blocked'] is True
+    assert 'active experiment context' in result['reply']
+
+
+def test_sync_returns_answer_before_deferred_memory_work(monkeypatch):
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    policy = {'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+              'subtopic': 'retrieval', 'reason': 'reusable'}
+    _setup(monkeypatch, policy, answer='answer first')
+    events = []
+
+    def finish(*args, **kwargs):
+        events.append('memory')
+        return {**policy, 'saved': True}
+
+    monkeypatch.setattr(widget.backends, '_finish_memory', finish)
+    monkeypatch.setattr(widget.backends, '_defer_memory',
+                        lambda *args, **kwargs: events.append('deferred'))
+
+    result = widget.ask('What should we retain?', model='openai/gpt-5-nano',
+                        thread='sync-order')
+
+    assert result['reply'] == 'answer first'
+    assert result['memory']['status'] == 'pending'
+    assert events == ['deferred']
+
+
 def test_accepted_turn_reads_context_and_aggregates_by_dataset(monkeypatch):
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
     long_memory.save_memory_update(
         'diary-en', 'old-exp', 'chunking', 'old question', 'old answer',
         'previous dataset finding')
@@ -106,34 +237,55 @@ def test_accepted_turn_reads_context_and_aggregates_by_dataset(monkeypatch):
     result = widget.ask('Did reranking help?', model='openai/gpt-5-nano',
                         thread='new-exp')
 
-    assert result['memory']['saved'] is True
+    assert result['memory']['status'] == 'pending'
+    _eventually(lambda: 'new dataset finding' in
+                long_memory.memory_context('diary-en'))
     assert 'previous dataset finding' in long_memory.memory_context('diary-en')
-    assert 'new dataset finding' in long_memory.memory_context('diary-en')
     assert any('previous dataset finding' in str(message.content)
                for message in agent.payloads[0]['messages'])
 
 
 def test_accepted_turn_can_update_global_pattern(monkeypatch):
+    class Reader:
+        def experiment(self, experiment_id):
+            return {'experiment_id': experiment_id, 'dataset': 'diary-fa'}
+
+        def board_rows(self, limit=500):
+            return [{'dataset': 'diary-en'}, {'dataset': 'diary-fa'}]
+
+    widget.experiment_tools.set_experiment_reader(Reader())
     policy = {
         'relevant': True, 'should_save': True, 'dataset_id': 'diary-fa',
         'subtopic': 'chunking', 'reason': 'reusable',
     }
-    _setup(monkeypatch, policy)
-    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
-                        lambda **kwargs: {
-                            'dataset_summary': 'Farsi session finding',
-                            'global_summary': 'Session-aware chunking recurs',
-                        })
+    try:
+        _setup(monkeypatch, policy)
+        with long_memory._connect() as db:
+            db.execute("INSERT INTO global_memory(id, summary, updated_at) "
+                       "VALUES (1, 'existing cross-dataset context', 'now')")
+            db.commit()
+        monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                            lambda **kwargs: {
+                                'dataset_summary': 'Farsi session finding',
+                                'global_summary': 'Session-aware chunking recurs',
+                            })
 
-    widget.ask('What pattern should we retain?', model='openai/gpt-5-nano',
-               thread='fa-exp')
+        widget.ask('What pattern should we retain?',
+                   model='openai/gpt-5-nano', thread='fa-exp')
+        _eventually(lambda: 'Session-aware chunking recurs' in
+                    long_memory.memory_context('diary-fa'))
+    finally:
+        widget.experiment_tools.set_experiment_reader(None)
 
+    _eventually(lambda: 'Farsi session finding' in
+                long_memory.memory_context('diary-fa'))
     context = long_memory.memory_context('diary-fa')
     assert 'Farsi session finding' in context
     assert 'Session-aware chunking recurs' in context
 
 
 def test_stream_emits_authoritative_answer_before_save(monkeypatch):
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('smoke-mini'))
     policy = {
         'relevant': True, 'should_save': True, 'dataset_id': 'smoke-mini',
         'subtopic': 'retrieval', 'reason': 'reusable',
@@ -183,6 +335,7 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
 
 
 def test_save_failure_keeps_the_authoritative_answer(monkeypatch):
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
     policy = {
         'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
         'subtopic': 'retrieval', 'reason': 'reusable',
@@ -200,5 +353,4 @@ def test_save_failure_keeps_the_authoritative_answer(monkeypatch):
                         thread='save-failure')
 
     assert result['reply'] == 'answer survives storage failure'
-    assert result['memory']['saved'] is False
-    assert 'disk is full' in result['memory']['save_error']
+    assert result['memory']['status'] == 'pending'

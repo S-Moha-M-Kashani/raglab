@@ -356,6 +356,21 @@ def test_the_two_agent_level_hooks_bracket_a_cli_too(monkeypatch):
                                                                 'after_agent']
 
 
+def test_cli_irrelevance_refuses_before_cli_invocation_or_memory(monkeypatch):
+    # this is a unit test
+    monkeypatch.setattr(widget.backends, '_cli_answer',
+                        lambda *args: (_ for _ in ()).throw(
+                            AssertionError('irrelevant CLI must not run')))
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda *args: (_ for _ in ()).throw(
+                            AssertionError('irrelevant CLI must not ask policy')))
+
+    result = widget.ask('Tell me a joke about penguins.', model='codex')
+
+    assert 'RAG lab' in result['reply']
+    assert result['memory']['blocked'] is True
+
+
 # --- the model picker: four choices, each saying what it can do ----------
 
 def test_the_model_catalogue_offers_four_choices_and_each_names_its_kind():

@@ -7,11 +7,12 @@ process per call with the knowledge base inlined, because `CliChat` has no
 through `stream` for the same answer handed over as it is written.
 """
 import os
-from threading import RLock
+from threading import RLock, Thread
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from raglab.agents.widget import conversation_memory as memory
+from raglab.agents.widget import experiment_tools
 from raglab.agents.widget import hooks
 from raglab.agents.widget import skills_corpus_loader as skills
 from raglab.llm_backends.cli_subprocess_chat import (
@@ -301,14 +302,48 @@ def _memory_turn(message: str, model: str, thread: str) -> tuple[dict | None, ob
         policy_model = _memory_model(model)
     except Exception:
         return None, None, ''
-    policy = evaluate_memory_policy(message, policy_model, experiment_id=thread)
-    if not policy.reason and not policy.relevant:
+    trusted = experiment_tools.trusted_dataset_id(thread)
+    policy = evaluate_memory_policy(message, policy_model, experiment_id=thread,
+                                    dataset_id=trusted,
+                                    trusted_dataset_id=trusted)
+    if not policy.relevant:
+        if policy.reason and 'unavailable' not in policy.reason.lower():
+            decision = {**policy.model_dump(), 'saved': False, 'blocked': True}
+            return decision, None, ''
         return None, None, ''
+    if trusted and policy.dataset_id != trusted:
+        decision = {**policy.model_dump(), 'saved': False, 'blocked': True,
+                    'reason': f'Active experiment dataset is {trusted}; '
+                              'memory policy dataset did not match.'}
+        return decision, None, ''
+    if (thread.strip() and experiment_tools.experiment_reader_wired()
+            and not trusted):
+        decision = {**policy.model_dump(), 'saved': False, 'blocked': True,
+                    'reason': 'The active experiment context could not be '
+                              'validated; nothing was processed.'}
+        return decision, None, ''
+    if not trusted and policy.dataset_id:
+        # A general-thread policy may classify a turn as reusable, but its
+        # model-supplied dataset is not provenance. Answer the question while
+        # discarding the untrusted identity and save permission.
+        policy = policy.model_copy(update={
+            'dataset_id': '', 'should_save': False,
+            'reason': policy.reason or
+            'No validated active experiment dataset; memory was not saved.'})
+    if trusted and not policy.dataset_id:
+        decision = {**policy.model_dump(), 'dataset_id': trusted,
+                    'saved': False}
+        policy = memory.MemoryPolicy.model_validate(
+            {key: value for key, value in decision.items()
+             if key in memory.MemoryPolicy.model_fields})
     decision = {**policy.model_dump(), 'saved': False}
     reader = tools.read_long_term_memory
-    context = ((reader.invoke({'dataset_id': policy.dataset_id})
-                if hasattr(reader, 'invoke')
-                else reader(policy.dataset_id)) if policy.relevant else '')
+    context_dataset = trusted or policy.dataset_id
+    if policy.relevant and context_dataset:
+        context = (reader.invoke({'dataset_id': context_dataset})
+                   if hasattr(reader, 'invoke') else reader(context_dataset))
+    else:
+        context = ''
     return decision, policy_model, context
 
 
@@ -345,7 +380,8 @@ def _finish_memory(question: str, answer: str, decision: dict | None,
             'experiment_id': thread, 'subtopic': decision.get('subtopic', ''),
             'question': question, 'answer': answer,
             'dataset_summary': dataset_summary,
-            'global_summary': global_summary}
+            'global_summary': global_summary,
+            'validated_dataset_ids': experiment_tools.validated_dataset_ids(thread)}
         writer = tools.save_widget_memory
         stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
                   else writer(**arguments))
@@ -353,6 +389,23 @@ def _finish_memory(question: str, answer: str, decision: dict | None,
     except Exception as error:
         decision.update({'saved': False, 'save_error': str(error)})
     return decision
+
+
+def _defer_memory(question: str, answer: str, decision: dict, model,
+                  thread: str) -> dict:
+    """Start optional memory work after the caller has received the answer."""
+    if not decision.get('should_save'):
+        return {**decision, 'status': 'not_saved', 'saved': False}
+    pending = {**decision, 'status': 'pending', 'saved': False}
+
+    def finish():
+        try:
+            _finish_memory(question, answer, decision, model, thread)
+        except Exception as error:  # defensive boundary for a daemon thread
+            decision.update({'saved': False, 'save_error': str(error)})
+
+    Thread(target=finish, name='widget-memory', daemon=True).start()
+    return pending
 
 
 def ask(message: str, model: str = '', thread: str = '') -> dict:
@@ -371,6 +424,13 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     answer at once, which is what a caller with nowhere to put a half-written
     one wants — the `__main__` harness, a test, a future non-browser client."""
     choice, kind = _model_kind(model)
+    refusal = hooks.relevance_guard(message)
+    if refusal:
+        decision = {'relevant': False, 'should_save': False, 'dataset_id': '',
+                    'subtopic': '', 'reason': refusal, 'saved': False,
+                    'blocked': True}
+        return {'reply': refusal, 'input_tokens': None,
+                'output_tokens': None, 'memory': decision}
     if kind == 'cli':
         # The two agent-level hooks bracket a CLI too, through the halves they
         # were factored into: a CLI has no loop for the middle four, and no
@@ -403,9 +463,10 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     reply, used = _turn_account(result['messages'])
     # `close_the_log` already accounted for this run from inside the graph.
     output = _accounted(reply, used)
-    finished = _finish_memory(message, reply, decision, policy_model, thread)
-    if finished is not None:
-        output['memory'] = finished
+    if decision is not None:
+        output['memory'] = (_defer_memory(message, reply, decision,
+                                          policy_model, thread)
+                           or {**decision, 'status': 'pending', 'saved': False})
     return output
 
 
@@ -516,6 +577,14 @@ def stream(message: str, model: str = '', thread: str = ''):
     three past the response's headers and turn a refusal into a 200 whose body
     apologises."""
     choice, kind = _model_kind(model)
+    refusal = hooks.relevance_guard(message)
+    if refusal:
+        decision = {'relevant': False, 'should_save': False, 'dataset_id': '',
+                    'subtopic': '', 'reason': refusal, 'saved': False,
+                    'blocked': True}
+        return iter([{'delta': refusal}, {
+            'reply': refusal, 'input_tokens': None,
+            'output_tokens': None, 'memory': decision}])
     if kind == 'cli':
         text = _validate(message)
         if not cli_available(choice):

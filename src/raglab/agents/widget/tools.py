@@ -13,6 +13,7 @@ from langchain_core.tools import tool
 from raglab.agents.widget import skills_corpus_loader as skills
 from raglab.agents.widget.conversation_memory import recall_conversation
 from raglab.agents.widget.experiment_tools import EXPERIMENT_TOOLS
+from raglab.agents.widget import long_term_memory
 from raglab.agents.widget import probe
 from raglab.agents.widget.prompts import _TOOL_PROMPTS, KNOWLEDGE_BASE
 
@@ -100,11 +101,35 @@ def measure_bilingual_alignment(model_name: str = '', pairs: str = '') -> str:
     return probe.measure(model_name, pairs)
 
 
+@tool
+def read_long_term_memory(dataset_id: str) -> str:
+    """Read the applicable dataset and cross-dataset memory context.
+
+    This is deliberately a separate read seam from the transcript recall:
+    long-term memory contains only accepted summaries, never evidence or a
+    measured result.
+    """
+    context = long_term_memory.memory_context(dataset_id)
+    return context or 'No long-term memory is stored for this dataset.'
+
+
+@tool
+def save_widget_memory(dataset_id: str, experiment_id: str, subtopic: str,
+                       question: str, answer: str, dataset_summary: str,
+                       global_summary: str = '',
+                       validated_dataset_ids: set[str] | None = None) -> dict:
+    """Persist one structured, policy-approved summarizer result."""
+    return long_term_memory.save_memory_update(
+        dataset_id, experiment_id, subtopic, question, answer,
+        dataset_summary, global_summary, validated_dataset_ids)
+
+
 # The recorded-experiment tools are defined in their own module: they are one
 # concern (what this lab has already measured), and the only tools whose data
 # is injected rather than read from a fixture.
 TOOLS = [search_knowledge_base, calculate, search_rag_skills, read_rag_skill,
-         measure_bilingual_alignment, recall_conversation] + EXPERIMENT_TOOLS
+         measure_bilingual_alignment, read_long_term_memory,
+         recall_conversation] + EXPERIMENT_TOOLS
 
 # The YAML page is what the model reads; assigning it here makes the fixture
 # the single source, and the import fails on a tool the page does not name.

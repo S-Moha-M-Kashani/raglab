@@ -329,9 +329,36 @@ def _sent_events(events):
     """
     try:
         for event in events:
-            yield f'data: {json.dumps(event)}\n\n'
+            yield f'data: {json.dumps(_safe_widget_event(event))}\n\n'
     except Exception as error:
         yield f'data: {json.dumps({"error": str(error)})}\n\n'
+
+
+def _safe_widget_event(event):
+    """Keep widget responses to the reader-facing memory decision.
+
+    The widget backend needs the full policy and save result to coordinate its
+    own work, but those fields are internal implementation details and may
+    contain dataset or model text. The panel exposes only the useful outcome,
+    while leaving every other event field—including the authoritative reply—
+    unchanged. A malformed or absent memory value is omitted rather than
+    guessed at.
+    """
+    if not isinstance(event, dict) or 'memory' not in event:
+        return event
+    memory = event.get('memory')
+    if not isinstance(memory, dict):
+        return {key: value for key, value in event.items() if key != 'memory'}
+    if not all(isinstance(memory.get(key), bool)
+               for key in ('relevant', 'should_save', 'saved')):
+        return {key: value for key, value in event.items() if key != 'memory'}
+    if not memory['relevant']:
+        status = 'irrelevant'
+    elif memory['saved']:
+        status = 'saved'
+    else:
+        status = 'not_saved'
+    return event | {'memory': {'status': status}}
 
 
 def _label_declaration(fields: dict) -> list[dict]:
@@ -1252,9 +1279,9 @@ def create_app() -> FastAPI:
             # the lab's active experiment, or `general`. The route only carries
             # it. The reply arrives with its token account and is served
             # unchanged.
-            return widget.ask(message,
-                              (payload.get('model') or '').strip(),
-                              thread=(payload.get('thread') or '').strip())
+            return _safe_widget_event(widget.ask(
+                message, (payload.get('model') or '').strip(),
+                thread=(payload.get('thread') or '').strip()))
         except widget.WidgetUnavailable as error:
             # The lab is up; its widget is not — the /api/queries split.
             raise HTTPException(502, str(error))

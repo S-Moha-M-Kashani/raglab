@@ -7,22 +7,30 @@ process per call with the knowledge base inlined, because `CliChat` has no
 through `stream` for the same answer handed over as it is written.
 """
 import os
-from threading import RLock
+import time
+import uuid
+from threading import RLock, Thread
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from raglab.agents.widget import conversation_memory as memory
+from raglab.agents.widget import experiment_tools
+from raglab.agents.widget import hooks
 from raglab.agents.widget import skills_corpus_loader as skills
 from raglab.llm_backends.cli_subprocess_chat import (
     CliChat,
     checked_effort,
     cli_available)
 from raglab.configuration.env_settings import PROVIDER_MODELS
-from raglab.agents.widget.hooks import MIDDLEWARE, _account, _validate
+from raglab.agents.widget.hooks import (MIDDLEWARE, _account, _validate,
+                                        evaluate_memory_policy,
+                                        summarize_memory_update)
 from raglab.agents.widget.prompts import (
     _PROMPTS,
     KNOWLEDGE_BASE,
     SYSTEM_PROMPT)
+from raglab.agents.widget import tools
+from raglab.agents.widget import turn_logger
 from raglab.agents.widget.tools import TOOLS
 
 # Read at build time, never at import: the suite runs offline, and a missing
@@ -41,9 +49,10 @@ TRACING_ENV = ('LANGSMITH_API_KEY', 'LANGSMITH_ENDPOINT',
 # models run the tool loop and are held by the checkpointer, so a thread
 # picks up where it left off; the two CLIs cannot run tools (`CliChat` has no
 # `bind_tools`) and keep nothing — a CLI call is one process with no graph and
-# no checkpointer, so it writes nothing to widget.db at all, and any earlier
-# OpenRouter turns on that thread stay put while the CLI's own turn is never
-# added. They cannot stream either — one subprocess reports one complete reply,
+# no checkpointer, so it writes no short-term conversation state; its readable
+# turn is still recorded in widget_turn_log. Any earlier OpenRouter turns on
+# that thread stay put while the CLI's own turn is never added to the thread.
+# They cannot stream either — one subprocess reports one complete reply,
 # so the answer lands in a single piece where an OpenRouter model's is typed
 # out. Their labels say all of this — an option states what it cannot do.
 WIDGET_MODELS = {
@@ -216,7 +225,8 @@ def _model_kind(model: str) -> tuple[str, str]:
     return choice, kind
 
 
-def _run(message: str, thread: str) -> tuple[dict, dict]:
+def _run(message: str, thread: str, *, memory_state: dict | None = None,
+         memory_text: str = '') -> tuple[dict, dict]:
     """The graph's input and its config for one turn — read once, so `ask` and
     `stream` cannot come to disagree about which thread a turn ran under or
     what it stamped on the way in.
@@ -240,8 +250,10 @@ def _run(message: str, thread: str) -> tuple[dict, dict]:
     hard ceiling rather than a budget.
     """
     name = (thread or '').strip() or memory.GENERAL
-    return ({'messages': [HumanMessage(content=message)],
-             **memory.thread_stamp(name)},
+    messages = ([SystemMessage(content=memory_text)] if memory_text else [])
+    messages.append(HumanMessage(content=message))
+    return ({'messages': messages, **memory.thread_stamp(name),
+             **(memory_state or {})},
             {'recursion_limit': 24, 'configurable': {'thread_id': name}})
 
 
@@ -267,12 +279,211 @@ def _turn_account(messages: list) -> tuple[str, list]:
     return memory._text(messages[-1].content), used
 
 
+def _turn_steps(messages: list) -> list[dict]:
+    """Turn final graph messages into a small, readable execution trace."""
+    steps = []
+    for message in messages:
+        kind = getattr(message, 'type', '')
+        if kind == 'human':
+            step_kind = 'human'
+        elif kind == 'tool':
+            step_kind = 'tool'
+        elif kind == 'ai':
+            step_kind = 'ai'
+        else:
+            continue
+        step = {'id': str(getattr(message, 'id', '') or uuid.uuid4()),
+                'kind': step_kind,
+                'message_id': getattr(message, 'id', None),
+                'latency_ms': None}
+        if step_kind == 'tool':
+            step['name'] = getattr(message, 'name', '') or ''
+        if step_kind in ('human', 'ai'):
+            step['text'] = memory._text(getattr(message, 'content', ''))
+        usage = getattr(message, 'usage_metadata', None) or {}
+        metadata = getattr(message, 'response_metadata', None) or {}
+        step['latency_ms'] = metadata.get('latency_ms') or metadata.get('duration_ms')
+        if usage:
+            step['input_tokens'] = usage.get('input_tokens')
+            step['output_tokens'] = usage.get('output_tokens')
+        steps.append(step)
+    return steps
+
+
+def _policy_transcript(thread: str) -> str:
+    """Render prior visible turns for short follow-ups such as ``and?``."""
+    if not (thread or '').strip():
+        return ''
+    try:
+        turns = memory.history(thread).get('turns') or []
+    except Exception:
+        return ''
+    return '\n'.join(f"{turn.get('role', 'message')}: {turn.get('text', '')}"
+                     for turn in turns[-memory.MAX_RECALLED:]
+                     if turn.get('text'))
+
+
+def _log_turn(*, message: str, reply: str, thread: str, started: float,
+              input_tokens=None, output_tokens=None, messages=None,
+              decision=None, status='answered', ai_message_id='') -> str:
+    """Write the human-readable operational row after the answer exists."""
+    name = (thread or '').strip() or memory.GENERAL
+    dataset_id = (decision or {}).get('dataset_id', '')
+    experiment_id = name if name != memory.GENERAL else ''
+    user_id = ''
+    if messages:
+        for item in messages:
+            if isinstance(item, HumanMessage):
+                user_id = str(getattr(item, 'id', '') or '')
+    trace = _turn_steps(messages or [])
+    if not trace:
+        trace = [{'id': str(uuid.uuid4()), 'kind': 'human',
+                  'text': message, 'latency_ms': 0},
+                 {'id': str(uuid.uuid4()), 'kind': 'ai', 'text': reply,
+                  'latency_ms': None}]
+    return turn_logger.log_turn(
+        thread_id=name, experiment_id=experiment_id, dataset_id=dataset_id,
+        user_message_id=user_id or str(uuid.uuid4()), user_message=message,
+        ai_message_id=ai_message_id, ai_message=reply,
+        steps=trace,
+        total_input_tokens=input_tokens, total_output_tokens=output_tokens,
+        total_latency_ms=max(0, round((time.monotonic() - started) * 1000)),
+        status=status)
+
+
 def _agent_for(model: str):
     """The cached agent for one model, built on first use."""
     with _AGENTS_LOCK:
         if model not in _AGENTS:
             _AGENTS[model] = _build_agent(model)
         return _AGENTS[model]
+
+
+def _memory_model(model: str):
+    """Build the separate structured-output seam used before/after the agent."""
+    openrouter_api_key = _openrouter_key()
+    from langchain_openai import ChatOpenAI
+    return ChatOpenAI(model=model, api_key=openrouter_api_key,
+                      base_url=_openrouter_url())
+
+
+def _memory_turn(message: str, model: str, thread: str) -> tuple[dict | None, object | None, str]:
+    """Run deterministic and structured policy before invoking the agent."""
+    refusal = hooks.relevance_guard(message)
+    if refusal:
+        return ({'relevant': False, 'should_save': False, 'dataset_id': '',
+                 'subtopic': '', 'reason': refusal, 'saved': False,
+                 'blocked': True}, None, '')
+    try:
+        policy_model = _memory_model(model)
+    except Exception:
+        return None, None, ''
+    trusted = experiment_tools.trusted_dataset_id(thread)
+    policy = evaluate_memory_policy(
+        message, policy_model, experiment_id=thread, dataset_id=trusted,
+        trusted_dataset_id=trusted, conversation=_policy_transcript(thread))
+    if not policy.relevant:
+        if policy.reason and 'unavailable' not in policy.reason.lower():
+            decision = {**policy.model_dump(), 'saved': False, 'blocked': True}
+            return decision, None, ''
+        return None, None, ''
+    if trusted and policy.dataset_id != trusted:
+        decision = {**policy.model_dump(), 'saved': False, 'blocked': True,
+                    'reason': f'Active experiment dataset is {trusted}; '
+                              'memory policy dataset did not match.'}
+        return decision, None, ''
+    if (thread.strip() and experiment_tools.experiment_reader_wired()
+            and not trusted):
+        decision = {**policy.model_dump(), 'saved': False, 'blocked': True,
+                    'reason': 'The active experiment context could not be '
+                              'validated; nothing was processed.'}
+        return decision, None, ''
+    if not trusted and policy.dataset_id:
+        # A general-thread policy may classify a turn as reusable, but its
+        # model-supplied dataset is not provenance. Answer the question while
+        # discarding the untrusted identity and save permission.
+        policy = policy.model_copy(update={
+            'dataset_id': '', 'should_save': False,
+            'reason': policy.reason or
+            'No validated active experiment dataset; memory was not saved.'})
+    if trusted and not policy.dataset_id:
+        decision = {**policy.model_dump(), 'dataset_id': trusted,
+                    'saved': False}
+        policy = memory.MemoryPolicy.model_validate(
+            {key: value for key, value in decision.items()
+             if key in memory.MemoryPolicy.model_fields})
+    decision = {**policy.model_dump(), 'saved': False}
+    reader = tools.read_long_term_memory
+    context_dataset = trusted or policy.dataset_id
+    if policy.relevant and context_dataset:
+        context = (reader.invoke({'dataset_id': context_dataset})
+                   if hasattr(reader, 'invoke') else reader(context_dataset))
+    else:
+        context = ''
+    return decision, policy_model, context
+
+
+def _policy_state(decision: dict, thread: str) -> dict:
+    fields = memory.MemoryPolicy.model_fields
+    policy = memory.MemoryPolicy.model_validate(
+        {key: value for key, value in decision.items() if key in fields})
+    return memory.policy_state(policy, thread)
+
+
+def _summarize_memory_update(**kwargs):
+    return summarize_memory_update(**kwargs)
+
+
+def _finish_memory(question: str, answer: str, decision: dict | None,
+                   model, thread: str, turn_id: str = '') -> dict | None:
+    if not decision:
+        return None
+    if not decision.get('relevant') or not decision.get('should_save'):
+        return decision
+    try:
+        summary = _summarize_memory_update(
+            question=question, answer=answer,
+            dataset_id=decision.get('dataset_id', ''), experiment_id=thread,
+            subtopic=decision.get('subtopic', ''), model=model)
+        dataset_summary = (summary.get('dataset_summary', '')
+                           if isinstance(summary, dict)
+                           else summary.dataset_summary)
+        global_summary = (summary.get('global_summary', '')
+                          if isinstance(summary, dict)
+                          else summary.global_summary)
+        arguments = {
+            'dataset_id': decision.get('dataset_id', ''),
+            'experiment_id': thread, 'subtopic': decision.get('subtopic', ''),
+            'question': question, 'answer': answer,
+            'dataset_summary': dataset_summary,
+            'global_summary': global_summary,
+            'validated_dataset_ids': experiment_tools.validated_dataset_ids(thread)}
+        writer = tools.save_widget_memory
+        stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
+                  else writer(**arguments))
+        decision.update({'saved': bool(stored.get('saved')), 'save': stored})
+        if turn_id and stored.get('update_id') is not None:
+            turn_logger.attach_memory_update(turn_id, stored['update_id'])
+    except Exception as error:
+        decision.update({'saved': False, 'save_error': str(error)})
+    return decision
+
+
+def _defer_memory(question: str, answer: str, decision: dict, model,
+                  thread: str, turn_id: str = '') -> dict:
+    """Start optional memory work after the caller has received the answer."""
+    if not decision.get('should_save'):
+        return {**decision, 'status': 'not_saved', 'saved': False}
+    pending = {**decision, 'status': 'pending', 'saved': False}
+
+    def finish():
+        try:
+            _finish_memory(question, answer, decision, model, thread, turn_id)
+        except Exception as error:  # defensive boundary for a daemon thread
+            decision.update({'saved': False, 'save_error': str(error)})
+
+    Thread(target=finish, name='widget-memory', daemon=True).start()
+    return pending
 
 
 def ask(message: str, model: str = '', thread: str = '') -> dict:
@@ -290,16 +501,39 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     `stream` is the same turn, arriving as it is written. This is the whole
     answer at once, which is what a caller with nowhere to put a half-written
     one wants — the `__main__` harness, a test, a future non-browser client."""
+    started = time.monotonic()
     choice, kind = _model_kind(model)
+    refusal = hooks.relevance_guard(message)
+    if refusal:
+        decision = {'relevant': False, 'should_save': False, 'dataset_id': '',
+                    'subtopic': '', 'reason': refusal, 'saved': False,
+                    'blocked': True}
+        return {'reply': refusal, 'input_tokens': None,
+                'output_tokens': None, 'memory': decision}
     if kind == 'cli':
         # The two agent-level hooks bracket a CLI too, through the halves they
         # were factored into: a CLI has no loop for the middle four, and no
         # graph to hang middleware on at all. One process per call means no
         # memory either — the thread is accepted and ignored, the label
         # already says what a CLI cannot do.
-        return _cli_turn(choice, _validate(message))
+        output = _cli_turn(choice, _validate(message))
+        _log_turn(message=message, reply=output['reply'], thread=thread,
+                  started=started, input_tokens=output['input_tokens'],
+                  output_tokens=output['output_tokens'], status='answered')
+        return output
+    decision, policy_model, context = _memory_turn(message, choice, thread)
+    if decision and decision.get('blocked'):
+        return {'reply': decision['reason'], 'input_tokens': None,
+                'output_tokens': None, 'memory': decision}
+    memory_state = _policy_state(decision, thread) if decision else None
     agent = _agent_for(choice)
-    payload, config = _run(message, thread)
+    if context and decision:
+        payload, config = _run(message, thread, memory_state=memory_state,
+                               memory_text=context)
+    elif memory_state:
+        payload, config = _run(message, thread, memory_state=memory_state)
+    else:
+        payload, config = _run(message, thread)
     try:
         result = agent.invoke(payload, config=config)
     except WidgetUnavailable:
@@ -310,7 +544,18 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
     reply, used = _turn_account(result['messages'])
     # `close_the_log` already accounted for this run from inside the graph.
-    return _accounted(reply, used)
+    output = _accounted(reply, used)
+    turn_id = _log_turn(message=message, reply=reply, thread=thread,
+                        started=started, input_tokens=output['input_tokens'],
+                        output_tokens=output['output_tokens'],
+                        messages=result['messages'],
+                        decision=decision,
+                        ai_message_id=str(getattr(result['messages'][-1], 'id', '') or ''))
+    if decision is not None:
+        output['memory'] = (_defer_memory(message, reply, decision,
+                                          policy_model, thread, turn_id)
+                           or {**decision, 'status': 'pending', 'saved': False})
+    return output
 
 
 def _delta(chunk) -> str:
@@ -342,17 +587,22 @@ def _tool_named(chunk) -> list:
             if piece.get('name')]
 
 
-def _stream_cli(cli: str, message: str):
+def _stream_cli(cli: str, message: str, thread: str = '', started=None):
     """A CLI streaming: one piece, because one subprocess reports one complete
     reply and there is no partial output to forward. It still travels this path
     so the page keeps one way to ask rather than two, and the catalogue label
     says which models actually type their answer out."""
     done = _cli_turn(cli, message)
     yield {'delta': done['reply']}
+    _log_turn(message=message, reply=done['reply'], thread=thread,
+              started=started or time.monotonic(),
+              input_tokens=done['input_tokens'],
+              output_tokens=done['output_tokens'], status='answered')
     yield done
 
 
-def _stream_agent(agent, message: str, thread: str):
+def _stream_agent(agent, message: str, thread: str, decision=None,
+                  policy_model=None, context: str = '', started=None):
     """The graph streaming: `stream_mode=['messages', 'values']` on the same
     run `ask` invokes — the same nodes, the same middleware, the same
     checkpoint write, so a streamed turn is in widget.db exactly as an asked
@@ -360,14 +610,23 @@ def _stream_agent(agent, message: str, thread: str):
 
     Two modes and not one, because the pieces and the account answer different
     questions. `messages` is what the reader watches arrive. `values` is the
-    state the run ended in, and that is where the final event comes from: the
+    state the run ended in, and that is where the authoritative reply event
+    comes from: the
     reply is read back out of the log with `_turn_account`, so what the page
     settles on is what the lab now holds for that turn rather than whatever the
     concatenated pieces happened to spell. A run that streamed pieces but ended
     with no state is a refusal, not a reply assembled here from the fragments —
     the same rule the rest of the lab keeps about a row that cannot say what
     produced it."""
-    payload, config = _run(message, thread)
+    if context and decision:
+        state = _policy_state(decision, thread)
+        payload, config = _run(message, thread, memory_state=state,
+                               memory_text=context)
+    elif decision:
+        payload, config = _run(message, thread,
+                               memory_state=_policy_state(decision, thread))
+    else:
+        payload, config = _run(message, thread)
     final = None
     try:
         for mode, event in agent.stream(payload, config=config,
@@ -389,14 +648,29 @@ def _stream_agent(agent, message: str, thread: str):
             'the widget streamed no answer — the run ended with no state to '
             'read the reply back from')
     reply, used = _turn_account(final['messages'])
-    yield _accounted(reply, used)
+    output = _accounted(reply, used)
+    turn_id = _log_turn(message=message, reply=reply, thread=thread,
+                        started=started or time.monotonic(),
+                        input_tokens=output['input_tokens'],
+                        output_tokens=output['output_tokens'],
+                        messages=final['messages'], decision=decision,
+                        ai_message_id=str(getattr(final['messages'][-1], 'id', '') or ''))
+    yield output
+    # The reply is authoritative and must reach the caller before the optional
+    # long-term-memory work begins. Memory is a separate status event so a
+    # streamed reader can render the answer without waiting for summarization.
+    finished = _finish_memory(message, reply, decision, policy_model, thread,
+                              turn_id)
+    if decision is not None:
+        yield {'memory': finished if finished is not None else decision}
 
 
 def stream(message: str, model: str = '', thread: str = ''):
     """The same turn as `ask`, handed over as it is written: an iterator of
-    events, `{'delta': text}` for each piece and then exactly one final
-    `{'reply', 'input_tokens', 'output_tokens'}` — the very dict `ask` returns.
-    The last event is the authoritative one; the deltas are how it arrived.
+    events, `{'delta': text}` for each piece and then an authoritative
+    `{'reply', 'input_tokens', 'output_tokens'}` event, followed when a policy
+    exists by a separate memory-status event. The reply event is the very dict
+    `ask` returns without memory metadata; the deltas are how it arrived.
 
     A call, not a generator function, and that distinction is the point:
     everything knowable before the first piece — an unserved model, a missing
@@ -404,12 +678,27 @@ def stream(message: str, model: str = '', thread: str = ''):
     route can still answer it with a status code. A generator would defer all
     three past the response's headers and turn a refusal into a 200 whose body
     apologises."""
+    started = time.monotonic()
     choice, kind = _model_kind(model)
+    refusal = hooks.relevance_guard(message)
+    if refusal:
+        decision = {'relevant': False, 'should_save': False, 'dataset_id': '',
+                    'subtopic': '', 'reason': refusal, 'saved': False,
+                    'blocked': True}
+        return iter([{'delta': refusal}, {
+            'reply': refusal, 'input_tokens': None,
+            'output_tokens': None, 'memory': decision}])
     if kind == 'cli':
         text = _validate(message)
         if not cli_available(choice):
             raise WidgetUnavailable(
                 f'the {choice} command is not on this machine — install and '
                 'log in, or pick an OpenRouter model')
-        return _stream_cli(choice, text)
-    return _stream_agent(_agent_for(choice), message, thread)
+        return _stream_cli(choice, text, thread, started)
+    decision, policy_model, context = _memory_turn(message, choice, thread)
+    if decision and decision.get('blocked'):
+        return iter([{'delta': decision['reason']}, {
+            'reply': decision['reason'], 'input_tokens': None,
+            'output_tokens': None, 'memory': decision}])
+    return _stream_agent(_agent_for(choice), message, thread, decision,
+                         policy_model, context, started)

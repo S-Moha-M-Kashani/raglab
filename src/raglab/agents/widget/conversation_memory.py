@@ -277,6 +277,48 @@ def history(thread: str) -> dict:
             'turns': _turns(values.get('messages'))}
 
 
+def trace(thread: str) -> dict:
+    """One thread as the *model* had it, step by step: the system lines it was
+    handed, the reader's question, each tool call with its arguments, what the
+    tool said back, and the reply — where `history` renders only the two turns
+    the reader saw. For the developer page; a reader is never shown this."""
+    name = (thread or '').strip() or GENERAL
+    values = _channels(name)
+    steps = []
+    for message in values.get('messages') or []:
+        kind = {'system': 'system', 'human': 'human', 'ai': 'ai',
+                'tool': 'tool'}.get(getattr(message, 'type', ''), 'other')
+        step = {'kind': kind, 'text': _text(getattr(message, 'content', ''))}
+        if kind == 'ai':
+            calls = getattr(message, 'tool_calls', None) or []
+            if calls:
+                step['tool_calls'] = [{'name': c.get('name'),
+                                       'args': c.get('args'),
+                                       'id': c.get('id')} for c in calls]
+            used = getattr(message, 'usage_metadata', None) or {}
+            if used:
+                step['input_tokens'] = used.get('input_tokens')
+                step['output_tokens'] = used.get('output_tokens')
+        elif kind == 'tool':
+            step['name'] = getattr(message, 'name', None)
+            step['tool_call_id'] = getattr(message, 'tool_call_id', None)
+        steps.append(step)
+    return {'thread': name,
+            'experiment_id': values.get('experiment_id') or '',
+            'started_at': values.get('started_at') or '',
+            'dataset_id': values.get('dataset_id') or '',
+            'steps': steps}
+
+
+def threads() -> list[str]:
+    """Every thread the log holds, newest write first. Read straight from the
+    checkpointer's own table: it is the one list of conversations there is."""
+    rows = saver().conn.execute(
+        'SELECT thread_id, MAX(checkpoint_id) AS latest FROM checkpoints '
+        'GROUP BY thread_id ORDER BY latest DESC').fetchall()
+    return [row[0] for row in rows]
+
+
 def forget(thread: str) -> None:
     """Delete one thread. New Chat's whole implementation: the conversation you
     are in ends, and every other experiment's is untouched."""

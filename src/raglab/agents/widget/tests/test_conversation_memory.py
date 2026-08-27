@@ -224,3 +224,29 @@ def test_what_the_widget_wrote_is_in_the_file_a_reader_opens():
         names = {r[0] for r in db.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
     assert {'checkpoints', 'writes'} <= names
+
+
+def test_a_trace_shows_every_step_the_model_took_not_only_the_two_the_reader_saw():
+    """`history` renders the conversation the reader saw — question, reply.
+    `trace` renders the conversation the *model* had: the system lines it was
+    handed, the tool it called and with what, what the tool said back, and the
+    reply. A developer checking why an answer went wrong needs the middle."""
+    from langchain_core.messages import SystemMessage
+    _write_messages('exp-trace', [
+        SystemMessage(content='This conversation belongs to experiment x.'),
+        HumanMessage(content='what ran?'),
+        AIMessage(content='', tool_calls=[{
+            'name': 'read_experiment', 'args': {'experiment_id': 'x'},
+            'id': 'call-1'}]),
+        ToolMessage(content='experiment x — baseline', tool_call_id='call-1',
+                    name='read_experiment'),
+        AIMessage(content='x ran the baseline.', usage_metadata={
+            'input_tokens': 10, 'output_tokens': 4, 'total_tokens': 14})])
+    steps = memory.trace('exp-trace')['steps']
+    assert [s['kind'] for s in steps] == ['system', 'human', 'ai', 'tool', 'ai']
+    assert steps[2]['tool_calls'] == [
+        {'name': 'read_experiment', 'args': {'experiment_id': 'x'}, 'id': 'call-1'}]
+    assert steps[3] == {'kind': 'tool', 'name': 'read_experiment',
+                        'tool_call_id': 'call-1', 'text': 'experiment x — baseline'}
+    assert steps[4]['input_tokens'] == 10 and steps[4]['output_tokens'] == 4
+    assert 'exp-trace' in memory.threads()

@@ -328,6 +328,20 @@ def threads() -> list[str]:
     return [row[0] for row in rows]
 
 
+def thread_summaries() -> list[dict]:
+    """One line per thread for a listing: its name, how many questions the
+    reader has asked in it, how many steps the model took, and the last
+    question — so a list of conversations reads as conversations and not as a
+    list of ids."""
+    out = []
+    for name in threads():
+        steps = trace(name)['steps']
+        asked = [s['text'] for s in steps if s['kind'] == 'human']
+        out.append({'thread': name, 'questions': len(asked),
+                    'steps': len(steps), 'last': asked[-1] if asked else ''})
+    return out
+
+
 def forget(thread: str) -> None:
     """Delete one thread. New Chat's whole implementation: the conversation you
     are in ends, and every other experiment's is untouched."""

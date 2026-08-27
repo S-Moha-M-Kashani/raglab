@@ -2244,6 +2244,8 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     index = client.get('/dev/trace', params={'key': 'open-sesame'})
     assert index.status_code == 200
     assert 'exp-dev' in index.text
+    assert '1 question(s), 4 step(s)' in index.text
+    assert 'what ran?' in index.text
     page = client.get('/dev/trace', params={'key': 'open-sesame',
                                             'thread': 'exp-dev'})
     assert page.status_code == 200

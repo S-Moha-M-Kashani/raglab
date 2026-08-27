@@ -48,12 +48,19 @@ def _page(title: str, body: str) -> str:
 
 
 def index(key: str) -> str:
-    names = widget.threads()
+    rows = widget.thread_summaries()
     items = ''.join(
-        f'<li><a href="/dev/trace?key={_esc(key)}&thread={_esc(n)}">{_esc(n)}</a></li>'
-        for n in names) or '<li class="meta">no conversations yet</li>'
-    return _page('widget traces', f'<p class="meta">{len(names)} thread(s), '
-                                  f'newest first.</p><ol>{items}</ol>')
+        f'<li><a href="/dev/trace?key={_esc(key)}&thread={_esc(r["thread"])}">'
+        f'{_esc(r["thread"])}</a> <span class="meta">— {r["questions"]} '
+        f'question(s), {r["steps"]} step(s)'
+        + (f'; last: “{_esc(r["last"][:80])}”' if r['last'] else '')
+        + '</span></li>'
+        for r in rows) or '<li class="meta">no conversations yet</li>'
+    return _page('widget traces',
+                 f'<p class="meta">{len(rows)} conversation(s) — one per '
+                 'experiment (plus <code>general</code>), newest first. Every '
+                 'question you send lands inside its experiment\'s conversation; '
+                 'open one to see each prompt step by step.</p><ol>{items}</ol>')
 
 
 def _step(number: int, step: dict, trimmed: bool = False) -> str:

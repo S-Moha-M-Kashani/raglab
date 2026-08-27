@@ -1256,3 +1256,32 @@ def test_a_failure_halfway_through_arrives_as_an_error_event(client, monkeypatch
     assert said[0] == {'delta': 'the answer beg'}
     assert 'could not answer' in said[-1]['error']
     assert not any('reply' in event for event in said)
+
+
+def test_the_trim_keeps_every_system_line_and_the_newest_of_the_rest():
+    # this is a unit test
+    """The thread's system lines — which experiment it is about, the memory
+    context — are written once, at the top. A trim that kept only the newest
+    twenty messages would drop them on the twenty-first, and the model would
+    forget mid-conversation which experiment it was discussing. System lines
+    survive the trim; the window counts the rest."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    seen = {}
+
+    class FakeRequest:
+        def __init__(self, messages):
+            self.messages = messages
+            self.model = type('M', (), {'model_name': 'openai/gpt-5-nano'})()
+
+        def override(self, **changes):
+            return FakeRequest(changes['messages'])
+
+    tail = [m for i in range(15) for m in (HumanMessage(content=f'q{i}'),
+                                           AIMessage(content=f'a{i}'))]
+    request = FakeRequest([SystemMessage(content='about exp-1'),
+                           SystemMessage(content='memory'), *tail])
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+    kept = seen['messages']
+    assert [m.content for m in kept[:2]] == ['about exp-1', 'memory']
+    assert kept[2:] == tail[-widget.MAX_HISTORY:]

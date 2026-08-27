@@ -145,6 +145,15 @@ def saver():
             _SAVER = SqliteSaver(sqlite3.connect(str(target),
                                                  check_same_thread=False))
             _SAVER.setup()
+            # `setup()` switches the file to write-ahead logging, which parks
+            # every write in a `-wal` sidecar until a checkpoint folds it back.
+            # Nothing here ever did, so `widget.db` on disk stayed a 4 KB shell
+            # while the record grew beside it, and a reader opening the file in
+            # a viewer saw two empty tables. Rollback mode instead: the main
+            # file is always the whole record, and a `-journal` outlives no
+            # transaction. Only this connection is open at this moment, which
+            # is the one condition the mode change needs.
+            _SAVER.conn.execute('PRAGMA journal_mode=DELETE')
         return _SAVER
 
 

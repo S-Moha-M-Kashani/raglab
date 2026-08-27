@@ -34,6 +34,15 @@ cli_system: |-
 
   {skills_index}
 
+# Opens every turn of an experiment's thread. The id and dataset come from the
+# validated record, never from model text, which is what lets "this" and "the
+# last experiment" mean the thread's own run rather than the newest on the board.
+active_experiment: >-
+  This conversation belongs to experiment {experiment_id}, which ran on
+  dataset {dataset}. "This experiment", "the last experiment" or "the run"
+  mean that one unless the reader names another id; read it with
+  read_experiment before describing it.
+
 memory_policy: >-
   Decide whether the user's question is relevant to the RAG lab and whether it
   contains a useful, reusable conclusion for long-term memory. Return only the

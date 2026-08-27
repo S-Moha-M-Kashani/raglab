@@ -419,6 +419,24 @@ def create_inspector_app() -> FastAPI:
                 404, 'that experiment is unavailable from the lab')
         return found
 
+    @app.get('/api/experiments/{experiment_id}/archive')
+    def recorded_experiment_archive(experiment_id: str):
+        """A finished experiment's own archive — the chunk text it ran over.
+
+        The ledger strips chunk text from a job row, so a record read through
+        `/api/experiments/{id}` cannot fill the Chunks tab; the archive the
+        experiment wrote when it finished can, and it is the same object the
+        export button writes. Proxied like the record, refusals kept: a 404 is
+        an experiment from before archiving, a 409 a corpus this installation
+        no longer holds — both are the lab's own words, not this service's."""
+        encoded_id = urllib.parse.quote(experiment_id, safe='')
+        found = _lab_get_response(f'/api/experiments/{encoded_id}/archive')
+        if found is None:
+            raise HTTPException(503, 'lab is unavailable; the archive cannot load')
+        if isinstance(found, tuple):
+            raise HTTPException(found[0], found[1])
+        return found
+
     @app.post('/api/experiments/{experiment_id}/questions')
     def add_recorded_question(experiment_id: str, payload: dict):
         encoded_id = urllib.parse.quote(experiment_id, safe='')

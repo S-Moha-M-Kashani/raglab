@@ -295,6 +295,36 @@ def test_the_inspector_proxies_one_recorded_experiment(monkeypatch):
     assert asked == ['/api/experiments/exp-1']
 
 
+def test_the_inspector_proxies_a_recorded_experiments_archive(monkeypatch):
+    # this is an integration test
+    """The ledger strips chunk text from a job row, but a finished experiment
+    archives itself with that text in it — so the Chunks tab of a pinned record
+    reads the archive, through the same proxy discipline as the record: asked of
+    the lab over HTTP, refusals kept as refusals."""
+    archive = {'format': 'raglab-experiment', 'evaluation': {'inspector': {
+        'chunks_by_session': [{'session_id': 's1', 'chunks': []}]}}}
+    asked = []
+
+    def lab_get(path):
+        asked.append(path)
+        if path == '/api/experiments/exp-1/archive':
+            return archive
+        if path == '/api/experiments/old-1/archive':
+            return 404, 'old-1 has no complete archive'
+        return None
+
+    monkeypatch.setattr(inspector, '_lab_get_response', lab_get)
+    client = _client(monkeypatch)
+    assert client.get('/api/experiments/exp-1/archive').json() == archive
+    refused = client.get('/api/experiments/old-1/archive')
+    assert refused.status_code == 404
+    assert 'no complete archive' in refused.json()['detail']
+    assert client.get('/api/experiments/down/archive').status_code == 503
+    assert asked == ['/api/experiments/exp-1/archive',
+                     '/api/experiments/old-1/archive',
+                     '/api/experiments/down/archive']
+
+
 def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
         monkeypatch):
     # this is an integration test

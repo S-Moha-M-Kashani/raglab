@@ -1375,7 +1375,8 @@ async function renderRecordedExperiment(record, isCurrent = () => true) {
         + ', so there is nothing to show here and nothing was scored.</p>';
     }
   }
-  showRecordedChunks(record, shape);
+  await showRecordedChunks(record, shape);
+  if (!isCurrent()) return;
 
   // All four, so no view is left describing the live pipeline beside recorded
   // rows. After `showRecordedChunks`, which is why the chunks note carries its
@@ -1407,6 +1408,26 @@ async function renderRecordedExperiment(record, isCurrent = () => true) {
   setArchiveState(record.experiment_id, recordLabel(record), canAdd);
 }
 
+// The chunks a finished experiment archived, or `null` when the lab holds no
+// archive for it. Any refusal is `null` here rather than an error: the tab
+// below still has an honest sentence for a record without one, and a reader
+// pinned to an old row should reach it rather than a broken view. The shape is
+// the archive's own (`evaluation.inspector`), the one `renderImportedArchive`
+// already reads.
+async function archivedChunks(experimentId) {
+  let archive;
+  try {
+    archive = await archiveRequest('/api/experiments/'
+                                   + encodeURIComponent(experimentId) + '/archive');
+  } catch (error) {
+    return null;
+  }
+  const evidence = ((archive || {}).evaluation || {}).inspector || {};
+  const groups = evidence.chunks_by_session;
+  if (!Array.isArray(groups) || !groups.length) return null;
+  return { groups, summaries: Array.isArray(evidence.summaries) ? evidence.summaries : [] };
+}
+
 // Only the stages this experiment actually ran. A build stores a whole config
 // — retrieval and generation defaults included — and no part of a build reads
 // them; the record's own columns are blank there for that reason, so printing
@@ -1418,14 +1439,35 @@ function recordedStages(record) {
   return { index: config.index };
 }
 
-// The one tab a record cannot fill. A record keeps no chunk text by design
-// — the text belongs to the index a config produces, and copying it per row
-// would put the corpus in the ledger — so this says so and offers the rebuild
+// The one tab a ledger row cannot fill on its own. A row keeps no chunk text
+// by design — the text belongs to the index a config produces, and copying it
+// per row would put the corpus in the ledger. What does keep it is the archive
+// a finished experiment writes for itself (CLAUDE.md, durable artifacts), the
+// same object the export button hands out — so a finished record asks for that
+// first, and lists exactly the chunks the experiment ran over. Only when there
+// is no archive — an experiment from before archiving, or a corpus version
+// this installation no longer holds — does the tab say so and offer the rebuild
 // rather than taking it: a rebuild is today's index, and today's chunks shown
 // under an old experiment's id would be a row lying about what produced it.
-function showRecordedChunks(record, shape) {
+async function showRecordedChunks(record, shape) {
   const detail = record.detail || {};
   const config = detail.config;
+  if (shape !== 'unfinished' && shape !== 'archive') {
+    const archived = await archivedChunks(record.experiment_id);
+    if (archived) {
+      const { groups, summaries } = archived;
+      const total = groups.reduce((n, g) => n + g.chunks.length, 0);
+      document.getElementById('chunks-status').textContent =
+        `${total} chunk${total === 1 ? '' : 's'} · ${summaries.length} `
+        + `summar${summaries.length === 1 ? 'y' : 'ies'}, from this `
+        + 'experiment\'s own archive';
+      renderChunkGroups(document.getElementById('chunks-body'), groups);
+      setChunkSummaries(summaries);
+      showChunkMode('chunks');
+      return;
+    }
+  }
+  document.getElementById('chunks-status').textContent = '';
   // Offered only where the record actually named one. `buildChunks(null)` falls
   // back to the live config on purpose, for the button beside the tab that has
   // no other config to use — and taking that fallback here would rebuild under

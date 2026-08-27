@@ -404,3 +404,27 @@ def test_an_experiment_thread_tells_the_agent_which_experiment_it_is_about(monke
                thread='this-exp')
     opening = str(agent.payloads[0]['messages'][0].content)
     assert 'this-exp' in opening and 'meetings-de' in opening
+
+
+def test_a_threads_system_lines_are_written_once_not_once_per_turn(monkeypatch):
+    """Seen in the developer trace: every turn appended the active-experiment
+    line and the memory context again, so a five-turn thread carried ten
+    system messages and the model reread them all each time. A system line
+    already in the thread, word for word, is not added a second time; a memory
+    context that changed is, because it says something new."""
+    from raglab.agents.widget.tests.widget_examples import write_messages
+    from langchain_core.messages import SystemMessage
+    widget.experiment_tools.set_experiment_reader(_TwoDatasetReader())
+    policy = {'relevant': True, 'should_save': False,
+              'dataset_id': 'meetings-de', 'subtopic': '', 'reason': 'q'}
+    agent, _ = _setup(monkeypatch, policy)
+    widget.ask('first?', model='openai/gpt-5-nano', thread='this-exp')
+    first = [str(m.content) for m in agent.payloads[0]['messages']
+             if isinstance(m, SystemMessage)]
+    assert len(first) == 2          # active experiment + memory context
+    write_messages('this-exp', agent.payloads[0]['messages'] + [
+        AIMessage(content='a')])   # what the graph would have kept
+    widget.ask('second?', model='openai/gpt-5-nano', thread='this-exp')
+    second = [str(m.content) for m in agent.payloads[1]['messages']
+              if isinstance(m, SystemMessage)]
+    assert second == []

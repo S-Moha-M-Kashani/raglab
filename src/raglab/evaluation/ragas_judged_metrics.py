@@ -28,9 +28,9 @@ LLM_METRICS = ('faithfulness', 'answer_relevancy', 'factual_correctness(mode=f1)
 #   faithfulness         did the answer stay inside what was retrieved?
 #   answer relevancy     did it actually address the question asked?
 # Excluded: `factual_correctness` grades the fixture's phrasing as much as the
-# pipeline; the offline pair are whole-string similarity, unusable for ranking
-# across chunkers; our own deterministic metrics grade retrieval almost
-# exclusively. Those stay as numbers to debug with — they never vary between
+# pipeline; the offline pair are string containment over verbatim quotes, so
+# they grade retrieval only and never vary; our own deterministic metrics grade
+# retrieval almost exclusively. Those stay as numbers to debug with — they never vary between
 # runs, which a judged score cannot promise.
 DECISION_METRICS = ('faithfulness', 'answer_relevancy',
                     'llm_context_precision_with_reference', 'context_recall')
@@ -142,7 +142,8 @@ INSTALL_HINT = 'uv sync  (these are locked dependencies now: ' \
 
 # RAGAS's metrics, under RAGAS's names, in the same shape as metrics.MEASURES.
 JUDGED = ', scored by the RAGAS judge model — a model\'s verdict, so it varies'
-NO_JUDGE = ' — string distance via rapidfuzz, no model involved'
+NO_JUDGE = ' with the lab\'s quote-in-chunk similarity (rapidfuzz ' \
+    'partial_ratio, threshold 0.5), no model involved'
 
 RAGAS_MEASURES = (
     Measure('ragas_decision', 'RAGAS decision score',
@@ -161,7 +162,7 @@ RAGAS_MEASURES = (
             'addressed the question at all. Everything else on this screen is '
             'reported and none of it votes — factual correctness grades the '
             'fixture\'s phrasing as much as the pipeline, the offline context '
-            'pair punish large chunks for being large, and our own '
+            'pair only check that verbatim quotes were retrieved, and our own '
             'deterministic metrics grade retrieval almost exclusively, so '
             'ranking on them rewards a config that finds the evidence and then '
             'says nothing useful about it. The cost of that choice is honest: '
@@ -170,23 +171,25 @@ RAGAS_MEASURES = (
             'same RAGAS judge model.'),
     Measure('non_llm_context_recall', 'Context recall (offline)',
             'RAGAS, string distance', 'retrieval',
-            'reference quotes matched in the retrieved contexts / reference '
-            'quotes, matching by string similarity',
+            'reference quotes found inside some retrieved context / reference '
+            'quotes, a quote counting as found when its best alignment inside '
+            'a chunk is at least 0.5 similar',
             'ragas 0.4.x NonLLMContextRecall' + NO_JUDGE,
-            'RAGAS\'s context recall with the judge removed: it compares the '
-            'retrieved context to the ground truth\'s verbatim evidence quotes as '
-            'strings. Deterministic, and the RAGAS number to compare configs on — '
-            'but it compares *whole strings*, so longer chunks score lower even '
-            'when the answer is in them. Use quote recall to compare across '
-            'chunkers.'),
+            'RAGAS\'s context recall with the judge removed: for each verbatim '
+            'evidence quote in the ground truth it asks whether some retrieved '
+            'chunk contains it, near enough. Deterministic, so it never varies '
+            'between runs — but it grades retrieval only, and a quote is '
+            'credited wherever it lands in a chunk, so a huge chunk that '
+            'happens to contain it scores the same as a tight one. It does '
+            'not vote.'),
     Measure('non_llm_context_precision_with_reference',
             'Context precision (offline)', 'RAGAS, string distance', 'retrieval',
             'mean precision@k over the retrieved contexts, a context counting as '
-            'relevant when it is similar enough to a reference quote',
+            'relevant when some reference quote aligns inside it at 0.5 or better',
             'ragas 0.4.x NonLLMContextPrecisionWithReference' + NO_JUDGE,
-            'How much of the retrieved context matches the reference evidence, '
-            'weighted towards the top of the ranking. Same whole-string caveat as '
-            'its recall twin.'),
+            'How many of the retrieved chunks contain a piece of the reference '
+            'evidence, weighted towards the top of the ranking. Same caveat as '
+            'its recall twin: containment credits a chunk however large it is.'),
     Measure('faithfulness', 'Faithfulness', 'answer supported by the context',
             'generation',
             'supported claims / total claims in the answer',
@@ -223,10 +226,10 @@ RAGAS_MEASURES = (
             'mean precision@k where the judge, not a string metric, decides '
             'whether each retrieved context is relevant',
             'ragas 0.4.x LLMContextPrecisionWithReference' + JUDGED,
-            'The judged twin of the offline precision metric. It is immune to the '
-            'whole-string penalty that makes the offline pair unfair to large '
-            'chunks, at the cost of a model call per context and a model\'s '
-            'variance.'),
+            'The judged twin of the offline precision metric. It judges relevance '
+            'rather than checking for a verbatim quote, so it can credit a '
+            'paraphrase the offline pair would miss, at the cost of a model call '
+            'per context and a model\'s variance.'),
     Measure('context_recall', 'Context recall (judged)', 'RAGAS, judged coverage',
             'retrieval',
             'reference claims attributable to the retrieved context / reference '
@@ -284,6 +287,48 @@ def availability(settings) -> Availability:
             notes.append(f'langchain-openai missing, LLM metrics disabled: {error}')
     return Availability(installed=True, llm_ready=llm_ready, version=version,
                         notes=tuple(notes))
+
+
+class QuoteInChunkSimilarity:
+    """The distance the offline context pair score with: how well the reference
+    quote fits *inside* the retrieved chunk (rapidfuzz `partial_ratio`, the
+    best local alignment of the shorter string within the longer, in [0, 1]).
+
+    RAGAS's default is whole-string Levenshtein similarity, which is the right
+    question when both sides are chunks of the same size — and the wrong one
+    here, where the reference is a sentence-long evidence quote and the
+    retrieved side is a whole chunk: a quote sitting verbatim inside a chunk
+    three times its length scores ~0.3, under RAGAS's fixed 0.5 threshold, so
+    both metrics reported a flat 0 on every run. RAGAS hands the chunk as
+    `reference` and the quote as `response`; `partial_ratio` is symmetric in
+    which is the shorter, so the order does not matter."""
+
+    name = 'quote_in_chunk_similarity'
+
+    def init(self, run_config) -> None:
+        pass
+
+    async def single_turn_ascore(self, sample, callbacks=None) -> float:
+        from rapidfuzz import fuzz
+        return fuzz.partial_ratio(sample.reference or '', sample.response or '') / 100.0
+
+    # RAGAS's SingleTurnMetric surface, in case a caller uses the plain name.
+    async def _single_turn_ascore(self, sample, callbacks=None) -> float:
+        return await self.single_turn_ascore(sample, callbacks)
+
+
+def offline_metrics():
+    """RAGAS's two model-free context metrics, scoring by quote-in-chunk
+    containment rather than whole-string distance (see QuoteInChunkSimilarity).
+    Precision exposes `distance_measure` as a field; recall's setter only takes
+    RAGAS's own enum of whole-string measures, so its field is set directly."""
+    from ragas.metrics import (NonLLMContextPrecisionWithReference,
+                               NonLLMContextRecall)
+    similarity = QuoteInChunkSimilarity()
+    precision = NonLLMContextPrecisionWithReference(distance_measure=similarity)
+    recall = NonLLMContextRecall()
+    recall._distance_measure = similarity
+    return [precision, recall]
 
 
 class _LabEmbeddings:
@@ -366,8 +411,6 @@ def run(pairs, settings, embedder, mode: str = 'offline',
         try:
             import ragas
             from ragas import EvaluationDataset, evaluate
-            from ragas.metrics import (NonLLMContextPrecisionWithReference,
-                                       NonLLMContextRecall)
             from ragas.run_config import RunConfig
         except Exception as error:
             report['notes'].append(f'ragas import failed: {error}')
@@ -384,7 +427,7 @@ def run(pairs, settings, embedder, mode: str = 'offline',
                                    'contexts and reference quotes')
             return report
 
-        metrics = [NonLLMContextPrecisionWithReference(), NonLLMContextRecall()]
+        metrics = offline_metrics()
         if mode == 'llm':
             try:
                 metrics += _llm_metrics(settings, embedder, judge_model)
@@ -430,10 +473,9 @@ def run(pairs, settings, embedder, mode: str = 'offline',
             + ' — only a judged run with an answerer can be ranked')
     if mode == 'offline':
         report['notes'].append(
-            'offline RAGAS context metrics are whole-string similarity, so they '
-            'penalise longer chunks regardless of whether the answer is in them '
-            '— compare them only across configs with similar chunk sizes, and '
-            'use quote recall to compare across chunkers')
+            'offline RAGAS context metrics check whether verbatim evidence quotes '
+            'sit inside the retrieved chunks — deterministic, retrieval only, '
+            'and blind to how much else a chunk carries')
     report['ragas_version'] = getattr(ragas, '__version__', '?')
     report['notes'].extend(status.notes)
     return report

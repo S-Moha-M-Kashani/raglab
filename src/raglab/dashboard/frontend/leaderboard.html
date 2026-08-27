@@ -95,10 +95,11 @@
         threshold to refuse 6 of 8 unanswerable questions, and there it wrongly refuses
         52% of answerable ones. The LLM gate at 0.4 refuses 5 of 8 with 3% false
         refusals, and <i>improves</i> precision 0.34 → 0.59 and MRR 0.70 → 0.77.</li>
-      <li><b>Offline RAGAS context metrics are length-sensitive</b> (whole-string
-        similarity): they fell by half when chunks got longer even as quote recall rose.
-        Compare them only within similar chunk sizes; the judged metrics on the same
-        retrieval read 0.65 context recall against their 0.30.</li>
+      <li><b>Offline RAGAS context metrics changed meaning once.</b> Rows recorded
+        before 2026-08-27 scored them by whole-string similarity, which cannot pass a
+        sentence-long quote against a whole chunk and read a flat 0 on most runs;
+        rows after score quote-in-chunk containment. Do not compare the two across
+        that date — the judged pair on the same retrieval is the comparable reading.</li>
     </ul>
   </section>
 

@@ -205,3 +205,22 @@ def test_recall_caps_what_it_hands_the_model_and_says_it_capped():
     _write_messages(long_thread, messages)
     said = memory.recall_conversation.invoke({'experiment_id': long_thread})
     assert str(memory.MAX_RECALLED) in said
+
+
+def test_what_the_widget_wrote_is_in_the_file_a_reader_opens():
+    """LangGraph's checkpointer switches the file to write-ahead logging, which
+    parks every write in a `-wal` sidecar until something checkpoints it — so
+    a reader opening `widget.db` in a viewer saw a 4 KB shell with two empty
+    tables while months of memory sat beside it. The saver puts the file back
+    in rollback mode the moment it is built, so the main file is always the
+    whole record and no sidecar outlives a transaction."""
+    _write('exp-wal', 'is this in the file?', 'it is now')
+    memory.close()
+    path = memory.db_path()
+    assert not path.with_name(path.name + '-wal').exists()
+    import sqlite3
+    with sqlite3.connect(path) as db:
+        assert db.execute('PRAGMA journal_mode').fetchone()[0] == 'delete'
+        names = {r[0] for r in db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert {'checkpoints', 'writes'} <= names

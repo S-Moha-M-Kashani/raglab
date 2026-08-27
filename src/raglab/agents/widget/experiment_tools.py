@@ -90,6 +90,36 @@ def validated_dataset_ids(experiment_id: str = '') -> set[str]:
     return ids
 
 
+def foreign_experiments(text: str, dataset_id: str) -> dict[str, str]:
+    """The recorded experiments `text` names that ran on a dataset other than
+    `dataset_id`: {experiment_id: its dataset}.
+
+    Memory is filed under the thread's dataset, and that filing is a claim of
+    provenance. An answer that describes runs on another corpus contradicts the
+    claim — seen when a `meetings-de` thread asked about "the last experiment"
+    and was told about the newest run overall — so the caller refuses to file
+    it. Only the validated record says which dataset an id belongs to; an id
+    the record does not know is not evidence either way."""
+    dataset_id = (dataset_id or '').strip()
+    text = str(text or '')
+    if _READER is None or not dataset_id or not text:
+        return {}
+    try:
+        rows = _READER.board_rows(limit=SCAN) or []
+    except Exception:
+        rows = []
+    foreign = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        found_id, dataset = row.get('experiment_id'), row.get('dataset')
+        if (isinstance(found_id, str) and isinstance(dataset, str)
+                and found_id.strip() and found_id.strip() in text
+                and dataset.strip() and dataset.strip() != dataset_id):
+            foreign[found_id.strip()] = dataset.strip()
+    return foreign
+
+
 def _number(value, digits: int = 3) -> str:
     """A number, or an em dash — never a zero standing in for a missing one."""
     if not isinstance(value, (int, float)):

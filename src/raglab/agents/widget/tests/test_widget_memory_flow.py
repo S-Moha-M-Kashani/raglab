@@ -169,7 +169,7 @@ def test_same_dataset_experiment_receives_dataset_and_global_memory(monkeypatch)
     finally:
         widget.experiment_tools.set_experiment_reader(None)
 
-    context = str(agent.payloads[0]['messages'][0].content)
+    context = '\n'.join(str(m.content) for m in agent.payloads[0]['messages'])
     assert 'previous dataset finding' in context
     assert 'existing cross-dataset context' in context
 
@@ -354,3 +354,53 @@ def test_save_failure_keeps_the_authoritative_answer(monkeypatch):
 
     assert result['reply'] == 'answer survives storage failure'
     assert result['memory']['status'] == 'pending'
+
+
+class _TwoDatasetReader:
+    """Two recorded experiments on two corpora — the shape the real bug had."""
+    ROWS = {'this-exp': 'meetings-de', 'other-exp': 'smoke-import-check'}
+
+    def experiment(self, experiment_id):
+        dataset = self.ROWS.get(experiment_id)
+        return ({'experiment_id': experiment_id, 'dataset': dataset}
+                if dataset else None)
+
+    def board_rows(self, limit=500):
+        return [{'experiment_id': i, 'dataset': d} for i, d in self.ROWS.items()]
+
+
+def test_an_answer_about_another_dataset_is_not_filed_under_this_one():
+    """Seen 2026-08-27 in the developer's own widget.db: a `meetings-de`
+    thread asked about 'the last experiment', the agent described the newest
+    experiment overall — on `smoke-import-check` — and the summary of that
+    answer was filed as memory *about meetings-de*. The thread's dataset is
+    the row's provenance; an answer whose experiments belong to another corpus
+    contradicts it, and a contradiction is a refusal, not a filing."""
+    widget.experiment_tools.set_experiment_reader(_TwoDatasetReader())
+    decision = {'relevant': True, 'should_save': True,
+                'dataset_id': 'meetings-de', 'subtopic': 'overview',
+                'reason': 'reusable'}
+    answer = 'The latest experiment is other-exp on smoke-import-check.'
+    out = widget.backends._finish_memory(
+        'Tell me about the last experiment.', answer, dict(decision),
+        model=None, thread='this-exp')
+    assert out['saved'] is False
+    assert 'other-exp' in out['reason'] and 'smoke-import-check' in out['reason']
+    assert long_memory.memory_context('meetings-de') == ''
+    with long_memory._connect() as db:
+        assert db.execute('SELECT count(*) FROM memory_updates').fetchone()[0] == 0
+
+
+def test_an_experiment_thread_tells_the_agent_which_experiment_it_is_about(monkeypatch):
+    """The other half of the same incident: the agent was never told which
+    experiment the thread belonged to, so 'the last experiment' could only
+    mean the newest on the board. The turn now opens with the thread's own
+    experiment and dataset, from the validated record, never from model text."""
+    widget.experiment_tools.set_experiment_reader(_TwoDatasetReader())
+    policy = {'relevant': True, 'should_save': False,
+              'dataset_id': 'meetings-de', 'subtopic': '', 'reason': 'a question'}
+    agent, _ = _setup(monkeypatch, policy)
+    widget.ask('Tell me about the last experiment.', model='openai/gpt-5-nano',
+               thread='this-exp')
+    opening = str(agent.payloads[0]['messages'][0].content)
+    assert 'this-exp' in opening and 'meetings-de' in opening

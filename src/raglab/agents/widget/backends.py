@@ -27,6 +27,7 @@ from raglab.agents.widget.hooks import (MIDDLEWARE, _account, _validate,
                                         summarize_memory_update)
 from raglab.agents.widget.prompts import (
     _PROMPTS,
+    ACTIVE_EXPERIMENT_PROMPT,
     KNOWLEDGE_BASE,
     SYSTEM_PROMPT)
 from raglab.agents.widget import tools
@@ -250,7 +251,18 @@ def _run(message: str, thread: str, *, memory_state: dict | None = None,
     hard ceiling rather than a budget.
     """
     name = (thread or '').strip() or memory.GENERAL
-    messages = ([SystemMessage(content=memory_text)] if memory_text else [])
+    messages = []
+    # An experiment's thread opens by saying which experiment it is — from the
+    # validated record, so an unknown or general thread says nothing. Without
+    # it "the last experiment" could only mean the newest on the board, and a
+    # meetings-de thread was once told about a smoke-import-check run.
+    dataset = (experiment_tools.trusted_dataset_id(name)
+               if name != memory.GENERAL else '')
+    if dataset:
+        messages.append(SystemMessage(content=ACTIVE_EXPERIMENT_PROMPT.format(
+            experiment_id=name, dataset=dataset)))
+    if memory_text:
+        messages.append(SystemMessage(content=memory_text))
     messages.append(HumanMessage(content=message))
     return ({'messages': messages, **memory.thread_stamp(name),
              **(memory_state or {})},
@@ -439,6 +451,16 @@ def _finish_memory(question: str, answer: str, decision: dict | None,
     if not decision:
         return None
     if not decision.get('relevant') or not decision.get('should_save'):
+        return decision
+    dataset = decision.get('dataset_id', '')
+    foreign = experiment_tools.foreign_experiments(answer, dataset)
+    if foreign:
+        named = ', '.join(f'{i} ({d})' for i, d in sorted(foreign.items()))
+        decision.update({
+            'saved': False, 'should_save': False,
+            'reason': (f'The answer describes experiments on another dataset '
+                       f'— {named} — so it was not filed as memory about '
+                       f'{dataset!r}.')})
         return decision
     try:
         summary = _summarize_memory_update(

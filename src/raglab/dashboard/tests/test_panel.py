@@ -2222,8 +2222,11 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     """A developer page, not a reader's: every step the model took on a thread
     — system lines, tool calls with their arguments, tool results, replies.
     It answers to one key from the environment and to nothing else: no key
-    configured, or the wrong one typed, and the page is a 404 rather than a
-    403, because a page that says "forbidden" has already said it exists."""
+    configured and the page is a 404 rather than a 403, because a page that
+    says "forbidden" has already said it exists. With a key configured, the
+    page asks for it in a masked field — the key travels in a POST body, never
+    in the address bar, the history or a link — and unlocks the browser with
+    a session cookie the key is not written into."""
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from raglab.agents.widget.tests.widget_examples import write_messages
     write_messages('exp-dev', [
@@ -2236,18 +2239,39 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
         AIMessage(content='the baseline.')])
 
     monkeypatch.delenv('RAGLAB_DEV_KEY', raising=False)
-    assert client.get('/dev/trace', params={'key': 'x'}).status_code == 404
-    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
-    assert client.get('/dev/trace', params={'key': 'wrong'}).status_code == 404
     assert client.get('/dev/trace').status_code == 404
+    assert client.post('/dev/trace', data={'key': 'x'}).status_code == 404
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
 
-    index = client.get('/dev/trace', params={'key': 'open-sesame'})
+    # Locked: the plate, a masked field, and not one thread name.
+    plate = client.get('/dev/trace')
+    assert plate.status_code == 200
+    assert 'type="password"' in plate.text and 'name="key"' in plate.text
+    assert 'exp-dev' not in plate.text
+    # The key is never read from the address bar.
+    assert 'exp-dev' not in client.get('/dev/trace', params={'key': 'open-sesame'}).text
+    wrong = client.post('/dev/trace', data={'key': 'wrong'})
+    assert wrong.status_code == 200
+    assert 'did not match' in wrong.text and 'exp-dev' not in wrong.text
+    assert 'set-cookie' not in wrong.headers
+
+    unlocked = client.post('/dev/trace', data={'key': 'open-sesame'},
+                           follow_redirects=False)
+    assert unlocked.status_code == 303
+    assert unlocked.headers['location'] == '/dev/trace'
+    cookie = unlocked.headers['set-cookie']
+    assert 'raglab_dev=' in cookie and 'HttpOnly' in cookie and 'SameSite=strict' in cookie.replace('Strict', 'strict')
+    assert 'open-sesame' not in cookie
+
+    index = client.get('/dev/trace')
     assert index.status_code == 200
     assert 'exp-dev' in index.text
-    assert '1 question(s), 4 step(s)' in index.text
+    assert '1 question' in index.text and '4 step' in index.text
     assert 'what ran?' in index.text
-    page = client.get('/dev/trace', params={'key': 'open-sesame',
-                                            'thread': 'exp-dev'})
+    # Theme is stamped before paint, exactly as the three surfaces do it.
+    head = index.text.split('</head>')[0]
+    assert 'raglab-theme' in head and 'documentElement' in head
+    page = client.get('/dev/trace', params={'thread': 'exp-dev'})
     assert page.status_code == 200
     # A checkout window must show the thread as it is now, not as the browser
     # last saw it: a reader who sent three more questions and pressed back saw
@@ -2262,3 +2286,34 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     from raglab.agents import widget
     assert widget.SYSTEM_PROMPT[:60] in html_unescape(page.text)
     assert f'last {widget.MAX_HISTORY}' in page.text
+
+    # Lock: the cookie is forgotten server-side, so even a browser that kept
+    # it is back at the plate.
+    locked = client.post('/dev/trace/lock', follow_redirects=False)
+    assert locked.status_code == 303
+    assert 'exp-dev' not in client.get('/dev/trace').text
+
+
+def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):
+    # this is an integration test
+    """A key holding `#`, `%` and `&` — legal in .env, special in a URL — must
+    unlock like any other, and must appear in no address, header or page the
+    route sends back: the whole point of typing it into the page is that the
+    browser's history and the server's access log never see it."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+    write_messages('exp-esc', [HumanMessage(content='hi'), AIMessage(content='hello')])
+    key = 'ab#cd%ef&g'
+    monkeypatch.setenv('RAGLAB_DEV_KEY', key)
+
+    seen = [client.get('/dev/trace', params={'thread': 'exp-esc'}),
+            client.post('/dev/trace', data={'key': key, 'next': 'exp-esc'},
+                        follow_redirects=False)]
+    assert seen[1].status_code == 303
+    assert seen[1].headers['location'] == '/dev/trace?thread=exp-esc'
+    seen.append(client.get(seen[1].headers['location']))
+    seen.append(client.get('/dev/trace'))
+    assert 'exp-esc' in seen[-1].text
+    for response in seen:
+        assert key not in response.text
+        assert key not in str(response.headers)

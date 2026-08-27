@@ -60,7 +60,7 @@ def index(key: str) -> str:
                  f'<p class="meta">{len(rows)} conversation(s) — one per '
                  'experiment (plus <code>general</code>), newest first. Every '
                  'question you send lands inside its experiment\'s conversation; '
-                 'open one to see each prompt step by step.</p><ol>{items}</ol>')
+                 f'open one to see each prompt step by step.</p><ol>{items}</ol>')
 
 
 def _step(number: int, step: dict, trimmed: bool = False) -> str:

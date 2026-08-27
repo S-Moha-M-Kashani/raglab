@@ -250,3 +250,27 @@ def test_a_trace_shows_every_step_the_model_took_not_only_the_two_the_reader_saw
                         'tool_call_id': 'call-1', 'text': 'experiment x — baseline'}
     assert steps[4]['input_tokens'] == 10 and steps[4]['output_tokens'] == 4
     assert 'exp-trace' in memory.threads()
+
+
+def test_a_second_process_opening_a_busy_file_still_gets_its_saver():
+    """The mode switch needs the file to itself; a second process — the CLI
+    beside the server, a developer's one-off check — finds it busy. That must
+    not be a crash on `saver()`: the record is still readable and writable in
+    whatever mode the file is in, and the switch simply waits for a quieter
+    opener."""
+    import sqlite3
+    memory.close()
+    path = memory.db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    other = sqlite3.connect(path, isolation_level=None)
+    other.execute('PRAGMA journal_mode=WAL')
+    # A read transaction held open: the shape of a server mid-request. Writes
+    # from another connection still go through under WAL; leaving WAL does not.
+    other.execute('BEGIN')
+    other.execute('SELECT count(*) FROM sqlite_master').fetchall()
+    try:
+        assert memory.saver() is not None
+    finally:
+        other.execute('ROLLBACK')
+        other.close()
+        memory.close()

@@ -91,6 +91,14 @@ one to see the system lines, the question, each tool call and reply, the
 answer, and the token account. The browser stays unlocked until you press
 **Lock** or the server restarts. Read-only; a 404 when no key is configured.
 
+Widget turns can also be traced to LangSmith — the widget alone, since it
+writes no run and no ledger row. Set the four `LANGSMITH_*` variables from
+`.env.example` and restart the server. Two details that silently disable it:
+`LANGSMITH_TRACING` must be the lowercase word `true`, and
+`LANGSMITH_ENDPOINT` must match your key's region (US keys use
+`https://api.smith.langchain.com`, EU keys `https://eu.api.smith.langchain.com`;
+a mismatch is a 403).
+
 ## Stored data
 
 All durable application data is local and git-ignored:

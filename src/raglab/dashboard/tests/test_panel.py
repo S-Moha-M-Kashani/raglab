@@ -5,6 +5,7 @@ import subprocess
 import re
 
 import pytest
+from html import unescape as html_unescape
 
 from raglab.configuration import lab_config as config
 from raglab.corpora import dataset_import_contract as datasets
@@ -2253,3 +2254,9 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     for expected in ('what ran?', 'read_experiment', '&quot;experiment_id&quot;',
                      'experiment exp-dev — baseline', 'the baseline.'):
         assert expected in page.text
+    # The page says what the model is standing on, not only what was said: the
+    # standing system prompt (from the fixture, verbatim), and the window — how
+    # many of the thread's messages the next call will actually see.
+    from raglab.agents import widget
+    assert widget.SYSTEM_PROMPT[:60] in html_unescape(page.text)
+    assert f'last {widget.MAX_HISTORY}' in page.text

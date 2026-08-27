@@ -174,8 +174,14 @@ def trim_and_call(request, handler):
     it on. `request.override` is 1.x's non-destructive trim — langgraph's
     `llm_input_messages` is gone, and writing `messages` from `before_model`
     would delete the transcript rather than shorten a prompt."""
-    if len(request.messages) > MAX_HISTORY:
-        request = request.override(messages=request.messages[-MAX_HISTORY:])
+    # System lines are written once, at the top of the thread — which
+    # experiment it is about, the memory context — so they must outlive the
+    # window or the model forgets its subject on the twenty-first message.
+    # They are kept whole; the window counts everything else.
+    standing = [m for m in request.messages if getattr(m, 'type', '') == 'system']
+    rest = [m for m in request.messages if getattr(m, 'type', '') != 'system']
+    if len(rest) > MAX_HISTORY:
+        request = request.override(messages=standing + rest[-MAX_HISTORY:])
     name = getattr(request.model, 'model_name', type(request.model).__name__)
     _fired('wrap_model_call', f'{name}, {len(request.messages)} messages')
     return handler(request)

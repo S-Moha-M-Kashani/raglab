@@ -90,7 +90,8 @@ function element(name = '') {
 // case. `search` is the page's query string, so a deep link can be exercised
 // through the same entry point the browser uses.
 function inspector({ records = {}, groundtruth = {}, search = '', archives = {},
-                     additions = {}, deferredExperiments = {}, labJobs = {} } = {}) {
+                     recordArchives = {}, additions = {}, deferredExperiments = {},
+                     labJobs = {} } = {}) {
   const byId = new Map();
   const byIdOf = (id) => {
     if (!byId.has(id)) byId.set(id, element(id));
@@ -124,6 +125,15 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {},
       return found
         ? { ok: true, body: found }
         : { ok: false, body: { detail: `unknown dataset ${dataset}` } };
+    }
+    // A finished experiment's own archive — the chunk text it ran over. Absent
+    // means the lab has none for it (a 404), which is the pre-archive case.
+    if (path.startsWith('/inspector/api/experiments/') && path.endsWith('/archive')) {
+      const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length,
+        -'/archive'.length));
+      return recordArchives[id]
+        ? { ok: true, body: recordArchives[id] }
+        : { ok: false, body: { detail: `${id} has no complete archive` } };
     }
     if (path.startsWith('/inspector/api/experiments/') && path.endsWith('/questions')) {
       const id = decodeURIComponent(path.slice('/inspector/api/experiments/'.length,
@@ -564,6 +574,37 @@ test('an imported archive is rendered from its own payload, never through a '
     "the archive's answered rows are on screen");
   assert.doesNotMatch(shown.generation, /wrote no answers/);
   assert.doesNotMatch(shown.retrieval, /an index build/);
+});
+
+// This is a unit test.
+test("a finished experiment's chunks are read from its own archive, and say so",
+  async () => {
+  // Observed in a browser: every finished evaluation archives itself, chunk
+  // text included, yet the Chunks tab of a pinned record went on saying the
+  // text was never recorded — a sentence written before the archive existed.
+  const page = await open('run-4', {
+    groundtruth: CORPUS,
+    records: { 'run-4': record({ experiment_id: 'run-4' }) },
+    recordArchives: { 'run-4': { format: 'raglab-experiment', evaluation: {
+      inspector: {
+        chunks_by_session: [{ session_id: 's1', date: '2026-08-19',
+                              chunks: [{ id: 'c1', text: 'archived evidence' }] }],
+        summaries: [{ level: 1, group_id: 'g1', members: 1, sessions: 1,
+                      text: 'a summary', member_ids: ['c1'] }],
+      } } } },
+  });
+  assert.ok(page.requests.includes('/inspector/api/experiments/run-4/archive'));
+  const shown = views(page);
+  assert.doesNotMatch(shown.chunks, /not recorded/,
+    'a record whose archive holds the chunks must not say they were never kept');
+  const cards = page.byId('chunks-body').children;
+  assert.ok(cards.some((card) => card.innerHTML.includes('s1')
+    && card.children.some((line) => line.innerHTML.includes('archived evidence'))),
+    'the archived sessions and their chunk text are what the tab lists');
+  assert.equal(shown.rebuild, false,
+    'no rebuild is offered: the chunks it ran over are on screen already');
+  assert.match(page.byId('chunks-status').textContent, /1 chunk/);
+  assert.match(page.byId('chunks-status').textContent, /1 summar/);
 });
 
 // This is a unit test.

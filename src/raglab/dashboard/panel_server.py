@@ -1326,8 +1326,11 @@ def create_app() -> FastAPI:
         a page for developers should not announce itself to readers."""
         if not dev_trace_page.allowed(key):
             raise HTTPException(404)
-        return (dev_trace_page.thread(key, thread) if thread.strip()
+        page = (dev_trace_page.thread(key, thread) if thread.strip()
                 else dev_trace_page.index(key))
+        # A checkout window shows the thread as it is now, never as the
+        # browser last saw it.
+        return HTMLResponse(page, headers={'Cache-Control': 'no-store'})
 
     @app.get('/api/widget/history')
     def widget_history(thread: str = ''):

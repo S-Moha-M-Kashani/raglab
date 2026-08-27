@@ -2246,6 +2246,10 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     page = client.get('/dev/trace', params={'key': 'open-sesame',
                                             'thread': 'exp-dev'})
     assert page.status_code == 200
+    # A checkout window must show the thread as it is now, not as the browser
+    # last saw it: a reader who sent three more questions and pressed back saw
+    # the two it had cached.
+    assert page.headers['cache-control'] == 'no-store'
     for expected in ('what ran?', 'read_experiment', '&quot;experiment_id&quot;',
                      'experiment exp-dev — baseline', 'the baseline.'):
         assert expected in page.text

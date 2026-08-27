@@ -151,9 +151,18 @@ def saver():
             # while the record grew beside it, and a reader opening the file in
             # a viewer saw two empty tables. Rollback mode instead: the main
             # file is always the whole record, and a `-journal` outlives no
-            # transaction. Only this connection is open at this moment, which
-            # is the one condition the mode change needs.
-            _SAVER.conn.execute('PRAGMA journal_mode=DELETE')
+            # transaction. The switch needs the file to itself; a second
+            # process — the CLI beside the server, a one-off check — finds it
+            # busy, and that is not a crash: the record works in either mode,
+            # so fold what is pending into the main file and leave the switch
+            # to the next opener that has the file alone.
+            try:
+                _SAVER.conn.execute('PRAGMA journal_mode=DELETE')
+            except sqlite3.OperationalError:
+                try:
+                    _SAVER.conn.execute('PRAGMA wal_checkpoint(PASSIVE)')
+                except sqlite3.OperationalError:
+                    pass
         return _SAVER
 
 

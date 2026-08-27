@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import (FileResponse, JSONResponse,
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                StreamingResponse)
 
 from raglab.llm_backends import openrouter_key_memory as credentials
@@ -36,6 +36,7 @@ from raglab.evaluation import ragas_judged_metrics as ragas_eval
 from raglab.rag_components.retrieval import (
     retrieve_fuse_rerank_grade as retrieval)
 from raglab.agents import widget
+from raglab.dashboard import dev_trace_page
 from raglab.configuration.lab_config import (
     ANSWERERS,
     CHUNKERS,
@@ -1317,6 +1318,16 @@ def create_app() -> FastAPI:
             # buffering: a stream held back until it completes is the sudden
             # printing this route exists to end.
             headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    @app.get('/dev/trace', response_class=HTMLResponse)
+    def dev_trace(key: str = '', thread: str = ''):
+        """The developer's step-by-step checkout of one widget thread — see
+        `dev_trace_page`. Keyed by `RAGLAB_DEV_KEY`; a 404 without it, because
+        a page for developers should not announce itself to readers."""
+        if not dev_trace_page.allowed(key):
+            raise HTTPException(404)
+        return (dev_trace_page.thread(key, thread) if thread.strip()
+                else dev_trace_page.index(key))
 
     @app.get('/api/widget/history')
     def widget_history(thread: str = ''):

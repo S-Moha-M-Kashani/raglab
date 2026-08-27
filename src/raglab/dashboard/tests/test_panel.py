@@ -2214,3 +2214,38 @@ def test_dataset_help_text_leads_with_the_templates():
     assert 'formal contract' in text, (
         'the schemas must be named as the contract behind the templates, '
         'not as a second starting point')
+
+
+def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(client, monkeypatch):
+    # this is an integration test
+    """A developer page, not a reader's: every step the model took on a thread
+    — system lines, tool calls with their arguments, tool results, replies.
+    It answers to one key from the environment and to nothing else: no key
+    configured, or the wrong one typed, and the page is a 404 rather than a
+    403, because a page that says "forbidden" has already said it exists."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+    write_messages('exp-dev', [
+        HumanMessage(content='what ran?'),
+        AIMessage(content='', tool_calls=[{'name': 'read_experiment',
+                                           'args': {'experiment_id': 'exp-dev'},
+                                           'id': 'c1'}]),
+        ToolMessage(content='experiment exp-dev — baseline', tool_call_id='c1',
+                    name='read_experiment'),
+        AIMessage(content='the baseline.')])
+
+    monkeypatch.delenv('RAGLAB_DEV_KEY', raising=False)
+    assert client.get('/dev/trace', params={'key': 'x'}).status_code == 404
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
+    assert client.get('/dev/trace', params={'key': 'wrong'}).status_code == 404
+    assert client.get('/dev/trace').status_code == 404
+
+    index = client.get('/dev/trace', params={'key': 'open-sesame'})
+    assert index.status_code == 200
+    assert 'exp-dev' in index.text
+    page = client.get('/dev/trace', params={'key': 'open-sesame',
+                                            'thread': 'exp-dev'})
+    assert page.status_code == 200
+    for expected in ('what ran?', 'read_experiment', '&quot;experiment_id&quot;',
+                     'experiment exp-dev — baseline', 'the baseline.'):
+        assert expected in page.text

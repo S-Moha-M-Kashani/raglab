@@ -58,7 +58,9 @@ from raglab.agents.widget.conversation_memory import (
     WidgetState,
     forget,
     history,
-    recall_conversation)
+    recall_conversation,
+    threads,
+    trace)
 from raglab.agents.widget.long_term_memory import (
     MAX_SUMMARY_CHARS,
     clear_long_term_memory,

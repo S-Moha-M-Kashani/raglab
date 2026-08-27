@@ -27,6 +27,8 @@ h1{font-size:1.2em}a{color:#0645ad}
 .label{font-weight:600;font-size:.85em;text-transform:uppercase;letter-spacing:.05em;color:#555}
 pre{white-space:pre-wrap;word-break:break-word;margin:.3em 0;font-size:.9em}
 .meta{color:#666;font-size:.85em}
+.trimmed{opacity:.55}
+summary{cursor:pointer}
 """
 
 
@@ -54,9 +56,11 @@ def index(key: str) -> str:
                                   f'newest first.</p><ol>{items}</ol>')
 
 
-def _step(number: int, step: dict) -> str:
+def _step(number: int, step: dict, trimmed: bool = False) -> str:
     kind = step['kind']
-    parts = [f'<div class="step {kind}"><div class="label">{number}. {_esc(kind)}']
+    parts = [f'<div class="step {kind}{" trimmed" if trimmed else ""}">'
+             f'<div class="label">{number}. {_esc(kind)}'
+             + (' · outside the window' if trimmed else '')]
     if kind == 'tool':
         parts.append(f' · {_esc(step.get("name"))} → {_esc(step.get("tool_call_id"))}')
     parts.append('</div>')
@@ -73,13 +77,36 @@ def _step(number: int, step: dict) -> str:
     return ''.join(parts)
 
 
+def _standing(steps: list) -> str:
+    """What the model stands on before it reads a step: the system prompt
+    `create_agent` binds to every call (not in the log, so shown from the
+    fixture), the tools it may call, and the window `trim_and_call` applies."""
+    rest = [s for s in steps if s['kind'] != 'system']
+    dropped = max(0, len(rest) - widget.MAX_HISTORY)
+    tools = ', '.join(t.name for t in widget.TOOLS)
+    return (
+        '<details><summary class="label">standing system prompt (every call)'
+        '</summary><pre>' + _esc(widget.SYSTEM_PROMPT) + '</pre></details>'
+        f'<p class="meta">tools it may call: {_esc(tools)}</p>'
+        f'<p class="meta">window: every system line below, plus the last '
+        f'{widget.MAX_HISTORY} other messages — '
+        + (f'the {dropped} oldest non-system step(s) below are no longer sent.'
+           if dropped else 'nothing has been trimmed yet.')
+        + f' Tool hops per turn stop at {widget.hooks.MAX_TOOL_HOPS}; a question is '
+        f'capped at {widget.MAX_QUESTION} characters.</p>')
+
+
 def thread(key: str, name: str) -> str:
     found = widget.trace(name)
+    steps = found['steps']
     head = (f'<p class="meta"><a href="/dev/trace?key={_esc(key)}">← all threads</a>'
             f' · experiment {_esc(found["experiment_id"]) or "—"}'
             f' · dataset {_esc(found["dataset_id"]) or "—"}'
             f' · began {_esc(found["started_at"]) or "—"}'
-            f' · {len(found["steps"])} step(s)</p>')
-    body = ''.join(_step(i, s) for i, s in enumerate(found['steps'], 1)) \
+            f' · {len(steps)} step(s)</p>')
+    rest = [s for s in steps if s['kind'] != 'system']
+    outside = {id(s) for s in rest[:max(0, len(rest) - widget.MAX_HISTORY)]}
+    body = ''.join(_step(i, s, trimmed=id(s) in outside)
+                   for i, s in enumerate(steps, 1)) \
         or '<p class="meta">this thread holds no messages.</p>'
-    return _page(f'trace · {found["thread"]}', head + body)
+    return _page(f'trace · {found["thread"]}', head + _standing(steps) + body)

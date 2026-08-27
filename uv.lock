@@ -2170,7 +2170,7 @@ wheels = [
 
 [[package]]
 name = "raglab"
-version = "0.27.2"
+version = "0.28.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

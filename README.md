@@ -82,16 +82,6 @@ decides relevance, dataset, subtopic, and whether saving is allowed. Irrelevant
 questions are refused and are not persisted. The summary writer runs after the
 answer is delivered.
 
-### Developer trace page
-
-Set `RAGLAB_DEV_KEY` before starting the server and open
-`/dev/trace?key=<that key>` to see every widget conversation step by step:
-the system lines the model was handed, the question, each tool call with its
-arguments and reply, the answer, and a token account where one was reported.
-`&thread=<id>` opens one thread; without it the page lists them. It reads the
-conversation log and writes nothing, and it is a 404 whenever the key is
-unset or wrong.
-
 ## Stored data
 
 All durable application data is local and git-ignored:

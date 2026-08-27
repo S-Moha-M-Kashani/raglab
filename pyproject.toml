@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.29.1"
+version = "0.30.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 requires-python = ">=3.13"
 dependencies = [

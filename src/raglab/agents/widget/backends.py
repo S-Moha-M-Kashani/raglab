@@ -256,13 +256,20 @@ def _run(message: str, thread: str, *, memory_state: dict | None = None,
     # validated record, so an unknown or general thread says nothing. Without
     # it "the last experiment" could only mean the newest on the board, and a
     # meetings-de thread was once told about a smoke-import-check run.
+    # ...and said once. The graph appends every input message to the thread,
+    # so a line added on each turn was reread on each turn — a five-turn
+    # thread carried ten system messages. A line the thread already holds,
+    # word for word, is not added again; a memory context that changed is.
+    said = {str(m.content) for m in (memory._channels(name).get('messages')
+                                     or []) if getattr(m, 'type', '') == 'system'}
     dataset = (experiment_tools.trusted_dataset_id(name)
                if name != memory.GENERAL else '')
-    if dataset:
-        messages.append(SystemMessage(content=ACTIVE_EXPERIMENT_PROMPT.format(
-            experiment_id=name, dataset=dataset)))
-    if memory_text:
-        messages.append(SystemMessage(content=memory_text))
+    opening = (ACTIVE_EXPERIMENT_PROMPT.format(experiment_id=name,
+                                               dataset=dataset)
+               if dataset else '')
+    for line in (opening, memory_text):
+        if line and line not in said:
+            messages.append(SystemMessage(content=line))
     messages.append(HumanMessage(content=message))
     return ({'messages': messages, **memory.thread_stamp(name),
              **(memory_state or {})},

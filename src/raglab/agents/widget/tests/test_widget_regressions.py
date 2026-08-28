@@ -3,6 +3,7 @@
 
 import json
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from raglab.agents import widget
@@ -41,22 +42,90 @@ def test_follow_up_policy_receives_the_existing_thread_transcript(monkeypatch):
     assert 'Yes, recall improved.' in seen[0]
 
 
-def test_repeated_tool_hops_are_stopped_before_graph_recursion_limit():
-    """A tool loop must receive a bounded stop signal, not GRAPH_RECURSION_LIMIT.
+def _scripted_tool_model(script):
+    """A chat model that plays back a fixed script of replies, one per call —
+    just enough of `BaseChatModel` for `create_agent` to bind tools to it and
+    drive a real graph through a chosen number of tool-calling hops. No
+    network, no real model: this is what makes it safe to run the real
+    compiled graph offline instead of recomputing `RECURSION_LIMIT`'s own
+    arithmetic and calling that a proof."""
+    from langchain_core.language_models.chat_models import BaseChatModel
+    from langchain_core.outputs import ChatGeneration, ChatResult
 
-    The old `MAX_TOOL_HOPS <= 8` assertion never checked that the recursion
-    ceiling could actually be reached by that many hops — this does: the
-    budget must admit every sequential hop the guard allows, at
-    `SUPERSTEPS_PER_HOP` supersteps each, plus the closing answer and the
-    fixed before/after-agent overhead, so the guard is what stops a
-    pathological loop and never this ceiling.
+    class _Model(BaseChatModel):
+        script: list
+        calls: int = 0
+
+        @property
+        def _llm_type(self):
+            return 'scripted-tool-model'
+
+        def bind_tools(self, tools, *, tool_choice=None, **kwargs):
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            message = self.script[self.calls]
+            self.calls += 1
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+    return _Model(script=list(script))
+
+
+def _drive_real_graph(hops: int, recursion_limit: int):
+    """Run the real compiled agent — `hooks.MIDDLEWARE`, a real `create_agent`
+    graph, a real (in-memory) checkpointer — through exactly `hops`
+    tool-calling turns and then a final answer, at a chosen recursion limit.
+    Raises `GraphRecursionError` exactly when the ceiling is too small; this
+    is the proof `test_recursion_limit_admits_max_tool_hops_and_the_closing_answer`
+    needs and a recomputed formula cannot give.
     """
+    import uuid
+
+    from langchain.agents import create_agent
+    from langchain_core.tools import tool
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    @tool
+    def noop(x: str = '') -> str:
+        """A tool that does nothing; it only exists to cost a hop."""
+        return 'ok'
+
+    script = [AIMessage(content='', tool_calls=[
+                  {'name': 'noop', 'args': {}, 'id': f'call-{i}'}])
+              for i in range(hops)]
+    script.append(AIMessage(content='final answer'))
+    agent = create_agent(_scripted_tool_model(script), tools=[noop],
+                         middleware=widget.hooks.MIDDLEWARE,
+                         checkpointer=InMemorySaver())
+    return agent.invoke(
+        {'messages': [HumanMessage(content='drive the hops')]},
+        config={'recursion_limit': recursion_limit,
+                'configurable': {'thread_id': str(uuid.uuid4())}})
+
+
+def test_recursion_limit_admits_max_tool_hops_and_the_closing_answer():
+    """Proof against the real compiled graph, not a recomputed formula: a run
+    that calls tools `MAX_TOOL_HOPS` times must reach its closing model call
+    (a genuine answer, or the guard's own refusal once the count trips) and
+    `close_the_log` without `GraphRecursionError` — the ceiling must never be
+    what stops a pathological loop; `stop_repeated_tool_hops` must be.
+
+    This replaced an assertion that only recomputed `RECURSION_LIMIT`'s own
+    formula and so could never have caught the off-by-one a prior version of
+    that formula had: it was one graph-start superstep short, and this test
+    is what a reviewer used to prove it empirically.
+    """
+    from langgraph.errors import GraphRecursionError
+
     assert widget.hooks.MAX_TOOL_HOPS <= 8
     assert callable(widget.hooks.stop_repeated_tool_hops)
-    hops_and_answer = (widget.hooks.MAX_TOOL_HOPS
-                       * widget.hooks.SUPERSTEPS_PER_HOP) + 1
-    fixed_overhead = 2  # before_agent, after_agent
-    assert widget.hooks.RECURSION_LIMIT >= hops_and_answer + fixed_overhead
+
+    hops = widget.hooks.MAX_TOOL_HOPS
+    result = _drive_real_graph(hops, widget.hooks.RECURSION_LIMIT)
+    assert result['messages'][-1].content
+
+    with pytest.raises(GraphRecursionError):
+        _drive_real_graph(hops, widget.hooks.RECURSION_LIMIT - 1)
 
 
 def test_stream_request_is_kept_alive_when_the_page_navigates():

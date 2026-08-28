@@ -322,9 +322,9 @@ def test_trim_and_call_logs_the_shape_of_what_came_back():
             _FakeModelRequest([]), lambda r: ModelResponse(result=[reply]))
         return list(widget.HOOK_LOG)[-2:]
 
-    before, after = last_two(AIMessage(content='', tool_calls=[
+    trim_line, after = last_two(AIMessage(content='', tool_calls=[
         {'name': 'calculate', 'args': {'expression': '1+1'}, 'id': 'a'}]))
-    assert before.startswith('wrap_model_call:')
+    assert trim_line.startswith('wrap_model_call:')
     assert 'calculate' in after
     assert after.startswith('after_model:')
     assert 'answer' in last_two(AIMessage(content='seven'))[1]

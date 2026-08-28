@@ -47,17 +47,25 @@ MAX_TOOL_HOPS = 8             # hard stop before a pathological tool loop
 SUPERSTEPS_PER_HOP = 2
 
 # The recursion budget `backends._run` hands the graph, derived so the guard
-# and the ceiling can never drift apart again. A run is `before_agent`, up to
-# `MAX_TOOL_HOPS` hops at `SUPERSTEPS_PER_HOP` supersteps each, the model node
-# that writes the final answer, and `after_agent`:
+# and the ceiling can never drift apart again. A run is one graph-start
+# superstep the compiled graph spends before `before_agent` ever runs
+# (verified against the real compiled graph — `get_graph()` shows
+# `__start__` feeding `check_request.before_agent` as its own transition, and
+# driving a scripted model through 0..MAX_TOOL_HOPS real hops always needed
+# exactly one more than the count of nodes actually executed, never zero),
+# `before_agent` itself, up to `MAX_TOOL_HOPS` hops at `SUPERSTEPS_PER_HOP`
+# supersteps each, the model node that writes the final answer, and
+# `after_agent`:
 #
-#   1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
-#   = 1 + 8 * 2 + 1 + 1 = 19
+#   1 + 1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
+#   = 1 + 1 + 8 * 2 + 1 + 1 = 20
 #
-# That admits MAX_TOOL_HOPS sequential hops *and* the answer after them, so
-# `stop_repeated_tool_hops` is what stops a pathological loop — the ceiling
-# below is never what fires first.
-RECURSION_LIMIT = 1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
+# That admits MAX_TOOL_HOPS sequential hops *and* the answer after them —
+# proved against the real compiled graph in
+# `test_widget_regressions.test_recursion_limit_admits_max_tool_hops_and_the_closing_answer`,
+# not just recomputed here — so `stop_repeated_tool_hops` is what stops a
+# pathological loop, and this ceiling is never what fires first.
+RECURSION_LIMIT = 1 + 1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
 
 # What fired, in order — the whole run at a glance. Bounded because it is a
 # module-level list shared by every concurrent turn for the life of the

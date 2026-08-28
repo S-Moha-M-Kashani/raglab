@@ -26,6 +26,14 @@ not catch but the policy would have called irrelevant is now answered, and a
 thread naming an experiment the records cannot yet identify — a job still
 running is the common case, and the moment a reader is most likely to ask — is
 answered too. Neither is filed.
+
+Whatever the decision turns out to be, its reason is written on the turn's own
+`widget_turn_log` row (`_record_memory_outcome`): the deciding thread has no
+caller left to return to, and a turn left unfiled with no record of why would
+be exactly the silence CLAUDE.md forbids. For the same reason every one of
+this file's operational writes goes through `_safely` — three writers share
+widget.db, and a row that could not be written is reported, never fatal to an
+answer the reader already has.
 """
 import os
 import time
@@ -395,6 +403,28 @@ def _policy_transcript(thread: str) -> str:
                      if turn.get('text'))
 
 
+def _safely(work, note: str, fallback=None):
+    """Run an operational write that must never cost a reader their answer.
+
+    The rule this lab already keeps for the ledger, applied to the widget's own
+    files: a failed write is reported, never fatal (CLAUDE.md, "a failed write
+    is reported on the job, never fatal"). Three writers share `widget.db` —
+    the checkpointer, the long-term store and the turn log — each behind its
+    own lock, and since the memory pass moved onto a daemon thread one turn's
+    writer can hold the file while the next turn's does not. They wait
+    (`BUSY_TIMEOUT_SECONDS`), which settles it in every ordinary case; what
+    this covers is the one that outlasts the wait, where the alternative is a
+    502 on a turn that answered perfectly well. `HOOK_LOG` is the only reader
+    available to a write that failed: the row it would have gone on is the
+    thing that could not be written.
+    """
+    try:
+        return work()
+    except Exception as error:
+        hooks._fired('operational', f'{note}: {error}')
+        return fallback
+
+
 def _log_turn(*, message: str, reply: str, thread: str, started: float,
               input_tokens=None, output_tokens=None, messages=None,
               dataset_id='', status='answered', ai_message_id='') -> str:
@@ -402,7 +432,11 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
 
     `dataset_id` is the turn's trusted dataset, not the policy's opinion of
     one: the row says which corpus the thread stood on while it answered, and
-    that is known before the answer exists rather than after."""
+    that is known before the answer exists rather than after.
+
+    Returns `''` when the row could not be written — see `_safely`. Every
+    caller already treats an empty turn id as "there is no row to amend",
+    which is exactly what is true then."""
     name = (thread or '').strip() or memory.GENERAL
     experiment_id = name if name != memory.GENERAL else ''
     user_id = ''
@@ -416,14 +450,16 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
                   'text': message, 'latency_ms': 0},
                  {'id': str(uuid.uuid4()), 'kind': 'ai', 'text': reply,
                   'latency_ms': None}]
-    return turn_logger.log_turn(
-        thread_id=name, experiment_id=experiment_id, dataset_id=dataset_id,
-        user_message_id=user_id or str(uuid.uuid4()), user_message=message,
-        ai_message_id=ai_message_id, ai_message=reply,
-        steps=trace,
-        total_input_tokens=input_tokens, total_output_tokens=output_tokens,
-        total_latency_ms=max(0, round((time.monotonic() - started) * 1000)),
-        status=status)
+    return _safely(
+        lambda: turn_logger.log_turn(
+            thread_id=name, experiment_id=experiment_id, dataset_id=dataset_id,
+            user_message_id=user_id or str(uuid.uuid4()), user_message=message,
+            ai_message_id=ai_message_id, ai_message=reply,
+            steps=trace,
+            total_input_tokens=input_tokens, total_output_tokens=output_tokens,
+            total_latency_ms=max(0, round((time.monotonic() - started) * 1000)),
+            status=status),
+        'the turn-log row was not written', '')
 
 
 def _agent_for(model: str):
@@ -475,9 +511,35 @@ class _Preflight(NamedTuple):
 
 
 def _refused(reason: str) -> dict:
-    """A decision that is its own answer: nothing ran, so nothing was filed."""
+    """A decision that is its own answer: nothing ran, so nothing was filed.
+
+    It used to carry `'blocked': True` as well. Two pre-flight branches read
+    it while the memory policy still ran before the answer; both went with the
+    policy on 2026-08-28, leaving a field written on every refusal and read by
+    a test assertion and nothing else. A key nobody reads is not documentation,
+    so it is gone and `relevant`/`saved` say the same thing to the one reader
+    there is (`panel_server._safe_widget_event`).
+    """
     return {'relevant': False, 'should_save': False, 'dataset_id': '',
-            'subtopic': '', 'reason': reason, 'saved': False, 'blocked': True}
+            'subtopic': '', 'reason': reason, 'saved': False}
+
+
+def _unfiled(reason: str) -> dict:
+    """A turn that ran to the end and still must not be filed.
+
+    One case, and it is the hop guard's: `hooks.trim_and_call` answers with
+    `HOP_GUARD_REFUSAL` instead of calling the model, so the run produces a
+    well-formed reply that is the widget apologising rather than anything
+    about the lab. Filing it would put the apology in long-term memory as a
+    fact about an experiment, and `pending` would promise a decision that must
+    never be taken.
+
+    Its own status word rather than `_refused`'s: the deterministic guard
+    refuses a question and this one abandons a lookup, and a route that called
+    the second `irrelevant` would be describing the turn as something it was
+    not. Statuses in this lab say what happened.
+    """
+    return {'status': 'not_filed', 'saved': False, 'reason': reason}
 
 
 def _experiment_of(thread: str) -> str:
@@ -516,13 +578,14 @@ def _preflight(thread: str) -> _Preflight:
         reader = tools.read_long_term_memory
         context = (reader.invoke({'dataset_id': dataset})
                    if hasattr(reader, 'invoke') else reader(dataset))
-    # `WidgetState`'s policy channels record what this turn stood on while it
-    # ran: the trusted dataset and the safe defaults. The verdict that arrives
-    # after the answer travels on the returned event and in `turn_logger`, not
-    # back into these channels — a second writer amending them afterwards would
-    # be racing the graph over the same checkpoint.
-    state = memory.policy_state(memory.MemoryPolicy(dataset_id=dataset),
-                                experiment)
+    # `WidgetState`'s own channels record what this turn stood on while it
+    # ran: the trusted dataset, and which experiment's thread it is. The
+    # verdict that arrives after the answer travels on the returned event and
+    # on the `widget_turn_log` row, not back into these channels — a second
+    # writer amending them afterwards would be racing the graph over the same
+    # checkpoint, which is why the four channels that could only ever have
+    # held that verdict were removed rather than left stamped with defaults.
+    state = memory.dataset_stamp(dataset, experiment)
     return _Preflight(dataset, context, state, _policy_transcript(thread))
 
 
@@ -558,6 +621,11 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
 
     `None` means there was no policy to ask at all — no client could be built —
     so the turn says nothing about memory rather than inventing a verdict.
+
+    Every branch below sets a `reason`, and that is load-bearing rather than
+    decorative: `_record_memory_outcome` is what carries it to the turn's row,
+    and a branch that returned without one would leave a turn unfiled with
+    nothing anywhere to say why.
     """
     if policy_model is None:
         try:
@@ -636,17 +704,91 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
             'question': question, 'answer': answer,
             'dataset_summary': dataset_summary,
             'global_summary': global_summary,
-            'validated_dataset_ids': experiment_tools.validated_dataset_ids(
-                thread, rows=board)}
+            # The board's ids plus this thread's own, added here rather than
+            # asked for by name. `validated_dataset_ids(thread)` would resolve
+            # `trusted_dataset_id` a second time — another ledger query and
+            # run-file read for a value `pre.dataset` settled once at the top
+            # of the turn — and it would hand it the raw thread, where
+            # everything else in this file reads the experiment through
+            # `_experiment_of` and so knows that `general` names no
+            # experiment. `dataset` is non-empty by the gate above.
+            'validated_dataset_ids': (
+                experiment_tools.validated_dataset_ids(rows=board) | {dataset})}
         writer = tools.save_widget_memory
         stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
                   else writer(**arguments))
         decision.update({'saved': bool(stored.get('saved')), 'save': stored})
         if turn_id and stored.get('update_id') is not None:
-            turn_logger.attach_memory_update(turn_id, stored['update_id'])
+            # Outside the `except` below on purpose: the summary is already in
+            # widget.db by now, so a failure to link it to the turn's row is a
+            # missing cross-reference, not a failed save. Reporting it as
+            # `saved: False` would be the row lying about what it holds.
+            _safely(lambda: turn_logger.attach_memory_update(
+                turn_id, stored['update_id']),
+                'the memory update was written but not linked to its turn')
     except Exception as error:
         decision.update({'saved': False, 'save_error': str(error)})
     return decision
+
+
+def _record_memory_outcome(turn_id: str, decision: dict | None) -> None:
+    """Put the memory decision's reason on the turn's own row.
+
+    The decision is taken after the reader has the answer, on a thread with no
+    caller to return to, so until 2026-08-28 every outcome that was not a save
+    went nowhere at all: the foreign-experiment refusal, the dataset mismatch,
+    the unvalidated experiment, and a `save_error` from a summarizer that
+    raised were each set on a dict the daemon then dropped. A turn was left
+    unfiled with no record anywhere of why — which is the one thing a record
+    in this lab may not do.
+
+    `widget_turn_log` and not the alternatives: `turn_logger.attach_memory_outcome`
+    says why that seam. The line is written for a save too, so the column
+    means "what the memory pass decided" rather than "what went wrong" — a
+    column only ever filled by failures reads as a failure list, and a blank
+    one then cannot be told from a pass that never happened.
+    """
+    if decision is None:
+        # No policy client could be built at all, so nothing was judged. The
+        # turn says so rather than inventing a verdict — the same distinction
+        # `_defer_memory` draws before it starts a thread.
+        turn_logger.attach_memory_outcome(
+            turn_id, 'not filed: no memory policy was available to judge this '
+                     'turn.')
+        return
+    error = decision.get('save_error')
+    if error:
+        reason = f'not filed: the memory write failed ({error}).'
+    elif decision.get('saved'):
+        reason = f"filed: {decision.get('reason') or 'the policy accepted it.'}"
+    else:
+        reason = f"not filed: {decision.get('reason') or 'the policy declined.'}"
+    turn_logger.attach_memory_outcome(turn_id, reason)
+
+
+def _memory_after(question: str, answer: str, model: str, thread: str,
+                  pre: _Preflight, turn_id: str, stopped: bool) -> dict:
+    """What happens to memory once the answer exists — one decision, both paths.
+
+    `stopped` says the run ended in `hooks.stop_repeated_tool_hops`'s refusal
+    rather than in an answer. That refusal is new since 2026-08-28: the guard
+    used to append a message and let the run die on the recursion ceiling, so
+    a hop-stopped turn never reached here at all. It now produces a real reply
+    and would flow straight into `_defer_memory`, be judged, and be summarized
+    into long-term memory as though the widget's apology were a fact about an
+    experiment. Low probability and wrong in kind, so it is stopped here: a
+    refusal is not an answer, and the row says `refused` rather than
+    `answered` for the same reason.
+    """
+    if stopped:
+        reason = ('not filed: the tool-hop guard stopped this run, so its '
+                  'reply is the widget refusing rather than an answer about '
+                  'the lab.')
+        _safely(lambda: turn_logger.attach_memory_outcome(turn_id, reason),
+                'the hop-guard note did not reach the turn-log row')
+        return _unfiled(reason)
+    return _defer_memory(question, answer, model, thread, pre.dataset,
+                         turn_id, pre.transcript)
 
 
 def _defer_memory(question: str, answer: str, model: str, thread: str,
@@ -672,18 +814,32 @@ def _defer_memory(question: str, answer: str, model: str, thread: str,
     resolve anything, and that turn reports `unavailable` — the word the panel
     already uses for a judge nobody could reach — rather than a wait with no
     end. Building the client is that test, and the one built here is the one
-    the deferred work uses — the same turn asks for its judge once."""
+    the deferred work uses — the same turn asks for its judge once.
+
+    Whatever the decision turns out to be, its reason lands on the turn's row
+    (`_record_memory_outcome`). The status returned here is what was true when
+    the answer left; the row is where a reader can find out how it ended."""
     try:
         policy_model = _memory_model(model)
     except Exception:
+        _safely(lambda: _record_memory_outcome(turn_id, None),
+                'the unavailable-policy note was lost')
         return {'status': 'unavailable', 'saved': False}
 
     def finish():
         try:
-            _finish_memory(question, answer, model, thread, dataset, turn_id,
-                           transcript, policy_model)
-        except Exception:  # defensive boundary: a daemon thread has nobody to
-            pass           # tell, and the answer is already with the reader.
+            decision = _finish_memory(question, answer, model, thread, dataset,
+                                      turn_id, transcript, policy_model)
+            _record_memory_outcome(turn_id, decision)
+        except Exception as error:
+            # The last boundary, and the reason it is not a bare `pass`: the
+            # answer is already with the reader and this thread has no caller
+            # left to raise to, but a decision nobody can read is a turn
+            # silently unfiled forever. The row above is the durable place for
+            # it; if even that write failed, the in-process log is what is
+            # left, and `HOOK_LOG` at least reaches `__main__` and a developer
+            # attached to this process.
+            hooks._fired('memory', f'the deferred decision was lost: {error}')
 
     Thread(target=finish, name='widget-memory', daemon=True).start()
     return {'status': 'pending', 'saved': False}
@@ -705,9 +861,12 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     `_preflight`, and only afterwards the memory policy — started on a thread
     of its own, so the answer is not held behind a judgement about whether to
     keep it. The `memory` field of a turn that ran therefore says `pending`,
-    and the verdict lands in the long-term store rather than in this return
-    value; a streamed turn now reports that same status on its own memory
-    event, because it defers the very same work.
+    and the verdict lands in the long-term store and on the turn's row rather
+    than in this return value; a streamed turn now reports that same status on
+    its own memory event, because it defers the very same work. The one turn
+    that ran and still says something else is a run the tool-hop guard
+    stopped: it says `not_filed`, because there is no decision coming — see
+    `_memory_after`.
 
     `stream` is the same turn, arriving as it is written. This is the whole
     answer at once, which is what a caller with nowhere to put a half-written
@@ -748,14 +907,16 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     reply, used = _turn_account(result['messages'])
     # `close_the_log` already accounted for this run from inside the graph.
     output = _accounted(reply, used)
+    stopped = hooks.hop_guard_refused(result['messages'])
     turn_id = _log_turn(message=message, reply=reply, thread=thread,
                         started=started, input_tokens=output['input_tokens'],
                         output_tokens=output['output_tokens'],
                         messages=result['messages'],
                         dataset_id=pre.dataset,
+                        status='refused' if stopped else 'answered',
                         ai_message_id=str(getattr(result['messages'][-1], 'id', '') or ''))
-    output['memory'] = _defer_memory(message, reply, choice, thread,
-                                     pre.dataset, turn_id, pre.transcript)
+    output['memory'] = _memory_after(message, reply, choice, thread, pre,
+                                     turn_id, stopped)
     return output
 
 
@@ -853,11 +1014,13 @@ def _stream_agent(agent, message: str, thread: str, model: str,
             'read the reply back from')
     reply, used = _turn_account(final['messages'])
     output = _accounted(reply, used)
+    stopped = hooks.hop_guard_refused(final['messages'])
     turn_id = _log_turn(message=message, reply=reply, thread=thread,
                         started=started or time.monotonic(),
                         input_tokens=output['input_tokens'],
                         output_tokens=output['output_tokens'],
                         messages=final['messages'], dataset_id=pre.dataset,
+                        status='refused' if stopped else 'answered',
                         ai_message_id=str(getattr(final['messages'][-1], 'id', '') or ''))
     yield output
     # The reply is authoritative and must reach the caller before the memory
@@ -867,9 +1030,11 @@ def _stream_agent(agent, message: str, thread: str, model: str,
     # reader already had every word, and one that grows with `.runs/`. The work
     # is now handed to a thread of its own, exactly as `ask` hands it over, and
     # this last event says a decision is pending rather than reporting one:
-    # that is what is true at the moment it is sent.
-    yield {'memory': _defer_memory(message, reply, model, thread, pre.dataset,
-                                   turn_id, pre.transcript)}
+    # that is what is true at the moment it is sent. `_memory_after` is the
+    # shared seam so the two paths cannot come to disagree about which turns
+    # are filed at all.
+    yield {'memory': _memory_after(message, reply, model, thread, pre,
+                                   turn_id, stopped)}
 
 
 def stream(message: str, model: str = '', thread: str = ''):

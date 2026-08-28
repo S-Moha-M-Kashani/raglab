@@ -427,7 +427,12 @@ def test_cli_irrelevance_refuses_before_cli_invocation_or_memory(monkeypatch):
     result = widget.ask('Tell me a joke about penguins.', model='codex')
 
     assert 'RAG lab' in result['reply']
-    assert result['memory']['blocked'] is True
+    # The refusal is its own decision: nothing ran, so nothing was filed.
+    # Read off the two fields a reader of this API actually has
+    # (`panel_server._safe_widget_event` turns them into `irrelevant`) rather
+    # than off a `blocked` flag that no code left reads.
+    assert result['memory']['relevant'] is False
+    assert result['memory']['saved'] is False
 
 
 # --- the model picker: four choices, each saying what it can do ----------
@@ -679,11 +684,38 @@ def test_the_route_exposes_irrelevant_memory_as_a_safe_status(client, monkeypatc
     assert answer.json()['memory'] == {'status': 'irrelevant'}
 
 
-def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
+def test_the_route_says_not_filed_when_the_hop_guard_ended_the_run(
         client, monkeypatch):
     # this is an integration test
-    """A successful long-term write is a useful reader-facing fact, but the
-    policy and writer payload are not part of the widget API."""
+    """A run the tool-hop guard stopped answers in the widget's own voice, so
+    there is nothing about the lab to keep and no decision to wait for.
+
+    It is its own status and not `irrelevant`: the question was a fair one and
+    the deterministic guard let it through — what failed was the lookup. A
+    route that called this off-topic would describe the turn as something it
+    was not."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': widget.hooks.HOP_GUARD_REFUSAL,
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {'status': 'not_filed', 'saved': False,
+                   'reason': 'internal reason nobody outside needs'}})
+
+    answer = client.post('/api/widget', json={'message': 'find that run'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'not_filed'}
+
+
+def test_the_route_emits_no_status_for_a_verdict_no_answer_path_can_produce(
+        client, monkeypatch):
+    # this is an integration test
+    """`saved` and `not_saved` were removed on 2026-08-28, when the verdict
+    moved to a thread that outlives the response.
+
+    Nothing can put a resolved, relevant verdict on an event any more — it
+    lands on the `widget_turn_log` row instead — so a block shaped like one is
+    treated the way a malformed block is: dropped, never turned into a claim
+    about what the lab kept. The reply beside it is untouched."""
     monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
         'reply': 'The comparison is worth retaining.',
         'input_tokens': 8, 'output_tokens': 4,
@@ -697,7 +729,8 @@ def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
     answer = client.post('/api/widget', json={'message': 'remember this'})
 
     assert answer.status_code == 200
-    assert answer.json()['memory'] == {'status': 'saved'}
+    assert answer.json() == {'reply': 'The comparison is worth retaining.',
+                             'input_tokens': 8, 'output_tokens': 4}
 
 
 def test_the_route_says_unavailable_when_no_judge_ever_answered(
@@ -1337,20 +1370,22 @@ def test_the_stream_route_sanitizes_memory_on_the_authoritative_final_event(
         client, monkeypatch):
     # this is an integration test
     """The final event remains the answer the browser adopts, with only the
-    safe memory status added beside it; the request's thread is unchanged."""
+    safe memory status added beside it; the request's thread is unchanged.
+
+    The shape a streamed turn really sends since 2026-08-28: the reply event
+    on its own, then a separate memory event carrying the deferred status. The
+    verdict is taken after the connection closes, so no event here can hold
+    one, and the internal reason never reaches the wire."""
     seen = {}
 
     def fake_stream(message, model='', thread=''):
         seen.update(message=message, model=model, thread=thread)
-        return iter([{
-            'reply': 'answer from the lab', 'input_tokens': 4,
-            'output_tokens': 2,
-            'memory': {
-                'relevant': True, 'should_save': False, 'saved': False,
-                'dataset_id': 'private-dataset',
-                'reason': 'private policy reasoning',
-            },
-        }])
+        return iter([
+            {'reply': 'answer from the lab', 'input_tokens': 4,
+             'output_tokens': 2},
+            {'memory': {'status': 'pending', 'saved': False,
+                        'reason': 'private policy reasoning'}},
+        ])
 
     monkeypatch.setattr(widget, 'stream', fake_stream)
     answer = client.post('/api/widget/stream', json={
@@ -1358,10 +1393,11 @@ def test_the_stream_route_sanitizes_memory_on_the_authoritative_final_event(
         'thread': 'exp-stream'})
 
     assert answer.status_code == 200
-    assert _sse(answer) == [{
-        'reply': 'answer from the lab', 'input_tokens': 4,
-        'output_tokens': 2, 'memory': {'status': 'not_saved'},
-    }]
+    assert _sse(answer) == [
+        {'reply': 'answer from the lab', 'input_tokens': 4,
+         'output_tokens': 2},
+        {'memory': {'status': 'pending'}},
+    ]
     assert seen == {'message': 'what should I retain?',
                     'model': 'openai/gpt-5-mini', 'thread': 'exp-stream'}
 

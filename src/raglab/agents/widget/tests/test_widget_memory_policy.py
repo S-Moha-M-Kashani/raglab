@@ -7,37 +7,42 @@ from raglab.agents.widget import hooks
 from raglab.agents.widget import prompts
 
 
-def test_widget_state_policy_fields_have_safe_defaults():
+def test_the_state_stamp_carries_only_what_the_turn_can_know():
     # this is a unit test
-    defaults = memory.widget_state_defaults('exp-42')
-    assert defaults == {
-        'relevant': False,
-        'should_save': False,
-        'dataset_id': '',
-        'subtopic': '',
-        'reason': '',
-        'experiment_id': 'exp-42',
-    }
+    """`dataset_stamp` writes the two things settled before the answer: which
+    corpus the thread stands on, and which experiment it is about, stripped.
 
-
-def test_policy_state_never_allows_an_irrelevant_policy_to_save():
-    # this is a unit test
-    policy = memory.MemoryPolicy(
-        relevant=False,
-        should_save=True,
-        dataset_id='diary-fa',
-        subtopic='retrieval',
-        reason='The model incorrectly requested a save.',
-    )
-    state = memory.policy_state(policy, ' exp-42 ')
-    assert state == {
-        'relevant': False,
-        'should_save': False,
+    It replaced `policy_state`, which flattened a memory verdict into four
+    more channels. The verdict is taken after the answer now, so nothing
+    evaluated one before the stamp and all four were written empty on every
+    checkpoint — a record of a decision nobody had made. Neither the stamp nor
+    `WidgetState` carries them any more."""
+    assert memory.dataset_stamp('diary-fa', ' exp-42 ') == {
         'dataset_id': 'diary-fa',
-        'subtopic': 'retrieval',
-        'reason': 'The model incorrectly requested a save.',
         'experiment_id': 'exp-42',
     }
+    assert memory.dataset_stamp() == {'dataset_id': '', 'experiment_id': ''}
+    assert set(memory.WidgetState.__annotations__) & {
+        'relevant', 'should_save', 'subtopic', 'reason'} == set()
+
+
+def test_an_irrelevant_policy_can_never_carry_a_save_permission():
+    # this is a unit test
+    """The one guarantee `policy_state` used to hold, asserted where it now
+    lives: the policy seam itself clears `should_save` on an irrelevant
+    verdict, so no state channel has to normalize one afterwards."""
+    class Model:
+        def with_structured_output(self, schema):
+            return self
+
+        def invoke(self, messages):
+            return {'relevant': False, 'should_save': True,
+                    'dataset_id': 'diary-fa', 'subtopic': 'retrieval',
+                    'reason': 'The model incorrectly requested a save.'}
+
+    policy = hooks.evaluate_memory_policy('Which chunker won?', Model())
+    assert policy.relevant is False
+    assert policy.should_save is False
 
 
 def test_relevance_guard_refuses_empty_long_and_unrelated_text():

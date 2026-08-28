@@ -696,3 +696,154 @@ def test_a_threads_system_lines_are_written_once_not_once_per_turn(monkeypatch):
     second = [str(m.content) for m in agent.payloads[1]['messages']
               if isinstance(m, SystemMessage)]
     assert second == []
+
+
+def _reason_on_the_row(thread: str) -> str:
+    from raglab.agents.widget import turn_logger
+    rows = turn_logger.list_turns(thread)
+    assert rows, f'no turn-log row was written for {thread}'
+    return rows[-1]['memory_reason'] or ''
+
+
+def test_a_deferred_decision_nobody_can_return_to_still_says_why(monkeypatch):
+    """The decision runs on a daemon thread after the answer has gone, so its
+    return value has no reader. Every non-save outcome used to end there: the
+    summarizer raised, `save_error` was set on a dict the thread dropped, and
+    the turn was unfiled forever with no record of why. It goes on the turn's
+    own row now."""
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable'})
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            RuntimeError('the summarizer is down')))
+
+    result = widget.ask('Which retrieval setting should we retain?',
+                        model='openai/gpt-5-nano', thread='exp-lost-reason')
+
+    assert result['memory'] == {'status': 'pending', 'saved': False}
+    _join_deferred_memory()
+    reason = _reason_on_the_row('exp-lost-reason')
+    assert reason.startswith('not filed:')
+    assert 'the summarizer is down' in reason
+    assert long_memory.memory_context('diary-en') == ''
+
+
+def test_a_refused_save_and_an_accepted_one_both_name_themselves_on_the_row(
+        monkeypatch):
+    """The column says what the memory pass decided, not only what went wrong.
+    A column filled only by failures reads as a failure list, and a blank one
+    cannot then be told from a pass that never happened."""
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'not worth keeping'})
+    widget.ask('Was that useful?', model='openai/gpt-5-nano',
+               thread='exp-declined')
+    _join_deferred_memory()
+    assert _reason_on_the_row('exp-declined') == (
+        'not filed: not worth keeping')
+
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable'})
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: {'dataset_summary': 'a finding',
+                                          'global_summary': ''})
+    widget.ask('Which retrieval setting should we retain?',
+               model='openai/gpt-5-nano', thread='exp-kept')
+    _join_deferred_memory()
+    assert _reason_on_the_row('exp-kept') == 'filed: reusable'
+
+
+def test_a_turn_that_answered_survives_a_turn_log_write_that_failed(monkeypatch):
+    """Three widget stores share one sqlite file behind three independent
+    locks, and the deferred writer is on the stream path too — so one turn's
+    write can find the file busy while the next turn is answering. An
+    operational write is reported and never fatal: the reader keeps the answer
+    the lab really produced."""
+    import sqlite3
+
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': 'diary-en',
+        'subtopic': '', 'reason': 'a question'})
+    monkeypatch.setattr(widget.backends.turn_logger, 'log_turn',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            sqlite3.OperationalError('database is locked')))
+    widget.HOOK_LOG.clear()
+
+    result = widget.ask('Which chunker won?', model='openai/gpt-5-nano',
+                        thread='exp-busy-file')
+
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory'] == {'status': 'pending', 'saved': False}
+    assert any('database is locked' in line for line in widget.HOOK_LOG), (
+        'a failed operational write must be reported, not swallowed')
+    _join_deferred_memory()
+
+
+def test_the_streamed_turn_also_survives_a_turn_log_write_that_failed(
+        monkeypatch):
+    """The same guarantee on the path the browser actually uses."""
+    import sqlite3
+
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    agent, _ = _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': 'diary-en',
+        'subtopic': '', 'reason': 'a question'})
+    agent.stream = lambda payload, config=None, stream_mode=None: iter([
+        ('values', {'messages': [*payload['messages'],
+                                 AIMessage(content='streamed answer')]})])
+    monkeypatch.setattr(widget.backends.turn_logger, 'log_turn',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            sqlite3.OperationalError('database is locked')))
+
+    events = list(widget.stream('Which chunker won?',
+                                model='openai/gpt-5-nano',
+                                thread='exp-busy-stream'))
+
+    assert events[-2]['reply'] == 'streamed answer'
+    assert events[-1] == {'memory': {'status': 'pending', 'saved': False}}
+    _join_deferred_memory()
+
+
+def test_a_saved_turn_resolves_the_threads_dataset_exactly_once(monkeypatch):
+    """`_preflight` settles the trusted dataset for the whole turn because each
+    resolution is a ledger query plus a run-file read. The write gate then
+    asked `validated_dataset_ids(thread)` for the same value a second time —
+    and handed it the raw thread, bypassing `_experiment_of`, which this file
+    calls its single reading of the thread's experiment."""
+    class CountingReader(_ExperimentReader):
+        def __init__(self, dataset):
+            super().__init__(dataset)
+            self.lookups = []
+
+        def experiment(self, experiment_id):
+            self.lookups.append(experiment_id)
+            return super().experiment(experiment_id)
+
+        def board_rows(self, limit=500):
+            return [{'experiment_id': 'exp-other', 'dataset': 'meetings-de'}]
+
+    reader = CountingReader('diary-en')
+    widget.experiment_tools.set_experiment_reader(reader)
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable'})
+    saved = {}
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: {'dataset_summary': 'a finding',
+                                          'global_summary': 'a pattern'})
+    monkeypatch.setattr(widget.tools, 'save_widget_memory',
+                        lambda **kwargs: saved.update(kwargs) or {'saved': True})
+
+    widget.ask('Which retrieval setting should we retain?',
+               model='openai/gpt-5-nano', thread='exp-once')
+    _join_deferred_memory()
+
+    assert reader.lookups == ['exp-once']
+    # The board's ids plus this thread's own, which is what the second lookup
+    # was ever for.
+    assert saved['validated_dataset_ids'] == {'meetings-de', 'diary-en'}

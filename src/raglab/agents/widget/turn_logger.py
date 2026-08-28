@@ -32,10 +32,26 @@ CREATE TABLE IF NOT EXISTS widget_turn_log (
   total_latency_ms INTEGER,
   steps_json TEXT NOT NULL,
   memory_update_id INTEGER,
+  memory_reason TEXT,
   status TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 """
+
+#: Columns added after the table shipped. `CREATE TABLE IF NOT EXISTS` leaves
+#: an existing file exactly as it found it, so a developer's `widget.db` from
+#: before the column existed would keep working and keep losing the value. One
+#: `ALTER TABLE` per missing column, checked on connect, is the whole
+#: migration this table needs: every added column is nullable, so an old row
+#: reads back as "nothing was recorded" rather than as a wrong answer.
+ADDED_COLUMNS = (('memory_reason', 'TEXT'),)
+
+#: The same busy timeout `conversation_memory.BUSY_TIMEOUT_SECONDS` states in
+#: full: three writers share this file and the memory writer now runs on a
+#: daemon thread that can overlap the next turn. Kept as its own copy for the
+#: reason `db_path` is — this module must not import the checkpointer's, which
+#: pulls langchain in behind it.
+BUSY_TIMEOUT_SECONDS = 5.0
 
 _LOCK = RLock()
 
@@ -49,8 +65,12 @@ def db_path(env: dict | None = None) -> Path:
 def _connect() -> sqlite3.Connection:
     target = db_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(target)
+    db = sqlite3.connect(target, timeout=BUSY_TIMEOUT_SECONDS)
     db.executescript(SCHEMA)
+    have = {row[1] for row in db.execute('PRAGMA table_info(widget_turn_log)')}
+    for name, kind in ADDED_COLUMNS:
+        if name not in have:
+            db.execute(f'ALTER TABLE widget_turn_log ADD COLUMN {name} {kind}')
     return db
 
 
@@ -138,4 +158,31 @@ def attach_memory_update(turn_id: str, memory_update_id: int | None) -> None:
     with _LOCK, _connect() as db:
         db.execute('UPDATE widget_turn_log SET memory_update_id = ? '
                    'WHERE turn_id = ?', (int(memory_update_id), turn_id))
+        db.commit()
+
+
+def attach_memory_outcome(turn_id: str, reason: str) -> None:
+    """Record *why* a turn was or was not filed, on the turn's own row.
+
+    `memory_update_id` already says whether something was written; this says
+    what happened, which is the half that used to go nowhere. The decision is
+    taken on a daemon thread after the answer has left
+    (`backends._defer_memory`), so its caller is gone and the reply is already
+    read: a refused save, a dataset mismatch, an unvalidated experiment or a
+    summarizer that raised had no reader, no row and no line anywhere.
+
+    This row rather than the other two candidates. The hook log is a bounded
+    in-process deque shared by every concurrent turn and cleared by whoever
+    feels like it — it cannot outlive the process, which is exactly what a
+    reason has to do here. A logger would be the first in this repository, and
+    a line in a server's stderr is not a record of a turn. The row is where
+    this lab already puts a degraded result's reason (CLAUDE.md: a degraded
+    answer carries its reason on the row), it is per-turn, it is durable, and
+    `attach_memory_update` already amends it from this very thread.
+    """
+    if not turn_id:
+        return
+    with _LOCK, _connect() as db:
+        db.execute('UPDATE widget_turn_log SET memory_reason = ? '
+                   'WHERE turn_id = ?', (str(reason or ''), turn_id))
         db.commit()

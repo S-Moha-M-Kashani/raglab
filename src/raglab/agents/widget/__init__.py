@@ -72,6 +72,7 @@ from raglab.agents.widget.long_term_memory import (
     save_memory_update)
 from raglab.agents.widget.hooks import (
     HOOK_LOG,
+    HOP_GUARD_REFUSAL,
     MAX_HISTORY,
     MAX_QUESTION,
     MIDDLEWARE,
@@ -79,6 +80,7 @@ from raglab.agents.widget.hooks import (
     _validate,
     check_request,
     close_the_log,
+    hop_guard_refused,
     log_tool_call,
     stop_repeated_tool_hops,
     trim_and_call)

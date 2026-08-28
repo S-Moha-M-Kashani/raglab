@@ -16,8 +16,10 @@ halves the supersteps a hop costs. The `_fired` labels they wrote
 (`before_model`, `after_model`) are kept — see the comment on `trim_and_call`
 — so the account of a run still names the same moments.
 
-One line of real work each: the point is that they are visible, and that each
-has somewhere obvious to put a breakpoint.
+Each is still one obvious place to put a breakpoint — that is what they are
+for. It is no longer one line of real work each: the fold gave `trim_and_call`
+five jobs, and the paragraph above says why they belong together rather than
+in nodes of their own.
 """
 import collections
 
@@ -78,15 +80,45 @@ RECURSION_LIMIT = 1 + 1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
 HOOK_LOG: collections.deque = collections.deque(maxlen=RECURSION_LIMIT * 8)
 
 
+#: What the hop guard says instead of an answer. A constant rather than a
+#: literal because two other places have to recognise it as a refusal rather
+#: than read it as prose — see `HOP_GUARD_MARK`.
+HOP_GUARD_REFUSAL = ('I could not complete this lookup safely because the tool '
+                     'calls started repeating. Please ask for the run by its '
+                     'experiment ID.')
+
+#: The flag `trim_and_call` puts on `response_metadata` when it answers with
+#: the refusal above instead of calling the model.
+#:
+#: Until 2026-08-28 the guard only appended a message and let the run die on
+#: the recursion ceiling, so nothing downstream ever saw a finished turn made
+#: of it. Now it produces a real, well-formed reply — and a reply is what
+#: `backends` files as memory and logs as `answered`. A refusal is neither: it
+#: says nothing about the lab, so remembering it would be filing the widget's
+#: own apology as a fact about an experiment. Matching on the text would work
+#: today and break the first time the copy is reworded; a flag on the message
+#: that wrote it cannot drift from it.
+HOP_GUARD_MARK = 'widget_hop_guard'
+
+
 def stop_repeated_tool_hops(state) -> str | None:
     """Return a final fallback once a run has called tools too many times."""
     calls = sum(len(getattr(message, 'tool_calls', None) or [])
                 for message in state.get('messages', []))
     if calls >= MAX_TOOL_HOPS:
-        return ('I could not complete this lookup safely because the tool '
-                'calls started repeating. Please ask for the run by its '
-                'experiment ID.')
+        return HOP_GUARD_REFUSAL
     return None
+
+
+def hop_guard_refused(messages) -> bool:
+    """Whether this run ended in the hop guard's refusal rather than an answer.
+
+    Read off the last message's own metadata, which is where `trim_and_call`
+    stamped it — the run's own account of what it produced, not a guess made
+    afterwards from the words."""
+    last = (messages or [None])[-1]
+    metadata = getattr(last, 'response_metadata', None) or {}
+    return bool(metadata.get(HOP_GUARD_MARK))
 
 
 class MemoryUpdate(BaseModel):
@@ -203,8 +235,18 @@ def _validate(text: str) -> str:
 
 
 def _account(reply: str) -> str:
-    """Likewise `close_the_log`'s half."""
-    _fired('after_agent', f'{len(reply)} chars, {len(HOOK_LOG)} hooks fired')
+    """Likewise `close_the_log`'s half.
+
+    The second number says how much is *in the shared log*, and no longer
+    claims to be this run's hook count. It never could be: `HOOK_LOG` is one
+    module-level deque that every concurrent turn writes into, so under two
+    turns at once the number already included the other turn's lines, and
+    since the deque was bounded it saturates at its cap and stops moving at
+    all. Both are fine for what the log is — `__main__` clears it and reads one
+    run at a time — but a line has to say the thing it counts.
+    """
+    _fired('after_agent',
+           f'{len(reply)} chars, {len(HOOK_LOG)} lines in the shared log')
     return reply
 
 
@@ -248,7 +290,11 @@ def trim_and_call(request, handler):
     stop = stop_repeated_tool_hops(request.state)
     if stop:
         _fired('before_model', 'tool-hop guard stopped the run')
-        return AIMessage(content=stop)
+        # Stamped, not just worded: this message ends the run as if it were an
+        # answer, and `backends` has to be able to tell that it is not one
+        # before it files the turn as memory or logs it as answered.
+        return AIMessage(content=stop,
+                         response_metadata={HOP_GUARD_MARK: True})
     _fired('before_model', f'{len(request.state["messages"])} messages in state')
     # System lines are written once, at the top of the thread — which
     # experiment it is about, the memory context — so they must outlive the

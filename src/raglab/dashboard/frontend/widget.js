@@ -347,8 +347,14 @@
     log.scrollTop = log.scrollHeight;
   }
 
-  // Two statuses, because two is all this page can now be sent — and a stated
-  // gap, because the third is one it can no longer be told.
+  // Two lines, out of the three statuses this page can be sent — and a stated
+  // gap, because the one it most wants is one it can no longer be told.
+  //
+  // The third status is `not_filed`: the tool-hop guard stopped the run, so
+  // the reply above is the widget refusing rather than an answer, and nothing
+  // about it is going to be kept. It gets no line for the same reason a
+  // refused question gets none — the refusal is the answer the reader is
+  // already reading, and a second line under it would only say so again.
   //
   // The decision about keeping a turn outlives the response: both answer paths
   // file after they answer (`backends._defer_memory`), so what reaches this

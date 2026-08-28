@@ -274,3 +274,77 @@ def test_a_second_process_opening_a_busy_file_still_gets_its_saver():
         other.execute('ROLLBACK')
         other.close()
         memory.close()
+
+
+def test_every_widget_connection_waits_for_a_busy_file():
+    """Three writers share widget.db — this checkpointer, the long-term store
+    and the turn log — each behind its own lock, and the deferred memory pass
+    now runs on a thread that can overlap the next turn. Waiting is the right
+    answer; a 500 on a turn that answered is not. The value is pinned rather
+    than inherited from whatever the standard library defaults to."""
+    from raglab.agents.widget import long_term_memory, turn_logger
+
+    assert memory.saver().conn.execute('PRAGMA busy_timeout').fetchone()[0] == (
+        int(memory.BUSY_TIMEOUT_SECONDS * 1000))
+    for module in (long_term_memory, turn_logger):
+        with module._connect() as db:
+            assert db.execute('PRAGMA busy_timeout').fetchone()[0] == int(
+                module.BUSY_TIMEOUT_SECONDS * 1000)
+
+
+def test_a_thread_recorded_with_the_removed_policy_channels_still_reads():
+    # this is an integration test
+    """`WidgetState` lost four channels on 2026-08-28 — `relevant`,
+    `should_save`, `subtopic` and `reason` — once nothing evaluated a policy
+    before the stamp and all four were written empty on every checkpoint.
+
+    Threads recorded before that still hold them, and a conversation a reader
+    had last week must not become unreadable because the schema shrank. A real
+    graph writes the old shape here and the current one continues the same
+    thread: a channel the schema no longer declares is simply not restored, and
+    every turn is still there afterwards."""
+    from langchain.agents import AgentState, create_agent
+    from langchain_core.language_models import GenericFakeChatModel
+
+    class LegacyState(AgentState):
+        experiment_id: str
+        started_at: str
+        relevant: bool
+        should_save: bool
+        dataset_id: str
+        subtopic: str
+        reason: str
+
+    thread = 'exp-legacy-channels'
+    memory.forget(thread)
+    create_agent(
+        GenericFakeChatModel(messages=iter([AIMessage(content='the old answer')])),
+        state_schema=LegacyState, checkpointer=memory.saver()).invoke(
+            {'messages': [HumanMessage(content='the old question')],
+             'experiment_id': thread, 'started_at': '2026-08-01T00:00:00+00:00',
+             'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+             'subtopic': 'retrieval', 'reason': 'the policy accepted it'},
+            config={'configurable': {'thread_id': thread}})
+    stored = memory._channels(thread)
+    assert stored['reason'] == 'the policy accepted it'
+
+    read = memory.history(thread)
+    assert [turn['text'] for turn in read['turns']] == [
+        'the old question', 'the old answer']
+    assert read['experiment_id'] == thread
+    assert read['started_at'] == '2026-08-01T00:00:00+00:00'
+
+    create_agent(
+        GenericFakeChatModel(messages=iter([AIMessage(content='the new answer')])),
+        state_schema=memory.WidgetState, checkpointer=memory.saver()).invoke(
+            {'messages': [HumanMessage(content='the new question')],
+             **memory.thread_stamp(thread),
+             **memory.dataset_stamp('diary-en', thread)},
+            config={'configurable': {'thread_id': thread}})
+
+    continued = memory.history(thread)
+    assert [turn['text'] for turn in continued['turns']] == [
+        'the old question', 'the old answer',
+        'the new question', 'the new answer']
+    assert continued['started_at'] == '2026-08-01T00:00:00+00:00'
+    assert memory.trace(thread)['dataset_id'] == 'diary-en'

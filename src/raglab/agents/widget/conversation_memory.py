@@ -37,6 +37,23 @@ _SAVER_LOCK = RLock()
 
 MAX_RELEVANCE_TEXT = 500
 
+#: How long any widget connection waits for the file's write lock before it
+#: gives up. Three independent writers share `widget.db` — this checkpointer,
+#: `long_term_memory` and `turn_logger` — each behind its own lock, and since
+#: 2026-08-28 the deferred memory writer runs on a daemon thread that can
+#: still be inside its transaction when the *next* turn arrives. In-process
+#: corruption is not possible and the overlap is milliseconds, so waiting is
+#: the right answer and failing fast is not: a turn that answered perfectly
+#: well must not become a 500 because a sibling table was mid-write.
+#:
+#: Stated rather than changed. Python's `sqlite3.connect` already defaults to
+#: exactly 5 seconds, so this pins a value the widget relies on instead of
+#: inheriting one the standard library is free to revise, and it puts the
+#: reason next to the connections that need it. `long_term_memory` and
+#: `turn_logger` each keep their own copy, the way they already keep their own
+#: `db_path`: neither may import this module, which pulls in langchain.
+BUSY_TIMEOUT_SECONDS = 5.0
+
 
 class MemoryPolicy(BaseModel):
     """The explicit, structured decision about long-term widget memory.
@@ -54,23 +71,6 @@ class MemoryPolicy(BaseModel):
     dataset_id: StrictStr = ''
     subtopic: StrictStr = ''
     reason: StrictStr = ''
-
-
-def memory_policy_defaults(experiment_id: str = '') -> dict:
-    """Safe state values used before a policy has been evaluated."""
-    return {
-        'relevant': False,
-        'should_save': False,
-        'dataset_id': '',
-        'subtopic': '',
-        'reason': '',
-        'experiment_id': (experiment_id or '').strip(),
-    }
-
-
-# A descriptive alias keeps the state contract discoverable to callers while
-# retaining the longer name for code that wants to be explicit.
-widget_state_defaults = memory_policy_defaults
 
 
 def relevance_guard(text: str) -> str | None:
@@ -97,30 +97,51 @@ def relevance_guard(text: str) -> str | None:
     return None
 
 
-def policy_state(policy: MemoryPolicy, experiment_id: str = '') -> dict:
-    """Convert a validated policy into the agent state's flat channels."""
-    normalized = policy.model_copy(update={
-        'should_save': policy.relevant and policy.should_save,
-    })
-    return {**normalized.model_dump(),
+def dataset_stamp(dataset_id: str = '', experiment_id: str = '') -> dict:
+    """What a turn writes about the corpus it stood on, for `backends._run` to
+    pass through `agent.invoke`'s input.
+
+    It replaced `policy_state(policy, experiment_id)` on 2026-08-28, when the
+    memory policy moved to after the answer: there was no verdict left to
+    flatten into channels at the moment the turn starts, so the function that
+    flattened one had nothing to convert. Its one real guarantee — that an
+    irrelevant policy can never carry a save permission — did not move here,
+    because it was never this function's to keep: `hooks.evaluate_memory_policy`
+    clears `should_save` on an irrelevant verdict, and
+    `backends._finish_memory` requires both before it writes anything. Those
+    two stand in front of the write, which is where the guarantee belongs.
+    """
+    return {'dataset_id': (dataset_id or '').strip(),
             'experiment_id': (experiment_id or '').strip()}
 
 
 class WidgetState(AgentState):
     """The agent's state beside its messages.
 
-    Thread identity and start time, plus the structured memory-policy
-    decision, are written by `thread_stamp` and `backends.ask` as part of
-    `agent.invoke`'s own input. The checkpointer persists them in the same
-    write as the messages, so there is no second writer racing it and
-    `/api/widget/history` can report the state that produced the thread."""
+    Three facts about the thread, written by `thread_stamp` and
+    `dataset_stamp` as part of `agent.invoke`'s own input. The checkpointer
+    persists them in the same write as the messages, so there is no second
+    writer racing it and `/api/widget/history` can report the state that
+    produced the thread.
+
+    There were four more until 2026-08-28 — `relevant`, `should_save`,
+    `subtopic` and `reason`, the memory policy's verdict. Once the policy moved
+    to after the answer, nothing evaluated one before the stamp, so all four
+    were written `False`/`''` on every checkpoint of every thread: channels
+    describing a decision that had not been taken, read by no surface. They
+    were removed rather than kept and re-described, because a channel that can
+    only ever hold its own default is not a record of anything. The verdict
+    itself now travels on the turn's memory event and lands on the
+    `widget_turn_log` row (`turn_logger.attach_memory_outcome`), which is
+    written after the answer and can therefore hold a real one.
+
+    A thread checkpointed before that removal still holds the four values.
+    Nothing breaks: a channel the schema no longer declares is simply not
+    restored, `_channels` hands back whatever the file recorded, and the next
+    turn on that thread writes a checkpoint without them."""
     experiment_id: str   # '' in the general thread
     started_at: str      # ISO 8601, when this thread began
-    relevant: bool       # structured policy decision; false before evaluation
-    should_save: bool    # explicit save permission, never inferred from text
     dataset_id: str      # validated dataset context, or '' when unavailable
-    subtopic: str        # policy's bounded topic label, or '' when unavailable
-    reason: str          # why the policy accepted, refused, or declined save
 
 
 def db_path(env: dict | None = None) -> Path:
@@ -142,8 +163,10 @@ def saver():
             target.parent.mkdir(parents=True, exist_ok=True)
             # check_same_thread=False because the panel answers on a threadpool:
             # this connection belongs to the process, not to one request.
-            _SAVER = SqliteSaver(sqlite3.connect(str(target),
-                                                 check_same_thread=False))
+            # `timeout` is sqlite's busy timeout — see BUSY_TIMEOUT_SECONDS.
+            _SAVER = SqliteSaver(sqlite3.connect(
+                str(target), check_same_thread=False,
+                timeout=BUSY_TIMEOUT_SECONDS))
             _SAVER.setup()
             # `setup()` switches the file to write-ahead logging, which parks
             # every write in a `-wal` sidecar until a checkpoint folds it back.

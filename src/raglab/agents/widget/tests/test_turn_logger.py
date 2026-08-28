@@ -76,3 +76,56 @@ def test_schema_is_readable_and_does_not_depend_on_checkpoint_blobs():
             'ai_message', 'steps_json', 'total_tokens', 'total_latency_ms',
             'memory_update_id'} <= columns
 
+
+def test_why_a_turn_was_or_was_not_filed_lands_on_its_own_row():
+    """The memory decision is taken on a daemon thread after the answer has
+    gone, so it has no caller to return to. Without a column of its own every
+    outcome that was not a save — a refused policy, a dataset mismatch, a
+    summarizer that raised — reached nobody at all."""
+    turn_id = turn_logger.log_turn(
+        thread_id='exp-9', experiment_id='exp-9', dataset_id='diary-en',
+        user_message_id='human-9', user_message='Did reranking help?',
+        ai_message='Yes.', steps=[])
+
+    assert turn_logger.read_turn(turn_id)['memory_reason'] is None
+    turn_logger.attach_memory_outcome(
+        turn_id, 'not filed: the memory write failed (database is locked).')
+    assert turn_logger.read_turn(turn_id)['memory_reason'] == (
+        'not filed: the memory write failed (database is locked).')
+    # No row named, nothing written and nothing raised: a turn whose own row
+    # could not be written still has an outcome, and it has nowhere to go.
+    turn_logger.attach_memory_outcome('', 'no row to amend')
+
+
+def test_a_log_written_before_the_reason_column_existed_gains_it():
+    """`CREATE TABLE IF NOT EXISTS` leaves an existing file alone, so a
+    developer's widget.db from before the column would keep losing the value
+    forever. One ALTER per missing column, checked on connect."""
+    path = turn_logger.db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as db:
+        db.execute('DROP TABLE IF EXISTS widget_turn_log')
+        db.execute(turn_logger.SCHEMA.replace(
+            '  memory_reason TEXT,\n', ''))
+        db.commit()
+    with sqlite3.connect(path) as db:
+        assert 'memory_reason' not in {row[1] for row in db.execute(
+            'PRAGMA table_info(widget_turn_log)')}
+
+    turn_id = turn_logger.log_turn(
+        thread_id='exp-old', experiment_id='exp-old', dataset_id='diary-en',
+        user_message_id='human-old', user_message='and?', ai_message='yes',
+        steps=[])
+    turn_logger.attach_memory_outcome(turn_id, 'not filed: the policy declined.')
+    assert turn_logger.read_turn(turn_id)['memory_reason'] == (
+        'not filed: the policy declined.')
+
+
+def test_the_log_waits_for_a_busy_file_instead_of_failing_the_turn():
+    """Three writers share widget.db and the deferred memory writer now runs on
+    a thread of its own, so one turn's write can overlap the next turn's. The
+    timeout is stated rather than inherited from whatever the standard library
+    happens to default to."""
+    with turn_logger._connect() as db:
+        assert db.execute('PRAGMA busy_timeout').fetchone()[0] == int(
+            turn_logger.BUSY_TIMEOUT_SECONDS * 1000)

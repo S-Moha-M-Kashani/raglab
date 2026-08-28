@@ -19,6 +19,14 @@ from raglab.configuration.env_settings import ROOT
 MAX_SUMMARY_CHARS = 2_000
 MAX_SUBTOPIC_CHARS = 64
 
+#: The same busy timeout `conversation_memory.BUSY_TIMEOUT_SECONDS` states in
+#: full: three writers share ``widget.db``, and this one runs on the daemon
+#: thread the deferred memory decision starts, which can still be inside its
+#: transaction when the next turn's checkpoint or turn-log row is written.
+#: Its own copy for the reason ``db_path`` is one: this module must not import
+#: the checkpointer's, which pulls langchain in behind it.
+BUSY_TIMEOUT_SECONDS = 5.0
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dataset_memory (
   dataset_id TEXT PRIMARY KEY,
@@ -55,7 +63,7 @@ def db_path(env: dict | None = None) -> Path:
 def _connect() -> sqlite3.Connection:
     target = db_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(target)
+    db = sqlite3.connect(target, timeout=BUSY_TIMEOUT_SECONDS)
     db.executescript(SCHEMA)
     return db
 

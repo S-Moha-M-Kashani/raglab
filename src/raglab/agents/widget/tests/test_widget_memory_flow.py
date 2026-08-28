@@ -63,6 +63,21 @@ def _setup(monkeypatch, policy, answer='authoritative answer'):
     return agent, policy_model
 
 
+@pytest.fixture
+def settled_memory(monkeypatch):
+    """Run the post-answer memory decision on the calling thread.
+
+    `ask` starts it on a thread of its own, which is the point of the ordering
+    — but a test asking *what was filed* would then be racing it. The deferred
+    work is the same call either way; this only removes the thread, so the
+    decision is on `result['memory']` where the assertions can read it."""
+    def defer(question, answer, model, thread, dataset, turn_id=''):
+        return widget.backends._finish_memory(question, answer, model, thread,
+                                              dataset, turn_id) or {}
+
+    monkeypatch.setattr(widget.backends, '_defer_memory', defer)
+
+
 def _eventually(predicate):
     for _ in range(100):
         if predicate():
@@ -89,7 +104,66 @@ def test_deterministic_rejection_happens_before_agent_and_memory(monkeypatch):
     assert agent.invocations == 0
 
 
-def test_irrelevant_policy_result_does_not_write(monkeypatch):
+def test_the_agent_answers_before_the_policy_model_is_asked_anything(monkeypatch):
+    """The reader waits for one model, not two.
+
+    The policy judges whether a finished turn is worth keeping, which is a
+    question about an answer that does not exist yet, so it runs after the
+    agent. Nothing may consult it on the way in."""
+    order = []
+    agent, policy_model = _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': '',
+        'subtopic': '', 'reason': 'a fair question'})
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda model: order.append('policy') or policy_model)
+    answer = agent.invoke
+
+    def watched(payload, config=None):
+        order.append('agent')
+        return answer(payload, config)
+
+    agent.invoke = watched
+    result = widget.ask('Which chunker should I compare?',
+                        model='openai/gpt-5-nano', thread='order-exp')
+
+    assert result['reply'] == 'authoritative answer'
+    _eventually(lambda: 'policy' in order)
+    assert order == ['agent', 'policy']
+
+
+def test_two_turns_share_one_policy_client_and_reset_drops_it(monkeypatch):
+    """The agent beside it was cached from the first day; this client was
+    rebuilt on every turn, so each turn paid for a new connection to say one
+    structured sentence. `reset()` drops both, because a retyped key must not
+    leave a turn answered by one credential and filed by another."""
+    built = []
+    policy_model = _PolicyModel({
+        'relevant': True, 'should_save': False, 'dataset_id': '',
+        'subtopic': '', 'reason': 'a fair question'})
+    monkeypatch.setattr(widget.backends, '_build_memory_model',
+                        lambda model: built.append(model) or policy_model)
+    monkeypatch.setattr(widget.backends, '_agent_for', lambda model: _Agent())
+    widget.reset()
+    try:
+        for _ in range(2):
+            widget.ask('Which chunker should I compare?',
+                       model='openai/gpt-5-nano', thread='cache-exp')
+        _eventually(lambda: len(policy_model.calls) == 2)
+        assert built == ['openai/gpt-5-nano']
+
+        widget.reset()
+        widget.backends._memory_model('openai/gpt-5-nano')
+        assert built == ['openai/gpt-5-nano', 'openai/gpt-5-nano']
+    finally:
+        widget.reset()
+
+
+def test_an_irrelevant_policy_answers_the_question_and_files_nothing(
+        monkeypatch, settled_memory):
+    """Ruled on 2026-08-28: the model-judged relevance check is a save gate,
+    not an answer gate. The widget writes no measured number, so its relevance
+    check is a scope guard; a question the deterministic guard let through is
+    answered, and the policy decides only whether anything is filed."""
     agent, _ = _setup(monkeypatch, {
         'relevant': False, 'should_save': True, 'dataset_id': 'diary-en',
         'subtopic': 'misc', 'reason': 'not reusable',
@@ -101,13 +175,16 @@ def test_irrelevant_policy_result_does_not_write(monkeypatch):
     result = widget.ask('Which index should I use?', model='openai/gpt-5-nano',
                         thread='exp-irrelevant')
 
-    assert 'not reusable' in result['reply']
+    assert agent.invocations == 1
+    assert result['reply'] == 'authoritative answer'
     assert result['memory']['should_save'] is False
-    assert agent.invocations == 0
+    assert result['memory']['saved'] is False
+    assert 'not reusable' in result['memory']['reason']
     assert long_memory.memory_context('diary-en') == ''
 
 
-def test_relevant_policy_cannot_invent_dataset_without_active_experiment(monkeypatch):
+def test_relevant_policy_cannot_invent_dataset_without_active_experiment(
+        monkeypatch, settled_memory):
     agent, _ = _setup(monkeypatch, {
         'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
         'subtopic': 'retrieval', 'reason': 'reusable',
@@ -119,28 +196,38 @@ def test_relevant_policy_cannot_invent_dataset_without_active_experiment(monkeyp
     assert agent.invocations == 1
     assert result['reply'] == 'authoritative answer'
     assert result['memory']['saved'] is False
-    assert result['memory']['status'] == 'not_saved'
+    assert long_memory.memory_context('diary-en') == ''
 
 
-def test_policy_dataset_mismatch_refuses_before_agent_and_save(monkeypatch):
+def test_a_policy_naming_another_dataset_is_answered_and_not_filed(
+        monkeypatch, settled_memory):
+    """The mismatch stopped blocking the answer and still stops the write: the
+    thread's dataset comes from the validated record, the policy's is model
+    text, and a row filed under the wrong corpus is the lie CLAUDE.md forbids.
+    The refusal names both so the reason says what happened."""
     class Reader:
         def experiment(self, experiment_id):
             return {'experiment_id': experiment_id, 'dataset': 'diary-en'}
 
     widget.experiment_tools.set_experiment_reader(Reader())
-    try:
-        agent, policy_model = _setup(monkeypatch, {
-            'relevant': True, 'should_save': True, 'dataset_id': 'diary-fa',
-            'subtopic': 'retrieval', 'reason': 'wrong dataset',
-        })
-        result = widget.ask('Which index should I use?',
-                            model='openai/gpt-5-nano', thread='exp-context')
-    finally:
-        widget.experiment_tools.set_experiment_reader(None)
+    agent, policy_model = _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-fa',
+        'subtopic': 'retrieval', 'reason': 'wrong dataset',
+    })
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            AssertionError('summarizer was called')))
 
-    assert agent.invocations == 0
+    result = widget.ask('Which index should I use?',
+                        model='openai/gpt-5-nano', thread='exp-context')
+
+    assert agent.invocations == 1
+    assert result['reply'] == 'authoritative answer'
     assert result['memory']['saved'] is False
-    assert 'dataset' in result['reply'].lower()
+    reason = result['memory']['reason']
+    assert 'diary-fa' in reason and 'diary-en' in reason
+    assert long_memory.memory_context('diary-en') == ''
+    # The policy was still told which dataset the thread stands on.
     assert 'diary-en' in str(policy_model.messages)
 
 
@@ -369,7 +456,7 @@ class _TwoDatasetReader:
         return [{'experiment_id': i, 'dataset': d} for i, d in self.ROWS.items()]
 
 
-def test_an_answer_about_another_dataset_is_not_filed_under_this_one():
+def test_an_answer_about_another_dataset_is_not_filed_under_this_one(monkeypatch):
     """Seen 2026-08-27 in the developer's own widget.db: a `meetings-de`
     thread asked about 'the last experiment', the agent described the newest
     experiment overall — on `smoke-import-check` — and the summary of that
@@ -377,13 +464,15 @@ def test_an_answer_about_another_dataset_is_not_filed_under_this_one():
     the row's provenance; an answer whose experiments belong to another corpus
     contradicts it, and a contradiction is a refusal, not a filing."""
     widget.experiment_tools.set_experiment_reader(_TwoDatasetReader())
-    decision = {'relevant': True, 'should_save': True,
-                'dataset_id': 'meetings-de', 'subtopic': 'overview',
-                'reason': 'reusable'}
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda model: _PolicyModel({
+                            'relevant': True, 'should_save': True,
+                            'dataset_id': 'meetings-de',
+                            'subtopic': 'overview', 'reason': 'reusable'}))
     answer = 'The latest experiment is other-exp on smoke-import-check.'
     out = widget.backends._finish_memory(
-        'Tell me about the last experiment.', answer, dict(decision),
-        model=None, thread='this-exp')
+        'Tell me about the last experiment.', answer, 'openai/gpt-5-nano',
+        'this-exp', 'meetings-de')
     assert out['saved'] is False
     assert 'other-exp' in out['reason'] and 'smoke-import-check' in out['reason']
     assert long_memory.memory_context('meetings-de') == ''

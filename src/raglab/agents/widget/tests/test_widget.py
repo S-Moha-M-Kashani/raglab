@@ -15,6 +15,18 @@ from raglab.agents import widget
 from raglab.llm_backends import openrouter_key_memory as credentials
 
 
+@pytest.fixture(autouse=True)
+def _no_experiment_reader_leaks_between_tests():
+    """The experiment reader is process-wide and `create_app` wires it, so a
+    route test in this file used to leave the lab's own validated records
+    behind for every unit test that followed. It matters now that a thread
+    naming an experiment those records do not know is refused before the agent
+    runs: a test asking a plain question on `exp-one` would be answered with
+    that refusal for no reason of its own."""
+    yield
+    widget.experiment_tools.set_experiment_reader(None)
+
+
 # --- the knowledge base and the two tools -------------------------------
 
 def test_the_knowledge_base_has_facts_and_they_are_strings():
@@ -1117,8 +1129,6 @@ def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch)
     stub = _StreamStub(
         _chunks('answer'),
         {'messages': [HumanMessage(content='q'), AIMessage(content='answer')]})
-    monkeypatch.setattr(widget.backends, '_memory_turn',
-                        lambda message, model, thread: (decision, object(), ''))
     monkeypatch.setattr(widget.backends, '_finish_memory',
                         lambda *args: {**decision, 'saved': True})
     model = _streaming(stub)

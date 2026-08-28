@@ -10,7 +10,11 @@ from raglab.agents import widget
 
 
 def test_follow_up_policy_receives_the_existing_thread_transcript(monkeypatch):
-    """A short follow-up must be judged with the preceding exchange."""
+    """A short follow-up must be judged with the preceding exchange.
+
+    The policy is asked after the answer now, so this drives `_finish_memory`
+    directly; what it is judging — a question that means nothing on its own —
+    is unchanged, and so is the transcript it must be given."""
     seen = []
 
     class Structured:
@@ -35,7 +39,8 @@ def test_follow_up_policy_receives_the_existing_thread_transcript(monkeypatch):
                             {'role': 'you', 'text': 'Did reranking help?'},
                             {'role': 'bot', 'text': 'Yes, recall improved.'}]})
 
-    decision, _, _ = widget.backends._memory_turn('and?', 'model', 'general')
+    decision = widget.backends._finish_memory(
+        'and?', 'Recall improved with reranking.', 'model', 'general', '')
 
     assert decision['relevant'] is True
     assert 'Did reranking help?' in seen[0]

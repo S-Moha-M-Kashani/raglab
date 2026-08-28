@@ -1676,6 +1676,12 @@ def test_the_widget_serves_the_conversation_it_holds(client, monkeypatch):
     from raglab.agents.widget.hooks import MIDDLEWARE
 
     memory.forget('exp-route')
+    # `create_app` wires the lab's validated records into the widget, and this
+    # ledger holds no `exp-route`: a thread naming an experiment provenance
+    # cannot identify is refused before the agent runs, which is its own test's
+    # subject and not this one's. Unwired, there is nothing to validate against
+    # and the question is simply answered — which is what this test reads back.
+    widget.set_experiment_reader(None)
     # A thread nobody has used says so with three empty answers rather than
     # with an error — the empty log and its starters are the honest rendering
     # of a conversation that has not happened yet.

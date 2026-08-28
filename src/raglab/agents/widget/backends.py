@@ -1,15 +1,34 @@
 """The widget's model catalogue and the two answer paths.
 
-The OpenRouter path is `langchain.agents.create_agent` with the six
+The OpenRouter path is `langchain.agents.create_agent` with the four
 middleware hooks (hooks.py), one cached agent per model; the CLI path is a
 process per call with the knowledge base inlined, because `CliChat` has no
 `bind_tools`. Both paths enter through `ask` for a whole answer at once, or
 through `stream` for the same answer handed over as it is written.
+
+One turn, one order, both paths: the deterministic work runs before the
+agent, the model-judged work after the answer. Before the agent
+(`_preflight`): the relevance guard, the thread's trusted dataset — resolved
+*once*, because each resolution is a ledger query plus a run-file read — the
+refusal owed to an experiment thread whose context cannot be validated, and
+the long-term memory filed under that dataset. After the answer
+(`_finish_memory`): the memory policy, then the summary and the write.
+
+Until 2026-08-28 the policy ran first, so the reader waited two model round
+trips for the first word: the policy was being read as a gate on *answering*.
+It is a gate on *filing*. The widget writes no measured number, so its
+relevance check is a scope guard; every provenance guarantee — the trusted
+dataset, the dataset match, the foreign-experiment refusal, fail-closed
+saving — stands in front of the *write*, which is where CLAUDE.md puts them.
+The stated consequence: a question the deterministic guard does not catch but
+the policy would have called irrelevant is now answered, and the policy's
+verdict decides only whether anything is filed.
 """
 import os
 import time
 import uuid
 from threading import RLock, Thread
+from typing import NamedTuple
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -98,16 +117,23 @@ class WidgetUnavailable(RuntimeError):
 
 
 # One cached agent per OpenRouter model — a CLI is a process per call and
-# caches nothing.
+# caches nothing. Beside it, one cached policy/summarizer client per model:
+# the same key, the same base url, the same lock, and the same fate on
+# `reset()`, because both are built from the credential a reader can retype.
 _AGENTS: dict = {}
+_MEMORY_MODELS: dict = {}
 _AGENTS_LOCK = RLock()
 
 
 def reset() -> None:
     """Drop the cached clients so the next ask() rebuilds (tests, key changes).
+    Both caches, together: a key typed into the panel invalidates the agent and
+    the policy client alike, and one of them surviving would be a turn answered
+    by the new credential and filed by the old one.
     Not the memory: that outlives every client, and lives in widget.db."""
     with _AGENTS_LOCK:
         _AGENTS.clear()
+        _MEMORY_MODELS.clear()
 
 
 def _tracing_on() -> bool:
@@ -226,11 +252,17 @@ def _model_kind(model: str) -> tuple[str, str]:
     return choice, kind
 
 
-def _run(message: str, thread: str, *, memory_state: dict | None = None,
+def _run(message: str, thread: str, *, dataset: str = '',
+         memory_state: dict | None = None,
          memory_text: str = '') -> tuple[dict, dict]:
     """The graph's input and its config for one turn — read once, so `ask` and
     `stream` cannot come to disagree about which thread a turn ran under or
     what it stamped on the way in.
+
+    `dataset` is the thread's trusted dataset, handed in rather than looked up:
+    `_preflight` resolved it for this turn already, and resolving it a second
+    time here would be a second ledger query and a second run-file read for an
+    answer that cannot have changed mid-turn.
 
     One reading of the thread's name for both the id the graph runs under and
     the state written into it, stripped the way `history` and `forget` already
@@ -271,8 +303,6 @@ def _run(message: str, thread: str, *, memory_state: dict | None = None,
     # word for word, is not added again; a memory context that changed is.
     said = {str(m.content) for m in (memory._channels(name).get('messages')
                                      or []) if getattr(m, 'type', '') == 'system'}
-    dataset = (experiment_tools.trusted_dataset_id(name)
-               if name != memory.GENERAL else '')
     opening = (ACTIVE_EXPERIMENT_PROMPT.format(experiment_id=name,
                                                dataset=dataset)
                if dataset else '')
@@ -354,10 +384,13 @@ def _policy_transcript(thread: str) -> str:
 
 def _log_turn(*, message: str, reply: str, thread: str, started: float,
               input_tokens=None, output_tokens=None, messages=None,
-              decision=None, status='answered', ai_message_id='') -> str:
-    """Write the human-readable operational row after the answer exists."""
+              dataset_id='', status='answered', ai_message_id='') -> str:
+    """Write the human-readable operational row after the answer exists.
+
+    `dataset_id` is the turn's trusted dataset, not the policy's opinion of
+    one: the row says which corpus the thread stood on while it answered, and
+    that is known before the answer exists rather than after."""
     name = (thread or '').strip() or memory.GENERAL
-    dataset_id = (decision or {}).get('dataset_id', '')
     experiment_id = name if name != memory.GENERAL else ''
     user_id = ''
     if messages:
@@ -388,88 +421,132 @@ def _agent_for(model: str):
         return _AGENTS[model]
 
 
-def _memory_model(model: str):
-    """Build the separate structured-output seam used before/after the agent."""
+def _build_memory_model(model: str):
+    """Build the structured-output seam the memory policy and the summarizer
+    speak through — a separate client from the agent's, so policy availability
+    is never confused with answer-model availability."""
     openrouter_api_key = _openrouter_key()
     from langchain_openai import ChatOpenAI
     return ChatOpenAI(model=model, api_key=openrouter_api_key,
                       base_url=_openrouter_url())
 
 
-def _memory_turn(message: str, model: str, thread: str) -> tuple[dict | None, object | None, str]:
-    """Run deterministic and structured policy before invoking the agent."""
-    refusal = hooks.relevance_guard(message)
-    if refusal:
-        return ({'relevant': False, 'should_save': False, 'dataset_id': '',
-                 'subtopic': '', 'reason': refusal, 'saved': False,
-                 'blocked': True}, None, '')
-    try:
-        policy_model = _memory_model(model)
-    except Exception:
-        return None, None, ''
-    trusted = experiment_tools.trusted_dataset_id(thread)
-    policy = evaluate_memory_policy(
-        message, policy_model, experiment_id=thread, dataset_id=trusted,
-        trusted_dataset_id=trusted, conversation=_policy_transcript(thread))
-    if not policy.relevant:
-        if policy.reason and 'unavailable' not in policy.reason.lower():
-            decision = {**policy.model_dump(), 'saved': False, 'blocked': True}
-            return decision, None, ''
-        return None, None, ''
-    if trusted and policy.dataset_id != trusted:
-        decision = {**policy.model_dump(), 'saved': False, 'blocked': True,
-                    'reason': f'Active experiment dataset is {trusted}; '
-                              'memory policy dataset did not match.'}
-        return decision, None, ''
-    if (thread.strip() and experiment_tools.experiment_reader_wired()
-            and not trusted):
-        decision = {**policy.model_dump(), 'saved': False, 'blocked': True,
-                    'reason': 'The active experiment context could not be '
-                              'validated; nothing was processed.'}
-        return decision, None, ''
-    if not trusted and policy.dataset_id:
-        # A general-thread policy may classify a turn as reusable, but its
-        # model-supplied dataset is not provenance. Answer the question while
-        # discarding the untrusted identity and save permission.
-        policy = policy.model_copy(update={
-            'dataset_id': '', 'should_save': False,
-            'reason': policy.reason or
-            'No validated active experiment dataset; memory was not saved.'})
-    if trusted and not policy.dataset_id:
-        decision = {**policy.model_dump(), 'dataset_id': trusted,
-                    'saved': False}
-        policy = memory.MemoryPolicy.model_validate(
-            {key: value for key, value in decision.items()
-             if key in memory.MemoryPolicy.model_fields})
-    decision = {**policy.model_dump(), 'saved': False}
-    reader = tools.read_long_term_memory
-    context_dataset = trusted or policy.dataset_id
-    if policy.relevant and context_dataset:
-        context = (reader.invoke({'dataset_id': context_dataset})
-                   if hasattr(reader, 'invoke') else reader(context_dataset))
-    else:
-        context = ''
-    return decision, policy_model, context
+def _memory_model(model: str):
+    """The cached policy/summarizer client for one model, built on first use.
+
+    Cached the way `_agent_for` caches agents, and for the same reason: it was
+    a fresh `ChatOpenAI` on every turn while the agent beside it was reused, so
+    every turn paid for a new connection and its handshake to say one
+    structured sentence."""
+    with _AGENTS_LOCK:
+        if model not in _MEMORY_MODELS:
+            _MEMORY_MODELS[model] = _build_memory_model(model)
+        return _MEMORY_MODELS[model]
 
 
-def _policy_state(decision: dict, thread: str) -> dict:
-    fields = memory.MemoryPolicy.model_fields
-    policy = memory.MemoryPolicy.model_validate(
-        {key: value for key, value in decision.items() if key in fields})
-    return memory.policy_state(policy, thread)
+class _Preflight(NamedTuple):
+    """What a turn settles before any model is asked anything.
+
+    `blocked` is a refusal to answer with instead of running the agent;
+    `dataset` is the thread's trusted dataset id, resolved once for the whole
+    turn; `context` is the long-term memory filed under it; `state` is what the
+    turn stamps on the thread's own policy channels.
+    """
+    blocked: dict | None
+    dataset: str
+    context: str
+    state: dict
+
+
+def _refused(reason: str) -> dict:
+    """A decision that is its own answer: nothing ran, so nothing was filed."""
+    return {'relevant': False, 'should_save': False, 'dataset_id': '',
+            'subtopic': '', 'reason': reason, 'saved': False, 'blocked': True}
+
+
+def _preflight(thread: str) -> _Preflight:
+    """Everything one turn can decide without asking a model.
+
+    The deterministic refusal (`hooks.relevance_guard`) has already been
+    answered by the caller — a CLI turn needs it too, and never reaches here.
+    What is left needs no model at all: the validated records say which dataset
+    this thread stands on, and the long-term memory is filed by that id.
+
+    An experiment thread whose context cannot be validated is refused here and
+    stays refused: a reader is looking at an experiment the widget cannot
+    identify, and answering as if it could is the substitution this lab
+    refuses. The general thread is not such a case — it names no experiment, so
+    there is no context to fail to validate, and it is the one `_run` has
+    always treated that way.
+    """
+    name = (thread or '').strip() or memory.GENERAL
+    experiment = '' if name == memory.GENERAL else name
+    dataset = experiment_tools.trusted_dataset_id(experiment)
+    if experiment and experiment_tools.experiment_reader_wired() and not dataset:
+        return _Preflight(_refused('The active experiment context could not be '
+                                   'validated; nothing was processed.'),
+                          '', '', {})
+    context = ''
+    if dataset:
+        reader = tools.read_long_term_memory
+        context = (reader.invoke({'dataset_id': dataset})
+                   if hasattr(reader, 'invoke') else reader(dataset))
+    # `WidgetState`'s policy channels record what this turn stood on while it
+    # ran: the trusted dataset and the safe defaults. The verdict that arrives
+    # after the answer travels on the returned event and in `turn_logger`, not
+    # back into these channels — a second writer amending them afterwards would
+    # be racing the graph over the same checkpoint.
+    state = memory.policy_state(memory.MemoryPolicy(dataset_id=dataset),
+                                experiment)
+    return _Preflight(None, dataset, context, state)
 
 
 def _summarize_memory_update(**kwargs):
     return summarize_memory_update(**kwargs)
 
 
-def _finish_memory(question: str, answer: str, decision: dict | None,
-                   model, thread: str, turn_id: str = '') -> dict | None:
-    if not decision:
+def _finish_memory(question: str, answer: str, model: str, thread: str,
+                   dataset: str, turn_id: str = '') -> dict | None:
+    """The memory decision, taken after the answer exists, and the write it
+    permits.
+
+    The policy runs here rather than before the agent because what it judges is
+    whether a *finished* turn is worth keeping — a question about an answer
+    that did not exist yet. It no longer gates the answer; it gates the file.
+
+    Three things must all hold before anything is written: the policy calls the
+    turn relevant and asks to save it, the dataset it names is the one the
+    validated records gave this thread, and the answer names no experiment from
+    another corpus. A policy that is unavailable or malformed satisfies none of
+    them and carries its own reason on the decision it returns.
+
+    `None` means there was no policy to ask at all — no client could be built —
+    so the turn says nothing about memory rather than inventing a verdict.
+    """
+    try:
+        policy_model = _memory_model(model)
+    except Exception:
         return None
-    if not decision.get('relevant') or not decision.get('should_save'):
+    policy = evaluate_memory_policy(
+        question, policy_model, experiment_id=thread, dataset_id=dataset,
+        trusted_dataset_id=dataset, conversation=_policy_transcript(thread))
+    decision = {**policy.model_dump(), 'saved': False}
+    if not policy.relevant or not policy.should_save:
         return decision
-    dataset = decision.get('dataset_id', '')
+    if not dataset or policy.dataset_id != dataset:
+        # Filing is a claim of provenance, so the only dataset a turn may be
+        # filed under is the validated one. A policy that named another — or
+        # named one on a thread that has none — is answered and not filed; its
+        # model-supplied identity is not evidence. (`evaluate_memory_policy`
+        # already refuses the mismatch when a trusted dataset was passed to it;
+        # this is the rule stated where the write happens.)
+        decision.update({
+            'should_save': False, 'saved': False, 'dataset_id': dataset,
+            'reason': (f'The memory policy named dataset '
+                       f'{policy.dataset_id or "none"}, but this thread stands '
+                       f'on {dataset or "no validated dataset"}, so nothing '
+                       'was filed.')})
+        return decision
     foreign = experiment_tools.foreign_experiments(answer, dataset)
     if foreign:
         named = ', '.join(f'{i} ({d})' for i, d in sorted(foreign.items()))
@@ -482,8 +559,8 @@ def _finish_memory(question: str, answer: str, decision: dict | None,
     try:
         summary = _summarize_memory_update(
             question=question, answer=answer,
-            dataset_id=decision.get('dataset_id', ''), experiment_id=thread,
-            subtopic=decision.get('subtopic', ''), model=model)
+            dataset_id=dataset, experiment_id=thread,
+            subtopic=decision.get('subtopic', ''), model=policy_model)
         dataset_summary = (summary.get('dataset_summary', '')
                            if isinstance(summary, dict)
                            else summary.dataset_summary)
@@ -491,7 +568,7 @@ def _finish_memory(question: str, answer: str, decision: dict | None,
                           if isinstance(summary, dict)
                           else summary.global_summary)
         arguments = {
-            'dataset_id': decision.get('dataset_id', ''),
+            'dataset_id': dataset,
             'experiment_id': thread, 'subtopic': decision.get('subtopic', ''),
             'question': question, 'answer': answer,
             'dataset_summary': dataset_summary,
@@ -508,21 +585,25 @@ def _finish_memory(question: str, answer: str, decision: dict | None,
     return decision
 
 
-def _defer_memory(question: str, answer: str, decision: dict, model,
-                  thread: str, turn_id: str = '') -> dict:
-    """Start optional memory work after the caller has received the answer."""
-    if not decision.get('should_save'):
-        return {**decision, 'status': 'not_saved', 'saved': False}
-    pending = {**decision, 'status': 'pending', 'saved': False}
+def _defer_memory(question: str, answer: str, model: str, thread: str,
+                  dataset: str, turn_id: str = '') -> dict:
+    """Start the memory decision after the caller has received the answer.
 
+    What comes back is a status and not a verdict, because the verdict is not
+    made yet: the policy runs on the thread this starts. `saved: False` is the
+    honest reading of that moment — nothing has been filed — and the absence of
+    `relevant`/`should_save` is what keeps the panel from rendering a guess
+    (`panel_server._safe_widget_event` omits a memory value whose three
+    booleans are not all there). A streamed turn does not need this: it has a
+    later event to carry the resolved decision."""
     def finish():
         try:
-            _finish_memory(question, answer, decision, model, thread, turn_id)
-        except Exception as error:  # defensive boundary for a daemon thread
-            decision.update({'saved': False, 'save_error': str(error)})
+            _finish_memory(question, answer, model, thread, dataset, turn_id)
+        except Exception:  # defensive boundary: a daemon thread has nobody to
+            pass           # tell, and the answer is already with the reader.
 
     Thread(target=finish, name='widget-memory', daemon=True).start()
-    return pending
+    return {'status': 'pending', 'saved': False}
 
 
 def ask(message: str, model: str = '', thread: str = '') -> dict:
@@ -537,6 +618,13 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     thread's own two state fields (`conversation_memory.thread_stamp`); a CLI
     keeps nothing at all, so it stamps nothing either — the label says so.
 
+    The order is the module's: the deterministic guard, then `_preflight`, then
+    the agent, and only afterwards the memory policy — started on a thread of
+    its own, so the answer is not held behind a judgement about whether to keep
+    it. The `memory` field of a turn that ran therefore says `pending`, and the
+    verdict lands in the long-term store rather than in this return value; a
+    streamed turn is the one that reports it back, on its own last event.
+
     `stream` is the same turn, arriving as it is written. This is the whole
     answer at once, which is what a caller with nowhere to put a half-written
     one wants — the `__main__` harness, a test, a future non-browser client."""
@@ -544,11 +632,8 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     choice, kind = _model_kind(model)
     refusal = hooks.relevance_guard(message)
     if refusal:
-        decision = {'relevant': False, 'should_save': False, 'dataset_id': '',
-                    'subtopic': '', 'reason': refusal, 'saved': False,
-                    'blocked': True}
         return {'reply': refusal, 'input_tokens': None,
-                'output_tokens': None, 'memory': decision}
+                'output_tokens': None, 'memory': _refused(refusal)}
     if kind == 'cli':
         # The two agent-level hooks bracket a CLI too, through the halves they
         # were factored into: a CLI has no loop for the middle four, and no
@@ -560,19 +645,13 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
                   started=started, input_tokens=output['input_tokens'],
                   output_tokens=output['output_tokens'], status='answered')
         return output
-    decision, policy_model, context = _memory_turn(message, choice, thread)
-    if decision and decision.get('blocked'):
-        return {'reply': decision['reason'], 'input_tokens': None,
-                'output_tokens': None, 'memory': decision}
-    memory_state = _policy_state(decision, thread) if decision else None
+    pre = _preflight(thread)
+    if pre.blocked:
+        return {'reply': pre.blocked['reason'], 'input_tokens': None,
+                'output_tokens': None, 'memory': pre.blocked}
     agent = _agent_for(choice)
-    if context and decision:
-        payload, config = _run(message, thread, memory_state=memory_state,
-                               memory_text=context)
-    elif memory_state:
-        payload, config = _run(message, thread, memory_state=memory_state)
-    else:
-        payload, config = _run(message, thread)
+    payload, config = _run(message, thread, dataset=pre.dataset,
+                           memory_state=pre.state, memory_text=pre.context)
     try:
         result = agent.invoke(payload, config=config)
     except WidgetUnavailable:
@@ -588,12 +667,11 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
                         started=started, input_tokens=output['input_tokens'],
                         output_tokens=output['output_tokens'],
                         messages=result['messages'],
-                        decision=decision,
+                        dataset_id=pre.dataset,
                         ai_message_id=str(getattr(result['messages'][-1], 'id', '') or ''))
-    if decision is not None:
-        output['memory'] = (_defer_memory(message, reply, decision,
-                                          policy_model, thread, turn_id)
-                           or {**decision, 'status': 'pending', 'saved': False})
+    output['memory'] = (_defer_memory(message, reply, choice, thread,
+                                      pre.dataset, turn_id)
+                        or {'status': 'pending', 'saved': False})
     return output
 
 
@@ -640,8 +718,8 @@ def _stream_cli(cli: str, message: str, thread: str = '', started=None):
     yield done
 
 
-def _stream_agent(agent, message: str, thread: str, decision=None,
-                  policy_model=None, context: str = '', started=None):
+def _stream_agent(agent, message: str, thread: str, model: str = '',
+                  pre: _Preflight | None = None, started=None):
     """The graph streaming: `stream_mode=['messages', 'values']` on the same
     run `ask` invokes — the same nodes, the same middleware, the same
     checkpoint write, so a streamed turn is in widget.db exactly as an asked
@@ -656,16 +734,14 @@ def _stream_agent(agent, message: str, thread: str, decision=None,
     concatenated pieces happened to spell. A run that streamed pieces but ended
     with no state is a refusal, not a reply assembled here from the fragments —
     the same rule the rest of the lab keeps about a row that cannot say what
-    produced it."""
-    if context and decision:
-        state = _policy_state(decision, thread)
-        payload, config = _run(message, thread, memory_state=state,
-                               memory_text=context)
-    elif decision:
-        payload, config = _run(message, thread,
-                               memory_state=_policy_state(decision, thread))
-    else:
-        payload, config = _run(message, thread)
+    produced it.
+
+    `pre` is `ask`'s pre-flight, handed over rather than repeated: the two
+    paths are one turn, and a streamed answer that stood on a different dataset
+    from an asked one would be two turns wearing one name."""
+    pre = pre or _Preflight(None, '', '', {})
+    payload, config = _run(message, thread, dataset=pre.dataset,
+                           memory_state=pre.state, memory_text=pre.context)
     final = None
     try:
         for mode, event in agent.stream(payload, config=config,
@@ -692,24 +768,28 @@ def _stream_agent(agent, message: str, thread: str, decision=None,
                         started=started or time.monotonic(),
                         input_tokens=output['input_tokens'],
                         output_tokens=output['output_tokens'],
-                        messages=final['messages'], decision=decision,
+                        messages=final['messages'], dataset_id=pre.dataset,
                         ai_message_id=str(getattr(final['messages'][-1], 'id', '') or ''))
     yield output
-    # The reply is authoritative and must reach the caller before the optional
-    # long-term-memory work begins. Memory is a separate status event so a
-    # streamed reader can render the answer without waiting for summarization.
-    finished = _finish_memory(message, reply, decision, policy_model, thread,
+    # The reply is authoritative and must reach the caller before the memory
+    # policy is even asked. Memory is a separate event so a streamed reader can
+    # render the answer without waiting for a judgement about keeping it — and
+    # because this path has a later event to spend, it reports the resolved
+    # decision rather than `ask`'s `pending`. No decision at all (no policy
+    # client to ask) is no event: the turn says nothing rather than a guess.
+    finished = _finish_memory(message, reply, model, thread, pre.dataset,
                               turn_id)
-    if decision is not None:
-        yield {'memory': finished if finished is not None else decision}
+    if finished is not None:
+        yield {'memory': finished}
 
 
 def stream(message: str, model: str = '', thread: str = ''):
     """The same turn as `ask`, handed over as it is written: an iterator of
     events, `{'delta': text}` for each piece and then an authoritative
-    `{'reply', 'input_tokens', 'output_tokens'}` event, followed when a policy
-    exists by a separate memory-status event. The reply event is the very dict
-    `ask` returns without memory metadata; the deltas are how it arrived.
+    `{'reply', 'input_tokens', 'output_tokens'}` event, followed — when there
+    was a memory policy to ask at all — by a separate memory event carrying the
+    decision it came to. The reply event is the very dict `ask` returns without
+    memory metadata; the deltas are how it arrived.
 
     A call, not a generator function, and that distinction is the point:
     everything knowable before the first piece — an unserved model, a missing
@@ -721,12 +801,9 @@ def stream(message: str, model: str = '', thread: str = ''):
     choice, kind = _model_kind(model)
     refusal = hooks.relevance_guard(message)
     if refusal:
-        decision = {'relevant': False, 'should_save': False, 'dataset_id': '',
-                    'subtopic': '', 'reason': refusal, 'saved': False,
-                    'blocked': True}
         return iter([{'delta': refusal}, {
             'reply': refusal, 'input_tokens': None,
-            'output_tokens': None, 'memory': decision}])
+            'output_tokens': None, 'memory': _refused(refusal)}])
     if kind == 'cli':
         text = _validate(message)
         if not cli_available(choice):
@@ -734,10 +811,10 @@ def stream(message: str, model: str = '', thread: str = ''):
                 f'the {choice} command is not on this machine — install and '
                 'log in, or pick an OpenRouter model')
         return _stream_cli(choice, text, thread, started)
-    decision, policy_model, context = _memory_turn(message, choice, thread)
-    if decision and decision.get('blocked'):
-        return iter([{'delta': decision['reason']}, {
-            'reply': decision['reason'], 'input_tokens': None,
-            'output_tokens': None, 'memory': decision}])
-    return _stream_agent(_agent_for(choice), message, thread, decision,
-                         policy_model, context, started)
+    pre = _preflight(thread)
+    if pre.blocked:
+        return iter([{'delta': pre.blocked['reason']}, {
+            'reply': pre.blocked['reason'], 'input_tokens': None,
+            'output_tokens': None, 'memory': pre.blocked}])
+    return _stream_agent(_agent_for(choice), message, thread, choice, pre,
+                         started)

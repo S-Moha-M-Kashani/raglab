@@ -261,25 +261,66 @@ def test_same_dataset_experiment_receives_dataset_and_global_memory(monkeypatch)
     assert 'existing cross-dataset context' in context
 
 
-def test_malformed_active_experiment_cannot_supply_dataset_identity(monkeypatch):
+def test_malformed_active_experiment_cannot_supply_dataset_identity(
+        monkeypatch, settled_memory):
+    """A record whose dataset is not a string identifies nothing, so the model
+    text that names one cannot stand in for it. Ruled on 2026-08-28: that is a
+    guard on the write and not on the answer — the question is answered, and
+    nothing is filed under an experiment the records could not read."""
     class Reader:
         def experiment(self, experiment_id):
             return {'experiment_id': experiment_id, 'dataset': ['diary-en']}
 
     widget.experiment_tools.set_experiment_reader(Reader())
-    try:
-        agent, _ = _setup(monkeypatch, {
-            'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
-            'subtopic': 'retrieval', 'reason': 'reusable',
-        })
-        result = widget.ask('Which retrieval setting should we retain?',
-                            model='openai/gpt-5-nano', thread='bad-context')
-    finally:
-        widget.experiment_tools.set_experiment_reader(None)
+    agent, _ = _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable',
+    })
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            AssertionError('summarizer was called')))
 
-    assert agent.invocations == 0
-    assert result['memory']['blocked'] is True
-    assert 'active experiment context' in result['reply']
+    result = widget.ask('Which retrieval setting should we retain?',
+                        model='openai/gpt-5-nano', thread='bad-context')
+
+    assert agent.invocations == 1
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory']['saved'] is False
+    assert 'active experiment context' in result['memory']['reason']
+    assert long_memory.memory_context('diary-en') == ''
+
+
+def test_a_thread_about_a_run_the_records_do_not_know_yet_is_answered(
+        monkeypatch, settled_memory):
+    """The case that made the old pre-flight refusal wrong: an experiment that
+    is still running has no ledger row yet, and that is exactly when a reader
+    asks about it. The question is answered; the turn is not filed, because
+    memory about an experiment this lab cannot name is memory about nothing."""
+    class Reader:
+        def experiment(self, experiment_id):
+            return None            # not recorded yet
+
+        def board_rows(self, limit=500):
+            return []
+
+    widget.experiment_tools.set_experiment_reader(Reader())
+    agent, _ = _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable',
+    })
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            AssertionError('summarizer was called')))
+
+    result = widget.ask('How is this run doing?', model='openai/gpt-5-nano',
+                        thread='still-running')
+
+    assert agent.invocations == 1
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory']['saved'] is False
+    assert result['memory']['should_save'] is False
+    assert 'active experiment context' in result['memory']['reason']
+    assert long_memory.memory_context('diary-en') == ''
 
 
 def test_sync_returns_answer_before_deferred_memory_work(monkeypatch):

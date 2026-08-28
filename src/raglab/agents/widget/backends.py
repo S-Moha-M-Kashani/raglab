@@ -6,23 +6,24 @@ process per call with the knowledge base inlined, because `CliChat` has no
 `bind_tools`. Both paths enter through `ask` for a whole answer at once, or
 through `stream` for the same answer handed over as it is written.
 
-One turn, one order, both paths: the deterministic work runs before the
-agent, the model-judged work after the answer. Before the agent
-(`_preflight`): the relevance guard, the thread's trusted dataset — resolved
-*once*, because each resolution is a ledger query plus a run-file read — the
-refusal owed to an experiment thread whose context cannot be validated, and
-the long-term memory filed under that dataset. After the answer
-(`_finish_memory`): the memory policy, then the summary and the write.
+One turn, one order, both paths: what the answer needs runs before the agent,
+what the *filing* needs runs after it. Before the agent (`_preflight`): the
+relevance guard, the thread's trusted dataset — resolved *once*, because each
+resolution is a ledger query plus a run-file read — and the long-term memory
+filed under that dataset. After the answer (`_finish_memory`): the memory
+policy and every provenance gate, then the summary and the write.
 
 Until 2026-08-28 the policy ran first, so the reader waited two model round
 trips for the first word: the policy was being read as a gate on *answering*.
 It is a gate on *filing*. The widget writes no measured number, so its
-relevance check is a scope guard; every provenance guarantee — the trusted
-dataset, the dataset match, the foreign-experiment refusal, fail-closed
-saving — stands in front of the *write*, which is where CLAUDE.md puts them.
-The stated consequence: a question the deterministic guard does not catch but
-the policy would have called irrelevant is now answered, and the policy's
-verdict decides only whether anything is filed.
+relevance check is a scope guard; every provenance guarantee — the validated
+experiment context, the dataset match, the foreign-experiment refusal,
+fail-closed saving — stands in front of the *write*, which is where CLAUDE.md
+puts them. Two stated consequences: a question the deterministic guard does
+not catch but the policy would have called irrelevant is now answered, and a
+thread naming an experiment the records cannot yet identify — a job still
+running is the common case, and the moment a reader is most likely to ask — is
+answered too. Neither is filed.
 """
 import os
 import time
@@ -447,12 +448,12 @@ def _memory_model(model: str):
 class _Preflight(NamedTuple):
     """What a turn settles before any model is asked anything.
 
-    `blocked` is a refusal to answer with instead of running the agent;
     `dataset` is the thread's trusted dataset id, resolved once for the whole
     turn; `context` is the long-term memory filed under it; `state` is what the
-    turn stamps on the thread's own policy channels.
+    turn stamps on the thread's own policy channels. Nothing here refuses: the
+    one refusal a turn can raise without a model — `hooks.relevance_guard` — is
+    the caller's, and every other refusal this widget has is about the write.
     """
-    blocked: dict | None
     dataset: str
     context: str
     state: dict
@@ -464,6 +465,17 @@ def _refused(reason: str) -> dict:
             'subtopic': '', 'reason': reason, 'saved': False, 'blocked': True}
 
 
+def _experiment_of(thread: str) -> str:
+    """The experiment a thread is about, or `''` for the general one.
+
+    One reading of the thread's name, used by everything that has to agree
+    about it: the dataset lookup, the state stamp, and the save gate that asks
+    whether this thread names an experiment at all.
+    """
+    name = (thread or '').strip() or memory.GENERAL
+    return '' if name == memory.GENERAL else name
+
+
 def _preflight(thread: str) -> _Preflight:
     """Everything one turn can decide without asking a model.
 
@@ -472,20 +484,18 @@ def _preflight(thread: str) -> _Preflight:
     What is left needs no model at all: the validated records say which dataset
     this thread stands on, and the long-term memory is filed by that id.
 
-    An experiment thread whose context cannot be validated is refused here and
-    stays refused: a reader is looking at an experiment the widget cannot
-    identify, and answering as if it could is the substitution this lab
-    refuses. The general thread is not such a case — it names no experiment, so
-    there is no context to fail to validate, and it is the one `_run` has
-    always treated that way.
+    A thread whose experiment the records cannot identify is *not* refused
+    here, and that is a ruling rather than an omission (2026-08-28). It reads
+    as a provenance guard, but refusing to answer protects nothing the write
+    gate does not already protect: the record-reading tools say honestly when
+    they cannot validate a thread, and `foreign_experiments` is what actually
+    stops one dataset's thread being told about another's run. Refusing was
+    also worst exactly when it hurt most — an experiment still running is not
+    in the ledger yet, and that is when a reader asks about it. So the check
+    moved to `_finish_memory`, beside the other guards on the write.
     """
-    name = (thread or '').strip() or memory.GENERAL
-    experiment = '' if name == memory.GENERAL else name
+    experiment = _experiment_of(thread)
     dataset = experiment_tools.trusted_dataset_id(experiment)
-    if experiment and experiment_tools.experiment_reader_wired() and not dataset:
-        return _Preflight(_refused('The active experiment context could not be '
-                                   'validated; nothing was processed.'),
-                          '', '', {})
     context = ''
     if dataset:
         reader = tools.read_long_term_memory
@@ -498,7 +508,7 @@ def _preflight(thread: str) -> _Preflight:
     # be racing the graph over the same checkpoint.
     state = memory.policy_state(memory.MemoryPolicy(dataset_id=dataset),
                                 experiment)
-    return _Preflight(None, dataset, context, state)
+    return _Preflight(dataset, context, state)
 
 
 def _summarize_memory_update(**kwargs):
@@ -514,9 +524,10 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
     whether a *finished* turn is worth keeping — a question about an answer
     that did not exist yet. It no longer gates the answer; it gates the file.
 
-    Three things must all hold before anything is written: the policy calls the
-    turn relevant and asks to save it, the dataset it names is the one the
-    validated records gave this thread, and the answer names no experiment from
+    Four things must all hold before anything is written: the policy calls the
+    turn relevant and asks to save it, the records could identify the
+    experiment this thread is about, the dataset the policy names is the one
+    those records gave the thread, and the answer names no experiment from
     another corpus. A policy that is unavailable or malformed satisfies none of
     them and carries its own reason on the decision it returns.
 
@@ -532,6 +543,19 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
         trusted_dataset_id=dataset, conversation=_policy_transcript(thread))
     decision = {**policy.model_dump(), 'saved': False}
     if not policy.relevant or not policy.should_save:
+        return decision
+    experiment = _experiment_of(thread)
+    if experiment and experiment_tools.experiment_reader_wired() and not dataset:
+        # The thread is about an experiment and the validated records cannot
+        # say which one — an experiment still running is not in the ledger yet.
+        # A row filed under a thread whose provenance nobody could read would
+        # be memory about an experiment this lab cannot name, so it fails
+        # closed here rather than in front of the answer: the reader asking
+        # about a run in progress is served, and nothing is written.
+        decision.update({
+            'should_save': False, 'saved': False, 'dataset_id': '',
+            'reason': ('The active experiment context could not be validated; '
+                       'nothing was filed as memory.')})
         return decision
     if not dataset or policy.dataset_id != dataset:
         # Filing is a claim of provenance, so the only dataset a turn may be
@@ -646,9 +670,6 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
                   output_tokens=output['output_tokens'], status='answered')
         return output
     pre = _preflight(thread)
-    if pre.blocked:
-        return {'reply': pre.blocked['reason'], 'input_tokens': None,
-                'output_tokens': None, 'memory': pre.blocked}
     agent = _agent_for(choice)
     payload, config = _run(message, thread, dataset=pre.dataset,
                            memory_state=pre.state, memory_text=pre.context)
@@ -739,7 +760,7 @@ def _stream_agent(agent, message: str, thread: str, model: str = '',
     `pre` is `ask`'s pre-flight, handed over rather than repeated: the two
     paths are one turn, and a streamed answer that stood on a different dataset
     from an asked one would be two turns wearing one name."""
-    pre = pre or _Preflight(None, '', '', {})
+    pre = pre or _Preflight('', '', {})
     payload, config = _run(message, thread, dataset=pre.dataset,
                            memory_state=pre.state, memory_text=pre.context)
     final = None
@@ -811,10 +832,5 @@ def stream(message: str, model: str = '', thread: str = ''):
                 f'the {choice} command is not on this machine — install and '
                 'log in, or pick an OpenRouter model')
         return _stream_cli(choice, text, thread, started)
-    pre = _preflight(thread)
-    if pre.blocked:
-        return iter([{'delta': pre.blocked['reason']}, {
-            'reply': pre.blocked['reason'], 'input_tokens': None,
-            'output_tokens': None, 'memory': pre.blocked}])
-    return _stream_agent(_agent_for(choice), message, thread, choice, pre,
-                         started)
+    return _stream_agent(_agent_for(choice), message, thread, choice,
+                         _preflight(thread), started)

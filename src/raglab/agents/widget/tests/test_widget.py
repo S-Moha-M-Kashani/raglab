@@ -18,11 +18,11 @@ from raglab.llm_backends import openrouter_key_memory as credentials
 @pytest.fixture(autouse=True)
 def _no_experiment_reader_leaks_between_tests():
     """The experiment reader is process-wide and `create_app` wires it, so a
-    route test in this file used to leave the lab's own validated records
-    behind for every unit test that followed. It matters now that a thread
-    naming an experiment those records do not know is refused before the agent
-    runs: a test asking a plain question on `exp-one` would be answered with
-    that refusal for no reason of its own."""
+    route test in this file leaves the lab's own validated records behind for
+    every unit test that follows. What a turn resolves about its thread — the
+    trusted dataset, and so the memory it is filed under — depends on them, and
+    a unit test naming a thread of its own should not inherit another test's
+    provenance."""
     yield
     widget.experiment_tools.set_experiment_reader(None)
 

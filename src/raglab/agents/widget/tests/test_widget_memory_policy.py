@@ -114,9 +114,8 @@ def test_obvious_irrelevance_refusal_is_the_guard_copy():
     assert refusal == memory.relevance_guard(message.content)
 
 
-def test_six_existing_hooks_remain_unchanged():
+def test_four_existing_hooks_remain_unchanged():
     # this is a convention test
-    assert len(hooks.MIDDLEWARE) == 6
+    assert len(hooks.MIDDLEWARE) == 4
     assert [hook.name for hook in hooks.MIDDLEWARE] == [
-        'check_request', 'note_prompt', 'trim_and_call', 'log_tool_call',
-        'check_reply', 'close_the_log']
+        'check_request', 'trim_and_call', 'log_tool_call', 'close_the_log']

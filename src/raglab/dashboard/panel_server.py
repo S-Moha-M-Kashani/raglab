@@ -345,6 +345,12 @@ def _safe_widget_event(event):
     while leaving every other event field—including the authoritative reply—
     unchanged. A malformed or absent memory value is omitted rather than
     guessed at.
+
+    Four statuses, not three: a turn nobody judged is `unavailable`, never
+    `irrelevant`. Both arrive here as `relevant: False`, because saving fails
+    closed when the policy cannot be reached — but telling a reader their
+    question was off-topic when the judge was simply down is telling them
+    something untrue, which is the one thing no record in this lab may do.
     """
     if not isinstance(event, dict) or 'memory' not in event:
         return event
@@ -354,7 +360,9 @@ def _safe_widget_event(event):
     if not all(isinstance(memory.get(key), bool)
                for key in ('relevant', 'should_save', 'saved')):
         return {key: value for key, value in event.items() if key != 'memory'}
-    if not memory['relevant']:
+    if memory.get('unavailable') is True:
+        status = 'unavailable'
+    elif not memory['relevant']:
         status = 'irrelevant'
     elif memory['saved']:
         status = 'saved'

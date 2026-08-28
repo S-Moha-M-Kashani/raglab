@@ -327,6 +327,12 @@ CONVENTIONS = [
      "lying about what the model holds. Checked against api()'s real "
      "three-argument shape (path, body, method) rather than the brief's "
      "{ method: 'DELETE' } sketch, which this file's api() never took"),
+    ('widget.js', "unavailable: 'No memory saved: the memory helper could not",
+     None,
+     'a turn nobody judged must read as unreachable, never as off-topic: the '
+     'route sends a fourth memory status for it, and without its own line here '
+     'a reader whose judge was simply down is told their question was '
+     'irrelevant to the lab'),
     ('widget.css', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '

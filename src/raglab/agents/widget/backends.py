@@ -41,7 +41,7 @@ import uuid
 from threading import RLock, Thread
 from typing import NamedTuple
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, RemoveMessage, SystemMessage
 
 from raglab.agents.widget import conversation_memory as memory
 from raglab.agents.widget import experiment_tools
@@ -263,6 +263,26 @@ def _model_kind(model: str) -> tuple[str, str]:
     return choice, kind
 
 
+#: What an identity line says before it names a dataset. Used to recognise one
+#: already standing in a thread whatever dataset it names, so the line really
+#: is written once: a thread whose first turns predate the ids below carries
+#: its opening under a random id, and only its text can identify it.
+_IDENTITY_PREFIX = ACTIVE_EXPERIMENT_PROMPT.split('{dataset}')[0]
+
+
+def _standing_id(thread: str, line: str) -> str:
+    """The id a thread's standing system line is written under — stable across
+    every turn of that thread, and different per thread so two conversations
+    cannot overwrite each other's.
+
+    A stable id is the whole mechanism: `add_messages` appends a message whose
+    id it has not seen and overwrites one it has, so re-sending a line under
+    the same id replaces it in place. That is why `_run` can keep exactly one
+    memory line without a second writer touching the checkpoint behind the
+    graph's back."""
+    return f'widget-{line}:{thread}'
+
+
 def _run(message: str, thread: str, *, dataset: str = '',
          memory_state: dict | None = None,
          memory_text: str = '') -> tuple[dict, dict]:
@@ -281,7 +301,8 @@ def _run(message: str, thread: str, *, dataset: str = '',
     `'abc'` would be two threads wearing one name.
 
     A real HumanMessage rather than a dict, so it carries an id that
-    `check_request` can write a capped question back over. `thread_stamp`
+    `check_request` can write a capped question back over — the same id trick
+    the standing system lines below now use. `thread_stamp`
     rides in on the same input: `WidgetState`'s two fields are channels like
     `messages`, so writing them here is one checkpoint write rather than a
     second writer racing the graph, and `/api/widget/history` can report them
@@ -303,23 +324,68 @@ def _run(message: str, thread: str, *, dataset: str = '',
     this ceiling, and it is why the two can no longer silently drift apart.
     """
     name = (thread or '').strip() or memory.GENERAL
-    messages = []
+    messages: list = []
+    # A thread carries at most two system lines, and each is the current one.
+    #
     # An experiment's thread opens by saying which experiment it is — from the
     # validated record, so an unknown or general thread says nothing. Without
     # it "the last experiment" could only mean the newest on the board, and a
     # meetings-de thread was once told about a smoke-import-check run.
-    # ...and said once. The graph appends every input message to the thread,
-    # so a line added on each turn was reread on each turn — a five-turn
-    # thread carried ten system messages. A line the thread already holds,
-    # word for word, is not added again; a memory context that changed is.
-    said = {str(m.content) for m in (memory._channels(name).get('messages')
-                                     or []) if getattr(m, 'type', '') == 'system'}
+    #
+    # Until 2026-08-29 both lines were *appended* whenever the thread did not
+    # already hold them word for word. That held the identity line to one,
+    # because it cannot change for a thread. It did nothing for the memory
+    # context, which grows on every accepted turn: each turn's line differed
+    # from the last, so each turn added a longer version and every earlier
+    # version stayed. A real 29-step thread carried twelve, and because
+    # `hooks.trim_and_call` exempts system lines from the history window on
+    # purpose, nothing ever dropped one — the model was handed several
+    # versions of the same memory, oldest first, the stale ones contradicting
+    # the newest.
+    #
+    # So the memory line is replaced rather than added to: it is written under
+    # an id that is the same on every turn of this thread, and `add_messages`
+    # overwrites a message whose id it already holds instead of appending
+    # beside it. This is `check_request`'s own trick, and it keeps the graph's
+    # input the single writer of `WidgetState` — no second write races it.
+    standing = [m for m in (memory._channels(name).get('messages') or [])
+                if getattr(m, 'type', '') == 'system']
+    # Every system line a thread holds was put there by this function —
+    # `SYSTEM_PROMPT` is prepended per call by `create_agent` and never
+    # checkpointed — so a standing line that is not the identity one is a
+    # memory context, an older version of what this turn is about to say. The
+    # identity line is recognised by what it says before the dataset, because
+    # a thread written before these ids existed carries its own under a random
+    # one and must still be recognised as written.
+    identity = _IDENTITY_PREFIX.format(experiment_id=name)
     opening = (ACTIVE_EXPERIMENT_PROMPT.format(experiment_id=name,
                                                dataset=dataset)
                if dataset else '')
-    for line in (opening, memory_text):
-        if line and line not in said:
-            messages.append(SystemMessage(content=line))
+    if opening and not any(str(m.content).startswith(identity)
+                           for m in standing):
+        messages.append(SystemMessage(content=opening,
+                                      id=_standing_id(name, 'identity')))
+    memory_id = _standing_id(name, 'memory')
+    current = next((m for m in standing
+                    if str(getattr(m, 'id', '')) == memory_id), None)
+    if memory_text:
+        # Threads recorded under the old rule already hold several stale lines,
+        # each under an id of its own. The next turn collapses them rather than
+        # leaving them: they are exempt from the window, so leaving them means
+        # this thread rereads them for the rest of its life, and what they say
+        # is an older, shorter memory that the line replacing them already
+        # contains. Deleting through this turn's own input keeps the one-writer
+        # rule; `RemoveMessage` is how `add_messages` is told to drop one.
+        messages.extend(
+            RemoveMessage(id=str(m.id)) for m in standing
+            if getattr(m, 'id', None) and str(m.id) != memory_id
+            and not str(m.content).startswith(identity))
+        # And only ever with a current line in hand. A turn that could not read
+        # memory at all (`memory_text` empty — no dataset resolved for this
+        # thread yet) collapses nothing, because emptying a thread's memory and
+        # putting nothing in its place is a loss, not a tidy-up.
+        if current is None or str(current.content) != memory_text:
+            messages.append(SystemMessage(content=memory_text, id=memory_id))
     messages.append(HumanMessage(content=message))
     return ({'messages': messages, **memory.thread_stamp(name),
              **(memory_state or {})},

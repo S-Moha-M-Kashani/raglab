@@ -18,11 +18,13 @@ copy, undercounting the real payload by about 13%. This version drives
 production's own seams instead of restating them:
 
 - **`backends._run`** builds the turn's `(payload, config)` — the opening
-  line (`ACTIVE_EXPERIMENT_PROMPT`), the "a system line already sent is not
-  sent again" dedup, `thread_stamp`, `RECURSION_LIMIT` — so when a later task
-  changes any of those (one standing memory line instead of one per turn is
-  named as a coming change), this probe changes with it instead of silently
-  misreporting reality.
+  line (`ACTIVE_EXPERIMENT_PROMPT`), the standing-line rule that keeps one
+  identity line and one memory line per thread, `thread_stamp`,
+  `RECURSION_LIMIT` — so when a later task changes any of those, this probe
+  changes with it instead of silently misreporting reality. It already has:
+  the standing-line rule replaced an append-if-not-said one on 2026-08-29,
+  and this file needed no edit for the measured system count to drop from a
+  climbing 13 to a flat 3.
 - **`create_agent(..., system_prompt=SYSTEM_PROMPT, tools=TOOLS, ...)`** is
   built the way `backends._build_agent` builds it, substituting only the
   model (a scripted stand-in, never a real network call) for `_build_agent`'s
@@ -132,6 +134,24 @@ class _RecordingModel(BaseChatModel):
         return self._raw
 
 
+def build_agent(model):
+    """The production agent with one part swapped.
+
+    Built the way `backends._build_agent` builds it — `SYSTEM_PROMPT`, the
+    real `TOOLS`, `hooks.MIDDLEWARE`, `memory.WidgetState`, `memory.saver()` —
+    substituting only the model, which is the one part of `_build_agent` that
+    cannot run offline (`ChatOpenAI` needs a real key and a real network
+    call). A function rather than a line inside `probe_thread`, because a test
+    that drives one scripted turn through the real graph needs the same agent
+    and a second copy of this call is a second thing to keep in step with
+    `_build_agent`.
+    """
+    return create_agent(model, tools=TOOLS, system_prompt=SYSTEM_PROMPT,
+                        middleware=hooks.MIDDLEWARE,
+                        state_schema=memory.WidgetState,
+                        checkpointer=memory.saver())
+
+
 @dataclass(frozen=True)
 class TurnPayload:
     """What one model call carried. One entry per call `trim_and_call`
@@ -169,8 +189,8 @@ def probe_thread(*, turns: int, tool_turns: frozenset[int] = frozenset(),
     turn sees is the widget's own aggregate — the same `_aggregate`/`_bounded`
     behaviour production uses — not a hand-written stand-in. Each turn's
     `(payload, config)` is `backends._run`'s own output, so the opening line,
-    the "already sent" dedup and `thread_stamp` are whatever production says
-    they are today.
+    the one-standing-memory-line rule and `thread_stamp` are whatever
+    production says they are today.
 
     Starts from a clean long-term-memory table and a freshly forgotten thread,
     so two calls in the same test session — or a probe run and a real test
@@ -187,15 +207,7 @@ def probe_thread(*, turns: int, tool_turns: frozenset[int] = frozenset(),
         script.append(AIMessage(content=f'Answer number {i}.'))
 
     model = _RecordingModel(script=script)
-    # Built the way `backends._build_agent` builds it — `SYSTEM_PROMPT`, the
-    # real `TOOLS`, `hooks.MIDDLEWARE`, `memory.WidgetState`, `memory.saver()`
-    # — substituting only the model, which is the one part of `_build_agent`
-    # that cannot run offline (`ChatOpenAI` needs a real key and a real
-    # network call).
-    agent = create_agent(model, tools=TOOLS, system_prompt=SYSTEM_PROMPT,
-                         middleware=hooks.MIDDLEWARE,
-                         state_schema=memory.WidgetState,
-                         checkpointer=memory.saver())
+    agent = build_agent(model)
 
     payloads: list[TurnPayload] = []
     for i in range(turns):

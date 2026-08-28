@@ -677,9 +677,11 @@ def test_an_experiment_thread_tells_the_agent_which_experiment_it_is_about(monke
 def test_a_threads_system_lines_are_written_once_not_once_per_turn(monkeypatch):
     """Seen in the developer trace: every turn appended the active-experiment
     line and the memory context again, so a five-turn thread carried ten
-    system messages and the model reread them all each time. A system line
-    already in the thread, word for word, is not added a second time; a memory
-    context that changed is, because it says something new."""
+    system messages and the model reread them all each time. Neither is sent
+    twice now — the identity line because the thread already holds it, the
+    memory line because this turn's memory says exactly what the last one
+    did. A memory context that *changed* is sent, and the three tests below
+    say what happens to the line it supersedes."""
     from raglab.agents.widget.tests.widget_examples import write_messages
     from langchain_core.messages import SystemMessage
     widget.experiment_tools.set_experiment_reader(_TwoDatasetReader())
@@ -696,6 +698,120 @@ def test_a_threads_system_lines_are_written_once_not_once_per_turn(monkeypatch):
     second = [str(m.content) for m in agent.payloads[1]['messages']
               if isinstance(m, SystemMessage)]
     assert second == []
+
+
+def _standing(payload) -> list:
+    """The system lines one turn's input writes, in order."""
+    from langchain_core.messages import SystemMessage
+    return [m for m in payload['messages'] if isinstance(m, SystemMessage)]
+
+
+def _thread_after(stored: list, payload) -> list:
+    """What the thread holds once the graph has applied this turn's input —
+    `add_messages` is the reducer behind `WidgetState.messages`, so running it
+    here is what the checkpointer would have written, not a guess at it."""
+    from langgraph.graph.message import add_messages
+    return add_messages(stored, payload['messages'])
+
+
+def test_a_grown_memory_context_replaces_its_line_rather_than_adding_one():
+    """The finding this task exists for: the memory context grows on every
+    accepted turn, so the old "add a line the thread has not said yet" rule
+    added a longer version each turn and kept every earlier one. The line is
+    written under an id that is the same on every turn of the thread now, so
+    `add_messages` overwrites it in place — one memory line, the newest."""
+    from langchain_core.messages import AIMessage, SystemMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-standing-line'
+    first, _ = widget.backends._run(
+        'one?', thread, dataset='diary-en',
+        memory_text='Dataset memory (diary-en):\nchunk 400 won')
+    assert [m.content for m in _standing(first)][1:] == [
+        'Dataset memory (diary-en):\nchunk 400 won']
+    stored = _thread_after([], first) + [AIMessage(content='a')]
+    write_messages(thread, stored)
+
+    second, _ = widget.backends._run(
+        'two?', thread, dataset='diary-en',
+        memory_text='Dataset memory (diary-en):\nchunk 400 won; rerank helped')
+
+    # The identity line is not repeated — the thread already holds it — and
+    # the memory line arrives under the very same id as last turn's.
+    lines = _standing(second)
+    assert len(lines) == 1
+    assert lines[0].id == _standing(first)[1].id
+    assert lines[0].content.endswith('rerank helped')
+
+    after = _thread_after(stored, second)
+    assert [str(m.content) for m in after if isinstance(m, SystemMessage)] == [
+        _standing(first)[0].content,
+        'Dataset memory (diary-en):\nchunk 400 won; rerank helped']
+
+
+def test_an_unchanged_memory_context_is_not_written_again():
+    """Nothing to replace and nothing to add: a turn whose memory says exactly
+    what the thread was already told sends no system line at all."""
+    from langchain_core.messages import AIMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-same-line'
+    text = 'Dataset memory (diary-en):\nchunk 400 won'
+    first, _ = widget.backends._run('one?', thread, dataset='diary-en',
+                                    memory_text=text)
+    write_messages(thread, _thread_after([], first) + [AIMessage(content='a')])
+
+    second, _ = widget.backends._run('two?', thread, dataset='diary-en',
+                                     memory_text=text)
+    assert _standing(second) == []
+
+
+def test_a_thread_recorded_before_the_standing_line_is_collapsed_on_its_next_turn():
+    """Threads written under the old rule already hold several memory lines,
+    each an older, shorter version of the newest. System lines are exempt from
+    the history window, so leaving them means the model rereads them for the
+    life of the thread; the turn that lands on such a thread deletes them —
+    through its own input, so there is still exactly one writer — and puts the
+    current line in their place."""
+    from langchain_core.messages import (AIMessage, HumanMessage,
+                                         RemoveMessage, SystemMessage)
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-legacy'
+    identity = widget.backends.ACTIVE_EXPERIMENT_PROMPT.format(
+        experiment_id=thread, dataset='diary-en')
+    stale = [SystemMessage(content=f'Dataset memory (diary-en):\nnote {i}',
+                           id=f'old-{i}') for i in range(3)]
+    stored = [SystemMessage(content=identity, id='old-opening'), *stale,
+              HumanMessage(content='old?', id='h'), AIMessage(content='a', id='a')]
+    write_messages(thread, stored)
+
+    payload, _ = widget.backends._run(
+        'next?', thread, dataset='diary-en',
+        memory_text='Dataset memory (diary-en):\nnote 0; note 1; note 2; note 3')
+
+    assert [m.id for m in payload['messages']
+            if isinstance(m, RemoveMessage)] == ['old-0', 'old-1', 'old-2']
+    after = _thread_after(stored, payload)
+    assert [str(m.content) for m in after if isinstance(m, SystemMessage)] == [
+        identity, 'Dataset memory (diary-en):\nnote 0; note 1; note 2; note 3']
+
+
+def test_a_turn_with_no_memory_to_offer_collapses_nothing():
+    """A collapse needs a current line to put in the stale ones' place. A turn
+    that could not read memory at all — no dataset resolved — deletes nothing,
+    because emptying the thread's memory is a loss rather than a tidy-up."""
+    from langchain_core.messages import RemoveMessage, SystemMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-no-memory'
+    stale = [SystemMessage(content=f'Dataset memory (diary-en):\nnote {i}',
+                           id=f'old-{i}') for i in range(2)]
+    write_messages(thread, stale)
+
+    payload, _ = widget.backends._run('next?', thread, dataset='', memory_text='')
+    assert not [m for m in payload['messages'] if isinstance(m, RemoveMessage)]
+    assert _standing(payload) == []
 
 
 def _reason_on_the_row(thread: str) -> str:

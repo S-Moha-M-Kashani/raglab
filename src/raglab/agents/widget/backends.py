@@ -718,6 +718,15 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
         stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
                   else writer(**arguments))
         decision.update({'saved': bool(stored.get('saved')), 'save': stored})
+        refused = str(stored.get('global_refused') or '')
+        if refused:
+            # The dataset summary was filed and the cross-dataset note beside
+            # it was not: the store refuses a global note that names one
+            # corpus (`long_term_memory.cross_dataset_violation`), because
+            # every dataset's thread reads that row. A save is still a save,
+            # so this rides on the decision as its own field rather than
+            # turning `saved` into a lie in either direction.
+            decision['global_refused'] = refused
         if turn_id and stored.get('update_id') is not None:
             # Outside the `except` below on purpose: the summary is already in
             # widget.db by now, so a failure to link it to the turn's row is a
@@ -763,6 +772,13 @@ def _record_memory_outcome(turn_id: str, decision: dict | None) -> None:
         reason = f"filed: {decision.get('reason') or 'the policy accepted it.'}"
     else:
         reason = f"not filed: {decision.get('reason') or 'the policy declined.'}"
+    refused = decision.get('global_refused')
+    if refused:
+        # A partial outcome, so the row says both halves. Global memory is the
+        # one row every dataset's thread reads, and a note held out of it is a
+        # thing a reader may need to know happened — the alternative is a row
+        # reading `filed` for a turn whose cross-dataset claim was dropped.
+        reason = f'{reason} The cross-dataset note was not kept: {refused}.'
     turn_logger.attach_memory_outcome(turn_id, reason)
 
 

@@ -124,3 +124,25 @@ def test_four_existing_hooks_remain_unchanged():
     assert len(hooks.MIDDLEWARE) == 4
     assert [hook.name for hook in hooks.MIDDLEWARE] == [
         'check_request', 'trim_and_call', 'log_tool_call', 'close_the_log']
+
+
+def test_the_summarizer_is_told_what_global_memory_may_hold():
+    # this is a unit test
+    """The instruction is the request the store then enforces, so it has to
+    state the same rule: a global note is a cross-corpus pattern naming no
+    dataset id, no experiment id and no single run's numbers."""
+    class _Model:
+        def with_structured_output(self, schema):
+            return self
+
+        def invoke(self, messages):
+            self.messages = messages
+            return hooks.MemoryUpdate(dataset_summary='a finding')
+
+    model = _Model()
+    hooks.summarize_memory_update('q', 'a', dataset_id='diary-fa', model=model)
+    system = model.messages[0][1]
+    assert system == hooks.SUMMARIZE_MEMORY_PROMPT
+    for phrase in ('across corpora', 'no dataset id', 'no experiment id',
+                   "no single run's numbers", 'leave global_summary empty'):
+        assert phrase in system

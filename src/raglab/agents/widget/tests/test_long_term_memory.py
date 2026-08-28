@@ -116,3 +116,83 @@ def test_clear_removes_long_term_rows_but_preserves_other_widget_tables():
     with sqlite3.connect(memory.db_path()) as db:
         assert db.execute('SELECT COUNT(*) FROM widget_marker').fetchone()[0] == 1
         assert db.execute('SELECT COUNT(*) FROM memory_updates').fetchone()[0] == 0
+
+
+def test_global_summary_naming_a_dataset_is_refused_while_the_dataset_stores():
+    """The evidence this guard exists for: one corpus's run in the row every
+    corpus reads."""
+    memory.clear_long_term_memory()
+    memory.save_memory_update('nosrat-fa', 'exp-fa', 'chunking', 'q', 'a',
+                              'Farsi finding.')
+    result = memory.save_memory_update(
+        'smoke-import-check', '20260828-160758-305a19', 'indexing',
+        'What happened?', 'A flat structure.',
+        'Indexing produced a flat structure here.',
+        'Last experiment details for smoke-import-check: 6 questions analyzed.',
+        {'nosrat-fa', 'smoke-import-check'})
+
+    assert result['saved'] is True
+    assert 'smoke-import-check' in result['global_refused']
+    assert 'Indexing produced a flat structure here.' in \
+        memory.memory_context('smoke-import-check')
+    assert 'smoke-import-check' not in memory.memory_context('nosrat-fa')
+    assert '6 questions analyzed' not in memory.memory_context('nosrat-fa')
+
+
+def test_global_summary_naming_an_experiment_id_is_refused():
+    memory.clear_long_term_memory()
+    memory.save_memory_update('diary-fa', 'exp-fa', 'chunking', 'q', 'a',
+                              'Farsi finding.')
+    result = memory.save_memory_update(
+        'diary-en', 'exp-en', 'chunking', 'q', 'a', 'English finding.',
+        'Run 20260828-160758-305a19 shows reranking helps.',
+        {'diary-fa', 'diary-en'})
+
+    assert '20260828-160758-305a19' in result['global_refused']
+    assert '20260828-160758-305a19' not in memory.memory_context('diary-fa')
+
+
+def test_a_cross_dataset_pattern_still_reaches_every_thread():
+    """What the guard must not cost: a finding that holds across corpora."""
+    memory.clear_long_term_memory()
+    memory.save_memory_update('diary-fa', 'exp-fa', 'chunking', 'q', 'a',
+                              'Farsi finding.')
+    result = memory.save_memory_update(
+        'diary-en', 'exp-en', 'chunking', 'q', 'a', 'English finding.',
+        'Session-aware chunking beat fixed windows in three of four corpora.',
+        {'diary-fa', 'diary-en'})
+
+    assert result['global_refused'] == ''
+    for dataset in ('diary-fa', 'diary-en'):
+        assert 'Session-aware chunking beat fixed windows in three of four ' \
+            'corpora.' in memory.memory_context(dataset)
+
+
+def test_older_global_rows_are_withheld_at_the_read_and_left_on_disk():
+    """Rows written before the write gate existed: held back, never rewritten."""
+    memory.clear_long_term_memory()
+    memory.save_memory_update('nosrat-fa', 'exp-fa', 'chunking', 'q', 'a',
+                              'Farsi finding.')
+    memory.save_memory_update('smoke-import-check', 'exp-smoke', 'indexing',
+                              'q', 'a', 'Smoke finding.')
+    stored = ('Retrieval depth mattered more than the reranker everywhere.\n'
+              'Last experiment details for smoke-import-check: 6 questions '
+              'analyzed; min_group=3 was not met.')
+    with memory._connect() as db:
+        db.execute('INSERT INTO global_memory(id, summary, updated_at) '
+                   'VALUES (1, ?, ?)', (stored, 'now'))
+        db.commit()
+
+    context = memory.memory_context('nosrat-fa')
+    assert 'Retrieval depth mattered more than the reranker everywhere.' in context
+    assert 'smoke-import-check' not in context
+    assert 'min_group=3' not in context
+    assert 'Withheld from global memory: 1 older note' in context
+    with sqlite3.connect(memory.db_path()) as db:
+        assert db.execute(
+            'SELECT summary FROM global_memory WHERE id = 1').fetchone()[0] == stored
+
+
+def test_a_dataset_id_is_matched_as_a_token_not_as_letters():
+    assert memory.cross_dataset_violation('diary-fashion notes', {'diary-fa'}) == ''
+    assert memory.cross_dataset_violation('diary-fa notes', {'diary-fa'})

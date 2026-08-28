@@ -847,3 +847,40 @@ def test_a_saved_turn_resolves_the_threads_dataset_exactly_once(monkeypatch):
     # The board's ids plus this thread's own, which is what the second lookup
     # was ever for.
     assert saved['validated_dataset_ids'] == {'meetings-de', 'diary-en'}
+
+
+def test_over_reaching_global_note_is_refused_and_the_turn_row_says_so(
+        monkeypatch):
+    """A summarizer that writes one corpus's run into the row every corpus
+    reads: the dataset finding is still filed, the note is not, and the reason
+    is on the turn's own row rather than nowhere."""
+    class Reader(_ExperimentReader):
+        def board_rows(self, limit=500):
+            return [{'dataset': 'nosrat-fa'}, {'dataset': 'smoke-import-check'}]
+
+    widget.experiment_tools.set_experiment_reader(Reader('smoke-import-check'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True,
+        'dataset_id': 'smoke-import-check', 'subtopic': 'indexing',
+        'reason': 'reusable'})
+    monkeypatch.setattr(
+        widget.backends, '_summarize_memory_update',
+        lambda **kwargs: {
+            'dataset_summary': 'Indexing stayed flat here.',
+            'global_summary': ('Last experiment details for '
+                               'smoke-import-check: 6 questions analyzed.')})
+
+    widget.ask('What did indexing produce?',
+               model='openai/gpt-5-nano', thread='exp-smoke')
+    _join_deferred_memory()
+
+    assert 'Indexing stayed flat here.' in \
+        long_memory.memory_context('smoke-import-check')
+    assert '6 questions analyzed' not in long_memory.memory_context('nosrat-fa')
+    # The deferred path, not `settled_memory`, because the reason reaching the
+    # row is half of what is being asserted: the decision is taken with no
+    # caller left to return to.
+    row = widget.turn_logger.list_turns('exp-smoke')[0]
+    assert row['memory_reason'].startswith('filed:')
+    assert 'The cross-dataset note was not kept' in row['memory_reason']
+    assert 'smoke-import-check' in row['memory_reason']

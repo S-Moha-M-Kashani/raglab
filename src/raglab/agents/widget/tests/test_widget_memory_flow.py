@@ -771,6 +771,46 @@ def test_an_unchanged_memory_context_is_not_written_again():
     assert _standing(second) == []
 
 
+def test_a_memory_context_that_shrank_back_is_still_written():
+    """Memory does not only grow. `long_term_memory` can be cleared and regrow,
+    and a rewritten aggregate can land byte-for-byte on something the thread
+    said earlier — so "this text appears somewhere in the thread" is the wrong
+    question to skip a write on.
+
+    It was the question `_run` asked, and with only the newest standing line
+    now reaching the model, asking it was a quality bug: memory A, then "A; B",
+    then back to A wrote nothing, and the call carried "A; B" — a memory
+    context that was not this turn's. The right question is whether the line is
+    already the *newest* standing line of its kind."""
+    from langchain_core.messages import AIMessage
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-shrunk-memory'
+    first, _ = widget.backends._run('one?', thread, dataset='diary-en',
+                                    memory_text='Global memory:\nA')
+    stored = _thread_after([], first) + [AIMessage(content='a')]
+    second, _ = widget.backends._run('two?', thread, dataset='diary-en',
+                                     memory_text='Global memory:\nA; B')
+    stored = _thread_after(stored, second) + [AIMessage(content='b')]
+    write_messages(thread, stored)
+
+    third, _ = widget.backends._run('three?', thread, dataset='diary-en',
+                                    memory_text='Global memory:\nA')
+
+    lines = _standing(third)
+    assert [str(m.content) for m in lines] == ['Global memory:\nA']
+    assert [memory.standing_mark(m) for m in lines] == [memory.MEMORY_LINE]
+    # And what the call carries is this turn's memory, not the older, longer
+    # line that would otherwise have been the newest standing one.
+    held = [m for m in _thread_after(stored, third)
+            if getattr(m, 'type', '') == 'system']
+    stale = memory.superseded_standing_lines(
+        [memory.standing_mark(m) for m in held])
+    assert [str(held[i].content) for i in range(len(held)) if i not in stale] \
+        == [_standing(first)[0].content, 'Global memory:\nA']
+
+
 def test_two_turns_that_start_from_the_same_state_both_land():
     """Two tabs open on one experiment thread, two questions at once. Both
     turns read the thread before either has written, so both build their input

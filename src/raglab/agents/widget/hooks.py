@@ -28,11 +28,8 @@ from langchain.agents.middleware import (after_agent, before_agent,
 from langchain_core.messages import AIMessage
 
 from raglab.agents.widget.conversation_memory import (
-    IDENTITY_LINE,
     MAX_RELEVANCE_TEXT,
-    MEMORY_LINE,
     MemoryPolicy,
-    STANDING_LINE,
     relevance_guard,
     standing_mark,
     superseded_standing_lines,

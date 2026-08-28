@@ -2297,6 +2297,16 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     from raglab.agents import widget
     assert widget.SYSTEM_PROMPT[:60] in html_unescape(page.text)
     assert f'last {widget.MAX_HISTORY}' in page.text
+    # And it wears no step ink. The widget is a helper rather than a pipeline
+    # stage, so the rule that keeps index orange, retrieval green and
+    # generation blue off widget.css holds for its checkout window too — the
+    # focus ring took generation blue until 2026-08-29 and now takes the ink
+    # the focused element already carries, which contrasts on both themes
+    # without naming a stage.
+    assert '--step-' not in page.text, (
+        'the dev trace is the widget\'s window, and the widget wears no '
+        'step ink')
+    assert 'outline:2px solid currentColor' in page.text
 
     # Lock: the cookie is forgotten server-side, so even a browser that kept
     # it is back at the plate.

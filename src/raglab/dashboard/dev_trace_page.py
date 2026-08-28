@@ -135,7 +135,13 @@ main.gate{max-width:none;margin:0;min-height:100vh;box-sizing:border-box;display
 .plate button:hover{background:var(--chassis-soft)}
 .plate .err{color:var(--alert);margin:0 0 var(--s-3)}
 .plate .hint{color:var(--ink-soft);font-size:var(--t-sm);margin:var(--s-4) 0 0}
-:focus-visible{outline:2px solid var(--step-generation-lit);outline-offset:2px}
+/* currentColor, not step ink: the header above says the widget is a helper
+   rather than a pipeline stage, and this page is its checkout window, so
+   generation blue has no business marking a focus ring here. The ink the
+   focused element already carries contrasts with whatever it sits on —
+   card, plate or chassis — so the ring stays visible on both themes
+   without a colour of its own. Same reason widget.css takes it. */
+:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 @media (max-width:40rem){.tape{grid-template-columns:1fr}.no{text-align:left;padding:0}.ai .card,.tool .card{margin-left:0}}
 """
 

@@ -310,8 +310,16 @@ def _run(message: str, thread: str, *, dataset: str = '',
     # meetings-de thread was once told about a smoke-import-check run.
     # ...and said once. The graph appends every input message to the thread,
     # so a line added on each turn was reread on each turn — a five-turn
-    # thread carried ten system messages. A line the thread already holds,
-    # word for word, is not added again; a memory context that changed is.
+    # thread carried ten system messages. A line that is already the *newest*
+    # standing line of its kind is not written again; anything else is.
+    #
+    # Newest of its kind, not "somewhere in the thread". The weaker test read
+    # fine while the model was handed every line, and became a quality bug the
+    # moment only the newest reached it: memory can shrink as well as grow —
+    # `long_term_memory` can be cleared and regrow — so a turn whose context
+    # byte-matched an older line wrote nothing, and the call then carried the
+    # newer, longer line instead of this turn's memory. The one guarantee this
+    # whole change exists to give is that the model reads the current memory.
     #
     # It is the *thread* that keeps them all. The identity line cannot change,
     # so there is only ever one; the memory context grows on every accepted
@@ -329,17 +337,30 @@ def _run(message: str, thread: str, *, dataset: str = '',
     # The two lines are independent — a turn may write either, both or neither.
     # A thread whose dataset could not be resolved writes no identity line and
     # still carries whatever memory context it was handed.
-    said = {str(m.content) for m in (memory._channels(name).get('messages')
-                                     or []) if getattr(m, 'type', '') == 'system'}
+    newest: dict = {}   # the thread's newest standing line, per kind
+    unmarked = set()    # system lines that carry no marker, by their text
+    for held in (memory._channels(name).get('messages') or []):
+        if getattr(held, 'type', '') != 'system':
+            continue
+        mark = memory.standing_mark(held)
+        if mark:
+            newest[mark] = str(held.content)
+        else:
+            unmarked.add(str(held.content))
     opening = (ACTIVE_EXPERIMENT_PROMPT.format(experiment_id=name,
                                                dataset=dataset)
                if dataset else '')
     for line, mark in ((opening, memory.IDENTITY_LINE),
                        (memory_text, memory.MEMORY_LINE)):
-        if line and line not in said:
-            messages.append(SystemMessage(
-                content=line,
-                additional_kwargs={memory.STANDING_LINE: mark}))
+        if not line or line == newest.get(mark):
+            continue
+        # A thread whose lines predate the marker says the same thing in an
+        # unmarked line. Nothing can supersede one of those, so writing a
+        # marked copy beside it would put the same text in the call twice.
+        if mark not in newest and line in unmarked:
+            continue
+        messages.append(SystemMessage(
+            content=line, additional_kwargs={memory.STANDING_LINE: mark}))
     messages.append(HumanMessage(content=message))
     return ({'messages': messages, **memory.thread_stamp(name),
              **(memory_state or {})},

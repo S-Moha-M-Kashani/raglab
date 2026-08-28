@@ -1178,3 +1178,48 @@ def test_the_two_runners_that_refuse_an_unbacked_run_name_every_backend_too():
         for provider in config.LLM_PROVIDERS:
             if provider and provider != 'fake':
                 assert provider in refusals[0], (name, provider)
+
+
+def test_offline_context_metrics_credit_a_quote_found_inside_a_chunk(
+        smoke_index):
+    # this is an integration test
+    """The reference side is a verbatim evidence quote and the retrieved side
+    is a whole chunk, so the similarity must ask 'is the quote in the chunk?'
+    — RAGAS's whole-string edit distance answered 0.3 for a quote sitting
+    verbatim inside a chunk three times its length, and reported both offline
+    metrics as a flat 0 on every run."""
+    pytest.importorskip('ragas')
+    pytest.importorskip('rapidfuzz')
+    _, truth = datasets.load('smoke-mini')
+    query_date = truth['groundtruth_dataset_metadata'][
+        'default_question_asked_at'][:10]
+    questions = [q for q in truth['groundtruth_dataset']
+                 if q['expected_answer']['behavior'] != 'abstain'][:3]
+    pairs = [(q, pipeline.retrieve(smoke_index.index, RetrievalConfig(k=5),
+                                   q['question'], query_date))
+             for q in questions]
+    # Precondition: every quote is literally inside a retrieved chunk.
+    for question, outcome in pairs:
+        for quote in corpus.evidence_texts({}, question):
+            assert any(quote in c.text for c in outcome.contexts)
+    report = ragas_eval.run(pairs, LAB_SETTINGS, smoke_index.index.embedder,
+                            mode='offline')
+    assert report['metrics']['non_llm_context_recall'] == 1.0, report
+    assert report['metrics']['non_llm_context_precision_with_reference'] > 0.0
+
+
+def test_quote_in_chunk_similarity_is_containment_not_edit_distance():
+    # this is a unit test
+    pytest.importorskip('rapidfuzz')
+    import asyncio
+    from ragas.dataset_schema import SingleTurnSample
+    measure = ragas_eval.QuoteInChunkSimilarity()
+    chunk = 'Morning run by the river, then coffee with Sara at ten. ' * 4
+    inside = asyncio.run(measure.single_turn_ascore(
+        SingleTurnSample(reference=chunk, response='coffee with Sara at ten'),
+        None))
+    unrelated = asyncio.run(measure.single_turn_ascore(
+        SingleTurnSample(reference=chunk, response='quarterly tax filing'),
+        None))
+    assert inside == 1.0
+    assert unrelated < 0.5

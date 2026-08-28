@@ -58,7 +58,7 @@ def documents_by_id(corpus: dict) -> dict[int, dict]:
 
 def evidence_texts(documents: dict[int, dict], question: dict) -> list[str]:
     """Full text of every evidence entry a question's `relevant_corpus_documents`
-    names, as `reference_contexts` for RAGAS's whole-string context metrics
+    names, as `reference_contexts` for RAGAS's offline context metrics
     (quote-level precision is `metrics.quote_recall` instead). `documents` is
     unused now that every piece of evidence carries its own `text` rather
     than an index into one — kept so a caller already holding

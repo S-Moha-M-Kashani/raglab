@@ -71,11 +71,9 @@ def settled_memory(monkeypatch):
     — but a test asking *what was filed* would then be racing it. The deferred
     work is the same call either way; this only removes the thread, so the
     decision is on `result['memory']` where the assertions can read it."""
-    def defer(question, answer, model, thread, dataset, turn_id=''):
-        return widget.backends._finish_memory(question, answer, model, thread,
-                                              dataset, turn_id) or {}
-
-    monkeypatch.setattr(widget.backends, '_defer_memory', defer)
+    monkeypatch.setattr(
+        widget.backends, '_defer_memory',
+        lambda *args: widget.backends._finish_memory(*args) or {})
 
 
 def _eventually(predicate):
@@ -334,9 +332,12 @@ def test_sync_returns_answer_before_deferred_memory_work(monkeypatch):
         events.append('memory')
         return {**policy, 'saved': True}
 
+    def defer(*args, **kwargs):
+        events.append('deferred')
+        return {'status': 'pending', 'saved': False}
+
     monkeypatch.setattr(widget.backends, '_finish_memory', finish)
-    monkeypatch.setattr(widget.backends, '_defer_memory',
-                        lambda *args, **kwargs: events.append('deferred'))
+    monkeypatch.setattr(widget.backends, '_defer_memory', defer)
 
     result = widget.ask('What should we retain?', model='openai/gpt-5-nano',
                         thread='sync-order')
@@ -513,7 +514,7 @@ def test_an_answer_about_another_dataset_is_not_filed_under_this_one(monkeypatch
     answer = 'The latest experiment is other-exp on smoke-import-check.'
     out = widget.backends._finish_memory(
         'Tell me about the last experiment.', answer, 'openai/gpt-5-nano',
-        'this-exp', 'meetings-de')
+        'this-exp', 'meetings-de', '', 'you: an earlier question')
     assert out['saved'] is False
     assert 'other-exp' in out['reason'] and 'smoke-import-check' in out['reason']
     assert long_memory.memory_context('meetings-de') == ''

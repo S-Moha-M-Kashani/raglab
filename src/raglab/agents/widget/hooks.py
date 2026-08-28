@@ -97,6 +97,20 @@ class MemoryUpdate(BaseModel):
     global_summary: StrictStr = Field(default='', max_length=long_term_memory.MAX_SUMMARY_CHARS)
 
 
+# The prefix on a reason that means nobody judged the turn: no policy model
+# was available, or its answer could not be read. "The judge said no" and "the
+# judge could not be asked" are both `relevant=False` here — they have to be,
+# because saving fails closed either way — but they are not the same thing to
+# tell a reader, so the reason says which and `policy_unreached` is how a
+# caller asks without reading English.
+POLICY_UNREACHED = 'The memory policy could not be reached'
+
+
+def policy_unreached(policy: MemoryPolicy) -> bool:
+    """Whether this is a refusal or the absence of one."""
+    return policy.reason.startswith(POLICY_UNREACHED)
+
+
 def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
                            dataset_id: str = '',
                            trusted_dataset_id: str = '',
@@ -115,7 +129,9 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
     if refusal:
         return MemoryPolicy(relevant=False, should_save=False, reason=refusal)
     if model is None:
-        return MemoryPolicy(reason='Memory policy is unavailable; nothing was saved.')
+        return MemoryPolicy(
+            reason=f'{POLICY_UNREACHED}: no policy model is available; '
+                   'nothing was saved.')
     try:
         structured = model.with_structured_output(MemoryPolicy)
         result = structured.invoke([
@@ -141,8 +157,8 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
         return policy
     except Exception as error:
         return MemoryPolicy(
-            reason=f'Memory policy unavailable or malformed; nothing was saved '
-                   f'({error}).')
+            reason=f'{POLICY_UNREACHED}: unavailable or malformed ({error}); '
+                   'nothing was saved.')
 
 
 def summarize_memory_update(question: str, answer: str, *, dataset_id: str,

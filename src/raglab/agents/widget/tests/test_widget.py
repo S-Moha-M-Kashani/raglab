@@ -700,6 +700,76 @@ def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
     assert answer.json()['memory'] == {'status': 'saved'}
 
 
+def test_the_route_says_unavailable_when_no_judge_ever_answered(
+        client, monkeypatch):
+    # this is an integration test
+    """A judge that could not be reached is not a judge that said no. Both
+    reach the route as `relevant: False`, because saving fails closed either
+    way — but telling a reader their question was off-topic when nobody read it
+    is telling them something untrue, which is the one thing no record here
+    may do."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': 'The comparison is worth retaining.',
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {
+            'relevant': False, 'should_save': False, 'saved': False,
+            'unavailable': True, 'dataset_id': '',
+            'reason': 'The memory policy could not be reached: unavailable or '
+                      'malformed (connection refused); nothing was saved.',
+        }})
+
+    answer = client.post('/api/widget', json={'message': 'remember this'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'unavailable'}
+
+
+def test_a_policy_nobody_could_reach_is_marked_as_unreached_not_refused(
+        monkeypatch):
+    # this is a unit test
+    """The same distinction one step earlier, where the decision is made:
+    `hooks.evaluate_memory_policy` fails closed on every field, so only the
+    decision's own flag can tell the two apart afterwards."""
+    class Unreachable:
+        def with_structured_output(self, schema):
+            raise RuntimeError('connection refused')
+
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda model: Unreachable())
+
+    decision = widget.backends._finish_memory(
+        'Which index should I use?', 'an answer', 'openai/gpt-5-nano',
+        'general', '')
+
+    assert decision['unavailable'] is True
+    assert decision['saved'] is False
+    assert decision['should_save'] is False
+    assert 'could not be reached' in decision['reason']
+
+
+def test_ask_and_stream_refuse_a_missing_key_before_reading_any_record(
+        monkeypatch):
+    # this is a unit test
+    """`ask` and `stream` are one turn and must do their work in one order.
+    They had drifted: `ask` read the thread's records and its long-term memory
+    first, while `stream` — through the order Python evaluates arguments in —
+    built the agent first. On a keyless install that is a ledger query and a
+    run-file read spent on a turn that was never going to run."""
+    reads = []
+    monkeypatch.setattr(widget.experiment_tools, 'trusted_dataset_id',
+                        lambda experiment: reads.append(experiment) or '')
+
+    def unavailable(model):
+        raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
+
+    monkeypatch.setattr(widget.backends, '_agent_for', unavailable)
+
+    for call in (widget.ask, widget.stream):
+        with pytest.raises(widget.WidgetUnavailable):
+            call('which ports?', model='openai/gpt-5-nano', thread='exp-order')
+    assert reads == []
+
+
 # --- the real build, when the extra is installed --------------------------
 
 def test_the_agent_builds_offline_when_the_extra_is_present(monkeypatch):

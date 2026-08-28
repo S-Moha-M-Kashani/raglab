@@ -10,41 +10,64 @@ from raglab.agents import widget
 
 
 def test_follow_up_policy_receives_the_existing_thread_transcript(monkeypatch):
-    """A short follow-up must be judged with the preceding exchange.
+    """A short follow-up is judged with the exchange before it — and only that.
 
-    The policy is asked after the answer now, so this drives `_finish_memory`
-    directly; what it is judging — a question that means nothing on its own —
-    is unchanged, and so is the transcript it must be given."""
-    seen = []
+    Recorded twice. First: `and?` alone is ambiguous, so the policy is handed
+    the thread's earlier turns. Then, when the policy moved to after the answer
+    (2026-08-28), the reading it was handed came from a checkpoint that already
+    held this very turn — the question appeared a second time as the last line
+    of its own "prior conversation", the answer being judged was part of the
+    context judging it, and an older turn fell out of the recall window to make
+    room for the pair that had just arrived.
+
+    The whole thread is real here — a real compiled graph over a scripted chat
+    model, the real checkpointer, and `history` untouched — because the bug was
+    in *when* `history` is read, and a test that monkeypatches it away cannot
+    see that at all.
+    """
+    from langchain_core.language_models import GenericFakeChatModel
+    from langchain.agents import create_agent
+
+    from raglab.agents.widget import conversation_memory as memory
+
+    judged = []
 
     class Structured:
         def invoke(self, messages):
-            seen.append(messages[-1][1])
-            text = messages[-1][1]
-            if 'Did reranking help?' in text and 'Yes, recall improved.' in text:
-                return widget.conversation_memory.MemoryPolicy(
-                    relevant=True, should_save=False, dataset_id='')
-            return widget.conversation_memory.MemoryPolicy(
-                relevant=False, should_save=False,
-                reason='A follow-up without its conversation is ambiguous.')
+            judged.append(messages[-1][1])
+            return memory.MemoryPolicy(relevant=True, should_save=False)
 
     class PolicyModel:
         def with_structured_output(self, _schema):
             return Structured()
 
+    agent = create_agent(
+        GenericFakeChatModel(messages=iter([
+            AIMessage(content='Yes, recall improved.'),
+            AIMessage(content='By four points.')])),
+        system_prompt='x', middleware=widget.hooks.MIDDLEWARE,
+        state_schema=memory.WidgetState, checkpointer=memory.saver())
     monkeypatch.setattr(widget.backends, '_memory_model', lambda _model: PolicyModel())
-    monkeypatch.setattr(widget.memory if hasattr(widget, 'memory') else
-                        widget.conversation_memory, 'history',
-                        lambda _thread: {'turns': [
-                            {'role': 'you', 'text': 'Did reranking help?'},
-                            {'role': 'bot', 'text': 'Yes, recall improved.'}]})
+    monkeypatch.setattr(widget.backends, '_agent_for', lambda _model: agent)
+    # The deferred decision, run on this thread instead of its own: the order
+    # is unchanged — it still happens after the answer and after the graph has
+    # written the turn — and the assertion is not racing a daemon.
+    monkeypatch.setattr(widget.backends, '_defer_memory',
+                        lambda *args: widget.backends._finish_memory(*args) or {})
 
-    decision = widget.backends._finish_memory(
-        'and?', 'Recall improved with reranking.', 'model', 'general', '')
+    memory.forget('follow-up-thread')
+    widget.ask('Did reranking help?', model='openai/gpt-5-nano',
+               thread='follow-up-thread')
+    widget.ask('and?', model='openai/gpt-5-nano', thread='follow-up-thread')
 
-    assert decision['relevant'] is True
-    assert 'Did reranking help?' in seen[0]
-    assert 'Yes, recall improved.' in seen[0]
+    first, second = judged
+    assert 'Prior conversation:\n(none)' in first
+    assert 'Did reranking help?' in second
+    assert 'Yes, recall improved.' in second
+    # The turn being judged is not its own context: its answer is not there,
+    # and its question appears once — as the question, not as a transcript line.
+    assert 'By four points.' not in second
+    assert second.count('and?') == 1
 
 
 def _scripted_tool_model(script):

@@ -371,7 +371,17 @@ def _turn_steps(messages: list) -> list[dict]:
 
 
 def _policy_transcript(thread: str) -> str:
-    """Render prior visible turns for short follow-ups such as ``and?``."""
+    """The turns already in the thread, for short follow-ups such as ``and?``.
+
+    Read in `_preflight`, before the graph writes this turn, and carried to
+    `_finish_memory` — which is where the policy is asked now. Reading it there
+    would read the checkpoint the turn has just been written into: the question
+    would appear twice in the prompt, once as itself and once as the last line
+    of its own "prior conversation", the answer being judged would be part of
+    the context judging it, and the exchange the follow-up actually depends on
+    would be pushed out of the `MAX_RECALLED` window by the pair that arrived
+    while it was being judged.
+    """
     if not (thread or '').strip():
         return ''
     try:
@@ -450,13 +460,16 @@ class _Preflight(NamedTuple):
 
     `dataset` is the thread's trusted dataset id, resolved once for the whole
     turn; `context` is the long-term memory filed under it; `state` is what the
-    turn stamps on the thread's own policy channels. Nothing here refuses: the
-    one refusal a turn can raise without a model — `hooks.relevance_guard` — is
-    the caller's, and every other refusal this widget has is about the write.
+    turn stamps on the thread's own policy channels; `transcript` is what the
+    thread held before this turn, which only a reading taken before the turn
+    can say. Nothing here refuses: the one refusal a turn can raise without a
+    model — `hooks.relevance_guard` — is the caller's, and every other refusal
+    this widget has is about the write.
     """
     dataset: str
     context: str
     state: dict
+    transcript: str
 
 
 def _refused(reason: str) -> dict:
@@ -508,7 +521,7 @@ def _preflight(thread: str) -> _Preflight:
     # be racing the graph over the same checkpoint.
     state = memory.policy_state(memory.MemoryPolicy(dataset_id=dataset),
                                 experiment)
-    return _Preflight(dataset, context, state)
+    return _Preflight(dataset, context, state, _policy_transcript(thread))
 
 
 def _summarize_memory_update(**kwargs):
@@ -516,7 +529,8 @@ def _summarize_memory_update(**kwargs):
 
 
 def _finish_memory(question: str, answer: str, model: str, thread: str,
-                   dataset: str, turn_id: str = '') -> dict | None:
+                   dataset: str, turn_id: str = '',
+                   transcript: str = '') -> dict | None:
     """The memory decision, taken after the answer exists, and the write it
     permits.
 
@@ -531,6 +545,10 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
     another corpus. A policy that is unavailable or malformed satisfies none of
     them and carries its own reason on the decision it returns.
 
+    `transcript` is what the thread held *before* this turn, read in
+    `_preflight`: a follow-up like `and?` is judged against the exchange it
+    depends on, not against the answer it just produced.
+
     `None` means there was no policy to ask at all — no client could be built —
     so the turn says nothing about memory rather than inventing a verdict.
     """
@@ -540,8 +558,16 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
         return None
     policy = evaluate_memory_policy(
         question, policy_model, experiment_id=thread, dataset_id=dataset,
-        trusted_dataset_id=dataset, conversation=_policy_transcript(thread))
+        trusted_dataset_id=dataset, conversation=transcript)
     decision = {**policy.model_dump(), 'saved': False}
+    if hooks.policy_unreached(policy):
+        # No verdict was reached — the judge was missing or its answer could
+        # not be read. Saving fails closed either way, which is why this looks
+        # like a refusal on every other field; but a reader told "not relevant"
+        # when nobody judged their question has been told something untrue, so
+        # the decision says which of the two happened and the panel reads it.
+        decision['unavailable'] = True
+        return decision
     if not policy.relevant or not policy.should_save:
         return decision
     experiment = _experiment_of(thread)
@@ -610,7 +636,8 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
 
 
 def _defer_memory(question: str, answer: str, model: str, thread: str,
-                  dataset: str, turn_id: str = '') -> dict:
+                  dataset: str, turn_id: str = '',
+                  transcript: str = '') -> dict:
     """Start the memory decision after the caller has received the answer.
 
     What comes back is a status and not a verdict, because the verdict is not
@@ -622,7 +649,8 @@ def _defer_memory(question: str, answer: str, model: str, thread: str,
     later event to carry the resolved decision."""
     def finish():
         try:
-            _finish_memory(question, answer, model, thread, dataset, turn_id)
+            _finish_memory(question, answer, model, thread, dataset, turn_id,
+                           transcript)
         except Exception:  # defensive boundary: a daemon thread has nobody to
             pass           # tell, and the answer is already with the reader.
 
@@ -669,8 +697,12 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
                   started=started, input_tokens=output['input_tokens'],
                   output_tokens=output['output_tokens'], status='answered')
         return output
-    pre = _preflight(thread)
+    # The agent first, then the records: everything knowable without touching
+    # a durable file — an unserved model, a missing key — must refuse before a
+    # ledger query and a run-file read are spent on a turn that cannot run.
+    # `stream` builds it in the same order, and a test pins that they agree.
     agent = _agent_for(choice)
+    pre = _preflight(thread)
     payload, config = _run(message, thread, dataset=pre.dataset,
                            memory_state=pre.state, memory_text=pre.context)
     try:
@@ -690,9 +722,8 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
                         messages=result['messages'],
                         dataset_id=pre.dataset,
                         ai_message_id=str(getattr(result['messages'][-1], 'id', '') or ''))
-    output['memory'] = (_defer_memory(message, reply, choice, thread,
-                                      pre.dataset, turn_id)
-                        or {'status': 'pending', 'saved': False})
+    output['memory'] = _defer_memory(message, reply, choice, thread,
+                                     pre.dataset, turn_id, pre.transcript)
     return output
 
 
@@ -739,8 +770,8 @@ def _stream_cli(cli: str, message: str, thread: str = '', started=None):
     yield done
 
 
-def _stream_agent(agent, message: str, thread: str, model: str = '',
-                  pre: _Preflight | None = None, started=None):
+def _stream_agent(agent, message: str, thread: str, model: str,
+                  pre: _Preflight, started=None):
     """The graph streaming: `stream_mode=['messages', 'values']` on the same
     run `ask` invokes — the same nodes, the same middleware, the same
     checkpoint write, so a streamed turn is in widget.db exactly as an asked
@@ -759,8 +790,9 @@ def _stream_agent(agent, message: str, thread: str, model: str = '',
 
     `pre` is `ask`'s pre-flight, handed over rather than repeated: the two
     paths are one turn, and a streamed answer that stood on a different dataset
-    from an asked one would be two turns wearing one name."""
-    pre = pre or _Preflight('', '', {})
+    from an asked one would be two turns wearing one name. It is required
+    rather than defaulted: a default would be a turn quietly running with no
+    dataset, no memory context and no policy stamp."""
     payload, config = _run(message, thread, dataset=pre.dataset,
                            memory_state=pre.state, memory_text=pre.context)
     final = None
@@ -799,7 +831,7 @@ def _stream_agent(agent, message: str, thread: str, model: str = '',
     # decision rather than `ask`'s `pending`. No decision at all (no policy
     # client to ask) is no event: the turn says nothing rather than a guess.
     finished = _finish_memory(message, reply, model, thread, pre.dataset,
-                              turn_id)
+                              turn_id, pre.transcript)
     if finished is not None:
         yield {'memory': finished}
 
@@ -832,5 +864,8 @@ def stream(message: str, model: str = '', thread: str = ''):
                 f'the {choice} command is not on this machine — install and '
                 'log in, or pick an OpenRouter model')
         return _stream_cli(choice, text, thread, started)
-    return _stream_agent(_agent_for(choice), message, thread, choice,
-                         _preflight(thread), started)
+    # The same order as `ask`, spelled out rather than left to how Python
+    # happens to evaluate arguments: the agent, then the records.
+    agent = _agent_for(choice)
+    return _stream_agent(agent, message, thread, choice, _preflight(thread),
+                         started)

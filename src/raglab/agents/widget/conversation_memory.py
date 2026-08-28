@@ -37,6 +37,58 @@ _SAVER_LOCK = RLock()
 
 MAX_RELEVANCE_TEXT = 500
 
+#: The key `backends._run` puts on a standing system line's `additional_kwargs`
+#: to say which of a thread's two standing lines it is, and the two values it
+#: takes. It lives here, beside `WidgetState`, because it is part of what a
+#: stored message carries; `hooks.trim_and_call` and the developer's trace page
+#: both read it.
+#:
+#: A marker rather than a text match. The reader of these lines has to tell a
+#: superseded memory context from a system line the widget did not write, and a
+#: prefix heuristic reads a future middleware's `SAFETY: ...` line as a stale
+#: memory context and quietly leaves it out of the prompt. A line carrying no
+#: marker is not the widget's standing text, and is always sent.
+STANDING_LINE = 'widget_standing_line'
+IDENTITY_LINE = 'identity'    # which experiment this thread is about
+MEMORY_LINE = 'memory'        # the long-term memory context, as of that turn
+
+
+def standing_mark(message) -> str:
+    """A message's standing marker, or `''` — one accessor, so no caller has to
+    know the marker rides in `additional_kwargs`."""
+    return (getattr(message, 'additional_kwargs', None) or {}).get(
+        STANDING_LINE, '')
+
+
+def superseded_standing_lines(marks: list) -> set:
+    """Which of a thread's system lines a newer line of the same kind replaces.
+
+    Takes one marker per system line, in thread order — `''` for a line that
+    carries none — and returns the positions a later line supersedes.
+
+    The thread keeps every line it accumulated; only the prompt is filtered.
+    That is the side `memory_context` already takes about the memory store
+    itself: a record of what the widget accepted is not rewritten, and here
+    there is a second reason — `long_term_memory._bounded` caps the stored
+    aggregate, so a line written before a truncation can be the last surviving
+    copy of what it says. Filtering at the read destroys nothing; deleting from
+    the log destroys that evidence and, with two tabs open on one thread,
+    races itself — two turns read the same state, both send the same delete,
+    and the second one raises on an id that is already gone.
+
+    One function rather than one rule in two places: `hooks.trim_and_call`
+    applies it to a call's messages, and `dashboard.dev_trace_page` applies it
+    to the same thread's trace, so the page dims exactly what the model did not
+    get.
+    """
+    latest: dict = {}
+    for position, mark in enumerate(marks):
+        if mark:
+            latest[mark] = position
+    return {position for position, mark in enumerate(marks)
+            if mark and latest[mark] != position}
+
+
 #: How long any widget connection waits for the file's write lock before it
 #: gives up. Three independent writers share `widget.db` — this checkpointer,
 #: `long_term_memory` and `turn_logger` — each behind its own lock, and since
@@ -321,6 +373,12 @@ def trace(thread: str) -> dict:
         kind = {'system': 'system', 'human': 'human', 'ai': 'ai',
                 'tool': 'tool'}.get(getattr(message, 'type', ''), 'other')
         step = {'kind': kind, 'text': _text(getattr(message, 'content', ''))}
+        if kind == 'system':
+            # Which standing line this is, or '' for a system line the widget
+            # did not write. The page needs it to show which of them a call
+            # still carries: the thread keeps every memory context it
+            # accumulated, and only the newest is sent.
+            step['standing'] = standing_mark(message)
         if kind == 'ai':
             calls = getattr(message, 'tool_calls', None) or []
             if calls:

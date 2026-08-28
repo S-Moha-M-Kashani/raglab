@@ -2305,6 +2305,52 @@ def test_the_dev_trace_page_opens_only_with_the_key_and_shows_the_tool_calls(cli
     assert 'exp-dev' not in client.get('/dev/trace').text
 
 
+def test_the_dev_trace_dims_a_standing_line_a_newer_one_superseded(client, monkeypatch):
+    # this is an integration test
+    """The page's one claim is what the model was handed, so a memory context a
+    newer one supersedes has to read like a trimmed step — the thread keeps it,
+    but no call carries it. Dimming it is what makes filtering the prompt
+    better than deleting from the log: the developer still sees everything the
+    conversation accumulated, and sees which of it the model actually got.
+
+    A system line the widget did not write is dimmed by nothing: it carries no
+    standing marker, so nothing can supersede it."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    from raglab.agents import widget
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    def standing(text, mark):
+        return SystemMessage(content=text,
+                             additional_kwargs={widget.STANDING_LINE: mark})
+
+    write_messages('exp-standing', [
+        standing('about exp-standing', widget.IDENTITY_LINE),
+        standing('memory v1', widget.MEMORY_LINE),
+        standing('memory v2', widget.MEMORY_LINE),
+        standing('memory v3', widget.MEMORY_LINE),
+        SystemMessage(content='SAFETY: never quote a key'),
+        HumanMessage(content='what ran?'), AIMessage(content='the baseline.')])
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
+    client.post('/dev/trace', data={'key': 'open-sesame'})
+
+    text = client.get('/dev/trace', params={'thread': 'exp-standing'}).text
+
+    # The log shows every version — this page is the record, not the prompt.
+    for line in ('memory v1', 'memory v2', 'memory v3'):
+        assert line in text
+    # The two older ones read as trimmed; the newest, the identity line and the
+    # line the widget did not write do not.
+    def dimmed(line):
+        return f'<div class="system trimmed"><div class="card">' \
+               f'<div class="kind">system</div><pre>{line}</pre>' in text
+    assert dimmed('memory v1') and dimmed('memory v2')
+    assert not dimmed('memory v3')
+    assert not dimmed('about exp-standing')
+    assert not dimmed('SAFETY: never quote a key')
+    # And the standing panel says so in words, with the count.
+    assert '2 superseded standing line(s)' in text
+
+
 def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):
     # this is an integration test
     """A key holding `#`, `%` and `&` — legal in .env, special in a URL — must

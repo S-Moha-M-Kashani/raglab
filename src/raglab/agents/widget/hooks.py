@@ -28,9 +28,14 @@ from langchain.agents.middleware import (after_agent, before_agent,
 from langchain_core.messages import AIMessage
 
 from raglab.agents.widget.conversation_memory import (
+    IDENTITY_LINE,
     MAX_RELEVANCE_TEXT,
+    MEMORY_LINE,
     MemoryPolicy,
+    STANDING_LINE,
     relevance_guard,
+    standing_mark,
+    superseded_standing_lines,
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from raglab.agents.widget import long_term_memory
@@ -330,14 +335,34 @@ def trim_and_call(request, handler):
         return AIMessage(content=stop,
                          response_metadata={HOP_GUARD_MARK: True})
     _fired('before_model', f'{len(request.state["messages"])} messages in state')
-    # System lines are written once, at the top of the thread — which
-    # experiment it is about, the memory context — so they must outlive the
-    # window or the model forgets its subject on the twenty-first message.
-    # They are kept whole; the window counts everything else.
-    standing = [m for m in request.messages if getattr(m, 'type', '') == 'system']
+    # System lines say what the whole thread is about — which experiment it is,
+    # what long-term memory holds — so they must outlive the window or the
+    # model forgets its subject on the twenty-first message. The window counts
+    # everything else.
+    #
+    # Exempt is not unbounded, and that was the bug. The memory context grows
+    # on every accepted turn and `backends._run` appends the new text, so a
+    # real 29-step thread handed the model twelve system messages: several
+    # versions of one memory, oldest first, the stale ones contradicting the
+    # newest. A standing line a newer line of the same kind supersedes is now
+    # left out of *this call*. The thread keeps it — `request.override` is
+    # 1.x's non-destructive trim, and the reasons for keeping it are in
+    # `superseded_standing_lines` — and the model reads one identity line and
+    # one memory context.
+    #
+    # Only marked lines are filtered. A thread whose lines predate the marker
+    # still sends all of them: nothing can now tell one of those from a system
+    # line the widget did not write, and dropping a line on a guess is how a
+    # future middleware's instruction disappears. Those threads stop growing —
+    # every line written from now on is marked — which is the bound that
+    # matters.
+    system = [m for m in request.messages if getattr(m, 'type', '') == 'system']
     rest = [m for m in request.messages if getattr(m, 'type', '') != 'system']
-    if len(rest) > MAX_HISTORY:
-        request = request.override(messages=standing + rest[-MAX_HISTORY:])
+    stale = superseded_standing_lines([standing_mark(m) for m in system])
+    standing = [m for i, m in enumerate(system) if i not in stale]
+    if stale or len(rest) > MAX_HISTORY:
+        window = rest[-MAX_HISTORY:] if len(rest) > MAX_HISTORY else rest
+        request = request.override(messages=standing + window)
     name = getattr(request.model, 'model_name', type(request.model).__name__)
     _fired('wrap_model_call', f'{name}, {len(request.messages)} messages')
     response = handler(request)

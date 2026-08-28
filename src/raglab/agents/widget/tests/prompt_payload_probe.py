@@ -189,8 +189,9 @@ def probe_thread(*, turns: int, tool_turns: frozenset[int] = frozenset(),
     turn sees is the widget's own aggregate — the same `_aggregate`/`_bounded`
     behaviour production uses — not a hand-written stand-in. Each turn's
     `(payload, config)` is `backends._run`'s own output, so the opening line,
-    the one-standing-memory-line rule and `thread_stamp` are whatever
-    production says they are today.
+    the marked standing lines and `thread_stamp` are whatever production says
+    they are today — and the numbers include `hooks.trim_and_call`'s filter,
+    since the calls are recorded from inside it.
 
     Starts from a clean long-term-memory table and a freshly forgotten thread,
     so two calls in the same test session — or a probe run and a real test

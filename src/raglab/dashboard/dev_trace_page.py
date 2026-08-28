@@ -228,21 +228,41 @@ def _step(number: int, step: dict, trimmed: bool = False) -> str:
             '</div>' + text + calls + bill + '</div></div>')
 
 
+def _superseded(steps: list) -> set:
+    """Which system steps a newer standing line of the same kind replaced.
+
+    The thread keeps every memory context it was handed — that is what makes it
+    a record — so a long thread holds several, and only the newest goes to the
+    model. The rule is `conversation_memory.superseded_standing_lines`, the one
+    `trim_and_call` filters the prompt with, applied here to the same thread's
+    steps: a page that decided this for itself would sooner or later dim a line
+    the model actually read.
+    """
+    system = [s for s in steps if s['kind'] == 'system']
+    stale = widget.superseded_standing_lines([s.get('standing', '')
+                                              for s in system])
+    return {id(s) for i, s in enumerate(system) if i in stale}
+
+
 def _standing(steps: list) -> str:
     """What the model stands on before it reads a step: the system prompt
     `create_agent` binds to every call (not in the log, so shown from the
     fixture), the tools it may call, and the window `trim_and_call` applies."""
     rest = [s for s in steps if s['kind'] != 'system']
     dropped = max(0, len(rest) - widget.MAX_HISTORY)
+    stale = len(_superseded(steps))
     tools = ', '.join(t.name for t in widget.TOOLS)
     return (
         '<details class="standing"><summary>standing system prompt — every call'
         '</summary><pre>' + _esc(widget.SYSTEM_PROMPT) + '</pre>'
         f'<p class="meta">tools it may call: {_esc(tools)}</p>'
-        f'<p class="meta">window: every system line below, plus the last '
+        f'<p class="meta">window: the system lines below, plus the last '
         f'{widget.MAX_HISTORY} other messages — '
         + (f'the {dropped} oldest non-system step(s) are no longer sent.'
            if dropped else 'nothing has been trimmed yet.')
+        + (f' {stale} superseded standing line(s) stay in this log but are '
+           'left out of every call: the memory context grows each turn, and '
+           'the model is handed the newest.' if stale else '')
         + f' Tool hops per turn stop at {widget.hooks.MAX_TOOL_HOPS}; a question is '
         f'capped at {widget.MAX_QUESTION} characters.</p></details>')
 
@@ -256,7 +276,12 @@ def thread(name: str) -> str:
               f' · began {_esc(found["started_at"]) or "—"}'
               f' · {len(steps)} step(s)')
     rest = [s for s in steps if s['kind'] != 'system']
-    outside = {id(s) for s in rest[:max(0, len(rest) - widget.MAX_HISTORY)]}
+    # Two ways a step is in the log but not in the call: it fell out of the
+    # window, or a newer standing line superseded it. Both read as trimmed —
+    # the page's one claim is what the model was handed, and a superseded
+    # memory context was not.
+    outside = ({id(s) for s in rest[:max(0, len(rest) - widget.MAX_HISTORY)]}
+               | _superseded(steps))
     parts, cut_drawn = [], False
     for i, s in enumerate(steps, 1):
         trimmed = id(s) in outside

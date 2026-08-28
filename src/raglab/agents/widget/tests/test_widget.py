@@ -1459,22 +1459,85 @@ def test_a_failure_halfway_through_arrives_as_an_error_event(client, monkeypatch
     assert not any('reply' in event for event in said)
 
 
+def _standing_line(text: str, mark: str):
+    """A system line as `backends._run` writes one — the marker included, since
+    that is what says which standing line it is."""
+    from langchain_core.messages import SystemMessage
+    from raglab.agents.widget import conversation_memory as memory
+    return SystemMessage(content=text,
+                         additional_kwargs={memory.STANDING_LINE: mark})
+
+
 def test_the_trim_keeps_every_system_line_and_the_newest_of_the_rest():
     # this is a unit test
     """The thread's system lines — which experiment it is about, the memory
-    context — are written once, at the top. A trim that kept only the newest
-    twenty messages would drop them on the twenty-first, and the model would
-    forget mid-conversation which experiment it was discussing. System lines
-    survive the trim; the window counts the rest."""
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    context — are written at the top. A trim that kept only the newest twenty
+    messages would drop them on the twenty-first, and the model would forget
+    mid-conversation which experiment it was discussing. System lines survive
+    the trim; the window counts the rest."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents.widget import conversation_memory as memory
     seen = {}
 
     tail = [m for i in range(15) for m in (HumanMessage(content=f'q{i}'),
                                            AIMessage(content=f'a{i}'))]
-    request = _FakeModelRequest([SystemMessage(content='about exp-1'),
-                                 SystemMessage(content='memory'), *tail])
+    request = _FakeModelRequest([
+        _standing_line('about exp-1', memory.IDENTITY_LINE),
+        _standing_line('memory', memory.MEMORY_LINE), *tail])
     widget.trim_and_call.wrap_model_call(
         request, lambda r: seen.setdefault('messages', r.messages))
     kept = seen['messages']
     assert [m.content for m in kept[:2]] == ['about exp-1', 'memory']
     assert kept[2:] == tail[-widget.MAX_HISTORY:]
+
+
+def test_only_the_newest_standing_memory_line_is_sent_to_the_model():
+    # this is a unit test
+    """The finding: system lines are exempt from the window, the memory context
+    grows on every accepted turn, and the thread keeps every version — so the
+    model was handed several, oldest first, the stale ones contradicting the
+    newest. The call carries the newest of each kind. The thread is untouched:
+    `request.override` shapes one prompt, it does not rewrite the log."""
+    from langchain_core.messages import HumanMessage
+    from raglab.agents.widget import conversation_memory as memory
+    seen = {}
+
+    lines = [_standing_line('about exp-1', memory.IDENTITY_LINE),
+             _standing_line('memory v1', memory.MEMORY_LINE),
+             _standing_line('memory v2', memory.MEMORY_LINE),
+             _standing_line('memory v3', memory.MEMORY_LINE)]
+    given = [*lines, HumanMessage(content='q')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    assert [m.content for m in seen['messages']] == ['about exp-1',
+                                                     'memory v3', 'q']
+    assert request.messages == given
+
+
+def test_a_system_line_the_widget_did_not_write_is_always_sent():
+    # this is a unit test
+    """The filter drops a line only when a newer line says it is superseded,
+    and only a line the widget marked can say that. A system message from
+    anywhere else — a future middleware's instruction, or a line written before
+    the marker existed — is not the widget's standing text to supersede, so it
+    goes to the model whatever else the thread holds. Guessing from the text
+    instead is how such an instruction would silently disappear."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from raglab.agents.widget import conversation_memory as memory
+    seen = {}
+
+    request = _FakeModelRequest([
+        SystemMessage(content='SAFETY: never quote a key'),
+        SystemMessage(content='an unmarked memory line from an old thread'),
+        _standing_line('memory v1', memory.MEMORY_LINE),
+        _standing_line('memory v2', memory.MEMORY_LINE),
+        HumanMessage(content='q')])
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    assert [m.content for m in seen['messages']] == [
+        'SAFETY: never quote a key',
+        'an unmarked memory line from an old thread',
+        'memory v2', 'q']

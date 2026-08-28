@@ -119,14 +119,16 @@ prove the shape, not enough to measure anything. `schema_corpus.json`'s own
 that *does* answer — `behavior: "answer"` with one verbatim quote — which is
 the shorter read if abstention is not what you are trying to see.
 
-## The six bundled pairs
+## The seven bundled corpora
 
-Six corpora the lab ships with, one of them the bundled default (the English
+Seven corpora the lab ships with, one of them the bundled default (the English
 diary). They are here to answer one question a single fixture could not: **is
 this finding about retrieval, or about one corpus?** Each also stands in
 for a use case from the map in `skills/rag-use-case-architectures/SKILL.md`,
 so a row's suggested starting architecture can be tried against a corpus of
 its own shape without leaving the repository.
+
+All seven are complete pairs.
 
 | pair | language | documents | questions | what it is for |
 | --- | --- | --- | --- | --- |
@@ -135,9 +137,10 @@ its own shape without leaving the repository.
 | `support_en_corpus.json` / `support_en_groundtruth.json` | English | 20 | 15 | A year of support conversations for a fictional analytics product. Latin script, short factual turns, dates and identifiers — the corpus where an ASCII embedder is genuinely competitive rather than scoring at chance, which is the control the Farsi finding never had. |
 | `meetings_de_corpus.json` / `meetings_de_groundtruth.json` | German | 15 | 12 | Weekly meeting notes for a fictional software team. A third script family and compound nouns, where an English-only embedder separates sharply from a multilingual one. Each question carries an English translation. |
 | `research_multihop_corpus.json` / `research_multihop_groundtruth.json` | English | 18 | 14 | Reading notes following one replication dispute. Deliberately weighted to multi-hop and aggregation, declared as question labels: most answers need two or three documents, so a pipeline that retrieves one perfect chunk still scores badly. |
+| `nosrat_fa_corpus.json` / `nosrat_fa_groundtruth.json` | Farsi | 167 | 126 | A year of Persian-language English-tutoring sessions between one adult learner and a voice tutor, one document per session. Long documents — 2,135 turns across 167 sessions — and the richest label table here: fourteen fields, every name and closed value taken from the `nosrat_coach` project it models, including a curriculum-node list per session and the confidence each node was tagged with. The corpus where a chunker that ignores turn boundaries has something to lose. Its questions are the learner's own, asked of her own history, and two in five of them need more than one session. |
 | `smoke_mini_corpus.json` / `smoke_mini_groundtruth.json` | English | 5 | 6 | Too small to measure anything and not meant to — the fastest end-to-end check that a pipeline works before spending an hour on one that does not. Declares no date label and no `ranks` label on purpose, so the suite's fastest corpus also exercises those absent-declaration paths on every run. |
 
-All six are synthetic. Every person, company, product and finding in them
+All seven are synthetic. Every person, company, product and finding in them
 is fictional; none of it is anybody's data.
 
 They are read-only reference points. Anything imported through the panel

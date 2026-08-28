@@ -31,9 +31,11 @@ retrieval, reranking, embedding, and generation choices against corpora with
 known answers, so architecture decisions are based on evidence rather than
 preference.
 
-The repository includes six datasets: `diary-en`, `diary-fa`, `support-en`,
-`meetings-de`, `research-multihop`, and `smoke-mini`. The fresh panel default
-is `diary-en`; `diary-fa` remains the legacy identity for older fingerprints.
+The repository includes seven datasets: `diary-en`, `diary-fa`, `support-en`,
+`meetings-de`, `research-multihop`, `smoke-mini`, and `nosrat-fa`. Each is a
+corpus together with the ground-truth questions a run is scored against. The
+fresh panel default is `diary-en`; `diary-fa` remains the legacy identity for
+older fingerprints.
 
 ## Quick start
 

@@ -27,11 +27,15 @@ from raglab.evaluation import leaderboard
 from raglab.configuration.lab_config import IndexConfig
 
 BUNDLED = ('diary-en', 'diary-fa', 'support-en', 'meetings-de',
-          'research-multihop', 'smoke-mini')
-# The four control corpora cover every failure mode; the diary is excluded
+          'research-multihop', 'smoke-mini', 'nosrat-fa')
+# The control corpora cover every failure mode; the diary is excluded
 # from that specific check only because it is what every other check already
 # exercises, not because it is special (D3 — it is an ordinary bundled pair).
-CONTROLS = ('support-en', 'meetings-de', 'research-multihop')
+# `nosrat-fa` is the control the set was missing: same language as the diary,
+# a different domain and a document thirteen turns long, so a finding that
+# survives the German meetings but not this one was about the diary's shape
+# rather than about Farsi.
+CONTROLS = ('support-en', 'meetings-de', 'research-multihop', 'nosrat-fa')
 
 
 def _valid_pair(corpus_overrides: dict | None = None,

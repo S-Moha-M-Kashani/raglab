@@ -1,0 +1,65 @@
+#!/bin/sh
+# commit-msg — refuses, in order:
+#   1. a tool or a model credited as an author;
+#   2. a subject over 72 characters, or one without a Conventional Commits type;
+#   3. a body over about a dozen lines.
+#
+# Bypassable with --no-verify, like every hook. The point is to stop the
+# accident, which is the thing that actually happens. Expect it to catch your
+# own subject the first time; that is the hook working, not a reason to widen
+# it.
+
+f=${1:-}
+[ -f "$f" ] || exit 0
+
+# The message as it will be stored: no comment lines, nothing past the
+# verbose-commit scissors.
+msg=$(sed -e '/^# ------------------------ >8 ------------------------$/,$d' -e '/^#/d' "$f")
+
+subject=$(printf '%s\n' "$msg" | grep -v '^[[:space:]]*$' | head -1)
+[ -n "$subject" ] || exit 0    # empty message: git aborts on its own
+
+refuse() {
+    echo "refused: $1" >&2
+    shift
+    for line in "$@"; do echo "  $line" >&2; done
+    exit 1
+}
+
+# 1. No tool, no model, no robot.
+if printf '%s\n' "$msg" | grep -Eiq \
+    'co-authored-by:.*(claude|anthropic|openai|chatgpt|gpt-|copilot|gemini|cursor|codex|opus|sonnet|haiku|\[bot\])|generated (with|by) .*(claude|code|ai|copilot|cursor)|🤖'; then
+    refuse "the message credits a tool or a model as an author." \
+        "The log is the project's record, not a transcript of how the work" \
+        "was produced. Drop the Co-Authored-By / Generated-with line."
+fi
+
+# Merges, reverts, fixups and the initial commit keep git's own wording.
+case "$subject" in
+Merge\ *|Revert\ *|"Initial commit"*|fixup!*|squash!*|amend!*) exit 0 ;;
+esac
+
+# 2. Subject: length, then shape. `merge` is in the type list because this
+#    repository names its --no-ff merges into development that way, and a
+#    guard that refuses the project's own convention teaches nothing.
+n=${#subject}
+if [ "$n" -gt 72 ]; then
+    refuse "the subject is $n characters; the limit is 72." "$subject"
+fi
+
+if ! printf '%s\n' "$subject" | grep -Eq \
+    '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|merge)(\([a-z0-9._/ -]+\))?!?: [^ ]'; then
+    refuse "the subject has no Conventional Commits type." \
+        "Shape: <type>(<scope>): <imperative, lowercase, no trailing period>" \
+        "Types: feat fix docs style refactor perf test build ci chore revert merge"
+fi
+
+# 3. Body: one to four plain sentences, so a dozen lines is already generous.
+nonblank=$(printf '%s\n' "$msg" | grep -c '[^[:space:]]' || true)
+body=$((nonblank - 1))
+if [ "$body" -gt 12 ]; then
+    refuse "the body is $body lines; keep it to one to four sentences." \
+        "A longer explanation is a design note: put it in docs/ or in the" \
+        "code as a comment, where someone will actually find it."
+fi
+exit 0

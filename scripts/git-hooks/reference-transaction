@@ -1,0 +1,37 @@
+#!/bin/sh
+# reference-transaction — development and the published branch are permanent.
+#
+# Git calls this hook for every ref update with $1 in prepared|committed|
+# aborted and one line per ref on stdin: "<old-value> <new-value> <ref>".
+# Exiting non-zero at "prepared" aborts the transaction, so a deletion of
+# development never happens — not by `git branch -D`, not by `git update-ref
+# -d`, not by a stray script.
+#
+# It must let `git pack-refs` through. Packing moves a loose ref into
+# packed-refs and then removes the loose copy, and that removal arrives here as
+# "<sha> 0000000 refs/heads/development" — byte for byte the shape of a real
+# deletion. Refuse it and every `git gc` in the repository aborts. The only
+# thing that tells the two apart is who asked, so the parent process is
+# checked; if `ps` is unavailable the hook errs towards refusing, which fails
+# loudly instead of quietly losing a branch.
+
+[ "${1:-}" = prepared ] || exit 0
+
+parent=$(ps -o args= -p "$PPID" 2>/dev/null || ps -o command= -p "$PPID" 2>/dev/null || echo "")
+case "$parent" in
+*pack-refs*|*git-gc*|*maintenance*|*" gc "*|*" gc") exit 0 ;;
+esac
+
+while read -r old new ref; do
+    # All-zero new value means deletion; anything else is a move, which is fine.
+    case "$new" in *[!0]*) continue ;; esac
+    case "$ref" in
+    refs/heads/development|refs/heads/main|refs/heads/master)
+        echo "refused: $ref is permanent and is never deleted." >&2
+        echo "  development survives every release; the published branch is the" >&2
+        echo "  project's record. Move a ref if you must, do not delete it." >&2
+        exit 1
+        ;;
+    esac
+done
+exit 0

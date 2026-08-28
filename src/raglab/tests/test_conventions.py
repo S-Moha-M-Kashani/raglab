@@ -624,7 +624,7 @@ def test_every_path_env_example_names_is_a_path_that_exists():
 
 
 def _run_pre_push(update: str) -> subprocess.CompletedProcess[str]:
-    hook = ROOT / '.githooks' / 'pre-push'
+    hook = ROOT / 'scripts' / 'git-hooks' / 'pre-push'
     assert hook.is_file(), 'the repository must ship its master-only push hook'
     return subprocess.run(
         [str(hook), 'origin', 'https://example.invalid/raglab.git'],
@@ -635,25 +635,32 @@ def _run_pre_push(update: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_the_push_hook_allows_master_to_master():
+@pytest.mark.parametrize('update', [
+    f'refs/heads/master {"1" * 40} refs/heads/master {"0" * 40}\n',
+    # Version tags are published with the branch they mark; the hook is an
+    # allowlist and they are on it.
+    f'refs/tags/v1.0.0 {"1" * 40} refs/tags/v1.0.0 {"0" * 40}\n',
+    f'(delete) {"0" * 40} refs/heads/gone {"1" * 40}\n',
+])
+def test_the_push_hook_allows_master_and_its_version_tags(update):
     # this is a convention test
-    sha = '1' * 40
-    result = _run_pre_push(
-        f'refs/heads/master {sha} refs/heads/master {"0" * 40}\n')
+    result = _run_pre_push(update)
     assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize('update', [
     f'refs/heads/development {"1" * 40} refs/heads/development {"0" * 40}\n',
-    f'refs/tags/v1.0.0 {"1" * 40} refs/tags/v1.0.0 {"0" * 40}\n',
-    f'refs/heads/master {"1" * 40} refs/heads/public {"0" * 40}\n',
-    f'(delete) {"0" * 40} refs/heads/master {"1" * 40}\n',
+    f'refs/heads/feature/anything {"1" * 40} refs/heads/feature/anything {"0" * 40}\n',
+    f'refs/tags/archive/pre-rewrite-master {"1" * 40} refs/tags/x {"0" * 40}\n',
+    # The check is on the *local* ref, so development wearing another name on
+    # the remote is refused too. That is the whole reason it is an allowlist.
+    f'refs/heads/development {"1" * 40} refs/heads/master {"0" * 40}\n',
 ])
 def test_the_push_hook_rejects_everything_except_master(update):
     # this is a convention test
     result = _run_pre_push(update)
     assert result.returncode != 0
-    assert 'only master' in result.stderr.lower()
+    assert 'refused' in result.stderr
 
 
 # --- The sanctioned duplication: two readable templates mirror the two JSON

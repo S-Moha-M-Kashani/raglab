@@ -50,3 +50,13 @@ docs/
 graphify-out/
 .ruff_cache/
 .DS_Store
+
+# The agent guides and the editor's settings. Real working files, kept on this
+# machine and never in the history: a guide is written for whoever is at this
+# desk, and a reader of the repository is owed the code, not the instructions
+# someone gave a helper. `.githooks/` is the superseded copy of what now lives
+# tracked in `scripts/git-hooks/`.
+CLAUDE.md
+AGENTS.md
+.vscode/
+.githooks/

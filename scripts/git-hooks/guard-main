@@ -1,0 +1,37 @@
+#!/bin/sh
+# guard-main — installed as both pre-commit and pre-merge-commit.
+#
+# main/master is not a branch you commit to. Every commit on it is a release
+# point, built by the release script with `git commit-tree` (which runs no
+# hooks at all). So a hook firing here means a commit is being typed onto the
+# published branch by hand, which is always the wrong move.
+#
+# The release script exports GIT_RELEASE=1 for the rare path where it needs a
+# real `git commit`.
+
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+
+case "$branch" in
+development)
+    echo "note: development takes merges, not hand-written commits." >&2
+    echo "      Cut feature/<name> off it if this is real work." >&2
+    exit 0
+    ;;
+main|master) ;;
+*) exit 0 ;;
+esac
+
+# The very first commit in a fresh repository has to land somewhere.
+git rev-parse --verify --quiet HEAD >/dev/null || exit 0
+
+if [ "${GIT_RELEASE:-}" = "1" ]; then
+    exit 0
+fi
+
+echo "refused: $branch takes release points only, never hand-written commits." >&2
+echo "" >&2
+echo "  git checkout development" >&2
+echo "  git checkout -b feature/<name>     # carries these changes over" >&2
+echo "  ...commit there, merge --no-ff into development, then:" >&2
+echo "  scripts/release -m 'feat(scope): ...'" >&2
+exit 1

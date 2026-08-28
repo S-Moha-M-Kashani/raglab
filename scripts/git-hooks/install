@@ -1,0 +1,71 @@
+#!/bin/sh
+# install — copy the four guards into .git/hooks of the current repository.
+#
+# Copies, deliberately, rather than pointing core.hooksPath at the working
+# tree: the same guards must hold while main/master is checked out, and that
+# tree may not carry scripts/git-hooks at all.
+#
+#   install            install the hooks into this repo
+#   install --vendor   also copy the sources into scripts/git-hooks and
+#                      scripts/release, so the repo carries them
+set -eu
+
+src=$(cd "$(dirname "$0")" && pwd)
+vendor=0
+[ "${1:-}" = "--vendor" ] && vendor=1 || true
+
+root=$(git rev-parse --show-toplevel)
+gitdir=$(cd "$(git rev-parse --git-common-dir)" && pwd)
+dst="$gitdir/hooks"
+mkdir -p "$dst"
+
+for h in pre-push commit-msg reference-transaction; do
+    cp "$src/$h" "$dst/$h"
+    chmod +x "$dst/$h"
+    echo "installed $dst/$h"
+done
+for h in pre-commit pre-merge-commit; do
+    cp "$src/guard-main" "$dst/$h"
+    chmod +x "$dst/$h"
+    echo "installed $dst/$h"
+done
+
+# core.hooksPath would override .git/hooks entirely; make sure it is not set.
+if git config --get core.hooksPath >/dev/null 2>&1; then
+    git config --unset core.hooksPath
+    echo "unset core.hooksPath (hooks live in .git/hooks)"
+fi
+
+if [ "$vendor" -eq 1 ]; then
+    mkdir -p "$root/scripts/git-hooks"
+    for f in pre-push guard-main commit-msg reference-transaction install; do
+        cp "$src/$f" "$root/scripts/git-hooks/$f"
+        chmod +x "$root/scripts/git-hooks/$f"
+    done
+    mkdir -p "$root/scripts"
+    cp "$src/release" "$root/scripts/release"
+    chmod +x "$root/scripts/release"
+    echo "vendored sources into scripts/git-hooks and scripts/release"
+fi
+
+# The guards assume the two-branch model, so make sure development exists.
+if ! git show-ref --verify --quiet refs/heads/development; then
+    if git rev-parse --verify --quiet HEAD >/dev/null; then
+        git branch development
+        echo "created branch development"
+    else
+        echo "note: no commits yet; create development after the first commit"
+    fi
+fi
+
+if [ "$vendor" -eq 1 ] && [ -n "$(git status --porcelain scripts 2>/dev/null)" ]; then
+    echo ""
+    echo "scripts/ is untracked or modified, and release refuses a dirty tree."
+    echo "Land it first, off development:"
+    echo "  git checkout development && git checkout -b chore/git-hooks"
+    echo "  git add scripts && git commit -m 'chore: add the git guards'"
+    echo "  git checkout development && git merge --no-ff chore/git-hooks"
+    echo "  git branch -d chore/git-hooks"
+fi
+
+echo "done. Release with: scripts/release -m 'feat(scope): ...'"

@@ -1,0 +1,169 @@
+#!/bin/sh
+# release — the only writer on main/master.
+#
+# Builds one rung of the ladder: a commit on the published branch whose two
+# parents are the previous release point and the development commit it
+# summarises, and whose tree is that commit's tree exactly. The branches then
+# sit side by side in the graph, every point on main can be checked out and
+# run, and merge-base(main, development) is development's tip — so the next
+# feature branches off a fresh base with no re-sync and no drift.
+#
+# It refuses when development has gained nothing presentable since the last
+# release point. That refusal is the feature.
+set -eu
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: release [-m <message>] [-F <file>] [-t vX.Y.Z] [-n] [--force]
+
+  -m <message>  the release point message (Conventional Commits)
+  -F <file>     read the message from a file
+  -t vX.Y.Z     annotate the new release point with a version tag
+  -n            dry run: report the gate and stop
+  --force       build even when nothing presentable has landed
+
+With neither -m nor -F, opens $EDITOR on a template.
+USAGE
+    exit 2
+}
+
+die() { echo "release: $*" >&2; exit 1; }
+
+message=""
+msgfile=""
+tag=""
+force=0
+dryrun=0
+while [ $# -gt 0 ]; do
+    case $1 in
+    -m) message=${2:-}; shift 2 ;;
+    -F) msgfile=${2:-}; shift 2 ;;
+    -t) tag=${2:-}; shift 2 ;;
+    -n|--dry-run) dryrun=1; shift ;;
+    -f|--force) force=1; shift ;;
+    -h|--help) usage ;;
+    *) usage ;;
+    esac
+done
+
+root=$(git rev-parse --show-toplevel) || die "not a git repository"
+cd "$root"
+
+git show-ref --verify --quiet refs/heads/development ||
+    die "no development branch. Create it: git branch development"
+
+pub=main
+if ! git show-ref --verify --quiet refs/heads/main; then
+    if git show-ref --verify --quiet refs/heads/master; then
+        pub=master
+    else
+        pub=""    # first rung: the published branch does not exist yet
+    fi
+fi
+
+[ -z "$(git status --porcelain)" ] ||
+    die "working tree is dirty. Commit or stash before releasing."
+
+# ---------------------------------------------------------------- the gate
+if [ -n "$pub" ]; then
+    range="$pub..development"
+    ahead=$(git rev-list --count "$range")
+    [ "$ahead" -gt 0 ] ||
+        die "development is not ahead of $pub. Nothing to release."
+    if git diff --quiet "$pub" development; then
+        die "$pub and development have identical trees. Nothing to release."
+    fi
+else
+    range="development"
+    ahead=$(git rev-list --count development)
+fi
+
+presentable=$(git log --format=%s "$range" |
+    grep -Ec '^(feat|fix|perf|refactor)(\([^)]*\))?!?:' || true)
+
+echo "release point candidate on ${pub:-main}"
+echo "  development tip : $(git log --format='%h %s' -1 development)"
+[ -n "$pub" ] && echo "  last release    : $(git log --format='%h %s' -1 "$pub")" || true
+echo "  commits since   : $ahead, of which presentable: $presentable"
+[ -n "$pub" ] && echo "  files           :$(git diff --shortstat "$pub" development)" || true
+echo "  what landed:"
+git log --format='    %h %s' "$range" | sed -n '1,20p'
+
+if [ "$presentable" -eq 0 ] && [ "$force" -eq 0 ]; then
+    echo "" >&2
+    echo "refused: development has gained nothing presentable since the last" >&2
+    echo "release point — no feat, fix, perf or refactor in $range." >&2
+    echo "" >&2
+    echo "A version nobody can describe makes the log lie about what happened." >&2
+    echo "Land a real feature or fix first. Override with --force if you must." >&2
+    exit 1
+fi
+
+if [ "$dryrun" -eq 1 ]; then
+    echo ""
+    echo "dry run: the gate passes. Rerun with -m to build the release point."
+    exit 0
+fi
+
+# --------------------------------------------------------------- the message
+tmp=$(mktemp "${TMPDIR:-/tmp}/release-msg.XXXXXX")
+trap 'rm -f "$tmp"' EXIT HUP INT TERM
+
+if [ -n "$msgfile" ]; then
+    cat "$msgfile" >"$tmp"
+elif [ -n "$message" ]; then
+    printf '%s\n' "$message" >"$tmp"
+else
+    {
+        echo ""
+        echo "# The release point message. Conventional Commits, subject <= 72"
+        echo "# chars, then one to four plain sentences for a beginner: what this"
+        echo "# now makes possible, then the reason or the cost. Never credit a"
+        echo "# tool or a model. Lines starting with # are dropped."
+        echo "#"
+        git log --format='# %h %s' "$range" | sed -n '1,30p'
+    } >"$tmp"
+    "${VISUAL:-${EDITOR:-vi}}" "$tmp"
+fi
+
+sed -e '/^#/d' "$tmp" >"$tmp.clean"
+mv "$tmp.clean" "$tmp"
+[ -n "$(grep -v '^[[:space:]]*$' "$tmp" || true)" ] || die "empty message; aborting."
+
+hook="$(cd "$(git rev-parse --git-common-dir)" && pwd)/hooks/commit-msg"
+if [ -x "$hook" ]; then
+    "$hook" "$tmp" || die "the message was refused by the commit-msg hook."
+fi
+subject=$(grep -v '^[[:space:]]*$' "$tmp" | head -1)
+
+# ---------------------------------------------------------------- the commit
+tree=$(git rev-parse 'development^{tree}')
+if [ -n "$pub" ]; then
+    old=$(git rev-parse "refs/heads/$pub")
+    new=$(GIT_RELEASE=1 git commit-tree "$tree" -p "$pub" -p development -F "$tmp")
+    git update-ref -m "release: $subject" "refs/heads/$pub" "$new" "$old"
+else
+    pub=main
+    new=$(GIT_RELEASE=1 git commit-tree "$tree" -p development -F "$tmp")
+    git update-ref -m "release: $subject" "refs/heads/$pub" "$new"
+fi
+
+if [ -n "$tag" ]; then
+    GIT_RELEASE=1 git tag -a "$tag" "$new" -F "$tmp"
+fi
+
+# -------------------------------------------------------------- verification
+git diff --quiet "$new" development ||
+    die "BUG: the new release point's tree differs from development's."
+base=$(git merge-base "$pub" development)
+[ "$base" = "$(git rev-parse development)" ] ||
+    die "BUG: merge-base($pub, development) is not development's tip."
+
+echo ""
+echo "built $(git rev-parse --short "$new") on $pub${tag:+ tagged $tag}"
+echo "  tree identical to development: yes"
+echo "  merge-base($pub, development): development's tip"
+echo ""
+echo "Verify it runs, then publish:"
+echo "  git checkout $pub && <build && full test suite>"
+echo "  git push origin $pub --follow-tags"

@@ -259,6 +259,24 @@ def load(dataset_id: str = '') -> tuple[dict, dict]:
         + ', '.join(d.id for d in catalogue()))
 
 
+def load_corpus(dataset_id: str = '') -> dict:
+    """Just the corpus, for a reader that describes rather than scores. A pair
+    with no ground truth is listed (D1) and refused only at run time, so the
+    panel's dataset card has to be able to read the corpus of a dataset
+    `load()` would refuse — otherwise one unmeasurable corpus in the folder
+    takes the whole catalogue down with it. Everything that scores still goes
+    through `load()`, which is the one door that insists on both files."""
+    wanted = dataset_id or BUILTIN
+    if wanted in _CACHE:
+        return _CACHE[wanted][0]
+    for _source, found_id, corpus_path, _truth_path in _files():
+        if found_id == wanted:
+            return _read(corpus_path)
+    raise ValueError(
+        f'unknown dataset {wanted!r} — known: '
+        + ', '.join(d.id for d in catalogue()))
+
+
 def forget() -> None:
     """Drop the corpus cache, so a dataset replaced under the same id is the
     one the next build reads."""

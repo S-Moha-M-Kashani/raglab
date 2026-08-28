@@ -27,11 +27,15 @@ from raglab.evaluation import leaderboard
 from raglab.configuration.lab_config import IndexConfig
 
 BUNDLED = ('diary-en', 'diary-fa', 'support-en', 'meetings-de',
-          'research-multihop', 'smoke-mini')
-# The four control corpora cover every failure mode; the diary is excluded
+          'research-multihop', 'smoke-mini', 'nosrat-fa')
+# The control corpora cover every failure mode; the diary is excluded
 # from that specific check only because it is what every other check already
 # exercises, not because it is special (D3 — it is an ordinary bundled pair).
-CONTROLS = ('support-en', 'meetings-de', 'research-multihop')
+# `nosrat-fa` is the control the set was missing: same language as the diary,
+# a different domain and a document thirteen turns long, so a finding that
+# survives the German meetings but not this one was about the diary's shape
+# rather than about Farsi.
+CONTROLS = ('support-en', 'meetings-de', 'research-multihop', 'nosrat-fa')
 
 
 def _valid_pair(corpus_overrides: dict | None = None,
@@ -455,6 +459,23 @@ def test_a_corpus_with_no_ground_truth_is_listed_and_refused_at_load_time(
     assert listed.questions == 0
     with pytest.raises(ValueError, match='nothing to measure against'):
         datasets.load('tiny-test')
+
+
+def test_a_corpus_with_no_ground_truth_can_still_be_described(imports_here):
+    # this is an integration test
+    """The other half of the rule above: refused at run time, but still
+    *readable*. The panel's dataset card reads a listed corpus's own
+    `label_fields`, so one unmeasurable corpus in the folder must not take the
+    whole catalogue down with it — `load_corpus` reads what `load` refuses,
+    and nothing that scores goes through it."""
+    imports_here.mkdir(parents=True)
+    corpus, _ = _valid_pair()
+    (imports_here / 'tiny-test_corpus.json').write_text(
+        json.dumps(corpus), encoding='utf-8')
+
+    assert datasets.load_corpus('tiny-test') == corpus
+    with pytest.raises(ValueError, match='unknown dataset'):
+        datasets.load_corpus('not-a-corpus')
 
 
 def test_a_ground_truth_with_no_corpus_is_never_listed(imports_here):

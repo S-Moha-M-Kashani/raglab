@@ -352,7 +352,10 @@ def _safe_widget_event(event):
     question was off-topic when the judge was simply down is telling them
     something untrue, which is the one thing no record in this lab may do. And
     a turn whose decision has not been taken yet is `pending`, which is now the
-    ordinary case: both answer paths file after they answer.
+    ordinary case: both answer paths file after they answer. Only those last
+    two ever reach the panel — the deferred decision is the only memory event
+    the page routes to a reader — so the other three are this API's alone, for
+    a client reading the route rather than the page.
     """
     if not isinstance(event, dict) or 'memory' not in event:
         return event
@@ -1314,11 +1317,17 @@ def create_app() -> FastAPI:
     @app.post('/api/widget/stream')
     def widget_stream(payload: dict):
         """The same turn as POST /api/widget, sent as it is written: one
-        server-sent event per piece of the answer, then one final event
-        carrying the reply the lab now holds and its token account — the very
-        body the other route returns whole. The page renders the pieces as
-        they land and adopts the final reply, so what stays on screen is what
-        the conversation log holds rather than whatever the pieces spelled.
+        server-sent event per piece of the answer, then the reply event —
+        carrying the reply the lab now holds and its token account, the very
+        body the other route returns whole — and after it one memory event.
+        The reply is the event with a `reply` key, not the last one: the
+        memory event is last, and it says only what the decision about keeping
+        this turn is at the moment it is written, because that decision now
+        outlives the response (`backends._defer_memory`). A client that reads
+        the final event as the reply reads the memory block as an answer. The
+        page renders the pieces as they land and adopts the reply event, so
+        what stays on screen is what the conversation log holds rather than
+        whatever the pieces spelled.
 
         `widget.stream` raises before it yields anything, which is what keeps a
         refusal a status code: an unserved model is a 400 and an unreachable

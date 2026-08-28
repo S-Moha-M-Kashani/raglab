@@ -6,13 +6,14 @@ process per call with the knowledge base inlined, because `CliChat` has no
 `bind_tools`. Both paths enter through `ask` for a whole answer at once, or
 through `stream` for the same answer handed over as it is written.
 
-One turn, one order, both paths: what the answer needs runs before the agent,
-what the *filing* needs runs after it. Before the agent (`_preflight`): the
-relevance guard, the thread's trusted dataset — resolved *once*, because each
-resolution is a ledger query plus a run-file read — and the long-term memory
-filed under that dataset. After the answer (`_finish_memory`, on a thread of
-its own for both paths): the memory policy and every provenance gate, then the
-summary and the write.
+One turn, one order, both paths: what the answer needs runs before the answer,
+what the *filing* needs runs after it. First the deterministic relevance
+guard, then the agent — everything a keyless or unserved install can refuse
+without reading a durable file refuses here — and only then `_preflight`: the
+thread's trusted dataset, resolved *once*, because each resolution is a ledger
+query plus a run-file read, and the long-term memory filed under that dataset.
+After the answer (`_finish_memory`, on a thread of its own for both paths):
+the memory policy and every provenance gate, then the summary and the write.
 
 Until 2026-08-28 the policy ran first, so the reader waited two model round
 trips for the first word: the policy was being read as a gate on *answering*.

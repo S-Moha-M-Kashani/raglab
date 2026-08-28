@@ -329,15 +329,15 @@ CONVENTIONS = [
      "{ method: 'DELETE' } sketch, which this file's api() never took"),
     ('widget.js', "unavailable: 'No memory saved: the memory helper could not",
      None,
-     'a turn nobody judged must read as unreachable, never as off-topic: the '
-     'route sends a fourth memory status for it, and without its own line here '
-     'a reader whose judge was simply down is told their question was '
-     'irrelevant to the lab'),
+     'a turn nobody judged must say so: it is one of the two statuses this '
+     'page can still be sent, and without its own line here a reader whose '
+     'judge was simply down is shown the pending line instead — told a '
+     'decision is coming that nothing is left to make'),
     ('widget.js', "pending: 'Nothing filed yet:", None,
      'the deferred decision needs its own line: both answer paths file after '
-     'they answer, so an undecided turn is the ordinary case, and a reader '
-     'shown no memory line at all reads it as the lab finding nothing worth '
-     'keeping — a verdict no model gave'),
+     'they answer, so an undecided turn is the ordinary case — the only case, '
+     'on a keyed install — and a reader shown no memory line at all reads it '
+     'as the lab finding nothing worth keeping, a verdict no model gave'),
     ('widget.css', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '

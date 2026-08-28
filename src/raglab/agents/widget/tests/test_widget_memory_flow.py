@@ -2,6 +2,7 @@
 """The policy-to-memory flow is selective and delivery ordered."""
 from langchain_core.messages import AIMessage
 import pytest
+import threading
 import time
 
 from raglab.agents import widget
@@ -10,9 +11,17 @@ from raglab.agents.widget import long_term_memory as long_memory
 
 @pytest.fixture(autouse=True)
 def _clean_long_term_memory():
+    """A clean store either side of the test — and no writer still running.
+
+    The deferred decision outlives the call that started it, so the clear on
+    the way out has to come after the last daemon this test started has
+    finished. Clearing first and joining never would leave a write landing in
+    widget.db after the *next* test's clear, failing an assertion in a test
+    that started nothing."""
     widget.experiment_tools.set_experiment_reader(None)
     long_memory.clear_long_term_memory()
     yield
+    _join_deferred_memory()
     long_memory.clear_long_term_memory()
     widget.experiment_tools.set_experiment_reader(None)
 
@@ -82,6 +91,19 @@ def _eventually(predicate):
             return
         time.sleep(0.005)
     assert predicate()
+
+
+def _join_deferred_memory():
+    """Wait for the deferred decision's own thread to finish.
+
+    `_defer_memory` starts a daemon called `widget-memory`, and a test that
+    returns while one is still inside `save_widget_memory` leaves it writing
+    into the session's widget.db after the next test's autouse clear — a flake
+    landing on whichever test runs next, which is the one place it cannot be
+    explained from."""
+    for thread in threading.enumerate():
+        if thread.name == 'widget-memory':
+            thread.join(5)
 
 
 def test_deterministic_rejection_happens_before_agent_and_memory(monkeypatch):
@@ -468,6 +490,7 @@ def test_stream_emits_authoritative_answer_then_defers_the_decision(monkeypatch)
 
     # Deferred, not dropped: the write lands, just not on this connection.
     _eventually(lambda: events == ['summarize', 'save'])
+    _join_deferred_memory()
 
 
 def test_the_streamed_generator_ends_before_the_summarizer_does(monkeypatch):
@@ -478,8 +501,6 @@ def test_the_streamed_generator_ends_before_the_summarizer_does(monkeypatch):
     not release it until the generator is exhausted: a generator that still
     waited on it would be the one thing that cannot finish. It also names the
     thread it ran on, which must not be the thread the events were read from."""
-    import threading
-
     widget.experiment_tools.set_experiment_reader(_ExperimentReader('smoke-mini'))
     _setup(monkeypatch, {
         'relevant': True, 'should_save': True, 'dataset_id': 'smoke-mini',
@@ -512,7 +533,11 @@ def test_the_streamed_generator_ends_before_the_summarizer_does(monkeypatch):
         assert events[-1] == {'memory': {'status': 'pending', 'saved': False}}
         assert ran_on[0] is not threading.current_thread()
     finally:
+        # Released and then waited for: a daemon still inside the write when
+        # this test returns would be writing into widget.db after the next
+        # test's autouse clear.
         release.set()
+        _join_deferred_memory()
 
 
 def test_one_memory_pass_reads_the_board_once(monkeypatch):

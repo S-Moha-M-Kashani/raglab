@@ -347,14 +347,30 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // Two statuses, because two is all this page can now be sent — and a stated
+  // gap, because the third is one it can no longer be told.
+  //
+  // The decision about keeping a turn outlives the response: both answer paths
+  // file after they answer (`backends._defer_memory`), so what reaches this
+  // reader is the status at the moment the last event was written — the
+  // decision pending, or no judge to make it. The verdict itself lands in
+  // widget.db afterwards, on a thread nothing on this page is attached to, and
+  // nothing asks for it again. So a reader is told a decision is coming and is
+  // never told it succeeded. The `saved` and `not_saved` lines were deleted
+  // rather than left here for an event that no longer arrives: closing the gap
+  // means carrying the turn id out to this page and reading
+  // `widget_turn_log.memory_update_id` back over a route that does not exist
+  // yet, which is a feature and not a line of copy.
+  //
+  // A refused question has no line either, and needs none: its status rides on
+  // the same event as the reply (`backends._refused`), which `widgetStream`
+  // does not route here — and the refusal is the answer the reader is already
+  // reading.
   function widgetMemoryStatus(memory) {
     const copy = {
-      saved: 'Memory saved for future lab conversations.',
-      not_saved: 'Memory was not saved.',
-      irrelevant: 'No memory saved: this was not relevant to the lab.',
-      // Not the same line as `irrelevant`, deliberately: nobody judged this
-      // turn, so saying it was off-topic would be putting a verdict in a
-      // reader's mouth that no model ever gave.
+      // Not one line for both, deliberately: nobody judged the unavailable
+      // turn, so saying it was off-topic — or that a decision is still coming
+      // — would be putting a verdict in a reader's mouth that no model gave.
       unavailable: 'No memory saved: the memory helper could not be reached.',
       // The answer comes out before the decision about keeping it is taken, so
       // this is what is true when the turn lands: not a save, not a refusal,

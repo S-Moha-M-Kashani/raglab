@@ -540,7 +540,10 @@ def test_the_leaderboard_rule_describes_the_code_that_exists():
     and still refuse to name a winner inside the combined error, because that is
     what a *sweep* ranks by and a sweep's candidates are comparable by
     construction."""
-    text = (ROOT / 'CLAUDE.md').read_text(encoding='utf-8')
+    guide = ROOT / 'CLAUDE.md'
+    if not guide.exists():
+        pytest.skip('the agent guide is kept on disk, not in the repository')
+    text = guide.read_text(encoding='utf-8')
     assert 'one table per dataset' in text.lower(), (
         'the board is one table per dataset and the doc must say so')
     assert 'verdict' in text.lower() or 'comparability' in text.lower(), (

@@ -1,4 +1,4 @@
-"""The six hooks, as middleware.
+"""The four hooks, as middleware.
 
 One decorator each, from `langchain.agents.middleware`, and the decorated
 object *is* the middleware — the framework's own seam rather than this
@@ -7,11 +7,21 @@ on top of what this package already pays for langchain_core) and handed to
 `create_agent` in `backends._build_agent`; the agent itself is still built on
 the first request, which is the laziness that matters.
 
+There were six, until 2026-08-28: `note_prompt` (`before_model`) and
+`check_reply` (`after_model`) were each their own graph node, so one tool hop
+cost four supersteps and `backends._run`'s recursion budget died a few hops
+before `MAX_TOOL_HOPS` could ever fire. Both jobs now live inside
+`trim_and_call`, a `wrap_model_call` wrapper rather than a node, which is what
+halves the supersteps a hop costs. The `_fired` labels they wrote
+(`before_model`, `after_model`) are kept — see the comment on `trim_and_call`
+— so the account of a run still names the same moments.
+
 One line of real work each: the point is that they are visible, and that each
 has somewhere obvious to put a breakpoint.
 """
-from langchain.agents.middleware import (after_agent, after_model,
-                                         before_agent, before_model,
+import collections
+
+from langchain.agents.middleware import (after_agent, before_agent,
                                          wrap_model_call, wrap_tool_call)
 from langchain_core.messages import AIMessage
 
@@ -25,11 +35,39 @@ from raglab.agents.widget import long_term_memory
 from raglab.agents.widget.prompts import MEMORY_POLICY_PROMPT
 
 HOOKS_VERBOSE = False        # __main__ turns this on; the route leaves it off
-HOOK_LOG: list[str] = []     # what fired, in order — the whole run at a glance
 
 MAX_QUESTION = MAX_RELEVANCE_TEXT  # the longest request it will accept
 MAX_HISTORY = 20             # how much history one model call sees
 MAX_TOOL_HOPS = 8             # hard stop before a pathological tool loop
+
+# One model node plus one tools node. It was four until 2026-08-28: two more
+# supersteps went to `before_model`/`after_model`, the graph nodes that used
+# to carry one logging line each and now write that line from inside
+# `trim_and_call` instead.
+SUPERSTEPS_PER_HOP = 2
+
+# The recursion budget `backends._run` hands the graph, derived so the guard
+# and the ceiling can never drift apart again. A run is `before_agent`, up to
+# `MAX_TOOL_HOPS` hops at `SUPERSTEPS_PER_HOP` supersteps each, the model node
+# that writes the final answer, and `after_agent`:
+#
+#   1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
+#   = 1 + 8 * 2 + 1 + 1 = 19
+#
+# That admits MAX_TOOL_HOPS sequential hops *and* the answer after them, so
+# `stop_repeated_tool_hops` is what stops a pathological loop — the ceiling
+# below is never what fires first.
+RECURSION_LIMIT = 1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
+
+# What fired, in order — the whole run at a glance. Bounded because it is a
+# module-level list shared by every concurrent turn for the life of the
+# process, and an unbounded log growing under real traffic would be its own
+# quiet leak. One run logs at most a handful of lines per superstep — one or
+# two from `trim_and_call`, up to a couple more per tool call inside a single
+# tools superstep — so `RECURSION_LIMIT` supersteps times a generous 8 lines
+# each covers any ordinary run with room to spare; a run this bounded cannot
+# fill it.
+HOOK_LOG: collections.deque = collections.deque(maxlen=RECURSION_LIMIT * 8)
 
 
 def stop_repeated_tool_hops(state) -> str | None:
@@ -155,25 +193,34 @@ def check_request(state, runtime):
     return {'messages': [last.model_copy(update={'content': text})]}
 
 
-@before_model
-def note_prompt(state, runtime):
-    """Before each LLM call: say what the loop is about to send. This is where
-    context injection would go; the trim itself belongs one hook further in,
-    where it can be applied to the request instead of to the transcript."""
-    stop = stop_repeated_tool_hops(state)
-    if stop:
-        _fired('before_model', 'tool-hop guard stopped the run')
-        return {'messages': [AIMessage(content=stop)]}
-    _fired('before_model', f'{len(state["messages"])} messages in state')
-    return None
-
-
 @wrap_model_call
 def trim_and_call(request, handler):
-    """Around each LLM call: trim what this hop sees, name the model, and hand
-    it on. `request.override` is 1.x's non-destructive trim — langgraph's
-    `llm_input_messages` is gone, and writing `messages` from `before_model`
-    would delete the transcript rather than shorten a prompt."""
+    """Around each LLM call: the tool-hop guard, the "about to call" line, the
+    trim, the call itself, and the "what came back" line — five jobs where
+    there used to be three hooks. `note_prompt` (`before_model`) and
+    `check_reply` (`after_model`) were folded in here on 2026-08-28: each was
+    its own graph node for one logging line, which made a tool hop cost four
+    supersteps instead of the two a model node and a tools node actually need.
+    A wrapper is not a node, so folding them in is what makes
+    `RECURSION_LIMIT` an honest budget rather than a ceiling the guard never
+    gets to test.
+
+    The `_fired` labels below still read `before_model` and `after_model`
+    even though neither is its own graph node anymore. The label names *when
+    in a model call* the line was written — before the request goes out,
+    after the response comes back — and that stays true regardless of which
+    node runs it; a later reader should not infer two graph nodes that no
+    longer exist.
+
+    `request.override` is 1.x's non-destructive trim — langgraph's
+    `llm_input_messages` is gone, and writing `messages` from a `before_model`
+    node would delete the transcript rather than shorten a prompt.
+    """
+    stop = stop_repeated_tool_hops(request.state)
+    if stop:
+        _fired('before_model', 'tool-hop guard stopped the run')
+        return AIMessage(content=stop)
+    _fired('before_model', f'{len(request.state["messages"])} messages in state')
     # System lines are written once, at the top of the thread — which
     # experiment it is about, the memory context — so they must outlive the
     # window or the model forgets its subject on the twenty-first message.
@@ -184,7 +231,19 @@ def trim_and_call(request, handler):
         request = request.override(messages=standing + rest[-MAX_HISTORY:])
     name = getattr(request.model, 'model_name', type(request.model).__name__)
     _fired('wrap_model_call', f'{name}, {len(request.messages)} messages')
-    return handler(request)
+    response = handler(request)
+    # A tool-calling hop and a final answer are the two shapes, and an empty
+    # one is neither — the `clichat` finding, stated where it can be seen
+    # rather than swallowed.
+    last = response.result[-1] if getattr(response, 'result', None) else None
+    calls = getattr(last, 'tool_calls', None) or []
+    text = str(getattr(last, 'content', ''))
+    if calls:
+        shape = f'{len(calls)} tool call(s): ' + ', '.join(c['name'] for c in calls)
+    else:
+        shape = f'{len(text)} chars of answer' if text.strip() else 'empty reply'
+    _fired('after_model', shape)
+    return response
 
 
 @wrap_tool_call
@@ -204,22 +263,6 @@ def log_tool_call(request, handler):
     return result
 
 
-@after_model
-def check_reply(state, runtime):
-    """After each LLM response: look at what came back. A tool-calling hop and
-    a final answer are the two shapes, and an empty one is neither — the
-    `clichat` finding, stated where it can be seen rather than swallowed."""
-    last = state['messages'][-1]
-    calls = getattr(last, 'tool_calls', None) or []
-    text = str(last.content)
-    if calls:
-        shape = f'{len(calls)} tool call(s): ' + ', '.join(c['name'] for c in calls)
-    else:
-        shape = f'{len(text)} chars of answer' if text.strip() else 'empty reply'
-    _fired('after_model', shape)
-    return None
-
-
 @after_agent
 def close_the_log(state, runtime):
     """After the agent completes: the analytics line. `HOOK_LOG` is the whole
@@ -229,5 +272,4 @@ def close_the_log(state, runtime):
 
 
 # Order is the order they nest in, and it is the order they are declared in.
-MIDDLEWARE = [check_request, note_prompt, trim_and_call, log_tool_call,
-              check_reply, close_the_log]
+MIDDLEWARE = [check_request, trim_and_call, log_tool_call, close_the_log]

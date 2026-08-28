@@ -244,11 +244,20 @@ def _run(message: str, thread: str, *, memory_state: dict | None = None,
     second writer racing the graph, and `/api/widget/history` can report them
     as facts about the thread because a turn is what put them there.
 
-    Measured 2026-08-18: with the six middleware nodes a tool hop costs ~4
+    Measured 2026-08-18: with six middleware nodes a tool hop cost ~4
     supersteps, so 12 allowed exactly one hop — a run that searched, then
     searched and read, then answered (13 steps) died *after* its final answer,
-    one node short of close_the_log. 24 gives the loop about five hops, still a
-    hard ceiling rather than a budget.
+    one node short of close_the_log. Raising the number bought headroom but
+    never a real budget, because the ceiling and `hooks.MAX_TOOL_HOPS` were
+    two numbers nobody had tied together.
+
+    Folded on 2026-08-28: `note_prompt`/`check_reply` moved from graph nodes
+    into `hooks.trim_and_call`, so a hop now costs `hooks.SUPERSTEPS_PER_HOP`
+    (2) supersteps instead of 4. `hooks.RECURSION_LIMIT` is computed from that
+    and `MAX_TOOL_HOPS` — see the arithmetic there — so it admits every
+    sequential hop the guard allows *and* the answer after them. That makes
+    `stop_repeated_tool_hops` the thing that stops a pathological loop, not
+    this ceiling, and it is why the two can no longer silently drift apart.
     """
     name = (thread or '').strip() or memory.GENERAL
     messages = []
@@ -273,7 +282,8 @@ def _run(message: str, thread: str, *, memory_state: dict | None = None,
     messages.append(HumanMessage(content=message))
     return ({'messages': messages, **memory.thread_stamp(name),
              **(memory_state or {})},
-            {'recursion_limit': 24, 'configurable': {'thread_id': name}})
+            {'recursion_limit': hooks.RECURSION_LIMIT,
+             'configurable': {'thread_id': name}})
 
 
 def _turn_account(messages: list) -> tuple[str, list]:

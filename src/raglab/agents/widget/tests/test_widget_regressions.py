@@ -42,9 +42,21 @@ def test_follow_up_policy_receives_the_existing_thread_transcript(monkeypatch):
 
 
 def test_repeated_tool_hops_are_stopped_before_graph_recursion_limit():
-    """A tool loop must receive a bounded stop signal, not GRAPH_RECURSION_LIMIT."""
+    """A tool loop must receive a bounded stop signal, not GRAPH_RECURSION_LIMIT.
+
+    The old `MAX_TOOL_HOPS <= 8` assertion never checked that the recursion
+    ceiling could actually be reached by that many hops — this does: the
+    budget must admit every sequential hop the guard allows, at
+    `SUPERSTEPS_PER_HOP` supersteps each, plus the closing answer and the
+    fixed before/after-agent overhead, so the guard is what stops a
+    pathological loop and never this ceiling.
+    """
     assert widget.hooks.MAX_TOOL_HOPS <= 8
     assert callable(widget.hooks.stop_repeated_tool_hops)
+    hops_and_answer = (widget.hooks.MAX_TOOL_HOPS
+                       * widget.hooks.SUPERSTEPS_PER_HOP) + 1
+    fixed_overhead = 2  # before_agent, after_agent
+    assert widget.hooks.RECURSION_LIMIT >= hops_and_answer + fixed_overhead
 
 
 def test_stream_request_is_kept_alive_when_the_page_navigates():

@@ -14,18 +14,20 @@ lab module reaches in, and that this package reaches the lab only through
 its unmeasured edges (skills, clichat, settings).
 
 One module per concern: `prompts` loads the model-facing fixtures,
-`hooks` holds the six middleware, `tools` the project-knowledge tools and the
+`hooks` holds the four middleware, `tools` the project-knowledge tools and the
 registry the agent is handed, `experiment_tools` the three read-only windows
 onto what this lab has already measured, `probe` the bilingual measurement
 those tools wrap, `backends` the catalogue and the two answer paths,
 `__main__` the real-call harness.
 
-The agent is `langchain.agents.create_agent` with six middleware hooks, taken
+The agent is `langchain.agents.create_agent` with four middleware hooks, taken
 2026-08-18 when this project moved to langchain 1.x. Before that the pin said
 `langchain<1` and the agent was langgraph's `create_react_agent` — the same
 prebuilt loop under its pre-1.0 name, wired through `pre_model_hook`,
 `post_model_hook` and a callable model because `AgentMiddleware` was a major
-version away.
+version away. There were six hooks from 2026-08-18 until 2026-08-28, when
+`before_model`/`after_model` folded into the `wrap_model_call` wrapper so a
+tool hop stopped costing two graph nodes it never needed (`hooks.RECURSION_LIMIT`).
 """
 # The submodules stay reachable (widget.backends, widget.probe, ...) because
 # a test that monkeypatches an internal must patch the module that defines
@@ -73,12 +75,12 @@ from raglab.agents.widget.hooks import (
     MAX_HISTORY,
     MAX_QUESTION,
     MIDDLEWARE,
+    RECURSION_LIMIT,
     _validate,
-    check_reply,
     check_request,
     close_the_log,
     log_tool_call,
-    note_prompt,
+    stop_repeated_tool_hops,
     trim_and_call)
 from raglab.agents.widget.probe import _read_pairs
 from raglab.agents.widget.prompts import (

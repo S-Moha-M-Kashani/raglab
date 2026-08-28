@@ -15,6 +15,18 @@ from raglab.agents import widget
 from raglab.llm_backends import openrouter_key_memory as credentials
 
 
+@pytest.fixture(autouse=True)
+def _no_experiment_reader_leaks_between_tests():
+    """The experiment reader is process-wide and `create_app` wires it, so a
+    route test in this file leaves the lab's own validated records behind for
+    every unit test that follows. What a turn resolves about its thread — the
+    trusted dataset, and so the memory it is filed under — depends on them, and
+    a unit test naming a thread of its own should not inherit another test's
+    provenance."""
+    yield
+    widget.experiment_tools.set_experiment_reader(None)
+
+
 # --- the knowledge base and the two tools -------------------------------
 
 def test_the_knowledge_base_has_facts_and_they_are_strings():
@@ -256,7 +268,7 @@ def test_a_probe_that_cannot_load_its_encoder_refuses_by_name(monkeypatch):
     assert 'sentence_transformers' in reply
 
 
-# --- the six hooks, as middleware ----------------------------------------
+# --- the four hooks, as middleware ---------------------------------------
 
 def test_before_agent_refuses_an_empty_question_and_caps_a_long_one():
     # this is a unit test
@@ -282,38 +294,86 @@ def test_check_request_caps_by_replacing_the_question_not_appending_to_it():
     assert widget.check_request.before_agent({'messages': [short]}, None) is None
 
 
+class _FakeModelRequest:
+    """A minimal stand-in for `langchain`'s `ModelRequest`: just the four
+    attributes `trim_and_call` reads (`messages`, `model`, `state`,
+    `override`)."""
+
+    def __init__(self, messages, state=None):
+        self.messages = messages
+        self.model = type('M', (), {'model_name': 'openai/gpt-5-nano'})()
+        self.state = {'messages': []} if state is None else state
+
+    def override(self, **changes):
+        return _FakeModelRequest(changes['messages'], self.state)
+
+
 def test_trim_and_call_shortens_the_request_never_the_transcript():
     # this is a unit test
     """1.x has no `llm_input_messages`: the trim is an override on the request
     handed to this hop, and the graph's own messages are left alone."""
     seen = {}
-
-    class FakeRequest:
-        def __init__(self, messages):
-            self.messages = messages
-            self.model = type('M', (), {'model_name': 'openai/gpt-5-nano'})()
-
-        def override(self, **changes):
-            return FakeRequest(changes['messages'])
-
-    request = FakeRequest(list(range(widget.MAX_HISTORY + 5)))
+    request = _FakeModelRequest(list(range(widget.MAX_HISTORY + 5)))
     widget.trim_and_call.wrap_model_call(
         request, lambda r: seen.setdefault('messages', r.messages))
     assert len(seen['messages']) == widget.MAX_HISTORY
     assert len(request.messages) == widget.MAX_HISTORY + 5
 
 
-def test_check_reply_tells_a_tool_hop_from_an_answer():
+def test_trim_and_call_logs_the_shape_of_what_came_back():
     # this is a unit test
+    """`note_prompt`/`check_reply` folded into `trim_and_call` on 2026-08-28:
+    the `before_model`/`after_model` lines they used to write as graph nodes
+    are now written from inside this wrapper instead."""
+    from langchain.agents.middleware import ModelResponse
     from langchain_core.messages import AIMessage
+
+    def last_two(reply):
+        widget.HOOK_LOG.clear()
+        widget.trim_and_call.wrap_model_call(
+            _FakeModelRequest([]), lambda r: ModelResponse(result=[reply]))
+        return list(widget.HOOK_LOG)[-2:]
+
+    trim_line, after = last_two(AIMessage(content='', tool_calls=[
+        {'name': 'calculate', 'args': {'expression': '1+1'}, 'id': 'a'}]))
+    assert trim_line.startswith('wrap_model_call:')
+    assert 'calculate' in after
+    assert after.startswith('after_model:')
+    assert 'answer' in last_two(AIMessage(content='seven'))[1]
+    assert 'empty reply' in last_two(AIMessage(content='  '))[1]
+
+
+def test_trim_and_call_guard_short_circuits_without_calling_handler():
+    # this is a unit test
+    """At `MAX_TOOL_HOPS` the guard must win before a model call is ever
+    spent on it — `wrap_model_call` accepts a plain `AIMessage` back, no
+    tool calls, and that alone is what ends the run."""
+    from langchain_core.messages import AIMessage
+
+    hop_worth = [AIMessage(content='', tool_calls=[
+        {'name': 'calculate', 'args': {}, 'id': str(i)}])
+        for i in range(widget.hooks.MAX_TOOL_HOPS)]
+    request = _FakeModelRequest([], {'messages': hop_worth})
+    called = []
+    result = widget.trim_and_call.wrap_model_call(
+        request, lambda r: called.append(r))
+    assert not called
+    assert isinstance(result, AIMessage)
+    assert not (result.tool_calls or [])
+    assert 'tool calls started repeating' in result.content
+
+
+def test_hook_log_stops_growing_at_its_cap():
+    # this is a unit test
+    """`HOOK_LOG` lives for the whole process and is shared by every
+    concurrent turn, so it must not grow without bound."""
     widget.HOOK_LOG.clear()
-    widget.check_reply.after_model({'messages': [AIMessage(content='', tool_calls=[
-        {'name': 'calculate', 'args': {'expression': '1+1'}, 'id': 'a'}])]}, None)
-    widget.check_reply.after_model({'messages': [AIMessage(content='seven')]}, None)
-    widget.check_reply.after_model({'messages': [AIMessage(content='  ')]}, None)
-    assert 'calculate' in widget.HOOK_LOG[0]
-    assert 'answer' in widget.HOOK_LOG[1]
-    assert 'empty reply' in widget.HOOK_LOG[2]
+    cap = widget.HOOK_LOG.maxlen
+    for i in range(cap + 50):
+        widget.hooks._fired('test', str(i))
+    assert len(widget.HOOK_LOG) == cap
+    assert widget.HOOK_LOG[-1] == f'test: {cap + 49}'
+    assert widget.HOOK_LOG[0] == f'test: {50}'
 
 
 def test_log_tool_call_logs_the_call_and_lets_the_error_through():
@@ -331,21 +391,20 @@ def test_log_tool_call_logs_the_call_and_lets_the_error_through():
     assert any('raised' in line for line in widget.HOOK_LOG)
 
 
-def test_all_six_hooks_are_registered_middleware():
+def test_all_four_hooks_are_registered_middleware():
     # this is a unit test
     """Each is the framework's own `AgentMiddleware`, not this module's
-    imitation of one — and `create_agent` is handed all six."""
+    imitation of one — and `create_agent` is handed all four."""
     from langchain.agents.middleware import AgentMiddleware
-    assert len(widget.MIDDLEWARE) == 6
+    assert len(widget.MIDDLEWARE) == 4
     assert all(isinstance(m, AgentMiddleware) for m in widget.MIDDLEWARE)
     assert [m.name for m in widget.MIDDLEWARE] == [
-        'check_request', 'note_prompt', 'trim_and_call', 'log_tool_call',
-        'check_reply', 'close_the_log']
+        'check_request', 'trim_and_call', 'log_tool_call', 'close_the_log']
 
 
 def test_the_two_agent_level_hooks_bracket_a_cli_too(monkeypatch):
     # this is a unit test
-    """A CLI has no tool loop for the middle four and no graph to hang
+    """A CLI has no tool loop for the middle two and no graph to hang
     middleware on — but a request is still validated and a run accounted."""
     monkeypatch.setattr(widget.backends, 'cli_available', lambda cli: True)
     monkeypatch.setattr(widget.backends, '_cli_answer',
@@ -639,6 +698,76 @@ def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
 
     assert answer.status_code == 200
     assert answer.json()['memory'] == {'status': 'saved'}
+
+
+def test_the_route_says_unavailable_when_no_judge_ever_answered(
+        client, monkeypatch):
+    # this is an integration test
+    """A judge that could not be reached is not a judge that said no. Both
+    reach the route as `relevant: False`, because saving fails closed either
+    way — but telling a reader their question was off-topic when nobody read it
+    is telling them something untrue, which is the one thing no record here
+    may do."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': 'The comparison is worth retaining.',
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {
+            'relevant': False, 'should_save': False, 'saved': False,
+            'unavailable': True, 'dataset_id': '',
+            'reason': 'The memory policy could not be reached: unavailable or '
+                      'malformed (connection refused); nothing was saved.',
+        }})
+
+    answer = client.post('/api/widget', json={'message': 'remember this'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'unavailable'}
+
+
+def test_a_policy_nobody_could_reach_is_marked_as_unreached_not_refused(
+        monkeypatch):
+    # this is a unit test
+    """The same distinction one step earlier, where the decision is made:
+    `hooks.evaluate_memory_policy` fails closed on every field, so only the
+    decision's own flag can tell the two apart afterwards."""
+    class Unreachable:
+        def with_structured_output(self, schema):
+            raise RuntimeError('connection refused')
+
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda model: Unreachable())
+
+    decision = widget.backends._finish_memory(
+        'Which index should I use?', 'an answer', 'openai/gpt-5-nano',
+        'general', '')
+
+    assert decision['unavailable'] is True
+    assert decision['saved'] is False
+    assert decision['should_save'] is False
+    assert 'could not be reached' in decision['reason']
+
+
+def test_ask_and_stream_refuse_a_missing_key_before_reading_any_record(
+        monkeypatch):
+    # this is a unit test
+    """`ask` and `stream` are one turn and must do their work in one order.
+    They had drifted: `ask` read the thread's records and its long-term memory
+    first, while `stream` — through the order Python evaluates arguments in —
+    built the agent first. On a keyless install that is a ledger query and a
+    run-file read spent on a turn that was never going to run."""
+    reads = []
+    monkeypatch.setattr(widget.experiment_tools, 'trusted_dataset_id',
+                        lambda experiment: reads.append(experiment) or '')
+
+    def unavailable(model):
+        raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
+
+    monkeypatch.setattr(widget.backends, '_agent_for', unavailable)
+
+    for call in (widget.ask, widget.stream):
+        with pytest.raises(widget.WidgetUnavailable):
+            call('which ports?', model='openai/gpt-5-nano', thread='exp-order')
+    assert reads == []
 
 
 # --- the real build, when the extra is installed --------------------------
@@ -1070,8 +1199,6 @@ def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch)
     stub = _StreamStub(
         _chunks('answer'),
         {'messages': [HumanMessage(content='q'), AIMessage(content='answer')]})
-    monkeypatch.setattr(widget.backends, '_memory_turn',
-                        lambda message, model, thread: (decision, object(), ''))
     monkeypatch.setattr(widget.backends, '_finish_memory',
                         lambda *args: {**decision, 'saved': True})
     model = _streaming(stub)
@@ -1268,18 +1395,10 @@ def test_the_trim_keeps_every_system_line_and_the_newest_of_the_rest():
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
     seen = {}
 
-    class FakeRequest:
-        def __init__(self, messages):
-            self.messages = messages
-            self.model = type('M', (), {'model_name': 'openai/gpt-5-nano'})()
-
-        def override(self, **changes):
-            return FakeRequest(changes['messages'])
-
     tail = [m for i in range(15) for m in (HumanMessage(content=f'q{i}'),
                                            AIMessage(content=f'a{i}'))]
-    request = FakeRequest([SystemMessage(content='about exp-1'),
-                           SystemMessage(content='memory'), *tail])
+    request = _FakeModelRequest([SystemMessage(content='about exp-1'),
+                                 SystemMessage(content='memory'), *tail])
     widget.trim_and_call.wrap_model_call(
         request, lambda r: seen.setdefault('messages', r.messages))
     kept = seen['messages']

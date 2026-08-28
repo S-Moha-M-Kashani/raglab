@@ -352,6 +352,10 @@
       saved: 'Memory saved for future lab conversations.',
       not_saved: 'Memory was not saved.',
       irrelevant: 'No memory saved: this was not relevant to the lab.',
+      // Not the same line as `irrelevant`, deliberately: nobody judged this
+      // turn, so saying it was off-topic would be putting a verdict in a
+      // reader's mouth that no model ever gave.
+      unavailable: 'No memory saved: the memory helper could not be reached.',
     };
     return copy[memory && memory.status] || '';
   }

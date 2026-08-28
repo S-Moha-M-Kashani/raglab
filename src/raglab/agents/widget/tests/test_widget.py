@@ -724,6 +724,26 @@ def test_the_route_says_unavailable_when_no_judge_ever_answered(
     assert answer.json()['memory'] == {'status': 'unavailable'}
 
 
+def test_the_route_says_pending_while_the_decision_is_still_being_made(
+        client, monkeypatch):
+    # this is an integration test
+    """The ordinary case since both paths answer first and file afterwards.
+
+    The deferred block carries no policy booleans — there is no verdict to put
+    in them yet — and it used to be dropped here, leaving the reader with no
+    memory line at all. No line is not neutral: it reads as the lab finding
+    nothing worth keeping, which is a verdict nobody gave."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': 'The comparison is worth retaining.',
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {'status': 'pending', 'saved': False}})
+
+    answer = client.post('/api/widget', json={'message': 'remember this'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'pending'}
+
+
 def test_a_policy_nobody_could_reach_is_marked_as_unreached_not_refused(
         monkeypatch):
     # this is a unit test
@@ -1090,8 +1110,10 @@ def _streaming(agent, model='openai/gpt-5-nano'):
 
 def test_stream_yields_the_answer_in_pieces_then_the_account():
     # this is a unit test
-    """One event per piece while the answer is written, then exactly one final
-    event — the same dict `ask` returns, so a page can render either."""
+    """One event per piece while the answer is written, then exactly one reply
+    event — the same dict `ask` returns, so a page can render either. The
+    memory status follows it and is the last thing said; the reply is picked
+    out by name rather than by position, the way the page picks it out."""
     from langchain_core.messages import HumanMessage
     stub = _StreamStub(_chunks('the ', 'ports ', 'are 9002'),
                        {'messages': [HumanMessage(content='which ports?'),
@@ -1105,9 +1127,12 @@ def test_stream_yields_the_answer_in_pieces_then_the_account():
         events = list(widget.stream('which ports?', model=model, thread='exp-a'))
     finally:
         widget.reset()
-    assert [e['delta'] for e in events[:-1]] == ['the ', 'ports ', 'are 9002']
-    assert events[-1] == {'reply': 'the ports are 9002',
-                          'input_tokens': 30, 'output_tokens': 7}
+    assert [e['delta'] for e in events if 'delta' in e] == ['the ', 'ports ',
+                                                            'are 9002']
+    replies = [e for e in events if 'reply' in e]
+    assert replies == [{'reply': 'the ports are 9002',
+                        'input_tokens': 30, 'output_tokens': 7}]
+    assert 'memory' in events[-1]
     # The same thread the same way `ask` runs it, stamp included.
     assert stub.seen['config']['configurable']['thread_id'] == 'exp-a'
     assert stub.seen['payload']['experiment_id'] == 'exp-a'
@@ -1166,7 +1191,7 @@ def test_streaming_names_the_tool_being_called():
     assert statuses == [{'status': 'search_knowledge_base'}]
     assert said.index(statuses[0]) < said.index({'delta': '9002 it is'})
     assert [e['delta'] for e in said if 'delta' in e] == ['9002 it is']
-    assert said[-1]['reply'] == '9002 it is'
+    assert [e['reply'] for e in said if 'reply' in e] == ['9002 it is']
 
 
 def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
@@ -1185,22 +1210,30 @@ def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
         events = list(widget.stream('q', model=model))
     finally:
         widget.reset()
-    assert events[-1]['reply'] == 'half an answer, whole'
+    assert [e['reply'] for e in events if 'reply' in e] == [
+        'half an answer, whole']
 
 
-def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch):
+def test_the_event_after_the_streamed_reply_is_the_deferred_status(monkeypatch):
     # this is a unit test
-    """The authoritative reply is emitted before the stream resumes, and the
-    following event carries the memory status after the save is performed."""
-    from langchain_core.messages import HumanMessage
+    """The authoritative reply is emitted first, and the event after it says a
+    decision is pending — not what the decision was.
 
-    decision = {'relevant': True, 'should_save': True, 'saved': False,
-                'dataset_id': 'dataset', 'subtopic': 'topic', 'reason': 'retain'}
+    It carried the resolved decision until 2026-08-28, which it could only do
+    by holding the event stream open through the policy call, the summarizer
+    call and two readings of the board, every bit of it after the reader had
+    the whole answer. The judgement is unchanged and still happens; it happens
+    on a thread of its own, which is what this last event reports."""
+    from langchain_core.messages import HumanMessage
+    import threading
+
     stub = _StreamStub(
         _chunks('answer'),
         {'messages': [HumanMessage(content='q'), AIMessage(content='answer')]})
+    judged = threading.Event()
+    monkeypatch.setattr(widget.backends, '_memory_model', lambda model: object())
     monkeypatch.setattr(widget.backends, '_finish_memory',
-                        lambda *args: {**decision, 'saved': True})
+                        lambda *args: judged.set())
     model = _streaming(stub)
     try:
         events = widget.stream('q', model=model)
@@ -1208,7 +1241,12 @@ def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch)
         assert next(events) == {
             'reply': 'answer', 'input_tokens': None, 'output_tokens': None,
         }
-        assert next(events) == {'memory': {**decision, 'saved': True}}
+        assert next(events) == {'memory': {'status': 'pending',
+                                           'saved': False}}
+        with pytest.raises(StopIteration):
+            next(events)
+        # Deferred, not dropped: the decision is being taken elsewhere.
+        assert judged.wait(5)
     finally:
         widget.reset()
 

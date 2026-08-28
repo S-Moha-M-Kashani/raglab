@@ -356,6 +356,11 @@
       // turn, so saying it was off-topic would be putting a verdict in a
       // reader's mouth that no model ever gave.
       unavailable: 'No memory saved: the memory helper could not be reached.',
+      // The answer comes out before the decision about keeping it is taken, so
+      // this is what is true when the turn lands: not a save, not a refusal,
+      // and not silence — which would read as the lab finding nothing worth
+      // keeping.
+      pending: 'Nothing filed yet: still deciding whether to keep this turn.',
     };
     return copy[memory && memory.status] || '';
   }

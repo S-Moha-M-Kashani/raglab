@@ -10,8 +10,9 @@ One turn, one order, both paths: what the answer needs runs before the agent,
 what the *filing* needs runs after it. Before the agent (`_preflight`): the
 relevance guard, the thread's trusted dataset — resolved *once*, because each
 resolution is a ledger query plus a run-file read — and the long-term memory
-filed under that dataset. After the answer (`_finish_memory`): the memory
-policy and every provenance gate, then the summary and the write.
+filed under that dataset. After the answer (`_finish_memory`, on a thread of
+its own for both paths): the memory policy and every provenance gate, then the
+summary and the write.
 
 Until 2026-08-28 the policy ran first, so the reader waited two model round
 trips for the first word: the policy was being read as a gate on *answering*.
@@ -530,7 +531,7 @@ def _summarize_memory_update(**kwargs):
 
 def _finish_memory(question: str, answer: str, model: str, thread: str,
                    dataset: str, turn_id: str = '',
-                   transcript: str = '') -> dict | None:
+                   transcript: str = '', policy_model=None) -> dict | None:
     """The memory decision, taken after the answer exists, and the write it
     permits.
 
@@ -549,13 +550,19 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
     `_preflight`: a follow-up like `and?` is judged against the exchange it
     depends on, not against the answer it just produced.
 
+    `policy_model` is the client `_defer_memory` already built — building one
+    is how it tells a decision that can be made from one that cannot, and
+    building a second here would be the same cached lookup twice for one turn.
+    A direct caller hands nothing and this builds its own.
+
     `None` means there was no policy to ask at all — no client could be built —
     so the turn says nothing about memory rather than inventing a verdict.
     """
-    try:
-        policy_model = _memory_model(model)
-    except Exception:
-        return None
+    if policy_model is None:
+        try:
+            policy_model = _memory_model(model)
+        except Exception:
+            return None
     policy = evaluate_memory_policy(
         question, policy_model, experiment_id=thread, dataset_id=dataset,
         trusted_dataset_id=dataset, conversation=transcript)
@@ -597,7 +604,12 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
                        f'on {dataset or "no validated dataset"}, so nothing '
                        'was filed.')})
         return decision
-    foreign = experiment_tools.foreign_experiments(answer, dataset)
+    # One reading of the board for this whole pass, handed to both things that
+    # need it — the foreign-experiment refusal below and the validated ids the
+    # write is checked against. Each used to take its own, so a saved turn read
+    # up to `SCAN` run files off disk twice over.
+    board = experiment_tools.board_snapshot()
+    foreign = experiment_tools.foreign_experiments(answer, dataset, rows=board)
     if foreign:
         named = ', '.join(f'{i} ({d})' for i, d in sorted(foreign.items()))
         decision.update({
@@ -623,7 +635,8 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
             'question': question, 'answer': answer,
             'dataset_summary': dataset_summary,
             'global_summary': global_summary,
-            'validated_dataset_ids': experiment_tools.validated_dataset_ids(thread)}
+            'validated_dataset_ids': experiment_tools.validated_dataset_ids(
+                thread, rows=board)}
         writer = tools.save_widget_memory
         stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
                   else writer(**arguments))
@@ -642,15 +655,32 @@ def _defer_memory(question: str, answer: str, model: str, thread: str,
 
     What comes back is a status and not a verdict, because the verdict is not
     made yet: the policy runs on the thread this starts. `saved: False` is the
-    honest reading of that moment — nothing has been filed — and the absence of
-    `relevant`/`should_save` is what keeps the panel from rendering a guess
-    (`panel_server._safe_widget_event` omits a memory value whose three
-    booleans are not all there). A streamed turn does not need this: it has a
-    later event to carry the resolved decision."""
+    honest reading of that moment — nothing has been filed — and `pending` is
+    what the panel shows for it (`panel_server._safe_widget_event`), because a
+    turn whose memory line is simply missing reads as a turn nobody wanted to
+    keep.
+
+    Both paths defer, since 2026-08-28. A streamed turn does have a later event
+    to spend, and used to spend it on the resolved decision — but it could only
+    resolve one by holding the event stream open through the policy call, the
+    summarizer call and two full readings of the board, all after the reader
+    had every word of the answer. It now sends this same status on that event.
+
+    `pending` is a promise that a decision is coming, so it is not made where
+    none can be: an installation with no policy client to build will never
+    resolve anything, and that turn reports `unavailable` — the word the panel
+    already uses for a judge nobody could reach — rather than a wait with no
+    end. Building the client is that test, and the one built here is the one
+    the deferred work uses — the same turn asks for its judge once."""
+    try:
+        policy_model = _memory_model(model)
+    except Exception:
+        return {'status': 'unavailable', 'saved': False}
+
     def finish():
         try:
             _finish_memory(question, answer, model, thread, dataset, turn_id,
-                           transcript)
+                           transcript, policy_model)
         except Exception:  # defensive boundary: a daemon thread has nobody to
             pass           # tell, and the answer is already with the reader.
 
@@ -670,12 +700,13 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
     thread's own two state fields (`conversation_memory.thread_stamp`); a CLI
     keeps nothing at all, so it stamps nothing either — the label says so.
 
-    The order is the module's: the deterministic guard, then `_preflight`, then
-    the agent, and only afterwards the memory policy — started on a thread of
-    its own, so the answer is not held behind a judgement about whether to keep
-    it. The `memory` field of a turn that ran therefore says `pending`, and the
-    verdict lands in the long-term store rather than in this return value; a
-    streamed turn is the one that reports it back, on its own last event.
+    The order is the module's: the deterministic guard, then the agent, then
+    `_preflight`, and only afterwards the memory policy — started on a thread
+    of its own, so the answer is not held behind a judgement about whether to
+    keep it. The `memory` field of a turn that ran therefore says `pending`,
+    and the verdict lands in the long-term store rather than in this return
+    value; a streamed turn now reports that same status on its own memory
+    event, because it defers the very same work.
 
     `stream` is the same turn, arriving as it is written. This is the whole
     answer at once, which is what a caller with nowhere to put a half-written
@@ -792,7 +823,11 @@ def _stream_agent(agent, message: str, thread: str, model: str,
     paths are one turn, and a streamed answer that stood on a different dataset
     from an asked one would be two turns wearing one name. It is required
     rather than defaulted: a default would be a turn quietly running with no
-    dataset, no memory context and no policy stamp."""
+    dataset, no memory context and no policy stamp.
+
+    The generator ends one event after the reply, and that event is a status
+    rather than a verdict — see `_defer_memory`. Nothing this connection stays
+    open for happens after the answer any more."""
     payload, config = _run(message, thread, dataset=pre.dataset,
                            memory_state=pre.state, memory_text=pre.context)
     final = None
@@ -825,24 +860,25 @@ def _stream_agent(agent, message: str, thread: str, model: str,
                         ai_message_id=str(getattr(final['messages'][-1], 'id', '') or ''))
     yield output
     # The reply is authoritative and must reach the caller before the memory
-    # policy is even asked. Memory is a separate event so a streamed reader can
-    # render the answer without waiting for a judgement about keeping it — and
-    # because this path has a later event to spend, it reports the resolved
-    # decision rather than `ask`'s `pending`. No decision at all (no policy
-    # client to ask) is no event: the turn says nothing rather than a guess.
-    finished = _finish_memory(message, reply, model, thread, pre.dataset,
-                              turn_id, pre.transcript)
-    if finished is not None:
-        yield {'memory': finished}
+    # policy is even asked. Until 2026-08-28 the whole decision was made right
+    # here, inline, so the connection stayed open through the policy call, the
+    # summarizer call and two readings of the board — a cost paid after the
+    # reader already had every word, and one that grows with `.runs/`. The work
+    # is now handed to a thread of its own, exactly as `ask` hands it over, and
+    # this last event says a decision is pending rather than reporting one:
+    # that is what is true at the moment it is sent.
+    yield {'memory': _defer_memory(message, reply, model, thread, pre.dataset,
+                                   turn_id, pre.transcript)}
 
 
 def stream(message: str, model: str = '', thread: str = ''):
     """The same turn as `ask`, handed over as it is written: an iterator of
     events, `{'delta': text}` for each piece and then an authoritative
-    `{'reply', 'input_tokens', 'output_tokens'}` event, followed — when there
-    was a memory policy to ask at all — by a separate memory event carrying the
-    decision it came to. The reply event is the very dict `ask` returns without
-    memory metadata; the deltas are how it arrived.
+    `{'reply', 'input_tokens', 'output_tokens'}` event, followed by a separate
+    memory event carrying the status of the decision `ask` reports the same
+    way: one taken after the answer, on a thread of its own. The reply event is
+    the very dict `ask` returns without memory metadata; the deltas are how it
+    arrived.
 
     A call, not a generator function, and that distinction is the point:
     everything knowable before the first piece — an unserved model, a missing

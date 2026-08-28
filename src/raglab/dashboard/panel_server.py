@@ -346,17 +346,26 @@ def _safe_widget_event(event):
     unchanged. A malformed or absent memory value is omitted rather than
     guessed at.
 
-    Four statuses, not three: a turn nobody judged is `unavailable`, never
-    `irrelevant`. Both arrive here as `relevant: False`, because saving fails
+    Five statuses, not three. A turn nobody judged is `unavailable`, never
+    `irrelevant`: both arrive here as `relevant: False`, because saving fails
     closed when the policy cannot be reached — but telling a reader their
     question was off-topic when the judge was simply down is telling them
-    something untrue, which is the one thing no record in this lab may do.
+    something untrue, which is the one thing no record in this lab may do. And
+    a turn whose decision has not been taken yet is `pending`, which is now the
+    ordinary case: both answer paths file after they answer.
     """
     if not isinstance(event, dict) or 'memory' not in event:
         return event
     memory = event.get('memory')
     if not isinstance(memory, dict):
         return {key: value for key, value in event.items() if key != 'memory'}
+    deferred = memory.get('status')
+    if deferred in ('pending', 'unavailable'):
+        # A deferred decision carries no booleans, because there is no verdict
+        # to put in them. Dropping the block would leave the reader with no
+        # memory line at all, and no line reads as "nothing was worth keeping"
+        # — a verdict, and one nobody gave.
+        return event | {'memory': {'status': deferred}}
     if not all(isinstance(memory.get(key), bool)
                for key in ('relevant', 'should_save', 'saved')):
         return {key: value for key, value in event.items() if key != 'memory'}

@@ -413,13 +413,31 @@ def test_accepted_turn_can_update_global_pattern(monkeypatch):
     assert 'Session-aware chunking recurs' in context
 
 
-def test_stream_emits_authoritative_answer_before_save(monkeypatch):
+class _StreamAgent(_Agent):
+    """The stub `agent.stream` both streaming tests drive: one piece, then the
+    state the run ended in — the two modes `_stream_agent` reads."""
+
+    def stream(self, payload, config=None, stream_mode=None):
+        yield ('messages', (AIMessage(content=self.answer), {}))
+        yield ('values', {'messages': [*payload['messages'],
+                                       AIMessage(content=self.answer)]})
+
+
+def test_stream_emits_authoritative_answer_then_defers_the_decision(monkeypatch):
+    """The streamed turn's last event is a status, not a verdict.
+
+    It was the verdict until 2026-08-28, which meant the event stream stayed
+    open through the policy call, the summarizer call and two readings of the
+    board — all after the reader had every word of the answer. The decision is
+    the same decision and still happens; it happens on a thread of its own, the
+    way `ask` has always handed it over, so the generator ends where the answer
+    does and the event says `pending`."""
     widget.experiment_tools.set_experiment_reader(_ExperimentReader('smoke-mini'))
     policy = {
         'relevant': True, 'should_save': True, 'dataset_id': 'smoke-mini',
         'subtopic': 'retrieval', 'reason': 'reusable',
     }
-    agent, _ = _setup(monkeypatch, policy, answer='streamed answer')
+    _setup(monkeypatch, policy, answer='streamed answer')
     events = []
 
     def summarize(**kwargs):
@@ -432,18 +450,8 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
 
     monkeypatch.setattr(widget.backends, '_summarize_memory_update', summarize)
     monkeypatch.setattr(widget.tools, 'save_widget_memory', save)
-
-    # The stream stub is supplied by the backend tests; this test pins the
-    # save boundary by using the public stream path's final event.
-    class StreamAgent(_Agent):
-        def stream(self, payload, config=None, stream_mode=None):
-            yield ('messages', (AIMessage(content='streamed answer'), {}))
-            yield ('values', {'messages': [
-                *payload['messages'], AIMessage(content='streamed answer')
-            ]})
-
-    stream_agent = StreamAgent('streamed answer')
-    monkeypatch.setattr(widget.backends, '_agent_for', lambda model: stream_agent)
+    monkeypatch.setattr(widget.backends, '_agent_for',
+                        lambda model: _StreamAgent('streamed answer'))
     output = widget.stream('What should we retain?',
                            model='openai/gpt-5-nano', thread='stream-exp')
 
@@ -451,16 +459,120 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
     reply = next(output)
     assert reply == {'reply': 'streamed answer',
                      'input_tokens': None, 'output_tokens': None}
-    assert events == []
-    assert long_memory.memory_context('smoke-mini') == ''
 
-    status = next(output)
-    assert status['memory']['saved'] is True
-    assert status['memory']['dataset_id'] == 'smoke-mini'
-    assert events == ['summarize', 'save']
-
+    # The same status `ask` reports for the same question: one turn, one
+    # contract, whichever way the answer was asked for.
+    assert next(output) == {'memory': {'status': 'pending', 'saved': False}}
     with pytest.raises(StopIteration):
         next(output)
+
+    # Deferred, not dropped: the write lands, just not on this connection.
+    _eventually(lambda: events == ['summarize', 'save'])
+
+
+def test_the_streamed_generator_ends_before_the_summarizer_does(monkeypatch):
+    """The claim the deferral is for: no summarizer call is between the last
+    event and the caller getting control back.
+
+    The summarizer here blocks until this test releases it, and this test does
+    not release it until the generator is exhausted: a generator that still
+    waited on it would be the one thing that cannot finish. It also names the
+    thread it ran on, which must not be the thread the events were read from."""
+    import threading
+
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('smoke-mini'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'smoke-mini',
+        'subtopic': 'retrieval', 'reason': 'reusable'}, answer='streamed answer')
+    running = threading.Event()
+    release = threading.Event()
+    ran_on, summarized = [], []
+
+    def summarize(**kwargs):
+        ran_on.append(threading.current_thread())
+        running.set()
+        release.wait(30)
+        summarized.append(True)
+        return {'dataset_summary': 'stream finding', 'global_summary': ''}
+
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update', summarize)
+    monkeypatch.setattr(widget.tools, 'save_widget_memory',
+                        lambda **kwargs: {'saved': True,
+                                          'dataset_id': 'smoke-mini'})
+    monkeypatch.setattr(widget.backends, '_agent_for',
+                        lambda model: _StreamAgent('streamed answer'))
+    try:
+        events = list(widget.stream('What should we retain?',
+                                    model='openai/gpt-5-nano',
+                                    thread='stream-defer'))
+        # The generator is exhausted while the summarizer is still inside a
+        # call this test has not released: it cannot have waited for one.
+        assert running.wait(5)
+        assert summarized == []
+        assert events[-1] == {'memory': {'status': 'pending', 'saved': False}}
+        assert ran_on[0] is not threading.current_thread()
+    finally:
+        release.set()
+
+
+def test_one_memory_pass_reads_the_board_once(monkeypatch):
+    """`leaderboard.board_rows` reads up to `SCAN` run files off disk, and the
+    pass needed the rows twice — once for the foreign-experiment refusal, once
+    for the validated ids the write is checked against. Two full readings per
+    saved turn, growing with `.runs/`; one snapshot now serves both."""
+    class Counted:
+        def __init__(self):
+            self.reads = 0
+
+        def experiment(self, experiment_id):
+            return {'experiment_id': experiment_id, 'dataset': 'diary-en'}
+
+        def board_rows(self, limit=500):
+            self.reads += 1
+            return [{'experiment_id': 'this-exp', 'dataset': 'diary-en'}]
+
+    reader = Counted()
+    widget.experiment_tools.set_experiment_reader(reader)
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda model: _PolicyModel({
+                            'relevant': True, 'should_save': True,
+                            'dataset_id': 'diary-en', 'subtopic': 'retrieval',
+                            'reason': 'reusable'}))
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: {'dataset_summary': 'a finding',
+                                          'global_summary': ''})
+
+    decision = widget.backends._finish_memory(
+        'Did reranking help?', 'an answer naming nothing', 'openai/gpt-5-nano',
+        'this-exp', 'diary-en', '', '')
+
+    assert decision['saved'] is True
+    assert reader.reads == 1
+
+
+def test_a_turn_no_policy_client_can_judge_is_not_reported_as_pending(
+        monkeypatch):
+    """`pending` promises a decision is coming. Where no policy client can be
+    built there is nothing to make one: the deferred work would return `None`
+    on a daemon thread with nobody to tell, and the reader would be left
+    watching for a verdict that can never arrive. That turn says `unavailable`,
+    the same word the panel uses for a judge nobody could reach."""
+    monkeypatch.setattr(widget.backends, '_agent_for', lambda model: _Agent())
+
+    def unbuildable(model):
+        raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
+
+    monkeypatch.setattr(widget.backends, '_memory_model', unbuildable)
+    monkeypatch.setattr(widget.backends, '_finish_memory',
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            AssertionError('a decision nobody can make was '
+                                           'started anyway')))
+
+    result = widget.ask('Which chunker should I compare?',
+                        model='openai/gpt-5-nano', thread='keyless-exp')
+
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory'] == {'status': 'unavailable', 'saved': False}
 
 
 def test_save_failure_keeps_the_authoritative_answer(monkeypatch):

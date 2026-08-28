@@ -333,6 +333,11 @@ CONVENTIONS = [
      'route sends a fourth memory status for it, and without its own line here '
      'a reader whose judge was simply down is told their question was '
      'irrelevant to the lab'),
+    ('widget.js', "pending: 'Nothing filed yet:", None,
+     'the deferred decision needs its own line: both answer paths file after '
+     'they answer, so an undecided turn is the ordinary case, and a reader '
+     'shown no memory line at all reads it as the lab finding nothing worth '
+     'keeping — a verdict no model gave'),
     ('widget.css', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '

@@ -718,15 +718,18 @@ def _finish_memory(question: str, answer: str, model: str, thread: str,
         stored = (writer.invoke(arguments) if hasattr(writer, 'invoke')
                   else writer(**arguments))
         decision.update({'saved': bool(stored.get('saved')), 'save': stored})
-        refused = str(stored.get('global_refused') or '')
-        if refused:
-            # The dataset summary was filed and the cross-dataset note beside
-            # it was not: the store refuses a global note that names one
-            # corpus (`long_term_memory.cross_dataset_violation`), because
-            # every dataset's thread reads that row. A save is still a save,
-            # so this rides on the decision as its own field rather than
-            # turning `saved` into a lie in either direction.
-            decision['global_refused'] = refused
+        # Each summary is checked on its own way in
+        # (`long_term_memory.names_one_corpus`) and each can be refused on its
+        # own: a global note may name no corpus, a dataset note may name only
+        # the one it is filed under. Both reasons ride on the decision as
+        # their own fields so `_record_memory_outcome` can put them on the
+        # turn's row — `saved` already follows the dataset half, and loading it
+        # with the global half too would make it a lie in one direction or the
+        # other.
+        for field in ('dataset_refused', 'global_refused'):
+            refused = str(stored.get(field) or '')
+            if refused:
+                decision[field] = refused
         if turn_id and stored.get('update_id') is not None:
             # Outside the `except` below on purpose: the summary is already in
             # widget.db by now, so a failure to link it to the turn's row is a
@@ -765,20 +768,25 @@ def _record_memory_outcome(turn_id: str, decision: dict | None) -> None:
             turn_id, 'not filed: no memory policy was available to judge this '
                      'turn.')
         return
+    # A refused summary is a partial outcome, and this row is the record the
+    # read-time filter deliberately does not duplicate into the prompt: a note
+    # held back is a thing a reader may need to find, and the row is where a
+    # reader looks. The dataset half decides the opening word, because it is
+    # what `saved` follows — a turn whose only stored trace is its provenance
+    # row was not filed, and the policy's own "reusable" would be a strange
+    # thing to print after "not filed".
     error = decision.get('save_error')
     if error:
         reason = f'not filed: the memory write failed ({error}).'
+    elif decision.get('dataset_refused'):
+        reason = f"not filed: the dataset note {decision['dataset_refused']}."
     elif decision.get('saved'):
         reason = f"filed: {decision.get('reason') or 'the policy accepted it.'}"
     else:
         reason = f"not filed: {decision.get('reason') or 'the policy declined.'}"
-    refused = decision.get('global_refused')
-    if refused:
-        # A partial outcome, so the row says both halves. Global memory is the
-        # one row every dataset's thread reads, and a note held out of it is a
-        # thing a reader may need to know happened — the alternative is a row
-        # reading `filed` for a turn whose cross-dataset claim was dropped.
-        reason = f'{reason} The cross-dataset note was not kept: {refused}.'
+    if decision.get('global_refused'):
+        reason = (f'{reason} The cross-dataset note was not kept: it '
+                  f"{decision['global_refused']}.")
     turn_logger.attach_memory_outcome(turn_id, reason)
 
 

@@ -17,6 +17,8 @@ the experiments" are different sentences.
 """
 from langchain_core.tools import tool
 
+from raglab.agents.widget import long_term_memory
+
 # The reader, injected. None until a panel wires one in — the `__main__`
 # harness and any test that does not want records both run without one.
 _READER = None
@@ -38,9 +40,17 @@ _UNWIRED = ('Experiment records are not available: this widget was started '
 
 
 def set_experiment_reader(reader) -> None:
-    """Wire the records in, or pass None to unwire them."""
+    """Wire the records in, or pass None to unwire them.
+
+    `long_term_memory` caches this reader's dataset ids for the life of the
+    process — it filters every turn's memory context against them and cannot
+    afford a board reading per turn — so a change of reader has to forget
+    them. A cache that outlived the record it was taken from would let one
+    installation's corpus names go on answering for the next one's.
+    """
     global _READER
     _READER = reader
+    long_term_memory.forget_board_dataset_ids()
 
 
 def experiment_reader_wired() -> bool:

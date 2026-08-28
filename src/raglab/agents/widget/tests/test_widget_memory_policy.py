@@ -144,5 +144,6 @@ def test_the_summarizer_is_told_what_global_memory_may_hold():
     system = model.messages[0][1]
     assert system == hooks.SUMMARIZE_MEMORY_PROMPT
     for phrase in ('across corpora', 'no dataset id', 'no experiment id',
-                   "no single run's numbers", 'leave global_summary empty'):
+                   "no single run's numbers", 'leave global_summary empty',
+                   'no other dataset and no experiment id'):
         assert phrase in system

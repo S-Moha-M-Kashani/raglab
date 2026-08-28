@@ -196,7 +196,7 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
 #: What the summarizer is asked for. Named rather than left inline where it
 #: was, because two other places now state the same rule and a reader has to
 #: be able to find all three: this instruction, the store's check
-#: (`long_term_memory.cross_dataset_violation`) and the read-time filter.
+#: (`long_term_memory.names_one_corpus`) and the read-time filter.
 #: It stays in code, unlike every prompt in `fixtures/prompts/`, for the
 #: reason it was already in code: the rule it states is enforced by the store,
 #: so wording and check are one change, and a fixture a reader could edit into
@@ -204,13 +204,15 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
 #:
 #: The two summaries are not the same kind of sentence, so the instruction
 #: says so. `dataset_summary` is filed under one corpus and read only by that
-#: corpus's threads, so it may name it. `global_summary` is the single row
-#: every dataset's thread is handed, so it may hold only a pattern that holds
-#: across corpora — which is why it may name no dataset id, no experiment id
-#: and no single run's numbers. Told this, a summarizer still wrote
+#: corpus's threads, so it may name that corpus — and only that one, since a
+#: note about somebody else's corpus filed under this one is the same lie one
+#: thread wide. `global_summary` is the single row every dataset's thread is
+#: handed, so it may hold only a pattern that holds across corpora — which is
+#: why it may name no dataset id, no experiment id and no single run's
+#: numbers. Told this, a summarizer still wrote
 #: "Last experiment details for smoke-import-check: 6 questions analyzed …"
 #: into it, and a `nosrat-fa` thread was handed it as fact. So the instruction
-#: is the request and `long_term_memory.cross_dataset_violation` is the check;
+#: is the request and `long_term_memory.names_one_corpus` is the check;
 #: neither end is enough alone, because the write gate cannot repair a row
 #: written before it existed and the read filter cannot stop the store filling
 #: up with notes no thread will ever be shown.
@@ -218,7 +220,8 @@ SUMMARIZE_MEMORY_PROMPT = (
     'Summarize this accepted RAG-lab answer for bounded long-term memory. '
     'Return only dataset_summary and optional global_summary. Do not invent '
     'measurements.\n'
-    'dataset_summary is about the dataset named below and may name it.\n'
+    'dataset_summary is about the dataset named below: it may name that '
+    'dataset, and it must name no other dataset and no experiment id.\n'
     'global_summary is different: every dataset\'s thread reads it, so write '
     'one only for a pattern that holds across corpora. It must name no '
     'dataset id, no experiment id, and no single run\'s numbers. If this '

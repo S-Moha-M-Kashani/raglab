@@ -884,3 +884,34 @@ def test_over_reaching_global_note_is_refused_and_the_turn_row_says_so(
     assert row['memory_reason'].startswith('filed:')
     assert 'The cross-dataset note was not kept' in row['memory_reason']
     assert 'smoke-import-check' in row['memory_reason']
+
+
+def test_a_dataset_note_about_another_corpus_is_refused_and_the_row_says_so(
+        monkeypatch):
+    """`foreign_experiments` reads the *answer* for recorded experiment ids, so
+    a summary naming another corpus by name slipped past it and filed under
+    this thread's dataset. One thread rather than all of them, and the same
+    lie."""
+    class Reader(_ExperimentReader):
+        def board_rows(self, limit=500):
+            return [{'dataset': 'nosrat-fa'}, {'dataset': 'smoke-import-check'}]
+
+    widget.experiment_tools.set_experiment_reader(Reader('nosrat-fa'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'nosrat-fa',
+        'subtopic': 'indexing', 'reason': 'reusable'})
+    monkeypatch.setattr(
+        widget.backends, '_summarize_memory_update',
+        lambda **kwargs: {
+            'dataset_summary': ('smoke-import-check produced a flat '
+                                'structure.'),
+            'global_summary': ''})
+
+    widget.ask('What did indexing produce?',
+               model='openai/gpt-5-nano', thread='exp-nosrat')
+    _join_deferred_memory()
+
+    assert 'smoke-import-check' not in long_memory.memory_context('nosrat-fa')
+    row = widget.turn_logger.list_turns('exp-nosrat')[0]
+    assert row['memory_reason'].startswith('not filed: the dataset note names')
+    assert "corpus other than 'nosrat-fa'" in row['memory_reason']

@@ -11,21 +11,45 @@ attached. Every later task on this branch claims to shrink the prompt;
 without a number taken the same way before and after, that claim is
 decoration.
 
-This drives the real compiled agent — `hooks.MIDDLEWARE`, a real
-`create_agent` graph, a real (in-memory) checkpointer, the same shape
-`test_widget_regressions._drive_real_graph` already uses to prove
-`RECURSION_LIMIT` against the graph instead of recomputing its arithmetic —
-through a scripted thread of turns, some of which call a tool and some of
-which do not. Between turns, `long_term_memory` grows the standing memory
-line exactly the way an accepted `_finish_memory` outcome grows it: this
-calls the real `save_memory_update`/`memory_context`, not a stand-in string,
-because the whole point is a number a later task's real change would move.
+Round 1 of this file reimplemented production's turn construction instead of
+driving it — an invented opening line, a hand-copied dedup rule, and no
+`system_prompt` at all — and drifted at exactly the two points it did not
+copy, undercounting the real payload by about 13%. This version drives
+production's own seams instead of restating them:
 
-What is captured is what `trim_and_call` actually hands the model on each
-call — the count of system messages, the count of other messages, and the
-total characters of their rendered content (no tokenizer dependency; see
-`_content_chars`). A tool-calling turn costs two model calls, the hop and
-the answer, so the unit measured here is the call, not the turn; `probe_thread`
+- **`backends._run`** builds the turn's `(payload, config)` — the opening
+  line (`ACTIVE_EXPERIMENT_PROMPT`), the "a system line already sent is not
+  sent again" dedup, `thread_stamp`, `RECURSION_LIMIT` — so when a later task
+  changes any of those (one standing memory line instead of one per turn is
+  named as a coming change), this probe changes with it instead of silently
+  misreporting reality.
+- **`create_agent(..., system_prompt=SYSTEM_PROMPT, tools=TOOLS, ...)`** is
+  built the way `backends._build_agent` builds it, substituting only the
+  model (a scripted stand-in, never a real network call) for `_build_agent`'s
+  `ChatOpenAI`. Everything else — `SYSTEM_PROMPT`, the real `TOOLS` (so a
+  scripted tool call runs the real `read_rag_skill` over the real skills
+  corpus), `hooks.MIDDLEWARE`, `memory.WidgetState` — is production's own.
+  `system_prompt` matters here specifically: langchain's `_execute_model_sync`
+  prepends it to the message list *after* `trim_and_call` (a `wrap_model_call`
+  wrapper) has already run, so a probe that built its agent without it would
+  never see that message at all — the bug round 1 shipped.
+- **`memory.saver()`**, the same checkpointer `_build_agent` uses, rather than
+  a substitute. This one part of `_build_agent` cannot be swapped for an
+  in-memory stand-in: `backends._run`'s dedup reads "what this thread has
+  already been told" via `memory._channels`, which is hardwired to this one
+  module-level saver — not a parameter `_run` accepts — so an agent driven
+  under a *different* checkpointer would have its transcript and `_run`'s
+  idea of that transcript permanently disagree. Tests already redirect
+  `RAGLAB_WIDGET_DB` to a per-test temp file (`conftest.py`), so this stays
+  fully offline; `memory.forget(thread)` below keeps two probe runs, or a
+  probe run and a real test, from sharing a thread name by accident.
+
+What is captured is what the model actually receives on every call —
+`trim_and_call`'s trimmed window plus the framework-prepended system prompt —
+as the count of system messages, the count of other messages, and the total
+characters of their rendered content (no tokenizer dependency; see
+`_content_chars`). A tool-calling turn costs two model calls, the hop and the
+answer, so the unit measured here is the call, not the turn; `probe_thread`
 returns one `TurnPayload` per call, tagged with which turn it belongs to, so a
 caller can look at either grain.
 """
@@ -35,16 +59,17 @@ from dataclasses import dataclass
 
 from langchain.agents import create_agent
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.tools import tool
-from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import PrivateAttr
 
+from raglab.agents.widget import backends
 from raglab.agents.widget import conversation_memory as memory
 from raglab.agents.widget import hooks
 from raglab.agents.widget import long_term_memory
 from raglab.agents.widget import skills_corpus_loader as skills
+from raglab.agents.widget.prompts import SYSTEM_PROMPT
+from raglab.agents.widget.tools import MAX_SKILL_READS, TOOLS
 
 #: The probe's own thread and dataset — fixed rather than parameters most
 #: callers would need to invent, since the only thing later tasks compare is
@@ -52,40 +77,30 @@ from raglab.agents.widget import skills_corpus_loader as skills
 DEFAULT_THREAD = 'prompt-payload-probe'
 DEFAULT_DATASET = 'diary-en'
 
+#: `MAX_SKILL_READS` real names, so a tool-calling turn exercises the real
+#: worst case of one `read_rag_skill` call — every body it can carry at once,
+#: with the real `=== name ===` headers — rather than a single body, which is
+#: at most a third of what one call can actually cost.
+_SKILL_NAMES = ','.join(sorted(skills.index())[:MAX_SKILL_READS])
+
 
 def _content_chars(message) -> int:
     """The characters this file counts as payload: rendered text content, the
     same rendering the reader and the turn log already agree on
     (`conversation_memory._text`). Tool-call argument JSON and message
     metadata are left out on purpose — content is the dominant cost by a wide
-    margin (one skill body is ~23 KB; a tool call's arguments are a few dozen
-    bytes) and a proxy whose own definition changed between two runs would be
-    worse than an approximate one that stays put.
+    margin (three skill bodies are tens of KB; a tool call's arguments are a
+    few dozen bytes) and a proxy whose own definition changed between two
+    runs would be worse than an approximate one that stays put.
     """
     return len(memory._text(getattr(message, 'content', '')))
 
 
-@tool
-def read_skill_body(name: str = '') -> str:
-    """Stand-in for `tools.read_rag_skill`, over the real skills corpus.
-
-    This is what the probe's tool-calling turns call, and it is what backs
-    this file's own docstring claim about a ~23 KB tool reply: the number
-    comes from a real `SKILL.md` body, not an invented filler string. It does
-    not import `tools.TOOLS` — that list carries `measure_bilingual_alignment`,
-    which needs a real encoder and the `local-embeddings` extra, and a
-    characterisation test has no business requiring either.
-    """
-    catalogue = skills.index()
-    picked = name if name in catalogue else sorted(catalogue)[0]
-    return skills.body(picked)
-
-
 class _RecordingModel(BaseChatModel):
     """A scripted chat model that records the exact messages it is handed on
-    every call — the same list `trim_and_call`'s `handler(request)` passes
-    down, after the trim and the standing-system-line bookkeeping have already
-    run — before playing back one line of a fixed script.
+    every call — system prompt included, since `create_agent` prepends it
+    inside `_execute_model_sync`, after `trim_and_call` has already run —
+    before playing back one line of a fixed script.
 
     Modeled on `test_widget_regressions._scripted_tool_model`: just enough of
     `BaseChatModel` for `create_agent` to bind tools to it and drive the real
@@ -142,58 +157,55 @@ def probe_thread(*, turns: int, tool_turns: frozenset[int] = frozenset(),
     """Drive `turns` turns of one thread through the real compiled agent and
     return one `TurnPayload` per model call, in order.
 
-    `tool_turns` names which turns (0-based) call a tool before answering:
-    each of those costs two model calls — the hop, then the answer — the same
-    shape a real tool-calling turn has. Every other turn answers in one call.
+    `tool_turns` names which turns (0-based) call `read_rag_skill` — the real
+    tool, over the real skills corpus — for `MAX_SKILL_READS` bodies before
+    answering: each of those costs two model calls, the hop and the answer,
+    the same shape a real tool-calling turn has. Every other turn answers in
+    one call.
 
     Memory grows the way `long_term_memory` really grows it: after each turn
     this calls the real `save_memory_update` under `dataset_id`, mirroring an
     accepted `_finish_memory` outcome, so the standing memory line a later
     turn sees is the widget's own aggregate — the same `_aggregate`/`_bounded`
-    behaviour production uses — not a hand-written stand-in.
+    behaviour production uses — not a hand-written stand-in. Each turn's
+    `(payload, config)` is `backends._run`'s own output, so the opening line,
+    the "already sent" dedup and `thread_stamp` are whatever production says
+    they are today.
 
-    The standing-system-line bookkeeping — a line already sent to the model is
-    not sent again — is `backends._run`'s own rule, reproduced here rather
-    than re-derived: it is exactly what decides how many system messages a
-    long thread accumulates, which is the number this whole file exists to
-    pin.
-
-    Starts from a clean long-term-memory table (`clear_long_term_memory`) and
-    a fresh in-memory checkpointer every call, so two calls in the same test
-    session cannot see each other's growth.
+    Starts from a clean long-term-memory table and a freshly forgotten thread,
+    so two calls in the same test session — or a probe run and a real test
+    sharing `memory.saver()` — cannot see each other's growth.
     """
     long_term_memory.clear_long_term_memory()
+    memory.forget(thread)
     script = []
     for i in range(turns):
         if i in tool_turns:
             script.append(AIMessage(content='', tool_calls=[
-                {'name': 'read_skill_body', 'args': {}, 'id': f'call-{i}'}]))
+                {'name': 'read_rag_skill', 'args': {'names': _SKILL_NAMES},
+                 'id': f'call-{i}'}]))
         script.append(AIMessage(content=f'Answer number {i}.'))
 
     model = _RecordingModel(script=script)
-    agent = create_agent(model, tools=[read_skill_body],
+    # Built the way `backends._build_agent` builds it — `SYSTEM_PROMPT`, the
+    # real `TOOLS`, `hooks.MIDDLEWARE`, `memory.WidgetState`, `memory.saver()`
+    # — substituting only the model, which is the one part of `_build_agent`
+    # that cannot run offline (`ChatOpenAI` needs a real key and a real
+    # network call).
+    agent = create_agent(model, tools=TOOLS, system_prompt=SYSTEM_PROMPT,
                          middleware=hooks.MIDDLEWARE,
                          state_schema=memory.WidgetState,
-                         checkpointer=InMemorySaver())
-    config = {'configurable': {'thread_id': thread},
-             'recursion_limit': hooks.RECURSION_LIMIT}
+                         checkpointer=memory.saver())
 
-    said: set[str] = set()
     payloads: list[TurnPayload] = []
-    opening = f'This thread is about experiment {thread!r} on dataset {dataset_id!r}.'
     for i in range(turns):
         context = long_term_memory.memory_context(dataset_id)
-        lines = []
-        for text in (opening, context):
-            if text and text not in said:
-                lines.append(SystemMessage(content=text))
-                said.add(text)
-        state = {'messages': lines + [HumanMessage(content=f'Question {i}?')],
-                 'experiment_id': thread, 'dataset_id': dataset_id}
-        if i == 0:
-            state['started_at'] = '2026-01-01T00:00:00+00:00'
+        payload, config = backends._run(
+            f'Question {i}?', thread, dataset=dataset_id,
+            memory_state=memory.dataset_stamp(dataset_id, thread),
+            memory_text=context)
         before = len(model.raw)
-        agent.invoke(state, config=config)
+        agent.invoke(payload, config=config)
         for call_in_turn, (system, other, chars) in enumerate(model.raw[before:]):
             payloads.append(TurnPayload(turn=i, call_in_turn=call_in_turn,
                                         system_messages=system,

@@ -386,7 +386,13 @@ def _dataset_declaration(dataset_id: str) -> dict:
     reading an import shows on success and a catalogue entry shows on
     selection, because both are 'this is what the lab read' and must not
     disagree."""
-    corpus, ground_truth = datasets.load(dataset_id)
+    try:
+        corpus, ground_truth = datasets.load(dataset_id)
+    except ValueError:
+        # Listed but unmeasurable (D1): describe the corpus it does have and
+        # declare no question labels, rather than refusing to describe the
+        # catalogue at all. The refusal belongs on the run, not on the card.
+        corpus, ground_truth = datasets.load_corpus(dataset_id), {}
     label_fields = (corpus.get('corpus_dataset_metadata') or {}
                     ).get('label_fields') or {}
     question_fields = (ground_truth.get('groundtruth_dataset_metadata') or {}

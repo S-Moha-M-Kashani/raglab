@@ -1,5 +1,31 @@
 # RAG lab
 
+## The project
+
+This project presents and refines a flexible RAG laboratory for users who want
+to evaluate RAG approaches against their own corpus and ground-truth dataset,
+with metrics and tables for each step, while leaving the decision to launch a
+new experiment with the user. The laboratory accepts these datasets, runs the
+selected approach, retrieves answers for comparison with the ground truth,
+reports poor results thoroughly, and provides a helper assistant with
+conversation memory, cost tracking, safety guards, and LangSmith tracing. The
+helper responds only when asked, selects tools for the question, and,
+depending on each result, chains another lookup, answers with insights, or
+asks for clarification so the user can decide what to try next. It calls
+OpenRouter and tools for experiment data, per-experiment and long-term memory,
+and the stored RAG skills in `fixtures/skills/`, while reading the corpus,
+ground-truth data, experiment results, metrics, and tables.
+
+**Why it is useful.** Chunk size, retriever, reranker, and embedder choices are
+usually made by taste; here they are made by measurement, and the helper turns
+a table of numbers into a next step without ever making that step for you.
+
+**Target users.** Engineers and students building a RAG system over their own
+documents who need evidence for a design decision, and reviewers who want to
+audit how an answer was produced.
+
+## Overview
+
 RAG lab is an offline-first retrieval workbench. It measures chunking,
 retrieval, reranking, embedding, and generation choices against corpora with
 known answers, so architecture decisions are based on evidence rather than
@@ -133,7 +159,49 @@ uv run raglab-judgescreen --models MODEL
 uv run raglab-leaderboard             # print recorded experiments
 ```
 
-Extra tools are under construction.
+`raglab-sweep`, `raglab-judgescreen` and `raglab-leaderboard` live in
+`agents/extra_tools/`; they import the lab and no frontend route reaches them.
+
+## Examples
+
+Questions the Ask widget is built for:
+
+- On an experiment: *"Why is context recall low here?"* — it reads the
+  experiment's retrieved evidence and metrics, then answers with what the
+  retriever missed and which knob touches that.
+- On the Leaderboard: *"Which of these runs is comparable to exp 12?"* — it
+  refuses to name a winner across judges and explains which columns must match.
+- On the Laboratory: *"What does reranking buy me on a Farsi corpus?"* — it
+  looks up the stored skill in `fixtures/skills/` and any dataset memory from
+  earlier runs on that corpus.
+- Ambiguous: *"Is this good?"* — it asks which experiment and which metric you
+  mean instead of guessing.
+- Off-topic: *"Write me a poem"* — the relevance guard declines, and nothing is
+  written to long-term memory.
+
+## Design decisions
+
+- **No vector database.** The index lives in process memory and dies with the
+  process, so a build opens no socket and every experiment is reproducible
+  from its recorded fingerprint alone.
+- **A row never lies about what produced it.** A model the backend does not
+  serve is refused, never substituted; a judge that cannot be reached refuses
+  to score rather than returning a passing default.
+- **Exactly four judged metrics decide** (faithfulness, answer relevancy,
+  context precision, context recall). Everything else is reported and does not
+  vote, so a change in one knob cannot be argued into a win by a metric nobody
+  agreed on in advance.
+- **One knob per sweep candidate,** models held fixed, and the answerer and the
+  judge must be different models — otherwise a difference cannot be attributed.
+- **The helper is outside the measured seam.** It writes no run, no ledger row
+  and no score, which is the only reason it may keep memory, bill tokens and
+  trace to LangSmith without contaminating an experiment.
+- **Plain HTML/JS front end on a FastAPI backend** rather than a framework: the
+  three pages share one token file and one widget bundle, and the browser
+  contract is tested with `node --test` without a build step.
+- **Prompts, tool descriptions and skills are fixtures, not code**
+  (`fixtures/prompts/*.yaml`, `fixtures/skills/*/SKILL.md`), pinned byte-equal
+  by a test, so a prompt change is a reviewed diff.
 
 ## Development and testing
 

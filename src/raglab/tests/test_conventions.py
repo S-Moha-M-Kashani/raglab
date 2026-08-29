@@ -502,6 +502,55 @@ def test_the_widget_package_is_a_deletable_leaf():
     assert not escapes, f'the widget escaped its unmeasured edges: {escapes}'
 
 
+def test_only_one_function_in_the_widget_writes_a_system_line():
+    # this is a convention test
+    """`backends._run` is the only author of the widget's system lines, and two
+    other pieces of code now depend on that.
+
+    `hooks.trim_and_call` leaves a superseded standing line out of a call, and
+    `dev_trace_page` dims it, and both decide *which* line by reading the
+    marker `_run` stamps on it. A system message built anywhere else in the
+    package and written into `WidgetState` would carry no marker: safe, by
+    design — an unmarked line is always sent — but it would also be a second
+    author of the thread's standing text, and whoever adds one has to say what
+    supersedes it. This guard is what makes them say so, by failing here first.
+
+    Parsed rather than grepped, and scoped to the widget's own shipping files:
+    a `SystemMessage` built for a one-off model call elsewhere in the lab never
+    reaches this state and is none of this rule's business. Four spellings are
+    caught — a bare call, one at module level, one through a module
+    (`messages.SystemMessage(...)`), and one under an import alias — because a
+    guard that pins one spelling teaches the next reader to use another. What
+    it cannot see is a message handed in from outside the package; the failure
+    mode there is the safe one, an unmarked line that is always sent.
+    """
+    import ast
+    widget_dir = SRC / 'raglab' / 'agents' / 'widget'
+    authors = set()
+    for path in _SRC_FILES:
+        if not path.is_relative_to(widget_dir):
+            continue
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        names = {'SystemMessage'}
+        holders = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                names |= {a.asname for a in node.names
+                          if a.name == 'SystemMessage' and a.asname}
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for inner in ast.walk(node):
+                    holders.setdefault(inner, node.name)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            called = getattr(node.func, 'id', '') or getattr(node.func, 'attr', '')
+            if called in names:
+                authors.add(f'{path.name}:{holders.get(node, "<module>")}')
+    assert authors == {'backends.py:_run'}, (
+        'only backends._run may write a system line into a widget thread; '
+        f'found {sorted(authors)}')
+
+
 def test_every_live_probe_gates_itself_and_the_secrets_guard_stands_down():
     # this is a convention test
     """The two halves of the live-run contract, pinned together because each

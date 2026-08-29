@@ -274,3 +274,288 @@ def test_a_second_process_opening_a_busy_file_still_gets_its_saver():
         other.execute('ROLLBACK')
         other.close()
         memory.close()
+
+
+def test_every_widget_connection_waits_for_a_busy_file():
+    """Three writers share widget.db — this checkpointer, the long-term store
+    and the turn log — each behind its own lock, and the deferred memory pass
+    now runs on a thread that can overlap the next turn. Waiting is the right
+    answer; a 500 on a turn that answered is not. The value is pinned rather
+    than inherited from whatever the standard library defaults to."""
+    from raglab.agents.widget import long_term_memory, turn_logger
+
+    assert memory.saver().conn.execute('PRAGMA busy_timeout').fetchone()[0] == (
+        int(memory.BUSY_TIMEOUT_SECONDS * 1000))
+    for module in (long_term_memory, turn_logger):
+        with module._connect() as db:
+            assert db.execute('PRAGMA busy_timeout').fetchone()[0] == int(
+                module.BUSY_TIMEOUT_SECONDS * 1000)
+
+
+def test_a_thread_recorded_with_the_removed_policy_channels_still_reads():
+    # this is an integration test
+    """`WidgetState` lost four channels on 2026-08-28 — `relevant`,
+    `should_save`, `subtopic` and `reason` — once nothing evaluated a policy
+    before the stamp and all four were written empty on every checkpoint.
+
+    Threads recorded before that still hold them, and a conversation a reader
+    had last week must not become unreadable because the schema shrank. A real
+    graph writes the old shape here and the current one continues the same
+    thread: a channel the schema no longer declares is simply not restored, and
+    every turn is still there afterwards."""
+    from langchain.agents import AgentState, create_agent
+    from langchain_core.language_models import GenericFakeChatModel
+
+    class LegacyState(AgentState):
+        experiment_id: str
+        started_at: str
+        relevant: bool
+        should_save: bool
+        dataset_id: str
+        subtopic: str
+        reason: str
+
+    thread = 'exp-legacy-channels'
+    memory.forget(thread)
+    create_agent(
+        GenericFakeChatModel(messages=iter([AIMessage(content='the old answer')])),
+        state_schema=LegacyState, checkpointer=memory.saver()).invoke(
+            {'messages': [HumanMessage(content='the old question')],
+             'experiment_id': thread, 'started_at': '2026-08-01T00:00:00+00:00',
+             'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+             'subtopic': 'retrieval', 'reason': 'the policy accepted it'},
+            config={'configurable': {'thread_id': thread}})
+    stored = memory._channels(thread)
+    assert stored['reason'] == 'the policy accepted it'
+
+    read = memory.history(thread)
+    assert [turn['text'] for turn in read['turns']] == [
+        'the old question', 'the old answer']
+    assert read['experiment_id'] == thread
+    assert read['started_at'] == '2026-08-01T00:00:00+00:00'
+
+    create_agent(
+        GenericFakeChatModel(messages=iter([AIMessage(content='the new answer')])),
+        state_schema=memory.WidgetState, checkpointer=memory.saver()).invoke(
+            {'messages': [HumanMessage(content='the new question')],
+             **memory.thread_stamp(thread),
+             **memory.dataset_stamp('diary-en', thread)},
+            config={'configurable': {'thread_id': thread}})
+
+    continued = memory.history(thread)
+    assert [turn['text'] for turn in continued['turns']] == [
+        'the old question', 'the old answer',
+        'the new question', 'the new answer']
+    assert continued['started_at'] == '2026-08-01T00:00:00+00:00'
+    assert memory.trace(thread)['dataset_id'] == 'diary-en'
+
+
+def test_a_turn_is_closed_once_the_model_has_answered_from_it():
+    """The one definition of a closed turn, stated where both readers of it
+    take it from.
+
+    A turn runs from a reader's question to just before the next one, and it is
+    closed when its last message is an answer — an assistant message that asked
+    for nothing further. Two things on this branch depend on exactly that:
+    which tool replies may travel as a stub (`hooks._as_stubs`), and which turn
+    was interrupted (a turn that is neither closed nor the thread's last).
+    """
+    from langchain_core.messages import SystemMessage
+
+    def shapes(messages):
+        return [memory.turn_shape(m) for m in messages]
+
+    calls = [{'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+              'id': 'c1'}]
+    answered = [HumanMessage(content='q1'),
+                AIMessage(content='', tool_calls=calls),
+                ToolMessage(content='body', tool_call_id='c1',
+                            name='read_rag_skill'),
+                AIMessage(content='a1')]
+    asking = [HumanMessage(content='q2'),
+              AIMessage(content='', tool_calls=calls),
+              ToolMessage(content='body', tool_call_id='c1',
+                          name='read_rag_skill')]
+
+    # The shape vocabulary is what the split reads, and an assistant message is
+    # two different things depending on whether it asked for anything.
+    assert shapes(answered) == [memory.TURN_HUMAN, memory.TURN_CALL,
+                                memory.TURN_TOOL, memory.TURN_ANSWER]
+
+    # A finished turn followed by one still in flight: only the first is closed,
+    # which is the state every model call is made in.
+    turns = memory.conversation_turns(shapes(answered + asking))
+    assert turns == [memory.Turn(0, 4, True), memory.Turn(4, 7, False)]
+    assert memory.closed_turn_tool_replies(shapes(answered + asking)) == {2}
+
+    # A standing line written between two turns decides nothing. It arrives
+    # just before the question it was written for, and a split that let it
+    # close or open a turn would answer differently depending on which turn
+    # happened to write a memory line.
+    with_line = answered + [SystemMessage(content='memory')] + asking
+    assert memory.conversation_turns(shapes(with_line)) == [
+        memory.Turn(0, 5, True), memory.Turn(5, 8, False)]
+
+    # A thread that begins somewhere other than a question — seeded, repaired,
+    # or resumed — still splits, rather than losing its opening messages.
+    assert memory.conversation_turns(shapes(
+        [AIMessage(content='hello')] + answered)) == [
+        memory.Turn(0, 1, True), memory.Turn(1, 5, True)]
+    assert memory.conversation_turns([]) == [memory.Turn(0, 0, False)]
+
+
+def test_an_interrupted_turn_is_an_unclosed_turn_that_is_not_the_last():
+    """The rule the prompt and the trace page both take their answer from.
+
+    A run that dies after the graph has written something leaves a question and
+    a tool exchange with nothing after them. Once the reader asks again, that
+    turn is unclosed and no longer last, which is exactly what makes it
+    recognisable — and what keeps the *current* turn, unclosed for the ordinary
+    reason that the model is still working, out of it.
+    """
+    from langchain_core.messages import SystemMessage
+
+    def shapes(messages):
+        return [memory.turn_shape(m) for m in messages]
+
+    calls = [{'name': 'read_experiment', 'args': {'experiment_id': 'e1'},
+              'id': 'c1'}]
+    abandoned = [HumanMessage(content='q1'),
+                 AIMessage(content='', tool_calls=calls),
+                 ToolMessage(content='the row', tool_call_id='c1',
+                             name='read_experiment')]
+    asked_again = [HumanMessage(content='q1 again'), AIMessage(content='a1')]
+
+    # In flight: the only turn there is, so nothing is called interrupted —
+    # the model is on its way to read that tool reply.
+    assert memory.interrupted_turn_cuts(shapes(abandoned)) == {}
+
+    # The live finding: the same three messages, followed by a turn that did
+    # answer. The question keeps its place; the two messages after it are what
+    # no call carries.
+    assert memory.interrupted_turn_cuts(shapes(abandoned + asked_again)) \
+        == {0: [1, 2]}
+
+    # A turn that died before the model wrote anything is still an abandoned
+    # question, and still says so.
+    assert memory.interrupted_turn_cuts(
+        shapes([HumanMessage(content='q1')] + asked_again)) == {0: []}
+
+    # A standing line inside the span belongs to no turn and is never cut: it
+    # is exempt from the window by design, and dropping one would take a
+    # memory context away from the call that needed it.
+    #
+    # Defensive, not a guarantee anything relies on today: both callers strip
+    # system messages before they ask (`hooks.trim_and_call` splits them off,
+    # `dev_trace_page` filters them out), so neither can reach this branch.
+    # It is pinned because the rule is written over shapes rather than over
+    # either caller's list, and a third reader handing it a whole thread is
+    # the obvious next use.
+    with_line = [HumanMessage(content='q1'),
+                 SystemMessage(content='memory'),
+                 AIMessage(content='', tool_calls=calls),
+                 ToolMessage(content='the row', tool_call_id='c1',
+                             name='read_experiment')] + asked_again
+    assert memory.interrupted_turn_cuts(shapes(with_line)) == {0: [2, 3]}
+
+    # Whatever a thread holds before its first question is a fragment, not an
+    # abandoned question, so nothing is marked under it.
+    assert memory.interrupted_turn_cuts(
+        shapes([AIMessage(content='hello')] + asked_again)) == {}
+
+    # The shape the widget already knows about by name — an assistant message
+    # that asked for nothing and said nothing, the `clichat` finding
+    # `hooks.trim_and_call` reports as 'empty reply'. It answered nothing, so
+    # it closes nothing, so a turn that died on one is interrupted like any
+    # other. Reading it as an answer would leave the turn closed, exempt from
+    # every reshaping here, and its abandoned tool body riding along whole.
+    assert memory.turn_shape(AIMessage(content='')) == memory.TURN_OTHER
+    assert memory.turn_shape({'kind': 'ai', 'text': ''}) == memory.TURN_OTHER
+    empty = [HumanMessage(content='q1'),
+             AIMessage(content='', tool_calls=calls),
+             ToolMessage(content='the row', tool_call_id='c1',
+                         name='read_experiment'),
+             AIMessage(content='')]
+    assert memory.conversation_turns(shapes(empty))[-1].closed is False
+    assert memory.interrupted_turn_cuts(shapes(empty + asked_again)) \
+        == {0: [1, 2, 3]}
+
+    # The line that stands where the cut work was names how much went.
+    note = memory.interrupted_note(2)
+    assert '2 unfinished step(s)' in note and 'never answered' in note
+
+
+def test_a_dead_turn_and_one_in_flight_are_told_apart_by_the_turn_log():
+    """`interrupted_turn_cuts` exempts the last turn of whatever it is handed,
+    which is right for a payload — a new question is always its end — and no
+    answer at all for a *stored* thread, where the last turn is the one a
+    reader of the log most needs the truth about.
+
+    A thread that stops mid-turn has two meanings and one shape: a run still
+    going, whose next model call continues it, or a run that died, whose next
+    model call is the reader's next question. Nothing in the messages can say
+    which. What can is the row `backends._log_interrupted_turn` writes under
+    the question's own id — a run that died owes one and a run still going does
+    not — and that is what `next_call_continues` reads.
+    """
+    from raglab.agents.widget import turn_logger
+
+    calls = [{'name': 'read_experiment', 'args': {'experiment_id': 'e1'},
+              'id': 'c1'}]
+    mid_turn = [HumanMessage(content='q1', id='q-1'),
+                AIMessage(content='', id='a-1', tool_calls=calls),
+                ToolMessage(content='the row', tool_call_id='c1', id='t-1',
+                            name='read_experiment')]
+
+    # A thread nobody has used continues nothing.
+    assert memory.next_call_continues('never-used') is False
+
+    # A finished turn is followed by a new question, whatever else is true.
+    _write_messages('closed-last', [HumanMessage(content='q1', id='q-1'),
+                                    AIMessage(content='a1', id='a-1')])
+    assert memory.next_call_continues('closed-last') is False
+
+    # The same three messages under two threads: one running, one dead.
+    _write_messages('still-running', mid_turn)
+    _write_messages('run-died', mid_turn)
+    assert memory.next_call_continues('still-running') is True
+    turn_logger.log_turn(thread_id='run-died', experiment_id='run-died',
+                         dataset_id='diary-en', user_message_id='q-1',
+                         user_message='q1', status='interrupted',
+                         status_reason='the model connection dropped')
+    assert memory.next_call_continues('run-died') is False
+    # The row is claimed by the question's id, so a row about some other turn
+    # of the same thread says nothing about this one.
+    assert turn_logger.interrupted_question_ids('run-died') == {'q-1'}
+    assert memory.next_call_continues('still-running') is True
+
+    # An answered row is not a dead one — only an interrupted status counts.
+    turn_logger.log_turn(thread_id='still-running',
+                         experiment_id='still-running',
+                         dataset_id='diary-en', user_message_id='q-1',
+                         user_message='q1', ai_message='a1', status='answered')
+    assert memory.next_call_continues('still-running') is True
+
+
+def test_a_tool_stub_names_the_tool_and_what_it_was_asked_for():
+    """What a closed turn's tool reply travels as. The stub has one job beyond
+    being short: a model reading it must be able to re-issue the same call, so
+    it names the tool and the arguments — a reply that only said "20,000
+    characters were here" would leave a follow-up question with no way back to
+    the evidence."""
+    body = 'x' * 20_000
+    stub = memory.tool_stub('read_rag_skill', {'names': 'chunking,rerankers'},
+                            body)
+    assert stub.startswith('[read_rag_skill(')
+    assert 'names=chunking,rerankers' in stub
+    assert '20000 characters' in stub
+    assert len(stub) < 200
+
+    # A long argument is trimmed rather than reinstating the cost it replaced.
+    wide = memory.tool_stub('read_rag_skill', {'names': 'a' * 500}, body)
+    assert len(wide) < memory.MAX_STUB_ARGS + 200 and wide.endswith(']')
+
+    # And a reply already shorter than any sentence about it is left alone:
+    # the caller gets back exactly what it passed in, so nothing is spent to
+    # lose an answer.
+    assert memory.tool_stub('calculate', {'expression': '2+2'}, '4') == '4'

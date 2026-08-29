@@ -87,7 +87,7 @@ test('a status event is routed to onStatus and never becomes the final event', a
 test('a memory event is routed after the authoritative reply', async () => {
   const sse = 'data: {"delta": "hello"}\n\n'
             + 'data: {"reply": "hello"}\n\n'
-            + 'data: {"memory": {"status": "saved"}}\n\n';
+            + 'data: {"memory": {"status": "pending"}}\n\n';
   const deltas = [];
   const memory = [];
   const final = await loadStream(sse).widgetStream('/api/widget/stream', {},
@@ -95,7 +95,7 @@ test('a memory event is routed after the authoritative reply', async () => {
   assert.deepEqual(deltas, ['hello']);
   assert.equal(final.reply, 'hello');
   assert.equal(memory.length, 1);
-  assert.equal(memory[0].status, 'saved');
+  assert.equal(memory[0].status, 'pending');
 });
 
 test('the widget keeps its request alive across a page navigation', () => {

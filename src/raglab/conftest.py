@@ -442,3 +442,20 @@ def _models_live_cache_never_survives_between_tests():
     models._LIVE.clear()
     yield
     models._LIVE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _the_widgets_board_ids_never_survive_between_tests():
+    """`long_term_memory._BOARD_DATASET_IDS` caches the dataset ids the wired
+    experiment reader knows, for the life of the process, and the widget's own
+    forget is called only when a reader is wired — which several tests do
+    without a `finally`. A reader left standing at the end of one test hands
+    the next its corpus names, so how strict the memory read filter is depends
+    on what ran before it. Green today, and a flake waiting for someone to
+    reorder a file. Cleared on both sides, for the reason the fixture above
+    gives: which test happens to run first must not change what any other one
+    observes."""
+    from raglab.agents.widget import long_term_memory
+    long_term_memory.forget_board_dataset_ids()
+    yield
+    long_term_memory.forget_board_dataset_ids()

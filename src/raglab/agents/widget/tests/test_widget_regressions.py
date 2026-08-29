@@ -167,3 +167,52 @@ def test_stream_request_is_kept_alive_when_the_page_navigates():
     stream_source = source[stream_start:stream_end]
     assert 'keepalive: true' in stream_source
 
+
+def test_a_hop_guarded_run_is_a_refusal_and_is_never_remembered(monkeypatch):
+    """The interaction neither task owned. `stop_repeated_tool_hops` used to
+    append a message and let the run die on the recursion ceiling, so no
+    finished turn was ever made of it. It produces a real reply now — and a
+    reply flows into `_defer_memory`, is judged, and is summarized into
+    long-term memory as a fact about an experiment, while the operational row
+    calls it `answered`. It is neither: a refusal is not an answer.
+
+    The real compiled graph, driven past `MAX_TOOL_HOPS`, so what is asserted
+    is what the guard actually produces rather than a hand-made message.
+    """
+    from langchain.agents import create_agent
+    from langchain_core.tools import tool
+
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget import long_term_memory, turn_logger
+
+    @tool
+    def noop(x: str = '') -> str:
+        """A tool that does nothing; it only exists to cost a hop."""
+        return 'ok'
+
+    hops = widget.hooks.MAX_TOOL_HOPS
+    script = [AIMessage(content='', tool_calls=[
+                  {'name': 'noop', 'args': {}, 'id': f'call-{i}'}])
+              for i in range(hops)]
+    agent = create_agent(_scripted_tool_model(script), tools=[noop],
+                         middleware=widget.hooks.MIDDLEWARE,
+                         state_schema=memory.WidgetState,
+                         checkpointer=memory.saver())
+    monkeypatch.setattr(widget.backends, '_agent_for', lambda _model: agent)
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda _model: (_ for _ in ()).throw(
+                            AssertionError('a refusal must not be judged')))
+
+    thread = 'exp-hop-guard'
+    memory.forget(thread)
+    long_term_memory.clear_long_term_memory()
+    result = widget.ask('find that run', model='openai/gpt-5-nano',
+                        thread=thread)
+
+    assert result['reply'] == widget.hooks.HOP_GUARD_REFUSAL
+    assert result['memory']['status'] == 'not_filed'
+    assert result['memory']['saved'] is False
+    row = turn_logger.list_turns(thread)[-1]
+    assert row['status'] == 'refused'
+    assert 'tool-hop guard' in (row['memory_reason'] or '')
+    assert long_term_memory.memory_context('diary-en') == ''

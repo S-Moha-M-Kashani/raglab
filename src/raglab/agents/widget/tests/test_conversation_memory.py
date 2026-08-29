@@ -348,3 +348,81 @@ def test_a_thread_recorded_with_the_removed_policy_channels_still_reads():
         'the new question', 'the new answer']
     assert continued['started_at'] == '2026-08-01T00:00:00+00:00'
     assert memory.trace(thread)['dataset_id'] == 'diary-en'
+
+
+def test_a_turn_is_closed_once_the_model_has_answered_from_it():
+    """The one definition of a closed turn, stated where both readers of it
+    take it from.
+
+    A turn runs from a reader's question to just before the next one, and it is
+    closed when its last message is an answer — an assistant message that asked
+    for nothing further. Two things on this branch depend on exactly that:
+    which tool replies may travel as a stub (`hooks._as_stubs`), and which turn
+    was interrupted (a turn that is neither closed nor the thread's last).
+    """
+    from langchain_core.messages import SystemMessage
+
+    def shapes(messages):
+        return [memory.turn_shape(m) for m in messages]
+
+    calls = [{'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+              'id': 'c1'}]
+    answered = [HumanMessage(content='q1'),
+                AIMessage(content='', tool_calls=calls),
+                ToolMessage(content='body', tool_call_id='c1',
+                            name='read_rag_skill'),
+                AIMessage(content='a1')]
+    asking = [HumanMessage(content='q2'),
+              AIMessage(content='', tool_calls=calls),
+              ToolMessage(content='body', tool_call_id='c1',
+                          name='read_rag_skill')]
+
+    # The shape vocabulary is what the split reads, and an assistant message is
+    # two different things depending on whether it asked for anything.
+    assert shapes(answered) == [memory.TURN_HUMAN, memory.TURN_CALL,
+                                memory.TURN_TOOL, memory.TURN_ANSWER]
+
+    # A finished turn followed by one still in flight: only the first is closed,
+    # which is the state every model call is made in.
+    turns = memory.conversation_turns(shapes(answered + asking))
+    assert turns == [memory.Turn(0, 4, True), memory.Turn(4, 7, False)]
+    assert memory.closed_turn_tool_replies(shapes(answered + asking)) == {2}
+
+    # A standing line written between two turns decides nothing. It arrives
+    # just before the question it was written for, and a split that let it
+    # close or open a turn would answer differently depending on which turn
+    # happened to write a memory line.
+    with_line = answered + [SystemMessage(content='memory')] + asking
+    assert memory.conversation_turns(shapes(with_line)) == [
+        memory.Turn(0, 5, True), memory.Turn(5, 8, False)]
+
+    # A thread that begins somewhere other than a question — seeded, repaired,
+    # or resumed — still splits, rather than losing its opening messages.
+    assert memory.conversation_turns(shapes(
+        [AIMessage(content='hello')] + answered)) == [
+        memory.Turn(0, 1, True), memory.Turn(1, 5, True)]
+    assert memory.conversation_turns([]) == [memory.Turn(0, 0, False)]
+
+
+def test_a_tool_stub_names_the_tool_and_what_it_was_asked_for():
+    """What a closed turn's tool reply travels as. The stub has one job beyond
+    being short: a model reading it must be able to re-issue the same call, so
+    it names the tool and the arguments — a reply that only said "20,000
+    characters were here" would leave a follow-up question with no way back to
+    the evidence."""
+    body = 'x' * 20_000
+    stub = memory.tool_stub('read_rag_skill', {'names': 'chunking,rerankers'},
+                            body)
+    assert stub.startswith('[read_rag_skill(')
+    assert 'names=chunking,rerankers' in stub
+    assert '20000 characters' in stub
+    assert len(stub) < 200
+
+    # A long argument is trimmed rather than reinstating the cost it replaced.
+    wide = memory.tool_stub('read_rag_skill', {'names': 'a' * 500}, body)
+    assert len(wide) < memory.MAX_STUB_ARGS + 200 and wide.endswith(']')
+
+    # And a reply already shorter than any sentence about it is left alone:
+    # the caller gets back exactly what it passed in, so nothing is spent to
+    # lose an answer.
+    assert memory.tool_stub('calculate', {'expression': '2+2'}, '4') == '4'

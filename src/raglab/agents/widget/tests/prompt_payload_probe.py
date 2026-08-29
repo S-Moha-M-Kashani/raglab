@@ -112,6 +112,7 @@ class _RecordingModel(BaseChatModel):
     script: list
     calls: int = 0
     _raw: list = PrivateAttr(default_factory=list)
+    _seen: list = PrivateAttr(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -124,6 +125,7 @@ class _RecordingModel(BaseChatModel):
         system = sum(1 for m in messages if getattr(m, 'type', '') == 'system')
         chars = sum(_content_chars(m) for m in messages)
         self._raw.append((system, len(messages) - system, chars))
+        self._seen.append(list(messages))
         reply = self.script[self.calls]
         self.calls += 1
         return ChatResult(generations=[ChatGeneration(message=reply)])
@@ -132,6 +134,18 @@ class _RecordingModel(BaseChatModel):
     def raw(self) -> list:
         """`(system_messages, other_messages, total_chars)` per call so far."""
         return self._raw
+
+    @property
+    def seen(self) -> list:
+        """The messages themselves, one list per call.
+
+        The counts above answer "how much"; this answers "which", which is what
+        a test of *quality* rather than size has to ask — a call that is small
+        because it dropped the thing the question was about is not an
+        improvement. The lists are the objects the model was handed, so a test
+        can read the very text the stub replaced a tool reply with.
+        """
+        return self._seen
 
 
 def build_agent(model):

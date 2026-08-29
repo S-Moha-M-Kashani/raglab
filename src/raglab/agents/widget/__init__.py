@@ -60,7 +60,11 @@ from raglab.agents.widget.conversation_memory import (
     MAX_RECALLED,
     MEMORY_LINE,
     STANDING_LINE,
+    TOOL_STUB,
+    Turn,
     WidgetState,
+    closed_turn_tool_replies,
+    conversation_turns,
     forget,
     history,
     recall_conversation,
@@ -68,7 +72,9 @@ from raglab.agents.widget.conversation_memory import (
     superseded_standing_lines,
     thread_summaries,
     threads,
-    trace)
+    tool_stub,
+    trace,
+    turn_shape)
 from raglab.agents.widget.long_term_memory import (
     MAX_SUMMARY_CHARS,
     clear_long_term_memory,
@@ -79,6 +85,7 @@ from raglab.agents.widget.hooks import (
     HOOK_LOG,
     HOP_GUARD_REFUSAL,
     MAX_HISTORY,
+    MAX_HISTORY_CHARS,
     MAX_QUESTION,
     MIDDLEWARE,
     RECURSION_LIMIT,

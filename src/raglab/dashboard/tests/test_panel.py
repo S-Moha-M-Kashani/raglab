@@ -2361,6 +2361,48 @@ def test_the_dev_trace_dims_a_standing_line_a_newer_one_superseded(client, monke
     assert '2 superseded standing line(s)' in text
 
 
+def test_the_dev_trace_says_a_closed_turns_tool_reply_travelled_as_a_stub(
+        client, monkeypatch):
+    # this is an integration test
+    """The page's one claim is what the model was handed, so a tool reply the
+    next call sends in reduced form must not read like one the model got whole.
+
+    Dimming would be the wrong signal — a stub *was* sent — so the card says
+    "reduced", shows the stub in the words the model actually received, and
+    keeps the full body underneath, because the log is still the record. A
+    developer asking "why did it say that?" would otherwise read twenty
+    thousand characters the model never saw on that call and conclude the
+    wrong thing."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from raglab.agents import widget
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    body = 'a very long skill body. ' * 800
+    write_messages('exp-stub', [
+        HumanMessage(content='what about chunking?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'chunking-strategies'},
+             'id': 'c1'}]),
+        ToolMessage(content=body, tool_call_id='c1', name='read_rag_skill'),
+        AIMessage(content='chunk by heading.')])
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
+    client.post('/dev/trace', data={'key': 'open-sesame'})
+
+    text = client.get('/dev/trace', params={'thread': 'exp-stub'}).text
+
+    # The log holds the body, so the page shows it.
+    assert body in html_unescape(text)
+    # And says, in the model's own words, what went in its place.
+    assert '· reduced' in text and 'sent as a stub' in text
+    assert '[read_rag_skill(names=chunking-strategies)' in html_unescape(text)
+    # Reduced is not trimmed: the reply was sent, so it is not dimmed.
+    assert 'tool trimmed' not in text
+    # The standing panel counts it and says the fence in words.
+    assert '1 tool repl(y/ies)' in text
+    assert 'the turn it is answering always carries its tool replies whole' in text
+    assert str(widget.MAX_HISTORY_CHARS) in text
+
+
 def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):
     # this is an integration test
     """A key holding `#`, `%` and `&` — legal in .env, special in a URL — must

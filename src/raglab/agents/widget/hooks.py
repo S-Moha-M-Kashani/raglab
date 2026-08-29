@@ -30,9 +30,14 @@ from langchain_core.messages import AIMessage
 from raglab.agents.widget.conversation_memory import (
     MAX_RELEVANCE_TEXT,
     MemoryPolicy,
+    _text,
+    closed_turn_tool_replies,
+    conversation_turns,
     relevance_guard,
     standing_mark,
     superseded_standing_lines,
+    tool_stub,
+    turn_shape,
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from raglab.agents.widget import long_term_memory
@@ -41,8 +46,30 @@ from raglab.agents.widget.prompts import MEMORY_POLICY_PROMPT
 HOOKS_VERBOSE = False        # __main__ turns this on; the route leaves it off
 
 MAX_QUESTION = MAX_RELEVANCE_TEXT  # the longest request it will accept
-MAX_HISTORY = 20             # how much history one model call sees
+MAX_HISTORY = 20             # how much history one model call sees, in messages
 MAX_TOOL_HOPS = 8             # hard stop before a pathological tool loop
+
+# ...and how much it sees in characters, because twenty messages can be five
+# hundred characters or forty thousand and a count cannot tell those apart.
+# The arithmetic, over the twenty messages the count already admits:
+#
+#   ten reader questions, each capped at MAX_QUESTION      10 *   500 =  5,000
+#   the ten answers beside them, at three times a question 10 * 1,500 = 15,000
+#                                                                       ------
+#                                                                       20,000
+#
+# Nothing caps an answer, which is why the second line is a budget rather than
+# a ceiling read off a constant: 1,500 characters is already a long widget
+# reply, so a thread of twenty ordinary messages passes untouched and never
+# meets this number. What it stops is the case this branch measured — one
+# `read_rag_skill` reply is about 20,000 characters on its own, so the whole
+# of a call's history may now cost about what one tool reply used to, and no
+# more.
+#
+# It is spent on the history in front of the turn being answered, oldest turn
+# first; the turn being answered is neither trimmed nor counted. See
+# `_within_budget`.
+MAX_HISTORY_CHARS = 20_000
 
 # One model node plus one tools node. It was four until 2026-08-28: two more
 # supersteps went to `before_model`/`after_model`, the graph nodes that used
@@ -300,6 +327,87 @@ def check_request(state, runtime):
     return {'messages': [last.model_copy(update={'content': text})]}
 
 
+def _chars(message) -> int:
+    """What one message costs the window, rendered the way every other reader
+    of a message's content renders it (`conversation_memory._text`).
+
+    Characters, not tokens. A tokenizer would be a dependency, a download and a
+    per-model answer to a question the window only needs a proxy for; the ratio
+    between the two is near enough constant across the text this widget carries
+    that a character budget bounds a token budget just as well.
+    """
+    return len(_text(getattr(message, 'content', '')))
+
+
+def _as_stubs(messages: list) -> tuple[list, int]:
+    """A closed turn's tool replies, replaced by a stub for *this call only*.
+
+    The record is untouched. These are copies, handed to `request.override`
+    alongside the messages that were not copied, exactly as the standing-line
+    filter above hands over a shorter list — the thread still holds every tool
+    reply whole, which is what `/dev/trace` reads and what a follow-up turn can
+    ask the tool for again.
+
+    Only a closed turn is reduced (`conversation_turns` states what closed
+    means and why the current turn can never be one), and the stub still names
+    the tool and the arguments it was called with, so the model can re-issue
+    the very same call. Those are the two fences on the one change here most
+    able to cost an answer.
+    """
+    shapes = [turn_shape(m) for m in messages]
+    replies = closed_turn_tool_replies(shapes)
+    if not replies:
+        return messages, 0
+    asked = {call.get('id'): call for m in messages
+             for call in (getattr(m, 'tool_calls', None) or [])}
+    shaped, reduced = list(messages), 0
+    for position in sorted(replies):
+        message = messages[position]
+        call = asked.get(getattr(message, 'tool_call_id', None)) or {}
+        text = _text(getattr(message, 'content', ''))
+        stub = tool_stub(getattr(message, 'name', '') or call.get('name', ''),
+                         call.get('args'), text)
+        if stub != text:
+            shaped[position] = message.model_copy(update={'content': stub})
+            reduced += 1
+    return shaped, reduced
+
+
+def _within_budget(messages: list) -> tuple[list, int]:
+    """The window's size ceiling: drop whole turns off the front until the
+    history in front of the current turn fits `MAX_HISTORY_CHARS`.
+
+    Whole turns, and never the last one. Dropping single messages is what the
+    count window does, and it can cut between an assistant's tool call and the
+    reply to it — a shape some providers reject outright and every provider
+    reads as a question nobody answered. Dropping by turn also means the thing
+    that goes is a topic the conversation has finished with, which is the
+    cheapest context there is to lose.
+
+    The budget is spent on history and never on the turn being answered. That
+    turn is what the model is reasoning over — its tool replies are the one
+    thing this whole change promises to leave whole — so it is neither trimmed
+    nor counted. Counting it would be almost as bad as trimming it: a turn that
+    has just read 20,000 characters of skill bodies would exhaust the budget by
+    itself and throw away every earlier turn, which is to say the conversation
+    would lose its context at exactly the moment the reader asked a hard
+    question. What this bounds is the ride-along, and that is what needed
+    bounding.
+
+    Measured *after* `_as_stubs`, so the budget is spent on what the call will
+    really carry rather than on bodies that are no longer in it.
+    """
+    turns = conversation_turns([turn_shape(m) for m in messages])
+    sizes = [sum(_chars(m) for m in messages[t.start:t.stop]) for t in turns]
+    total, cut = sum(sizes[:-1]), 0
+    while cut < len(turns) - 1 and total > MAX_HISTORY_CHARS:
+        total -= sizes[cut]
+        cut += 1
+    if not cut:
+        return messages, 0
+    return messages[turns[cut].start:], turns[cut].start
+
+
 @wrap_model_call
 def trim_and_call(request, handler):
     """Around each LLM call: the tool-hop guard, the "about to call" line, the
@@ -321,7 +429,21 @@ def trim_and_call(request, handler):
 
     `request.override` is 1.x's non-destructive trim — langgraph's
     `llm_input_messages` is gone, and writing `messages` from a `before_model`
-    node would delete the transcript rather than shorten a prompt.
+    node would delete the transcript rather than shorten a prompt. Everything
+    below shapes that one request and nothing else: the thread keeps every
+    system line, every tool reply and every word of both.
+
+    The window was a count and only a count until 2026-08-29, and the reason
+    that stopped being enough is measured rather than argued
+    (`tests/prompt_payload_probe.py`). `MAX_HISTORY` messages can be five
+    hundred characters or forty thousand: one `read_rag_skill` call put about
+    20,000 characters of skill bodies into the window and the count then held
+    them there for the next twenty messages, re-sent on every hop of every
+    turn that followed. So the window now has three parts —
+    `_as_stubs` (a closed turn's tool replies travel as a stub naming the tool
+    and what it was asked), `_within_budget` (`MAX_HISTORY_CHARS`, spent
+    oldest turn first and never on the turn being answered) and `MAX_HISTORY`
+    itself, still standing as the second ceiling.
     """
     stop = stop_repeated_tool_hops(request.state)
     if stop:
@@ -334,8 +456,8 @@ def trim_and_call(request, handler):
     _fired('before_model', f'{len(request.state["messages"])} messages in state')
     # System lines say what the whole thread is about — which experiment it is,
     # what long-term memory holds — so they must outlive the window or the
-    # model forgets its subject on the twenty-first message. The window counts
-    # everything else.
+    # model forgets its subject on the twenty-first message. The window is
+    # everything else, and it is bounded three ways: see the docstring.
     #
     # Exempt is not unbounded, and that was the bug. The memory context grows
     # on every accepted turn and `backends._run` appends the new text, so a
@@ -357,8 +479,15 @@ def trim_and_call(request, handler):
     rest = [m for m in request.messages if getattr(m, 'type', '') != 'system']
     stale = superseded_standing_lines([standing_mark(m) for m in system])
     standing = [m for i, m in enumerate(system) if i not in stale]
-    if stale or len(rest) > MAX_HISTORY:
-        window = rest[-MAX_HISTORY:] if len(rest) > MAX_HISTORY else rest
+    # Three shapings of the rest, in the order that makes each one honest.
+    # First a closed turn's tool replies become stubs, so the size the next
+    # step measures is the size this call will really carry; then the size
+    # ceiling drops whole finished turns off the front; then the count cap
+    # stands where it always did, as the second ceiling.
+    shaped, reduced = _as_stubs(rest)
+    shaped, dropped = _within_budget(shaped)
+    if stale or reduced or dropped or len(shaped) > MAX_HISTORY:
+        window = shaped[-MAX_HISTORY:] if len(shaped) > MAX_HISTORY else shaped
         request = request.override(messages=standing + window)
     name = getattr(request.model, 'model_name', type(request.model).__name__)
     _fired('wrap_model_call', f'{name}, {len(request.messages)} messages')

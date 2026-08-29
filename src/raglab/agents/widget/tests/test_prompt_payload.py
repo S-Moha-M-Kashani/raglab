@@ -9,8 +9,8 @@ two live findings that motivated this branch: a long thread's system messages
 kept accumulating, and a tool call can put tens of kilobytes into a single
 window.
 
-The first of those is fixed as of 2026-08-29, and fixed at the prompt rather
-than in the log. The thread still accumulates a memory line per accepted turn
+Both are fixed as of 2026-08-29, and both at the prompt rather than in the
+log. The thread still accumulates a memory line per accepted turn
 — it is the record of what the widget was told — but `backends._run` marks each
 one, and `hooks.trim_and_call` leaves every superseded line out of the call.
 The counts below say 3 system messages on every call after the first, where
@@ -18,6 +18,14 @@ this file's previous round measured 2 climbing to 13, while the thread those
 calls came from ends up holding twelve. What the model loses is stale
 duplicates of its own memory; what it keeps is the newest, which is strictly
 better context as well as a smaller prompt.
+
+The second finding is fixed the same way. The thread still holds every tool
+reply whole, and the call that reads one still carries every character of it —
+that is the quality fence — but once the model has answered from a turn, that
+turn's tool replies ride on as a stub naming the tool and what it was asked.
+A twenty-message window is also a twenty-thousand-character window now, spent
+on history and never on the turn being answered. Together they take the
+thread's fifteen calls from 453,476 characters to 95,276.
 
 Round 1 of this test pinned numbers from a probe that reimplemented
 production's turn construction instead of driving it — no `system_prompt`,
@@ -27,9 +35,9 @@ The corrected probe drives `backends._run` and builds the agent the way
 say today, not what a hand-rolled stand-in guessed.
 
 Four later tasks on this branch each change what a turn sends: global memory
-filtering and one standing memory line per call (both landed), then a
-size-bounded window with stubbed closed-turn tool replies, and
-interrupted-turn handling.
+filtering and one standing memory line per call, then a size-bounded window
+with stubbed closed-turn tool replies (all three landed), and interrupted-turn
+handling.
 Every number pinned below is a claim about *today's* behaviour, so a later
 task's deliberate change shows up here as an assertion a reviewer can see
 move — and why it moved — rather than as silence.
@@ -71,7 +79,11 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
       hierarchical-graph-rag: ~20,000 chars of real skill text plus their
       `=== name ===` headers) in one call. That is this branch's other live
       finding, at the real worst case rather than a third of it: one tool
-      reply can cost tens of kilobytes of one call's window.
+      reply can cost tens of kilobytes of one call's window. What changed on
+      2026-08-29 is how long it costs it *for*: the jump now lands on the one
+      call that reads the reply, and the calls after it carry a stub instead
+      of the bodies. Each of the three spikes used to raise the floor under
+      every later call; now the floor stays around 2.7 KB.
     """
     assert hooks.MAX_HISTORY == 20  # the ceiling this test's plateau assumes
     assert len(SYSTEM_PROMPT) > 1_000  # the message this test's floor assumes
@@ -88,7 +100,7 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
     assert (first.system_messages, first.other_messages, first.total_chars) \
         == (2, 1, 1722)
     assert (last.system_messages, last.other_messages, last.total_chars) \
-        == (3, 20, 42599)
+        == (3, 20, 2799)
 
     # The standing set is bounded now: SYSTEM_PROMPT and the opening line from
     # the first call, plus one memory line from the first turn that has memory
@@ -115,18 +127,28 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
 
     # Each tool hop costs roughly the real worst case of one `read_rag_skill`
     # call — three full skill bodies, not one — over the very next call in
-    # the same turn.
+    # the same turn. That call is the one the model answers from, so it still
+    # carries every character: the quality fence, measured.
     hop_turn_2, answer_turn_2 = payloads[2], payloads[3]
     assert answer_turn_2.total_chars - hop_turn_2.total_chars > 15_000
 
-    # Today's whole-thread total: the baseline every later task's version of
-    # this same scripted thread is judged against. It was 466,458 while every
-    # superseded memory line was still being reread; sending one saves 12,982
-    # characters over these fifteen calls. The saving is small next to the
-    # three tool replies that dominate the total — that is the next task's
-    # finding, not this one's — and the point of this change is as much the
-    # curve as the count: the system side no longer grows without a ceiling.
-    assert sum(p.total_chars for p in payloads) == 453_476
+    # And the call after it — a new turn, so turn 2 is now closed — does not.
+    # The 20 KB is in the log, not in the prompt; what rides on is a stub.
+    assert payloads[4].total_chars < hop_turn_2.total_chars + 1_000
+    # Three tool turns, three stubs, and the floor barely moves: no call after
+    # a tool turn is anywhere near the 42,599 the last call used to carry.
+    plateau = [p.total_chars for p in payloads if p.call_in_turn == 0][3:]
+    assert max(plateau) < 3_000
+
+    # Today's whole-thread total, and the two steps that brought it here. It
+    # was 466,458 while every superseded memory line was still being reread;
+    # sending one of each saved 12,982 characters and left 453,476, of which
+    # three `read_rag_skill` replies re-sent on every later call were by far
+    # the largest part. Bounding the window by size as well as count, and
+    # letting a closed turn's tool replies travel as a stub, takes 358,200
+    # characters off that — 79% of the whole thread — without shortening a
+    # single call the model was actually reading a tool reply in.
+    assert sum(p.total_chars for p in payloads) == 95_276
 
 
 def test_a_thread_that_accumulated_memory_lines_still_sends_one():
@@ -176,3 +198,79 @@ def test_a_thread_that_accumulated_memory_lines_still_sends_one():
     kept = [str(m.content) for m in memory._channels(thread)['messages']
             if getattr(m, 'type', '') == 'system']
     assert kept == [identity, *older, 'SAFETY: never quote a key', current]
+
+
+def test_a_follow_up_is_answerable_from_a_thread_whose_tool_reply_was_stubbed():
+    """The quality falsifier for the stub, driven through the real agent.
+
+    Reducing a closed turn's tool reply is the change on this branch most able
+    to hurt an answer, so the claim it has to survive is not "the prompt got
+    smaller" — that is the characterisation above — but "a later turn can still
+    do its job". Two turns: the first reads three real skill bodies and answers
+    from them; the second asks a follow-up about the same subject.
+
+    What is asserted is what the model was *handed* on that second turn, since
+    that is the whole of what it has to work with. If the stub dropped the
+    tool's name, or the arguments it was called with, the model would know only
+    that something had been read and would have no way to read it again — and
+    these assertions would fail while a size-only test went on passing.
+    """
+    from langchain_core.messages import AIMessage
+
+    from raglab.agents.widget import backends
+    from raglab.agents.widget import long_term_memory
+    from raglab.agents.widget.tests.prompt_payload_probe import _SKILL_NAMES
+    from raglab.agents.widget.tools import read_rag_skill
+
+    thread, dataset = 'stubbed-follow-up', 'diary-en'
+    long_term_memory.clear_long_term_memory()
+    memory.forget(thread)
+    bodies = read_rag_skill.invoke({'names': _SKILL_NAMES})
+    assert len(bodies) > 15_000  # the real worst case, not a stand-in
+
+    def reads_the_skills(call_id):
+        return AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': _SKILL_NAMES},
+             'id': call_id}])
+
+    model = _RecordingModel(script=[
+        reads_the_skills('c1'), AIMessage(content='Chunking, then.'),
+        # The follow-up turn asks the very same tool for the very same thing —
+        # which is only a sensible script because the stub told it how.
+        reads_the_skills('c2'), AIMessage(content='And rerankers after that.')])
+    agent = build_agent(model)
+    for question in ('what do the skills say about chunking?',
+                     'and what about the reranking one?'):
+        payload, config = backends._run(question, thread, dataset=dataset)
+        agent.invoke(payload, config=config)
+
+    hop, answer, follow_up, second_answer = [
+        [memory._text(m.content) for m in call] for call in model.seen]
+
+    # Turn 1's answering call reads the bodies whole: the current turn is never
+    # reduced, so the model reasons over everything the tool returned.
+    assert bodies in answer
+
+    # Turn 2 opens with turn 1 closed. The bodies are gone from the prompt...
+    assert bodies not in ' '.join(follow_up)
+    # ...replaced by one line that names the tool and the exact subject it was
+    # asked for, which is what makes the same call re-issuable.
+    stub = next(text for text in follow_up if text.startswith('[read_rag_skill'))
+    assert _SKILL_NAMES in stub and str(len(bodies)) in stub
+    assert len(stub) < 400
+    # The reader's question and the answer written from those bodies survive in
+    # full — what was reduced is the evidence, not the conversation.
+    assert 'what do the skills say about chunking?' in follow_up
+    assert 'Chunking, then.' in follow_up
+
+    # And the follow-up's own tool reply arrives whole, in the call that reads
+    # it: asking again really does get the bodies back.
+    assert bodies in ' '.join(second_answer)
+    # One stub only — the second turn's reply is still open when it is read.
+    assert sum(1 for t in second_answer if t.startswith('[read_rag_skill')) == 1
+
+    # The log is untouched: both replies are in the thread, whole.
+    held = [memory._text(m.content)
+            for m in memory._channels(thread)['messages']
+            if getattr(m, 'type', '') == 'tool']
+    assert held == [bodies, bodies]

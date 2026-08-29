@@ -1541,3 +1541,140 @@ def test_a_system_line_the_widget_did_not_write_is_always_sent():
         'SAFETY: never quote a key',
         'an unmarked memory line from an old thread',
         'memory v2', 'q']
+
+
+def _turn(question: str, tool_text: str, answer: str, call_id: str) -> list:
+    """One tool-using turn: the question, the model asking for something, what
+    came back, and the answer written from it."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    return [HumanMessage(content=question),
+            AIMessage(content='', tool_calls=[
+                {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+                 'id': call_id}]),
+            ToolMessage(content=tool_text, tool_call_id=call_id,
+                        name='read_rag_skill'),
+            AIMessage(content=answer)]
+
+
+def test_a_closed_turns_tool_reply_is_sent_as_a_stub_and_kept_in_the_thread():
+    # this is a unit test
+    """The measured finding: one `read_rag_skill` reply is about 20,000
+    characters, and the count window then re-sent it on every call for the next
+    twenty messages. A turn the model has already answered from does not need
+    the bodies again — it needs to know they were read and how to read them
+    again — so the prompt carries a stub naming the tool and its subject.
+
+    The request is shaped; the thread is not. `request.messages` is unchanged
+    after the call, which is what makes this a smaller prompt rather than a
+    rewritten record."""
+    from langchain_core.messages import HumanMessage
+    seen = {}
+
+    body = 'a skill body. ' * 1_500
+    given = _turn('what about chunking?', body, 'chunk by heading.', 'c1') \
+        + [HumanMessage(content='and rerankers?')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = [str(m.content) for m in seen['messages']]
+    assert body not in sent
+    assert sent[2].startswith('[read_rag_skill(') and 'names=chunking' in sent[2]
+    assert str(len(body)) in sent[2]
+    # Everything else the turn said is still there: the reduction is of the
+    # evidence the model has finished with, not of the conversation.
+    assert sent[0] == 'what about chunking?' and sent[3] == 'chunk by heading.'
+    assert request.messages == given
+
+
+def test_the_tool_replies_of_the_turn_being_answered_are_never_stubbed():
+    # this is a unit test
+    """The quality fence. A model reasoning over what a tool has just returned
+    always has the whole of it — that is the state every answering call is in,
+    since a turn the model has not answered yet cannot be closed. Two turns
+    here: the finished one travels as a stub, the one in flight travels whole.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    seen = {}
+
+    old, new = 'the old body. ' * 1_500, 'the new body. ' * 1_500
+    given = _turn('what about chunking?', old, 'chunk by heading.', 'c1') + [
+        HumanMessage(content='and rerankers?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'rerankers'},
+             'id': 'c2'}]),
+        ToolMessage(content=new, tool_call_id='c2', name='read_rag_skill')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = [str(m.content) for m in seen['messages']]
+    assert old not in sent
+    assert sent[-1] == new
+
+
+def test_the_window_is_bounded_by_characters_as_well_as_by_messages():
+    # this is a unit test
+    """Twenty messages can be five hundred characters or forty thousand, and
+    the count cannot tell them apart. `MAX_HISTORY_CHARS` is the second
+    ceiling: history is dropped a whole turn at a time, oldest first, until it
+    fits.
+
+    Whole turns rather than single messages, because the count window can
+    already cut between an assistant's tool call and the reply to it. And the
+    turn being answered is neither trimmed nor counted — a turn that has just
+    read 20,000 characters would otherwise spend the entire budget on itself
+    and throw away the conversation it belongs to."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    seen = {}
+
+    # Six turns of two messages each — inside MAX_HISTORY, far outside the
+    # character budget.
+    fat = 'x' * 6_000
+    given = [m for i in range(6)
+             for m in (HumanMessage(content=f'q{i}'),
+                       AIMessage(content=f'{fat}{i}'))]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = seen['messages']
+    assert len(sent) < len(given) <= widget.MAX_HISTORY
+    # What is left starts at a question, never mid-turn — the two oldest turns
+    # went, which is the fewest that brings the history inside the budget.
+    assert sent[0].content == 'q2'
+    # ...the history in front of the current turn is inside the budget...
+    history = sum(len(str(m.content)) for m in sent[:-2])
+    assert history <= widget.MAX_HISTORY_CHARS
+    # ...and the turn being answered survives whatever it costs.
+    assert [str(m.content) for m in sent[-2:]] == ['q5', f'{fat}5']
+    assert request.messages == given
+
+
+def test_an_enormous_current_turn_does_not_empty_the_conversation():
+    # this is a unit test
+    """The budget is spent on history and never on the turn being answered, so
+    a turn that has just read three skill bodies does not cost the model every
+    earlier turn as well. Counting the current turn would be almost as bad as
+    trimming it: the conversation would lose its context at exactly the moment
+    the reader asked something that needed a big lookup."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    seen = {}
+
+    chat = [m for i in range(3)
+            for m in (HumanMessage(content=f'q{i}'),
+                      AIMessage(content=f'a{i}'))]
+    given = chat + [
+        HumanMessage(content='and the skills?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+             'id': 'c9'}]),
+        ToolMessage(content='y' * 40_000, tool_call_id='c9',
+                    name='read_rag_skill')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = [str(m.content) for m in seen['messages']]
+    assert sent[:6] == ['q0', 'a0', 'q1', 'a1', 'q2', 'a2']
+    assert sent[-1] == 'y' * 40_000

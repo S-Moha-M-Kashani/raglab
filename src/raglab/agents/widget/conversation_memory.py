@@ -21,6 +21,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
+from typing import NamedTuple
 
 from langchain.agents import AgentState
 from langchain_core.tools import tool
@@ -87,6 +88,128 @@ def superseded_standing_lines(marks: list) -> set:
             latest[mark] = position
     return {position for position, mark in enumerate(marks)
             if mark and latest[mark] != position}
+
+
+#: The shapes a message takes when a thread is split into turns. A turn split
+#: needs nothing else about a message: who spoke, and — for the model — whether
+#: it asked a tool for something or answered without asking.
+TURN_HUMAN = 'human'      # the reader's question, which is what opens a turn
+TURN_CALL = 'call'        # the model asked a tool for something
+TURN_ANSWER = 'answer'    # the model answered, asking for nothing further
+TURN_TOOL = 'tool'        # what a tool said back
+TURN_SYSTEM = 'system'    # a standing line, which belongs to no turn
+TURN_OTHER = 'other'
+
+
+def turn_shape(step) -> str:
+    """One message's shape, read from a message object or from a `trace` step.
+
+    Two readers need the turn split and they hold the conversation in two
+    forms: `hooks.trim_and_call` has the langchain messages a call is about to
+    carry, and `dashboard.dev_trace_page` has the step mappings `trace` built
+    out of them. Reading both here is what lets `conversation_turns` be one
+    rule rather than one rule and a page's imitation of it — the same shape
+    `standing_mark` and `superseded_standing_lines` already take between them.
+    """
+    if isinstance(step, dict):
+        kind, calls = step.get('kind', ''), step.get('tool_calls')
+    else:
+        kind = getattr(step, 'type', '')
+        calls = getattr(step, 'tool_calls', None)
+    if kind == 'ai':
+        return TURN_CALL if calls else TURN_ANSWER
+    return kind if kind in (TURN_HUMAN, TURN_TOOL, TURN_SYSTEM) else TURN_OTHER
+
+
+class Turn(NamedTuple):
+    """One turn of a conversation: where it starts, where it stops (exclusive),
+    and whether the model has already answered from it."""
+
+    start: int
+    stop: int
+    closed: bool
+
+
+def conversation_turns(shapes: list) -> list:
+    """Split a thread into turns and say which of them are closed.
+
+    Takes one `turn_shape` per message, in thread order, and returns the
+    `Turn` spans over that same list.
+
+    A turn begins at a reader's question and runs to just before the next one.
+    Whatever a thread holds before its first question is a turn of its own: a
+    seeded or repaired thread can begin anywhere, and a split that quietly
+    dropped those messages would be a rule with a hole in it.
+
+    **A turn is closed when its last message is an answer** — an assistant
+    message that asked for nothing further. That is exactly "the model has
+    already answered from this turn", and it is the one definition two things
+    need: which tool replies may travel as a stub (a closed turn's), and —
+    a turn that is neither closed nor the thread's last — which turn was
+    interrupted. System lines are ignored when deciding it: they are exempt
+    from the prompt window and are written between turns, so letting one
+    decide would make the answer depend on when a memory line happened to
+    land.
+
+    During a model call the last turn is never closed: the state ends either
+    with the reader's question or with the tool reply the model is about to
+    read. That is why "closed" on its own is the fence that keeps the current
+    turn's tool replies whole — there is nothing further to check.
+    """
+    starts = [i for i, shape in enumerate(shapes) if shape == TURN_HUMAN]
+    if not starts or starts[0] != 0:
+        starts = [0] + starts
+    stops = starts[1:] + [len(shapes)]
+    turns = []
+    for start, stop in zip(starts, stops):
+        spoken = [shape for shape in shapes[start:stop] if shape != TURN_SYSTEM]
+        turns.append(Turn(start, stop,
+                          bool(spoken) and spoken[-1] == TURN_ANSWER))
+    return turns
+
+
+def closed_turn_tool_replies(shapes: list) -> set:
+    """Which tool replies belong to a turn the model has already answered from.
+
+    The positions this returns are the ones a prompt may carry as a stub; every
+    other tool reply — the current turn's above all — is carried whole.
+    """
+    return {i for turn in conversation_turns(shapes) if turn.closed
+            for i in range(turn.start, turn.stop)
+            if shapes[i] == TURN_TOOL}
+
+
+#: What a closed turn's tool reply says in a prompt instead of its body, and
+#: how much of the call's arguments it may spend saying what was asked for.
+#:
+#: The stub names the tool and its subject on purpose. A reply that is only
+#: "20,086 characters were here" tells a model that something was read and
+#: leaves it no way to read it again; naming the tool and the arguments it was
+#: called with means a follow-up question can re-issue exactly that call. That
+#: is the second of this reduction's two fences — the first being that only a
+#: closed turn is ever reduced at all.
+TOOL_STUB = ('[{name}({args}) returned {chars} characters, which the answer in '
+             'this turn was written from. Call it again to read them.]')
+MAX_STUB_ARGS = 160
+
+
+def tool_stub(name: str, args, text: str) -> str:
+    """What one closed turn's tool reply travels as — the stub, or the reply
+    itself when the stub would not be shorter.
+
+    A short tool reply is already cheaper than any sentence describing it, and
+    replacing it would cost characters *and* lose the answer, so it is left
+    alone. Callers compare the result with the text they passed in to learn
+    whether anything was reduced; there is no second rule to keep in step.
+    """
+    text = _text(text)
+    rendered = ', '.join(f'{key}={_text(value)}' for key, value
+                         in (args or {}).items()) if isinstance(args, dict) else ''
+    if len(rendered) > MAX_STUB_ARGS:
+        rendered = rendered[:MAX_STUB_ARGS - 1] + '…'
+    stub = TOOL_STUB.format(name=name or 'a tool', args=rendered,
+                            chars=len(text))
+    return stub if len(stub) < len(text) else text
 
 
 #: How long any widget connection waits for the file's write lock before it

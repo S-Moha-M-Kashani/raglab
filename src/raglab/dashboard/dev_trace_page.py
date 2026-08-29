@@ -122,6 +122,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:var(--s-2) 0 0;font:var(-
 .card .calls{margin-top:var(--s-3);padding-top:var(--s-3);border-top:1px dashed var(--rule)}
 .card .bill{margin-top:var(--s-2)}
 .trimmed{opacity:.5}
+.stub{color:var(--ink-soft);border-left:2px solid var(--rule);padding-left:var(--s-3)}
 .cut{grid-column:1/-1;display:flex;align-items:center;gap:var(--s-3);color:var(--ink-soft);font:var(--label-font);letter-spacing:var(--label-track);text-transform:uppercase}
 .cut:before,.cut:after{content:"";flex:1;border-top:1px dashed var(--rule)}
 /* the plate */
@@ -210,9 +211,9 @@ def index() -> str:
                  + body + '</main>')
 
 
-def _step(number: int, step: dict, trimmed: bool = False) -> str:
+def _step(number: int, step: dict, trimmed: bool = False, stub: str = '') -> str:
     kind = step['kind']
-    cls = f'{kind}{" trimmed" if trimmed else ""}'
+    cls = f'{kind}{" trimmed" if trimmed else ""}{" stubbed" if stub else ""}'
     no = f'<div class="no {cls}">{number:02d}</div>'
     text = f'<pre>{_esc(step["text"])}</pre>' if step.get('text') else ''
     bill = ''
@@ -220,10 +221,16 @@ def _step(number: int, step: dict, trimmed: bool = False) -> str:
         bill = (f'<div class="meta bill">tokens in {_esc(step.get("input_tokens"))}'
                 f' · out {_esc(step.get("output_tokens"))}</div>')
     if kind == 'tool':
+        # A stubbed reply was sent, so it is not dimmed — but the page must not
+        # let a reader think the model read the body below. The stub is shown
+        # above it, in the words the model actually got.
+        reduced = (f'<div class="kind">sent as a stub</div>'
+                   f'<pre class="stub">{_esc(stub)}</pre>' if stub else '')
         return (no + f'<div class="tool {cls}"><div class="card"><details>'
                 f'<summary><span class="kind">tool reply <span class="mono">'
                 f'{_esc(step.get("name"))} → {_esc(step.get("tool_call_id"))}'
-                f'</span></span></summary>{text}</details></div></div>')
+                f'</span>{" · reduced" if stub else ""}</span></summary>'
+                f'{reduced}{text}</details></div></div>')
     calls = ''
     for call in step.get('tool_calls') or []:
         calls += (f'<div class="calls"><div class="kind">calls <span class="mono">'
@@ -250,6 +257,37 @@ def _superseded(steps: list) -> set:
     return {id(s) for i, s in enumerate(system) if i in stale}
 
 
+def _stubs(steps: list) -> dict:
+    """Which tool replies the next call sends as a stub, and what each stub
+    says — keyed by the step's identity, the way `_superseded` keys its own.
+
+    The rule is `conversation_memory`'s, not this page's: `turn_shape` reads a
+    trace step as readily as it reads a message, `closed_turn_tool_replies`
+    says which replies belong to a turn the model has already answered from,
+    and `tool_stub` writes the line — the same three calls `hooks._as_stubs`
+    makes over the messages themselves. A page that decided this for itself
+    would sooner or later show a body the model never read as though it had.
+
+    Every complete turn in a log is closed, so what this marks is what the
+    *next* call carries — the same tense the window and the superseded lines
+    are already reported in. The turn the model is answering keeps its replies
+    whole, and by the time that turn is in the log it is a turn like any other.
+    """
+    shapes = [widget.turn_shape(s) for s in steps]
+    asked = {call.get('id'): call for s in steps
+             for call in (s.get('tool_calls') or [])}
+    out = {}
+    for position in widget.closed_turn_tool_replies(shapes):
+        step = steps[position]
+        call = asked.get(step.get('tool_call_id')) or {}
+        text = step.get('text') or ''
+        stub = widget.tool_stub(step.get('name') or call.get('name') or '',
+                                call.get('args'), text)
+        if stub != text:
+            out[id(step)] = stub
+    return out
+
+
 def _standing(steps: list) -> str:
     """What the model stands on before it reads a step: the system prompt
     `create_agent` binds to every call (not in the log, so shown from the
@@ -257,6 +295,7 @@ def _standing(steps: list) -> str:
     rest = [s for s in steps if s['kind'] != 'system']
     dropped = max(0, len(rest) - widget.MAX_HISTORY)
     stale = len(_superseded(steps))
+    stubs = len(_stubs(steps))
     tools = ', '.join(t.name for t in widget.TOOLS)
     return (
         '<details class="standing"><summary>standing system prompt — every call'
@@ -269,6 +308,13 @@ def _standing(steps: list) -> str:
         + (f' {stale} superseded standing line(s) stay in this log but are '
            'left out of every call: the memory context grows each turn, and '
            'the model is handed the newest.' if stale else '')
+        + (f' {stubs} tool repl(y/ies) below travel as a stub naming the tool '
+           'and what it was asked: the model has already answered from those '
+           'turns, and the turn it is answering always carries its tool '
+           'replies whole.' if stubs else '')
+        + f' The window also stops at {widget.MAX_HISTORY_CHARS} characters of '
+        'history, dropped a whole turn at a time and never counted against '
+        'the turn being answered.'
         + f' Tool hops per turn stop at {widget.hooks.MAX_TOOL_HOPS}; a question is '
         f'capped at {widget.MAX_QUESTION} characters.</p></details>')
 
@@ -288,13 +334,14 @@ def thread(name: str) -> str:
     # memory context was not.
     outside = ({id(s) for s in rest[:max(0, len(rest) - widget.MAX_HISTORY)]}
                | _superseded(steps))
+    stubs = _stubs(steps)
     parts, cut_drawn = [], False
     for i, s in enumerate(steps, 1):
         trimmed = id(s) in outside
         if not trimmed and outside and not cut_drawn and s['kind'] != 'system':
             parts.append('<div class="cut">from here on, sent to the model</div>')
             cut_drawn = True
-        parts.append(_step(i, s, trimmed=trimmed))
+        parts.append(_step(i, s, trimmed=trimmed, stub=stubs.get(id(s), '')))
     tape = (f'<div class="tape">{"".join(parts)}</div>' if steps else
             '<p class="empty">This thread holds no messages.</p>')
     return _page(f'trace · {found["thread"]}',

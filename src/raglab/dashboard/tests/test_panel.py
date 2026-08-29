@@ -2444,6 +2444,63 @@ def test_the_dev_trace_dims_a_turn_the_character_budget_drops(client, monkeypatc
     assert '2 oldest non-system step(s) are no longer sent' in text
 
 
+def test_the_dev_trace_reads_an_unfinished_turn_as_the_turn_being_answered(
+        client, monkeypatch):
+    # this is an integration test
+    """The page reports in the tense of the next call, and which call that is
+    depends on where the thread stops.
+
+    A thread whose last turn is **closed** has been answered, so its next call
+    is a new question and that finished turn is history — budgeted, and dropped
+    if it is too big. A thread that stops **mid-turn** is the opposite case: its
+    next call is the continuation of the same turn, the model is about to read
+    the tool reply sitting at the end of the log, and that turn is the turn
+    being answered — exempt from the budget and never stubbed.
+
+    Both directions are asserted here because treating the two alike is wrong
+    twice over. Without the phantom question, a closed final turn reads as the
+    turn being answered and the page shows a dropped 25 KB turn as context the
+    model has. With the phantom appended unconditionally, an unfinished turn's
+    20 KB reply is dimmed as trimmed while `trim_and_call` hands the model
+    every character of it. Same lie, once in each direction."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from raglab.agents import widget
+    from raglab.agents.widget.tests.widget_examples import write_messages
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
+    client.post('/dev/trace', data={'key': 'open-sesame'})
+
+    # One closed turn, too big to ride along. The next call is a new question,
+    # so the whole turn is history and the whole turn goes.
+    big = 'a very long answer. ' * 1_250          # 25,000 characters
+    assert len(big) > widget.MAX_HISTORY_CHARS
+    write_messages('exp-closed-last', [HumanMessage(content='the long one?'),
+                                       AIMessage(content=big)])
+    closed = client.get('/dev/trace', params={'thread': 'exp-closed-last'}).text
+    assert '<div class="human trimmed">' in closed
+    assert '<div class="ai trimmed">' in closed
+    assert '2 oldest non-system step(s) are no longer sent' in closed
+
+    # A turn still in flight — the state Task 5 is about, and the state every
+    # tool hop passes through. The reply at the end is what the model is about
+    # to read, so nothing here is dropped, dimmed or reduced.
+    body = 'a very long skill body. ' * 900       # 21,600 characters
+    assert len(body) > widget.MAX_HISTORY_CHARS
+    write_messages('exp-inflight', [
+        HumanMessage(content='q0'), AIMessage(content='a0'),
+        HumanMessage(content='the long one?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+             'id': 'c1'}]),
+        ToolMessage(content=body, tool_call_id='c1', name='read_rag_skill')])
+    flight = client.get('/dev/trace', params={'thread': 'exp-inflight'}).text
+    assert 'nothing has been trimmed yet' in flight
+    assert 'trimmed"' not in flight        # the class, never the stylesheet
+    assert 'from here on, sent to the model' not in flight
+    assert 'sent as a stub' not in flight and '· reduced' not in flight
+    # And the body really is there to be read, whole.
+    assert body in html_unescape(flight)
+
+
 def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):
     # this is an integration test
     """A key holding `#`, `%` and `&` — legal in .env, special in a URL — must

@@ -298,20 +298,36 @@ def _dropped_from_the_window(steps: list) -> list:
     caps what is left. Sizes are measured on the stubs, exactly as the hook
     measures them, or the page would drop a turn the call keeps.
 
-    The phantom question at the end is not decoration. This page reports in the
-    tense of the *next* call, and that call brings a question the log does not
-    hold yet — so without it the thread's last turn would read as the turn
-    being answered, exempt from the budget, and the page would promise a
-    developer that a finished 25 KB turn still rides along when the next call
-    will have dropped it. A question is capped at `MAX_QUESTION`, which is
-    nothing against this budget, so it is counted as free.
+    The phantom question at the end is not decoration, and it is appended only
+    when the thread's last turn is closed. This page reports in the tense of
+    the *next* call, and which call that is depends on where the thread stops:
+
+    - A thread whose last turn is **closed** has been answered, so the next
+      call is a new question. Without the phantom, that finished turn would
+      read as the turn being answered — exempt from the budget — and the page
+      would promise a developer that a finished 25 KB turn still rides along
+      when the next call will have dropped it.
+    - A thread whose last turn is **not** closed is a turn in flight or one
+      that was interrupted, and its next call is the *continuation* of that
+      turn: the model is about to read the tool reply at the end of the log.
+      That turn is the turn being answered, budget-exempt and never stubbed, so
+      a phantom here would invent a question nobody asked and dim a 20 KB reply
+      the model is in fact handed whole. Which is the lie this page exists to
+      not tell, inverted.
+
+    `conversation_turns` is what says which of the two this is — the same rule
+    the stubs and the hook take their answer from, so the page cannot drift
+    from `trim_and_call` on where a turn ends. A question is capped at
+    `MAX_QUESTION`, nothing against this budget, so the phantom is free.
     """
     rest = [s for s in steps if s['kind'] != 'system']
     stubs = _stubs(steps)
-    shapes = [widget.turn_shape(s) for s in rest] + [widget.TURN_HUMAN]
-    sizes = [len(stubs.get(id(s)) or s.get('text') or '') for s in rest] + [0]
+    shapes = [widget.turn_shape(s) for s in rest]
+    sizes = [len(stubs.get(id(s)) or s.get('text') or '') for s in rest]
+    if widget.conversation_turns(shapes)[-1].closed:
+        shapes, sizes = shapes + [widget.TURN_HUMAN], sizes + [0]
     start = widget.history_budget_cut(shapes, sizes)
-    over_count = max(0, len(rest) + 1 - start - widget.MAX_HISTORY)
+    over_count = max(0, len(shapes) - start - widget.MAX_HISTORY)
     return rest[:start + over_count]
 
 

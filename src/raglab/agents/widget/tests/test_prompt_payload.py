@@ -148,11 +148,12 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
     # letting a closed turn's tool replies travel as a stub, takes 358,200
     # characters off that — 79% of the whole thread — without shortening the
     # reply being read. The distinction matters and the numbers say it: turn 2's
-    # answering call is 21,977 → 21,976, but turn 5's is 42,274 → 22,373 and
-    # turn 9's 62,575 → 22,774. Those calls did get shorter, and what went out
-    # of them is the *earlier* turns' bodies that used to ride along beside the
-    # reply being read. That is the result, and it is a better one than "no
-    # tool-reading call changed" would have been.
+    # answering call is 21,976 → 21,976, flat, since it had no earlier tool turn
+    # to shed — but turn 5's is 42,273 → 22,373 and turn 9's 62,574 → 22,774.
+    # Those two calls did get shorter, and what went out of them is the
+    # *earlier* turns' bodies that used to ride along beside the reply being
+    # read. That is the result, and it is a better one than "no tool-reading
+    # call changed" would have been.
     assert sum(p.total_chars for p in payloads) == 95_276
 
 

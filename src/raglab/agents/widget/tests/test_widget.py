@@ -1709,11 +1709,11 @@ def test_the_budget_drops_whole_turns_so_a_tool_reply_keeps_the_call_that_asked(
         request, lambda r: seen.setdefault('messages', r.messages))
 
     sent = seen['messages']
-    assert [m.type for m in sent] == ['human']
-    assert str(sent[0].content) == 'and now?'
 
-    # And the invariant behind it, stated so a future trim is held to it too:
-    # every tool reply the window carries is preceded by the call it answers.
+    # The invariant first, because it is the durable one: every tool reply the
+    # window carries is preceded by the call it answers, whatever a future trim
+    # decides to drop. A message-wise budget fails here, on `[tool, answer,
+    # question]`, before the exact-window assertion below is ever reached.
     for i, message in enumerate(sent):
         if getattr(message, 'type', '') != 'tool':
             continue
@@ -1721,4 +1721,8 @@ def test_the_budget_drops_whole_turns_so_a_tool_reply_keeps_the_call_that_asked(
                  for call in (getattr(earlier, 'tool_calls', None) or [])}
         assert message.tool_call_id in asked, (
             'the window handed the model a tool reply whose call it dropped')
+
+    # And what this thread in particular comes to: the turn went whole.
+    assert [m.type for m in sent] == ['human']
+    assert str(sent[0].content) == 'and now?'
     assert request.messages == given

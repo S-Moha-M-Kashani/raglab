@@ -380,3 +380,93 @@ def test_an_interrupted_turn_is_recorded_and_is_not_read_as_live_reasoning(
     # Two rows now, and the second one answered.
     assert [row['status'] for row in turn_logger.list_turns(thread)] \
         == ['interrupted', 'answered']
+
+
+def test_an_interrupted_row_is_claimed_by_the_questions_id_not_its_text(
+        monkeypatch):
+    """The retry, which is the case this whole task came from.
+
+    The live trace is a reader who asked, watched the turn die after its tool
+    call, and asked *the same thing again*. So the second turn's question is
+    the first turn's question, character for character, and a check that
+    claimed the checkpoint's span by comparing text would hand the retry the
+    dead turn's tokens and the dead turn's steps — the account billed twice and
+    a row lying about what produced it, arriving through the likeliest path
+    there is.
+
+    The id cannot make that mistake, and the fact it rests on is asserted here
+    first rather than assumed: `add_messages` stamps its uuid onto the very
+    `HumanMessage` `backends._run` built, in place, so `ask` still holds it
+    afterwards. A `None` id is then proof the input write never happened, and
+    proof there is no span of ours to claim.
+    """
+    import json
+
+    import pytest
+    from langchain_core.messages import AIMessage
+
+    from raglab.agents.widget import backends, turn_logger
+    from raglab.agents.widget.tests.prompt_payload_probe import _SKILL_NAMES
+
+    class _DiesMidTurn(_RecordingModel):
+        dies_at: int = -1
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            if self.calls == self.dies_at:
+                self.calls += 1
+                raise RuntimeError('the model connection dropped mid-turn')
+            return super()._generate(messages, stop=stop,
+                                     run_manager=run_manager, **kwargs)
+
+    # The mechanism, stated as an assertion so a langgraph that stopped
+    # stamping in place fails here rather than quietly costing every
+    # interrupted turn its account.
+    memory.forget('id-stamped-in-place')
+    stamping = build_agent(_RecordingModel(script=[AIMessage(content='pong')]))
+    payload, config = backends._run('ping', 'id-stamped-in-place')
+    assert payload['messages'][-1].id is None
+    stamping.invoke(payload, config=config)
+    assert payload['messages'][-1].id
+
+    # And now the retry itself. Turn one dies after its tool call, with an
+    # account on the hop; turn two asks the identical question and dies in
+    # front of the input write, so the thread's last question is still turn
+    # one's.
+    thread = 'interrupted-retry'
+    question = 'tell me about the last experiment'
+    memory.forget(thread)
+    reads = AIMessage(
+        content='',
+        tool_calls=[{'name': 'read_rag_skill',
+                     'args': {'names': _SKILL_NAMES}, 'id': 'c1'}],
+        usage_metadata={'input_tokens': 2192, 'output_tokens': 603,
+                        'total_tokens': 2795})
+    agent = build_agent(_DiesMidTurn(script=[reads, None], dies_at=1))
+    monkeypatch.setattr(backends, '_agent_for', lambda _model: agent)
+    with pytest.raises(backends.WidgetUnavailable):
+        backends.ask(question, model='openai/gpt-5-nano', thread=thread)
+
+    class _NeverStarts:
+        """A run that dies before the graph writes anything of its own."""
+
+        def invoke(self, payload, config=None):
+            raise RuntimeError('the checkpointer is locked')
+
+    monkeypatch.setattr(backends, '_agent_for', lambda _model: _NeverStarts())
+    with pytest.raises(backends.WidgetUnavailable):
+        backends.ask(question, model='openai/gpt-5-nano', thread=thread)
+
+    first, second = turn_logger.list_turns(thread)
+    assert first['status'] == second['status'] == 'interrupted'
+    assert first['user_message'] == second['user_message'] == question
+    # The turn that really spent them keeps them...
+    assert (first['total_input_tokens'], first['total_output_tokens']) \
+        == (2192, 603)
+    assert [step['kind'] for step in json.loads(first['steps_json'])] \
+        == ['human', 'ai', 'tool']
+    # ...and the retry, whose own question never reached the thread, claims
+    # nothing of them. Text matching would have claimed all of it.
+    assert second['total_input_tokens'] is None
+    assert second['total_output_tokens'] is None
+    assert second['total_tokens'] is None
+    assert json.loads(second['steps_json']) == []

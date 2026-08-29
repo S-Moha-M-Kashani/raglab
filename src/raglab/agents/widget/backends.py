@@ -518,25 +518,9 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
         'the turn-log row was not written', '')
 
 
-def _questions_as_written(message: str) -> set:
-    """Every form the thread can hold the question just asked in.
-
-    Two: as it was sent, and capped to `hooks.MAX_QUESTION` — `check_request`
-    writes an over-long question back over itself, so the thread holds the
-    capped text under the original message id. A question `_validate` refuses
-    outright never reaches the graph, so an empty set there is the right
-    answer rather than a case to handle.
-    """
-    forms = {memory._text(message)}
-    try:
-        forms.add(hooks._validate(message))
-    except Exception:
-        pass
-    return forms
-
-
-def _log_interrupted_turn(*, message: str, thread: str, started: float,
-                          dataset_id: str, reason: str) -> str:
+def _log_interrupted_turn(*, message: str, asked, thread: str,
+                          started: float, dataset_id: str,
+                          reason: str) -> str:
     """The row a turn that never answered still owes.
 
     Until 2026-08-29 a run that died after the graph had written something
@@ -552,23 +536,30 @@ def _log_interrupted_turn(*, message: str, thread: str, started: float,
     because there is no returned state: the run raised. langgraph writes a
     checkpoint per superstep, so whatever the run managed — the question, a
     tool call, its reply, each with the usage the model reported — is in the
-    thread, and this reads the last question and everything after it, the same
-    span `_turn_account` calls a turn. The reply is empty because there was
-    none; `status` says `interrupted` and `status_reason` says what raised.
+    thread, and this reads the question and everything after it, the same span
+    `_turn_account` calls a turn. The reply is empty because there was none;
+    `status` says `interrupted` and `status_reason` says what raised.
 
-    The span is claimed only when it is *this* turn's. The last question in
-    the thread is this turn's question in every ordinary failure, because the
-    graph writes the input before it does anything else — but a run that dies
-    in front of that write (a locked checkpointer, a `before_agent` that
-    raised, a bad config) leaves the *previous* turn at the head of the span.
-    Reading it anyway would put the last turn's tokens and the last turn's
-    steps on a row whose question is this one, which double-bills the account
-    and is a row lying about what produced it. So the head's text is compared
-    with the question being logged, in both the forms the thread can hold it —
-    as sent, and capped the way `check_request` writes it back. A span that is
-    not this turn's is no span at all: the run wrote nothing of its own, the
-    account is `None` rather than someone else's number, and the row carries no
-    steps.
+    The span is claimed **by the question's own id**, and `asked` is the very
+    `HumanMessage` `_run` built for this turn. Two facts make that the right
+    key rather than the message's text. `add_messages` stamps a uuid onto the
+    object it was handed, in place, so a `None` id here is proof that the
+    input write never happened — a locked checkpointer, a `before_agent` that
+    raised, a bad config — and there is then no span of ours to claim at all.
+    And `check_request` writes a capped question back under the *same* id, so
+    the id survives the one edit the graph makes to it.
+
+    Text cannot do this job, and the case it fails is the one this whole task
+    came from. The live trace is a reader who asked, watched the turn die, and
+    **asked the same thing again**: on that retry the previous turn's question
+    is identical text, so a text check claims its span and bills its tokens and
+    its steps to the new row. That is the double-billed account and the row
+    lying about what produced it, arriving through the most likely path there
+    is. An id is different every turn, so it cannot.
+
+    A span that is not this turn's is no span at all: the run wrote nothing of
+    its own, the account is `None` rather than someone else's number, and the
+    row carries no steps.
 
     Never fatal, and never the reason a reader sees. Every write here goes
     through `_safely`, and the caller re-raises the original failure the moment
@@ -578,16 +569,23 @@ def _log_interrupted_turn(*, message: str, thread: str, started: float,
     name = (thread or '').strip() or memory.GENERAL
     held = _safely(lambda: memory._channels(name).get('messages') or [],
                    'the interrupted turn could not be read back', []) or []
+    question_id = str(getattr(asked, 'id', '') or '')
     turn: list = []
-    for i in range(len(held) - 1, -1, -1):
-        if isinstance(held[i], HumanMessage):
+    # No id means no write, so there is nothing to look for — and looking
+    # anyway would match the first message the thread holds with no id of its
+    # own, which is the very mistake this check exists to stop.
+    for i, held_message in enumerate(held if question_id else []):
+        if str(getattr(held_message, 'id', '') or '') == question_id:
             turn = list(held[i:])
             break
-    if turn and memory._text(turn[0].content) not in _questions_as_written(message):
+    if question_id and not turn:
+        hooks._fired('operational',
+                     'the interrupted turn wrote nothing of its own: its '
+                     'question is not in the thread')
+    elif not question_id:
         hooks._fired('operational',
                      'the interrupted turn wrote nothing of its own: the '
-                     'thread ends on an earlier question')
-        turn = []
+                     'graph never wrote its question')
     used = [m.usage_metadata for m in turn
             if getattr(m, 'usage_metadata', None)]
     account = _accounted('', used)
@@ -1063,7 +1061,8 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
         # into the thread, so the turn is recorded before the failure travels:
         # see `_log_interrupted_turn`. Then a UI helper's failure is a stated
         # 502, never a bare 500 — but the reason travels with it.
-        _log_interrupted_turn(message=message, thread=thread, started=started,
+        _log_interrupted_turn(message=message, asked=payload['messages'][-1],
+                              thread=thread, started=started,
                               dataset_id=pre.dataset, reason=str(error))
         if isinstance(error, WidgetUnavailable):
             raise
@@ -1173,13 +1172,15 @@ def _stream_agent(agent, message: str, thread: str, model: str,
         # dies here exactly as a raising one does and leaves the same dangling
         # question behind, so it earns the same row; nothing is yielded from a
         # generator being closed, and the close is passed straight on.
-        _log_interrupted_turn(message=message, thread=thread,
+        _log_interrupted_turn(message=message, asked=payload['messages'][-1],
+                              thread=thread,
                               started=started or time.monotonic(),
                               dataset_id=pre.dataset,
                               reason='the reader closed the stream')
         raise
     except Exception as error:
-        _log_interrupted_turn(message=message, thread=thread,
+        _log_interrupted_turn(message=message, asked=payload['messages'][-1],
+                              thread=thread,
                               started=started or time.monotonic(),
                               dataset_id=pre.dataset, reason=str(error))
         if isinstance(error, WidgetUnavailable):
@@ -1188,7 +1189,8 @@ def _stream_agent(agent, message: str, thread: str, model: str,
     if not (final or {}).get('messages'):
         stateless = ('the widget streamed no answer — the run ended with no '
                      'state to read the reply back from')
-        _log_interrupted_turn(message=message, thread=thread,
+        _log_interrupted_turn(message=message, asked=payload['messages'][-1],
+                              thread=thread,
                               started=started or time.monotonic(),
                               dataset_id=pre.dataset, reason=stateless)
         raise WidgetUnavailable(stateless)

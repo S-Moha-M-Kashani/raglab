@@ -33,6 +33,8 @@ from raglab.agents.widget.conversation_memory import (
     _text,
     closed_turn_tool_replies,
     conversation_turns,
+    interrupted_note,
+    interrupted_turn_cuts,
     relevance_guard,
     standing_mark,
     superseded_standing_lines,
@@ -381,6 +383,56 @@ def _as_stubs(messages: list) -> tuple[list, int]:
     return shaped, reduced
 
 
+def _close_interrupted(messages: list) -> tuple[list, int]:
+    """An interrupted turn, sent as the question that was asked and one line
+    saying it was never answered.
+
+    The decision this implements, and why it is this one. A turn whose run died
+    after the graph had written something leaves a question and, usually, a
+    tool call with its reply — and the next call hands the model that shape
+    with nothing after it. A model reads a tool reply as evidence it asked for
+    and is still working from, so the abandoned turn arrives as live reasoning
+    to continue: the reader's real question is now the second thing in the
+    prompt, behind a train of thought nobody wanted.
+
+    Three answers were possible and only one of them keeps every promise this
+    package has already made:
+
+    - **Delete it from the thread.** Withdrawn on this branch once already
+      (`RemoveMessage`, task 3): the record is what `/dev/trace` and the
+      reader's own history read back, and a lab whose row must never lie about
+      what produced it cannot have a prompt-shaping rule editing the evidence.
+    - **Leave it and mark it.** Marking it in the record is the same edit
+      wearing a friendlier name.
+    - **Shape the prompt, keep the record** — this. The unfinished work is
+      left out of *this call* and the question keeps its place, followed by
+      one assistant line stating that nothing answered it. The thread still
+      holds every message whole.
+
+    The question stays because a follow-up depends on it: "try that again" has
+    a subject only if the model can still read what was asked. The unfinished
+    work goes because it is the half that misleads, and because a lone tool
+    reply is not merely unhelpful — a call whose tool result has no answer
+    after it is a shape several providers reject outright.
+
+    A copy, never a write. `request.override` carries these alongside the
+    messages that were not copied, exactly as the standing-line filter and
+    `_as_stubs` hand theirs over.
+    """
+    cuts = interrupted_turn_cuts([turn_shape(m) for m in messages])
+    if not cuts:
+        return messages, 0
+    dropped = {i for positions in cuts.values() for i in positions}
+    shaped = []
+    for i, message in enumerate(messages):
+        if i in dropped:
+            continue
+        shaped.append(message)
+        if i in cuts:
+            shaped.append(AIMessage(content=interrupted_note(len(cuts[i]))))
+    return shaped, len(cuts)
+
+
 def history_budget_cut(shapes: list, sizes: list) -> int:
     """Where the window starts once the history fits `MAX_HISTORY_CHARS`.
 
@@ -467,11 +519,13 @@ def trim_and_call(request, handler):
     hundred characters or forty thousand: one `read_rag_skill` call put about
     20,000 characters of skill bodies into the window and the count then held
     them there for the next twenty messages, re-sent on every hop of every
-    turn that followed. So the window now has three parts —
+    turn that followed. So the window now has four parts —
     `_as_stubs` (a closed turn's tool replies travel as a stub naming the tool
-    and what it was asked), `_within_budget` (`MAX_HISTORY_CHARS`, spent
-    oldest turn first and never on the turn being answered) and `MAX_HISTORY`
-    itself, still standing as the second ceiling.
+    and what it was asked), `_close_interrupted` (a turn whose run died
+    mid-flight travels as its question plus one line saying nothing answered
+    it), `_within_budget` (`MAX_HISTORY_CHARS`, spent oldest turn first and
+    never on the turn being answered) and `MAX_HISTORY` itself, still standing
+    as the second ceiling.
     """
     stop = stop_repeated_tool_hops(request.state)
     if stop:
@@ -507,14 +561,16 @@ def trim_and_call(request, handler):
     rest = [m for m in request.messages if getattr(m, 'type', '') != 'system']
     stale = superseded_standing_lines([standing_mark(m) for m in system])
     standing = [m for i, m in enumerate(system) if i not in stale]
-    # Three shapings of the rest, in the order that makes each one honest.
-    # First a closed turn's tool replies become stubs, so the size the next
-    # step measures is the size this call will really carry; then the size
-    # ceiling drops whole finished turns off the front; then the count cap
-    # stands where it always did, as the second ceiling.
+    # Four shapings of the rest, in the order that makes each one honest.
+    # First a closed turn's tool replies become stubs and an interrupted turn
+    # loses the work it never finished, so the size the next step measures is
+    # the size this call will really carry; then the size ceiling drops whole
+    # finished turns off the front; then the count cap stands where it always
+    # did, as the second ceiling.
     shaped, reduced = _as_stubs(rest)
+    shaped, closed = _close_interrupted(shaped)
     shaped, dropped = _within_budget(shaped)
-    if stale or reduced or dropped or len(shaped) > MAX_HISTORY:
+    if stale or reduced or closed or dropped or len(shaped) > MAX_HISTORY:
         window = shaped[-MAX_HISTORY:] if len(shaped) > MAX_HISTORY else shaped
         request = request.override(messages=standing + window)
     name = getattr(request.model, 'model_name', type(request.model).__name__)

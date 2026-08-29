@@ -179,6 +179,68 @@ def closed_turn_tool_replies(shapes: list) -> set:
             if shapes[i] == TURN_TOOL}
 
 
+#: What an interrupted turn says in a prompt in place of the work it never
+#: finished. `{dropped}` is the load-bearing field, for the reason `TOOL_STUB`
+#: states about its own three: the count is what a reader and a test can check
+#: against the log, the sentence around it is free prose.
+#:
+#: It is worded as the assistant, because that is what it stands in for — the
+#: turn's own missing answer. A system line saying the same thing would be a
+#: standing instruction about one moment in the past, and the model reads
+#: standing lines as rules about the whole conversation.
+INTERRUPTED_TURN = (
+    '[This question was never answered: the run ended before a reply, and the '
+    '{dropped} unfinished step(s) it had produced are in the log but are not '
+    'sent. Nothing was concluded here — do not continue this reasoning; the '
+    'reader may simply have asked again below.]')
+
+
+def interrupted_note(dropped: int = 0) -> str:
+    """The one line an interrupted turn travels as, in place of its unfinished
+    work."""
+    return INTERRUPTED_TURN.format(dropped=int(dropped))
+
+
+def interrupted_turn_cuts(shapes: list) -> dict:
+    """Which turns died mid-flight, and what a prompt leaves out of each.
+
+    Returns `{question position: [positions the call does not carry]}` — one
+    entry per interrupted turn, the reader's question kept and everything the
+    turn managed to produce left out, with `interrupted_note` standing where
+    that work was. Positions rather than messages, for the reason
+    `history_budget_cut` takes shapes and sizes: `hooks._close_interrupted`
+    applies this to the messages a call is about to carry and
+    `dashboard.dev_trace_page` applies it to the same thread's trace steps, and
+    a page that worked it out for itself would sooner or later show a
+    developer a step the model never read.
+
+    **An interrupted turn is an unclosed turn that is not the thread's last.**
+    A turn is closed when the model has answered from it (`conversation_turns`
+    says why), so an unclosed turn that a later question already followed is a
+    turn whose run died after the graph had written something: on
+    2026-08-29 a real thread held three questions and two answers, the first
+    question's `read_experiment` call and its reply sitting in the record with
+    nothing after them. The last turn is exempt and must stay exempt — it is
+    either in flight or the very turn about to be continued, and blanking it
+    would delete the tool reply the model is on its way to read.
+
+    A turn that does not begin with a question is not one of these. Whatever a
+    thread holds before its first reader question is a fragment
+    `conversation_turns` deliberately keeps rather than drops — a seeded or
+    repaired thread can begin anywhere — and calling it an abandoned question
+    would put a note under something nobody asked.
+
+    Only the record is authoritative, and this touches none of it: the thread
+    keeps every message whole, which is what `/dev/trace` and the reader's own
+    history read back.
+    """
+    turns = conversation_turns(shapes)
+    return {turn.start: [i for i in range(turn.start + 1, turn.stop)
+                         if shapes[i] != TURN_SYSTEM]
+            for turn in turns[:-1]
+            if not turn.closed and shapes[turn.start] == TURN_HUMAN}
+
+
 #: What a closed turn's tool reply says in a prompt instead of its body, and
 #: how much of the call's arguments it may spend saying what was asked for.
 #:

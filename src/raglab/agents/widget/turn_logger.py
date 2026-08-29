@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS widget_turn_log (
   memory_update_id INTEGER,
   memory_reason TEXT,
   status TEXT NOT NULL,
+  status_reason TEXT,
   created_at TEXT NOT NULL
 );
 """
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS widget_turn_log (
 #: `ALTER TABLE` per missing column, checked on connect, is the whole
 #: migration this table needs: every added column is nullable, so an old row
 #: reads back as "nothing was recorded" rather than as a wrong answer.
-ADDED_COLUMNS = (('memory_reason', 'TEXT'),)
+ADDED_COLUMNS = (('memory_reason', 'TEXT'), ('status_reason', 'TEXT'))
 
 #: The same busy timeout `conversation_memory.BUSY_TIMEOUT_SECONDS` states in
 #: full: three writers share this file and the memory writer now runs on a
@@ -90,8 +91,18 @@ def log_turn(*, thread_id: str, experiment_id: str, dataset_id: str,
              total_input_tokens: int | None = None,
              total_output_tokens: int | None = None,
              total_latency_ms: int | None = None, status: str = 'answered',
+             status_reason: str = '',
              memory_update_id: int | None = None) -> str:
-    """Write one readable turn and return its stable ID."""
+    """Write one readable turn and return its stable ID.
+
+    `status_reason` says what a status other than `answered` came of — the
+    error that ended an interrupted run, in the words the exception used. It
+    is its own column and not `memory_reason` because the two answer different
+    questions about the same row: what happened to the *turn*, and what
+    happened to the memory the turn might have been filed as. A row can want
+    both, and a reader who could not tell one from the other would have
+    neither.
+    """
     turn_id = str(uuid.uuid4())
     input_tokens = (int(total_input_tokens)
                     if total_input_tokens is not None else None)
@@ -104,7 +115,8 @@ def log_turn(*, thread_id: str, experiment_id: str, dataset_id: str,
            _total(input_tokens, output_tokens),
            int(total_latency_ms) if total_latency_ms is not None else None,
            json.dumps(steps or [], ensure_ascii=False, separators=(',', ':')),
-           memory_update_id, str(status or 'answered'), _now())
+           memory_update_id, str(status or 'answered'),
+           str(status_reason or '') or None, _now())
     with _LOCK, _connect() as db:
         db.execute(
             'INSERT INTO widget_turn_log '
@@ -112,7 +124,8 @@ def log_turn(*, thread_id: str, experiment_id: str, dataset_id: str,
             'user_message_id, user_message, ai_message_id, ai_message, '
             'total_input_tokens, total_output_tokens, total_tokens, '
             'total_latency_ms, steps_json, memory_update_id, status, '
-            'created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'status_reason, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             row)
         db.commit()
     return turn_id

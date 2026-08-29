@@ -404,6 +404,63 @@ def test_a_turn_is_closed_once_the_model_has_answered_from_it():
     assert memory.conversation_turns([]) == [memory.Turn(0, 0, False)]
 
 
+def test_an_interrupted_turn_is_an_unclosed_turn_that_is_not_the_last():
+    """The rule the prompt and the trace page both take their answer from.
+
+    A run that dies after the graph has written something leaves a question and
+    a tool exchange with nothing after them. Once the reader asks again, that
+    turn is unclosed and no longer last, which is exactly what makes it
+    recognisable — and what keeps the *current* turn, unclosed for the ordinary
+    reason that the model is still working, out of it.
+    """
+    from langchain_core.messages import SystemMessage
+
+    def shapes(messages):
+        return [memory.turn_shape(m) for m in messages]
+
+    calls = [{'name': 'read_experiment', 'args': {'experiment_id': 'e1'},
+              'id': 'c1'}]
+    abandoned = [HumanMessage(content='q1'),
+                 AIMessage(content='', tool_calls=calls),
+                 ToolMessage(content='the row', tool_call_id='c1',
+                             name='read_experiment')]
+    asked_again = [HumanMessage(content='q1 again'), AIMessage(content='a1')]
+
+    # In flight: the only turn there is, so nothing is called interrupted —
+    # the model is on its way to read that tool reply.
+    assert memory.interrupted_turn_cuts(shapes(abandoned)) == {}
+
+    # The live finding: the same three messages, followed by a turn that did
+    # answer. The question keeps its place; the two messages after it are what
+    # no call carries.
+    assert memory.interrupted_turn_cuts(shapes(abandoned + asked_again)) \
+        == {0: [1, 2]}
+
+    # A turn that died before the model wrote anything is still an abandoned
+    # question, and still says so.
+    assert memory.interrupted_turn_cuts(
+        shapes([HumanMessage(content='q1')] + asked_again)) == {0: []}
+
+    # A standing line inside the span belongs to no turn and is never cut: it
+    # is exempt from the window by design, and dropping one would take a
+    # memory context away from the call that needed it.
+    with_line = [HumanMessage(content='q1'),
+                 SystemMessage(content='memory'),
+                 AIMessage(content='', tool_calls=calls),
+                 ToolMessage(content='the row', tool_call_id='c1',
+                             name='read_experiment')] + asked_again
+    assert memory.interrupted_turn_cuts(shapes(with_line)) == {0: [2, 3]}
+
+    # Whatever a thread holds before its first question is a fragment, not an
+    # abandoned question, so nothing is marked under it.
+    assert memory.interrupted_turn_cuts(
+        shapes([AIMessage(content='hello')] + asked_again)) == {}
+
+    # The line that stands where the cut work was names how much went.
+    note = memory.interrupted_note(2)
+    assert '2 unfinished step(s)' in note and 'never answered' in note
+
+
 def test_a_tool_stub_names_the_tool_and_what_it_was_asked_for():
     """What a closed turn's tool reply travels as. The stub has one job beyond
     being short: a model reading it must be able to re-issue the same call, so

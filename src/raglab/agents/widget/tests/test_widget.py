@@ -1227,6 +1227,49 @@ def test_streaming_names_the_tool_being_called():
     assert [e['reply'] for e in said if 'reply' in e] == ['9002 it is']
 
 
+def test_a_stream_the_reader_walks_away_from_still_writes_its_row():
+    # this is a unit test
+    """A streamed turn dies two ways and both owe a row.
+
+    A run that raises mid-stream is the obvious one. The other is a reader who
+    closes the tab: the route stops iterating, the generator is closed, and
+    what arrives inside it is `GeneratorExit` — not an exception, so an
+    ordinary `except Exception` never sees it, and the turn used to end with
+    the graph's partial work in the thread and nothing anywhere else. Both
+    land as `interrupted`, each saying which it was."""
+    class _Halts:
+        def stream(self, payload, config=None, stream_mode=None):
+            yield from _chunks('half a th')
+            raise RuntimeError('the provider hung up')
+
+    model = _streaming(_Halts())
+    try:
+        with pytest.raises(widget.WidgetUnavailable):
+            list(widget.stream('why?', model=model, thread='exp-halt'))
+    finally:
+        widget.reset()
+
+    class _Endless:
+        def stream(self, payload, config=None, stream_mode=None):
+            yield from _chunks('one ', 'two ', 'three ', 'four')
+
+    model = _streaming(_Endless())
+    try:
+        events = widget.stream('and?', model=model, thread='exp-walk-away')
+        assert next(events) == {'delta': 'one '}
+        events.close()          # the reader closed the tab
+    finally:
+        widget.reset()
+
+    from raglab.agents.widget import turn_logger
+    halted = turn_logger.list_turns('exp-halt')
+    walked = turn_logger.list_turns('exp-walk-away')
+    assert [row['status'] for row in halted + walked] == ['interrupted'] * 2
+    assert halted[0]['status_reason'] == 'the provider hung up'
+    assert walked[0]['status_reason'] == 'the reader closed the stream'
+    assert walked[0]['user_message'] == 'and?'
+
+
 def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
     # this is a unit test
     """The pieces are how the answer arrived; the final event is what the lab

@@ -36,8 +36,10 @@ say today, not what a hand-rolled stand-in guessed.
 
 Four later tasks on this branch each change what a turn sends: global memory
 filtering and one standing memory line per call, then a size-bounded window
-with stubbed closed-turn tool replies (all three landed), and interrupted-turn
-handling.
+with stubbed closed-turn tool replies, and last the interrupted turn — all
+four landed. The fourth moves no number here and was never going to: this
+thread's twelve turns all finish, and what that task shapes is the turn that
+does not. Its own measurement is the test at the foot of this file.
 Every number pinned below is a claim about *today's* behaviour, so a later
 task's deliberate change shows up here as an assertion a reviewer can see
 move — and why it moved — rather than as silence.
@@ -280,3 +282,101 @@ def test_a_follow_up_is_answerable_from_a_thread_whose_tool_reply_was_stubbed():
             for m in memory._channels(thread)['messages']
             if getattr(m, 'type', '') == 'tool']
     assert held == [bodies, bodies]
+
+
+def test_an_interrupted_turn_is_recorded_and_is_not_read_as_live_reasoning(
+        monkeypatch):
+    """The live finding, reproduced offline: a run that dies after a tool call.
+
+    On a real thread this left three questions in `/dev/trace` against two
+    `widget_turn_log` rows. The first question was asked, the model called a
+    tool, the tool answered, and then nothing — so the turn cost 2,192 input
+    and 603 output tokens that were billed nowhere, and the next turn's model
+    opened on a question nobody had answered followed by a tool result, which
+    reads as a train of thought to carry on.
+
+    Both halves are asserted here, over the real compiled agent: the row the
+    failed turn now writes, and the messages the following turn is handed.
+    """
+    import json
+
+    import pytest
+    from langchain_core.messages import AIMessage
+
+    from raglab.agents.widget import backends, turn_logger
+    from raglab.agents.widget.tests.prompt_payload_probe import _SKILL_NAMES
+    from raglab.agents.widget.tools import read_rag_skill
+
+    class _DiesMidTurn(_RecordingModel):
+        """The probe's model with one call that never comes back — the
+        connection drop, the provider 500, the process killed mid-run. The
+        dead call plays no script line and records nothing, because it
+        returned nothing."""
+
+        dies_at: int = -1
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            if self.calls == self.dies_at:
+                self.calls += 1
+                raise RuntimeError('the model connection dropped mid-turn')
+            return super()._generate(messages, stop=stop,
+                                     run_manager=run_manager, **kwargs)
+
+    thread = 'interrupted-turn'
+    memory.forget(thread)
+    bodies = read_rag_skill.invoke({'names': _SKILL_NAMES})
+    reads = AIMessage(
+        content='',
+        tool_calls=[{'name': 'read_rag_skill',
+                     'args': {'names': _SKILL_NAMES}, 'id': 'c1'}],
+        usage_metadata={'input_tokens': 2192, 'output_tokens': 603,
+                        'total_tokens': 2795})
+    model = _DiesMidTurn(
+        script=[reads, None, AIMessage(content='Chunking, mostly.')],
+        dies_at=1)
+    agent = build_agent(model)
+    monkeypatch.setattr(backends, '_agent_for', lambda _model: agent)
+
+    with pytest.raises(backends.WidgetUnavailable):
+        backends.ask('what do the skills say about chunking?',
+                     model='openai/gpt-5-nano', thread=thread)
+
+    # The row the turn used to owe and never wrote. It says what happened, why,
+    # and what it cost — the tokens the graph really did spend before it died.
+    rows = turn_logger.list_turns(thread)
+    assert len(rows) == 1
+    assert rows[0]['status'] == 'interrupted'
+    assert 'dropped mid-turn' in rows[0]['status_reason']
+    assert rows[0]['ai_message'] is None
+    assert (rows[0]['total_input_tokens'], rows[0]['total_output_tokens'],
+            rows[0]['total_tokens']) == (2192, 603, 2795)
+    # And the steps it did produce are on the row, so it reads as a turn rather
+    # than as a bare failure.
+    assert [step['kind'] for step in json.loads(rows[0]['steps_json'])] \
+        == ['human', 'ai', 'tool']
+
+    # The record is untouched — the fence this whole branch keeps. The
+    # question, the call and the tool's whole reply are still in the thread,
+    # which is what `/dev/trace` and the reader's history read back.
+    held = memory._channels(thread)['messages']
+    assert [getattr(m, 'type', '') for m in held] == ['human', 'ai', 'tool']
+    assert memory._text(held[-1].content) == bodies
+
+    # The reader asks again, and this is what the model is handed for it.
+    second = backends.ask('and what about reranking?',
+                          model='openai/gpt-5-nano', thread=thread)
+    assert second['reply'] == 'Chunking, mostly.'
+    handed = [memory._text(m.content) for m in model.seen[-1]]
+
+    # The abandoned question keeps its place: a follow-up such as "try that
+    # again" has a subject only while the model can still read what was asked.
+    assert 'what do the skills say about chunking?' in handed
+    # Its unfinished work does not travel...
+    assert bodies not in ' '.join(handed)
+    # ...and what stands in its place says the turn concluded nothing, so the
+    # model reads an abandoned question rather than reasoning to continue.
+    note = next(text for text in handed if text.startswith('[This question'))
+    assert note == memory.interrupted_note(2)
+    # Two rows now, and the second one answered.
+    assert [row['status'] for row in turn_logger.list_turns(thread)] \
+        == ['interrupted', 'answered']

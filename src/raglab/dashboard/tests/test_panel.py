@@ -2501,6 +2501,54 @@ def test_the_dev_trace_reads_an_unfinished_turn_as_the_turn_being_answered(
     assert body in html_unescape(flight)
 
 
+def test_the_dev_trace_marks_the_work_of_a_turn_that_never_answered(
+        client, monkeypatch):
+    # this is an integration test
+    """A turn whose run died after a tool call, seen from the page.
+
+    `hooks._close_interrupted` leaves that turn's unfinished work out of every
+    later call and sends the question with one line saying nothing answered it.
+    The page's single claim is what the model was handed, so it has to say the
+    same: the call and the tool reply are dimmed and named as interrupted, the
+    question is not, and the tool's body is still on the page — the record is
+    what makes this a record, and nothing was deleted from it.
+
+    The divider stays out of it on purpose. It answers "where does the next
+    call start reading?", and an interrupted turn is dimmed in the middle of
+    the tape rather than at its front; drawing the divider in front of one
+    would promise that everything after it was sent."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
+    client.post('/dev/trace', data={'key': 'open-sesame'})
+
+    body = 'the recorded row, at length. ' * 20
+    write_messages('exp-interrupted', [
+        HumanMessage(content='what did that run score?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_experiment', 'args': {'experiment_id': 'e1'},
+             'id': 'c1'}]),
+        ToolMessage(content=body, tool_call_id='c1', name='read_experiment'),
+        HumanMessage(content='what did that run score?'),
+        AIMessage(content='It scored 0.71.')])
+
+    text = client.get('/dev/trace', params={'thread': 'exp-interrupted'}).text
+
+    # The unfinished half is dimmed and says which of the two reasons it is.
+    assert '<div class="ai trimmed abandoned">' in text
+    assert '<div class="tool tool trimmed abandoned">' in text
+    assert text.count('not sent · this turn was interrupted') == 2
+    # The question that opened it is not dimmed: it still travels, because a
+    # follow-up needs to know what was asked.
+    assert '<div class="human trimmed' not in text
+    # The standing panel counts them apart from a turn the window dropped.
+    assert '2 step(s) belong to a turn whose run died before it answered' in text
+    assert 'nothing has been trimmed yet' in text
+    # And the body is still here to read — the log keeps everything.
+    assert body in html_unescape(text)
+    assert 'from here on, sent to the model' not in text
+
+
 def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):
     # this is an integration test
     """A key holding `#`, `%` and `&` — legal in .env, special in a URL — must

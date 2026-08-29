@@ -34,6 +34,12 @@ be exactly the silence CLAUDE.md forbids. For the same reason every one of
 this file's operational writes goes through `_safely` — three writers share
 widget.db, and a row that could not be written is reported, never fatal to an
 answer the reader already has.
+
+A turn that never answers says so on a row of its own
+(`_log_interrupted_turn`). A run can die after the graph has already written
+the question and a tool exchange, and until 2026-08-29 that turn was recorded
+nowhere at all while its tokens were still spent — the same silence, one step
+earlier.
 """
 import os
 import time
@@ -468,7 +474,8 @@ def _safely(work, note: str, fallback=None):
 
 def _log_turn(*, message: str, reply: str, thread: str, started: float,
               input_tokens=None, output_tokens=None, messages=None,
-              dataset_id='', status='answered', ai_message_id='') -> str:
+              dataset_id='', status='answered', status_reason='',
+              ai_message_id='') -> str:
     """Write the human-readable operational row after the answer exists.
 
     `dataset_id` is the turn's trusted dataset, not the policy's opinion of
@@ -499,8 +506,52 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
             steps=trace,
             total_input_tokens=input_tokens, total_output_tokens=output_tokens,
             total_latency_ms=max(0, round((time.monotonic() - started) * 1000)),
-            status=status),
+            status=status, status_reason=status_reason),
         'the turn-log row was not written', '')
+
+
+def _log_interrupted_turn(*, message: str, thread: str, started: float,
+                          dataset_id: str, reason: str) -> str:
+    """The row a turn that never answered still owes.
+
+    Until 2026-08-29 a run that died after the graph had written something
+    left nothing behind but the conversation: no row, no status, and its
+    tokens billed nowhere. One real thread showed three questions in
+    `/dev/trace` against two logged turns, the missing one having spent 2,192
+    input and 603 output tokens on a `read_experiment` call whose answer the
+    reader never saw. A turn that fails is still a turn that cost money, and a
+    lab that writes one row per job does not get to skip the row when the job
+    goes wrong — that is precisely when the row is worth having.
+
+    The account comes from the checkpoint rather than from a returned state,
+    because there is no returned state: the run raised. langgraph writes a
+    checkpoint per superstep, so whatever the run managed — the question, a
+    tool call, its reply, each with the usage the model reported — is in the
+    thread, and this reads the last question and everything after it, the same
+    span `_turn_account` calls a turn. The reply is empty because there was
+    none; `status` says `interrupted` and `status_reason` says what raised.
+
+    Never fatal, and never the reason a reader sees. Every write here goes
+    through `_safely`, and the caller re-raises the original failure the moment
+    this returns: what the reader is owed is the error, and what the lab is
+    owed is the row.
+    """
+    name = (thread or '').strip() or memory.GENERAL
+    held = _safely(lambda: memory._channels(name).get('messages') or [],
+                   'the interrupted turn could not be read back', []) or []
+    turn: list = []
+    for i in range(len(held) - 1, -1, -1):
+        if isinstance(held[i], HumanMessage):
+            turn = list(held[i:])
+            break
+    used = [m.usage_metadata for m in turn
+            if getattr(m, 'usage_metadata', None)]
+    account = _accounted('', used)
+    return _log_turn(message=message, reply='', thread=thread, started=started,
+                     input_tokens=account['input_tokens'],
+                     output_tokens=account['output_tokens'], messages=turn,
+                     dataset_id=dataset_id, status='interrupted',
+                     status_reason=reason)
 
 
 def _agent_for(model: str):
@@ -963,11 +1014,15 @@ def ask(message: str, model: str = '', thread: str = '') -> dict:
                            memory_state=pre.state, memory_text=pre.context)
     try:
         result = agent.invoke(payload, config=config)
-    except WidgetUnavailable:
-        raise
     except Exception as error:
-        # A UI helper's failure is a stated 502, never a bare 500 — but the
-        # reason travels with it.
+        # The graph may already have written a question and a tool exchange
+        # into the thread, so the turn is recorded before the failure travels:
+        # see `_log_interrupted_turn`. Then a UI helper's failure is a stated
+        # 502, never a bare 500 — but the reason travels with it.
+        _log_interrupted_turn(message=message, thread=thread, started=started,
+                              dataset_id=pre.dataset, reason=str(error))
+        if isinstance(error, WidgetUnavailable):
+            raise
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
     reply, used = _turn_account(result['messages'])
     # `close_the_log` already accounted for this run from inside the graph.
@@ -1069,14 +1124,30 @@ def _stream_agent(agent, message: str, thread: str, model: str,
             text = _delta(event[0])
             if text:
                 yield {'delta': text}
-    except WidgetUnavailable:
+    except GeneratorExit:
+        # The reader closed the tab, or the route stopped iterating. The run
+        # dies here exactly as a raising one does and leaves the same dangling
+        # question behind, so it earns the same row; nothing is yielded from a
+        # generator being closed, and the close is passed straight on.
+        _log_interrupted_turn(message=message, thread=thread,
+                              started=started or time.monotonic(),
+                              dataset_id=pre.dataset,
+                              reason='the reader closed the stream')
         raise
     except Exception as error:
+        _log_interrupted_turn(message=message, thread=thread,
+                              started=started or time.monotonic(),
+                              dataset_id=pre.dataset, reason=str(error))
+        if isinstance(error, WidgetUnavailable):
+            raise
         raise WidgetUnavailable(f'the widget could not answer: {error}') from error
     if not (final or {}).get('messages'):
-        raise WidgetUnavailable(
-            'the widget streamed no answer — the run ended with no state to '
-            'read the reply back from')
+        stateless = ('the widget streamed no answer — the run ended with no '
+                     'state to read the reply back from')
+        _log_interrupted_turn(message=message, thread=thread,
+                              started=started or time.monotonic(),
+                              dataset_id=pre.dataset, reason=stateless)
+        raise WidgetUnavailable(stateless)
     reply, used = _turn_account(final['messages'])
     output = _accounted(reply, used)
     stopped = hooks.hop_guard_refused(final['messages'])

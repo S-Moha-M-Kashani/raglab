@@ -97,28 +97,60 @@ def test_why_a_turn_was_or_was_not_filed_lands_on_its_own_row():
     turn_logger.attach_memory_outcome('', 'no row to amend')
 
 
-def test_a_log_written_before_the_reason_column_existed_gains_it():
+def test_what_ended_a_turn_is_its_own_column_beside_what_became_of_its_memory():
+    """A turn that never answers is still a turn, and the row it writes has to
+    say what stopped it. That is not the same fact as what became of the
+    memory it might have been filed as — a row can want both, and one column
+    holding either would leave a reader unable to tell which he had."""
+    interrupted = turn_logger.log_turn(
+        thread_id='exp-8', experiment_id='exp-8', dataset_id='diary-en',
+        user_message_id='human-8', user_message='what did that run score?',
+        steps=[{'kind': 'human'}, {'kind': 'ai'}, {'kind': 'tool'}],
+        total_input_tokens=2192, total_output_tokens=603,
+        status='interrupted',
+        status_reason='the model connection dropped mid-turn')
+
+    row = turn_logger.read_turn(interrupted)
+    assert row['status'] == 'interrupted'
+    assert row['status_reason'] == 'the model connection dropped mid-turn'
+    assert row['memory_reason'] is None      # nothing decided it either way
+    assert row['ai_message'] is None         # there was no answer to record
+    assert row['total_tokens'] == 2795       # and it was billed all the same
+
+    # An ordinary turn says nothing there, which is what "nothing stopped it"
+    # reads as.
+    answered = turn_logger.log_turn(
+        thread_id='exp-8', experiment_id='exp-8', dataset_id='diary-en',
+        user_message_id='human-9', user_message='and now?', ai_message='0.71',
+        steps=[])
+    assert turn_logger.read_turn(answered)['status_reason'] is None
+
+
+def test_a_log_written_before_the_reason_columns_existed_gains_them():
     """`CREATE TABLE IF NOT EXISTS` leaves an existing file alone, so a
-    developer's widget.db from before the column would keep losing the value
+    developer's widget.db from before a column would keep losing the value
     forever. One ALTER per missing column, checked on connect."""
     path = turn_logger.db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(path) as db:
         db.execute('DROP TABLE IF EXISTS widget_turn_log')
         db.execute(turn_logger.SCHEMA.replace(
-            '  memory_reason TEXT,\n', ''))
+            '  memory_reason TEXT,\n', '').replace(
+            '  status_reason TEXT,\n', ''))
         db.commit()
     with sqlite3.connect(path) as db:
-        assert 'memory_reason' not in {row[1] for row in db.execute(
+        have = {row[1] for row in db.execute(
             'PRAGMA table_info(widget_turn_log)')}
+    assert 'memory_reason' not in have and 'status_reason' not in have
 
     turn_id = turn_logger.log_turn(
         thread_id='exp-old', experiment_id='exp-old', dataset_id='diary-en',
         user_message_id='human-old', user_message='and?', ai_message='yes',
-        steps=[])
+        steps=[], status='interrupted', status_reason='the run died')
     turn_logger.attach_memory_outcome(turn_id, 'not filed: the policy declined.')
-    assert turn_logger.read_turn(turn_id)['memory_reason'] == (
-        'not filed: the policy declined.')
+    row = turn_logger.read_turn(turn_id)
+    assert row['memory_reason'] == 'not filed: the policy declined.'
+    assert row['status_reason'] == 'the run died'
 
 
 def test_the_log_waits_for_a_busy_file_instead_of_failing_the_turn():

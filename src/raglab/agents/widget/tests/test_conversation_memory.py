@@ -485,6 +485,58 @@ def test_an_interrupted_turn_is_an_unclosed_turn_that_is_not_the_last():
     assert '2 unfinished step(s)' in note and 'never answered' in note
 
 
+def test_a_dead_turn_and_one_in_flight_are_told_apart_by_the_turn_log():
+    """`interrupted_turn_cuts` exempts the last turn of whatever it is handed,
+    which is right for a payload — a new question is always its end — and no
+    answer at all for a *stored* thread, where the last turn is the one a
+    reader of the log most needs the truth about.
+
+    A thread that stops mid-turn has two meanings and one shape: a run still
+    going, whose next model call continues it, or a run that died, whose next
+    model call is the reader's next question. Nothing in the messages can say
+    which. What can is the row `backends._log_interrupted_turn` writes under
+    the question's own id — a run that died owes one and a run still going does
+    not — and that is what `next_call_continues` reads.
+    """
+    from raglab.agents.widget import turn_logger
+
+    calls = [{'name': 'read_experiment', 'args': {'experiment_id': 'e1'},
+              'id': 'c1'}]
+    mid_turn = [HumanMessage(content='q1', id='q-1'),
+                AIMessage(content='', id='a-1', tool_calls=calls),
+                ToolMessage(content='the row', tool_call_id='c1', id='t-1',
+                            name='read_experiment')]
+
+    # A thread nobody has used continues nothing.
+    assert memory.next_call_continues('never-used') is False
+
+    # A finished turn is followed by a new question, whatever else is true.
+    _write_messages('closed-last', [HumanMessage(content='q1', id='q-1'),
+                                    AIMessage(content='a1', id='a-1')])
+    assert memory.next_call_continues('closed-last') is False
+
+    # The same three messages under two threads: one running, one dead.
+    _write_messages('still-running', mid_turn)
+    _write_messages('run-died', mid_turn)
+    assert memory.next_call_continues('still-running') is True
+    turn_logger.log_turn(thread_id='run-died', experiment_id='run-died',
+                         dataset_id='diary-en', user_message_id='q-1',
+                         user_message='q1', status='interrupted',
+                         status_reason='the model connection dropped')
+    assert memory.next_call_continues('run-died') is False
+    # The row is claimed by the question's id, so a row about some other turn
+    # of the same thread says nothing about this one.
+    assert turn_logger.interrupted_question_ids('run-died') == {'q-1'}
+    assert memory.next_call_continues('still-running') is True
+
+    # An answered row is not a dead one — only an interrupted status counts.
+    turn_logger.log_turn(thread_id='still-running',
+                         experiment_id='still-running',
+                         dataset_id='diary-en', user_message_id='q-1',
+                         user_message='q1', ai_message='a1', status='answered')
+    assert memory.next_call_continues('still-running') is True
+
+
 def test_a_tool_stub_names_the_tool_and_what_it_was_asked_for():
     """What a closed turn's tool reply travels as. The stub has one job beyond
     being short: a model reading it must be able to re-issue the same call, so

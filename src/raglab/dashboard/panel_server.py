@@ -1275,6 +1275,14 @@ def create_app() -> FastAPI:
             # is the final step under the same lock, so no later index lookup
             # can observe the new file through an old cached index.
             registry.invalidate_dataset(found.id)
+        # The corpus set this installation knows has just changed, and the
+        # widget caches the board's dataset ids for the life of the process —
+        # it filters every turn's memory context against them and cannot pay
+        # for a board reading per turn. Forgetting them here is what stops an
+        # import needing a restart before the filter can see past it. This
+        # route, not the store: the widget is a sealed leaf and `corpora/` may
+        # not reach into it, while this module is the one that already does.
+        widget.forget_board_dataset_ids()
         # The same declaration table a catalogue entry carries, so the panel
         # can show what it just read without a second round trip.
         return found.as_dict() | _dataset_declaration(found.id)

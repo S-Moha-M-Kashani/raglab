@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import RLock
 
+from raglab.agents.widget.long_term_memory import MAX_SUMMARY_CHARS
 from raglab.configuration.env_settings import ROOT
 
 SCHEMA = """
@@ -54,7 +55,38 @@ ADDED_COLUMNS = (('memory_reason', 'TEXT'), ('status_reason', 'TEXT'))
 #: pulls langchain in behind it.
 BUSY_TIMEOUT_SECONDS = 5.0
 
+#: How much of a failed turn's reason this table keeps.
+#:
+#: `status_reason` is the only column here holding text nobody in this package
+#: wrote: it is `str(error)`, and what raised may be a provider handing back an
+#: HTML error page rather than a sentence. Stored verbatim and unbounded, one
+#: bad afternoon puts kilobytes per failed turn into `widget.db` — a
+#: conversation log growing by something that is not conversation.
+#:
+#: The number is `long_term_memory.MAX_SUMMARY_CHARS`, not a new one: that is
+#: already this package's answer to "how much prose may one row of widget.db
+#: hold", and an error deserves neither more room than a memory summary nor a
+#: second constant to keep in step with it. Imported rather than copied, so the
+#: two move together; `long_term_memory` is the light half of the store and
+#: pulls no langchain in behind it, which is the one thing `db_path` and
+#: `BUSY_TIMEOUT_SECONDS` above are careful about.
+#:
+#: The head is kept and the tail goes, which is the opposite of
+#: `long_term_memory._bounded` and right for the opposite reason: a summary's
+#: newest sentence is its point, while an exception says what it is in its
+#: first line and pads afterwards. The ellipsis is `tool_stub`'s — a reader has
+#: to be able to tell a message that ended from one this cut.
+MAX_STATUS_REASON = MAX_SUMMARY_CHARS
+
 _LOCK = RLock()
+
+
+def _bounded_reason(reason: str) -> str:
+    """A failed turn's reason, cut to `MAX_STATUS_REASON` characters."""
+    text = str(reason or '')
+    if len(text) <= MAX_STATUS_REASON:
+        return text
+    return text[:MAX_STATUS_REASON - 1] + '…'
 
 
 def db_path(env: dict | None = None) -> Path:
@@ -102,6 +134,10 @@ def log_turn(*, thread_id: str, experiment_id: str, dataset_id: str,
     happened to the memory the turn might have been filed as. A row can want
     both, and a reader who could not tell one from the other would have
     neither.
+
+    It is bounded here rather than at each caller (`MAX_STATUS_REASON`): the
+    words come from whatever raised, so the door the store is written through
+    is the one place that can promise a size at all.
     """
     turn_id = str(uuid.uuid4())
     input_tokens = (int(total_input_tokens)
@@ -116,7 +152,7 @@ def log_turn(*, thread_id: str, experiment_id: str, dataset_id: str,
            int(total_latency_ms) if total_latency_ms is not None else None,
            json.dumps(steps or [], ensure_ascii=False, separators=(',', ':')),
            memory_update_id, str(status or 'answered'),
-           str(status_reason or '') or None, _now())
+           _bounded_reason(status_reason) or None, _now())
     with _LOCK, _connect() as db:
         db.execute(
             'INSERT INTO widget_turn_log '
@@ -156,6 +192,30 @@ def list_turns(thread_id: str = '') -> list[dict]:
                 'SELECT * FROM widget_turn_log ORDER BY created_at, rowid'
             ).fetchall()
     return [_row(row) for row in rows]
+
+
+def interrupted_question_ids(thread_id: str) -> set[str]:
+    """The `user_message_id` of every turn in this thread whose run died.
+
+    One fact about the world that no reading of a thread's messages can
+    supply. A stored thread that stops mid-turn has two possible meanings and
+    the same shape for both: a run still in flight, whose next model call
+    continues it, or a run that died, whose next model call is a new question
+    the reader has yet to type. `_log_interrupted_turn` writes a row for the
+    second and nothing at all for the first, so the presence of a row is the
+    difference — and it is claimed by the question's own id, which is why that
+    id is what this returns rather than a count or a timestamp.
+
+    `conversation_memory.next_call_continues` is the reader, and it is the
+    developer's trace page that needs the answer: the page reports in the
+    tense of the next call, so it has to know which call that is.
+    """
+    with _LOCK, _connect() as db:
+        rows = db.execute(
+            'SELECT user_message_id FROM widget_turn_log '
+            'WHERE thread_id = ? AND status = ?',
+            (str(thread_id or ''), 'interrupted')).fetchall()
+    return {str(row[0]) for row in rows if row[0]}
 
 
 def clear() -> None:

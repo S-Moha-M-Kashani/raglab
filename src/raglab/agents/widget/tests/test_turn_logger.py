@@ -161,3 +161,39 @@ def test_the_log_waits_for_a_busy_file_instead_of_failing_the_turn():
     with turn_logger._connect() as db:
         assert db.execute('PRAGMA busy_timeout').fetchone()[0] == int(
             turn_logger.BUSY_TIMEOUT_SECONDS * 1000)
+
+
+def test_a_providers_error_page_cannot_grow_the_log_without_bound():
+    """`status_reason` is the one column here holding words nobody in this
+    package wrote: it is `str(error)`, and what raised may be a provider
+    handing back an HTML error page rather than a sentence. Stored verbatim,
+    every failed turn on a bad afternoon put kilobytes of markup into a
+    conversation log.
+
+    The bound is `long_term_memory.MAX_SUMMARY_CHARS` rather than a number
+    invented for this column — that is already this package's answer to how
+    much prose one row of widget.db may hold. The head is what survives,
+    because an exception says what it is in its first line, and the ellipsis
+    says a reader is looking at a cut rather than at where the message ended.
+    """
+    from raglab.agents.widget import long_term_memory
+
+    assert turn_logger.MAX_STATUS_REASON == long_term_memory.MAX_SUMMARY_CHARS
+    page = '<!DOCTYPE html><html><body>' + 'Bad Gateway. ' * 4_000
+
+    turn_id = turn_logger.log_turn(
+        thread_id='exp-huge', experiment_id='exp-huge', dataset_id='diary-en',
+        user_message_id='human-huge', user_message='and?', steps=[],
+        status='interrupted', status_reason=page)
+
+    stored = turn_logger.read_turn(turn_id)['status_reason']
+    assert len(stored) == turn_logger.MAX_STATUS_REASON
+    assert stored.startswith('<!DOCTYPE html>')  # the head, which says what it is
+    assert stored.endswith('…')
+    # A reason that already fits is stored exactly as it was raised.
+    short = turn_logger.log_turn(
+        thread_id='exp-huge', experiment_id='exp-huge', dataset_id='diary-en',
+        user_message_id='human-short', user_message='and?', steps=[],
+        status='interrupted', status_reason='the model connection dropped')
+    assert turn_logger.read_turn(short)['status_reason'] == \
+        'the model connection dropped'

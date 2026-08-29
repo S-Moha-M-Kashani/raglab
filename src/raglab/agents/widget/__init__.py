@@ -40,6 +40,7 @@ from raglab.agents.widget import long_term_memory
 from raglab.agents.widget import probe
 from raglab.agents.widget import prompts
 from raglab.agents.widget import tools
+from raglab.agents.widget import turn_logger
 from raglab.agents.widget.backends import (
     DEFAULT_MODEL,
     REQUIRED_ENV,
@@ -72,6 +73,7 @@ from raglab.agents.widget.conversation_memory import (
     history,
     interrupted_note,
     interrupted_turn_cuts,
+    next_call_continues,
     recall_conversation,
     standing_mark,
     superseded_standing_lines,
@@ -84,6 +86,7 @@ from raglab.agents.widget.long_term_memory import (
     MAX_SUMMARY_CHARS,
     clear_long_term_memory,
     db_path,
+    forget_board_dataset_ids,
     memory_context,
     save_memory_update)
 from raglab.agents.widget.hooks import (

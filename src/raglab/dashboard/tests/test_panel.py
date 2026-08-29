@@ -2444,27 +2444,29 @@ def test_the_dev_trace_dims_a_turn_the_character_budget_drops(client, monkeypatc
     assert '2 oldest non-system step(s) are no longer sent' in text
 
 
-def test_the_dev_trace_reads_an_unfinished_turn_as_the_turn_being_answered(
+def test_the_dev_trace_tells_a_turn_in_flight_from_one_whose_run_died(
         client, monkeypatch):
     # this is an integration test
     """The page reports in the tense of the next call, and which call that is
-    depends on where the thread stops.
+    is a fact about the world rather than a shape in the log.
 
-    A thread whose last turn is **closed** has been answered, so its next call
-    is a new question and that finished turn is history — budgeted, and dropped
-    if it is too big. A thread that stops **mid-turn** is the opposite case: its
-    next call is the continuation of the same turn, the model is about to read
-    the tool reply sitting at the end of the log, and that turn is the turn
-    being answered — exempt from the budget and never stubbed.
+    Three threads, and the middle one is why this test was rewritten. A thread
+    whose last turn is **closed** has been answered, so its next call is a new
+    question and that finished turn is history — budgeted, and dropped if it is
+    too big. A thread that stops **mid-turn** looks the same either way and
+    means two different things: a run still going, whose next model call
+    continues it, or a run that died, whose next model call is a new question
+    with that turn's whole body cut. This page used to read every unfinished
+    turn as the first, which was true of one thread in this file and false of
+    every dead one — and a dead turn is the state the branch exists for.
 
-    Both directions are asserted here because treating the two alike is wrong
-    twice over. Without the phantom question, a closed final turn reads as the
-    turn being answered and the page shows a dropped 25 KB turn as context the
-    model has. With the phantom appended unconditionally, an unfinished turn's
-    20 KB reply is dimmed as trimmed while `trim_and_call` hands the model
-    every character of it. Same lie, once in each direction."""
+    What separates them is the row `_log_interrupted_turn` writes under the
+    question's own id: a run that died owes one, a run still going does not.
+    So the third thread here differs from the second by nothing but that row,
+    and the page must say opposite things about the two."""
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from raglab.agents import widget
+    from raglab.agents.widget import turn_logger
     from raglab.agents.widget.tests.widget_examples import write_messages
     monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
     client.post('/dev/trace', data={'key': 'open-sesame'})
@@ -2499,6 +2501,36 @@ def test_the_dev_trace_reads_an_unfinished_turn_as_the_turn_being_answered(
     assert 'sent as a stub' not in flight and '· reduced' not in flight
     # And the body really is there to be read, whole.
     assert body in html_unescape(flight)
+    # The page says which of the two states this is, rather than leaving a
+    # developer to infer it from what is not dimmed.
+    assert 'no row says that run died, so it is still going' in flight
+    assert widget.next_call_continues('exp-inflight')
+
+    # The same shape, and a row saying the run behind it died. Nothing about
+    # the messages changed; what changed is that the next call is now a new
+    # question, so the turn is interrupted and its work is cut.
+    write_messages('exp-died', [
+        HumanMessage(content='q0', id='d0'), AIMessage(content='a0', id='d1'),
+        HumanMessage(content='the long one?', id='d2'),
+        AIMessage(content='', id='d3', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+             'id': 'c1'}]),
+        ToolMessage(content=body, tool_call_id='c1', id='d4',
+                    name='read_rag_skill')])
+    turn_logger.log_turn(thread_id='exp-died', experiment_id='exp-died',
+                         dataset_id='diary-en', user_message_id='d2',
+                         user_message='the long one?', status='interrupted',
+                         status_reason='the model connection dropped mid-turn')
+    died = client.get('/dev/trace', params={'thread': 'exp-died'}).text
+    assert not widget.next_call_continues('exp-died')
+    assert 'no row says that run died' not in died
+    # The call and the 21 KB reply are cut; the question that opened the turn
+    # keeps its place and travels with one line saying nothing answered it.
+    assert '2 step(s) belong to a turn whose run died before it answered' in died
+    assert died.count('not sent · this turn was interrupted') == 2
+    assert widget.interrupted_note(2) in html_unescape(died)
+    # The record still holds every character of it — only the prompt is shaped.
+    assert body in html_unescape(died)
 
 
 def test_the_dev_trace_marks_the_work_of_a_turn_that_never_answered(
@@ -2552,6 +2584,169 @@ def test_the_dev_trace_marks_the_work_of_a_turn_that_never_answered(
     # And the body is still here to read — the log keeps everything.
     assert body in html_unescape(text)
     assert 'from here on, sent to the model' not in text
+
+
+def test_importing_a_corpus_forgets_the_widgets_cached_board_ids(client):
+    # this is an integration test
+    """The widget reads the board's dataset ids once and keeps them for the
+    life of the process — it filters every turn's memory context against them
+    and cannot afford a board reading per turn. Wiring a different reader
+    forgets them, and until now nothing else did: a corpus imported into a
+    running lab stayed invisible to that filter until somebody restarted the
+    server. The import route is where this installation's corpus set changes,
+    and it is a route rather than the store because the widget is a sealed leaf
+    that `corpora/` may not reach into."""
+    from raglab.agents.widget import long_term_memory
+    from raglab.corpora.tests.test_datasets import _valid_pair
+
+    long_term_memory.remember_board_dataset_ids({'stale-corpus'})
+    assert long_term_memory._BOARD_DATASET_IDS == {'stale-corpus'}
+
+    corpus, ground_truth = _valid_pair()
+    response = client.post('/api/datasets',
+                           json={'corpus': corpus, 'ground_truth': ground_truth})
+
+    assert response.status_code == 200, response.text
+    assert long_term_memory._BOARD_DATASET_IDS is None
+
+
+def test_the_dev_trace_agrees_with_the_real_next_call_on_random_threads():
+    # this is an integration test
+    """Four hundred random threads, and on each one the page's claim checked
+    against the call the widget really makes next.
+
+    Three times now this page has been found saying something the next call
+    contradicted — a turn the character budget drops, a tool reply that travels
+    as a stub, an interrupted turn read as one still in flight — and each was
+    found by hand, on the one shape somebody thought to write down. The rules
+    themselves are `conversation_memory`'s and `hooks`'s, shared on purpose, so
+    what can still go wrong is not the rules but how this page composes them:
+    which projection it takes the window over, and what it appends before it
+    asks. That is a whole-shape property, and the way to test one is to
+    generate shapes.
+
+    Each thread is seeded with random turns — questions of 5, 200 or 3,000
+    characters, some with a `read_rag_skill` hop whose reply is 40, 4,000 or
+    21,000 characters, some left unanswered, standing memory lines dropped in
+    between — and then the reader asks the next question through
+    `backends._run` and the real compiled agent, so what the model was handed
+    is recorded rather than imagined. A thread that ends mid-turn is given the
+    `widget_turn_log` row that a run dying there really writes, which is the
+    fact `widget.next_call_continues` reads.
+
+    Three claims are compared per thread, and all three have been wrong at some
+    point on this branch: which steps the call carries at all, which of them it
+    carries whole rather than as a stub, and the lines an interrupted turn is
+    replaced by. Under the premise this test replaced — an unclosed last turn
+    read as the turn being answered — the disagreement is exactly the threads
+    that end mid-turn and no others.
+    """
+    import random
+
+    from langchain_core.messages import (AIMessage, HumanMessage,
+                                         SystemMessage, ToolMessage)
+
+    from raglab.agents import widget
+    from raglab.agents.widget import backends, turn_logger
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.tests.prompt_payload_probe import (
+        _RecordingModel, build_agent)
+    from raglab.agents.widget.tests.widget_examples import write_messages
+    from raglab.dashboard import dev_trace_page as page
+
+    def standing(index):
+        return SystemMessage(content=f'Dataset memory: note {index}',
+                             id=f'm{index}',
+                             additional_kwargs={
+                                 memory.STANDING_LINE: memory.MEMORY_LINE})
+
+    def a_thread(rng):
+        """One random conversation, every message carrying the id its position
+        gives it — the id is how a message handed to the model is matched back
+        to the step the page made a claim about."""
+        messages = []
+        for _ in range(rng.randint(0, 2)):
+            messages.append(standing(len(messages)))
+        for turn in range(rng.randint(1, 7)):
+            messages.append(HumanMessage(
+                content=f'q{turn} ' + 'x' * rng.choice([5, 200, 3_000]),
+                id=f'm{len(messages)}'))
+            if rng.random() < 0.45:
+                call = f'c{turn}'
+                messages.append(AIMessage(
+                    content='', id=f'm{len(messages)}',
+                    tool_calls=[{'name': 'read_rag_skill',
+                                 'args': {'names': 'chunking'}, 'id': call}]))
+                messages.append(ToolMessage(
+                    content=f'body{turn} ' + 'b' * rng.choice([40, 4_000,
+                                                              21_000]),
+                    tool_call_id=call, name='read_rag_skill',
+                    id=f'm{len(messages)}'))
+            if rng.random() < 0.75:
+                messages.append(AIMessage(
+                    content=f'a{turn} ' + 'y' * rng.choice([5, 300]),
+                    id=f'm{len(messages)}'))
+            if rng.random() < 0.15:
+                messages.append(standing(len(messages)))
+        return messages
+
+    rng = random.Random(20260829)
+    mid_turn = 0
+    for shape in range(400):
+        thread = f'trace-agreement-{shape}'
+        messages = a_thread(rng)
+        write_messages(thread, messages)
+        # A thread that stops mid-turn stops for one of two reasons, and only
+        # the dead one is followed by another question — so that is the one a
+        # comparison against the next call can be made on, and the row is what
+        # `_log_interrupted_turn` would have written for it.
+        spoken = [m for m in messages
+                  if memory.turn_shape(m) != memory.TURN_SYSTEM]
+        last = memory.conversation_turns(
+            [memory.turn_shape(m) for m in spoken])[-1]
+        asked = spoken[last.start]
+        if not last.closed and memory.turn_shape(asked) == memory.TURN_HUMAN:
+            mid_turn += 1
+            turn_logger.log_turn(
+                thread_id=thread, experiment_id=thread, dataset_id='diary-en',
+                user_message_id=asked.id, user_message=str(asked.content),
+                status='interrupted',
+                status_reason='the model connection dropped mid-turn')
+
+        # What the page says, through the very calls `thread()` makes.
+        steps = widget.trace(thread)['steps']
+        continues = widget.next_call_continues(thread)
+        dropped = {id(s) for s in page._dropped_from_the_window(steps,
+                                                               continues)}
+        stubbed = set(page._stubs(steps))
+        notes = page._interrupted_notes(steps, continues)
+        said_notes = [notes[id(s)] for s in steps if id(s) in notes]
+        said_sent = {f'm{i}' for i, s in enumerate(steps)
+                     if s['kind'] != 'system' and id(s) not in dropped}
+        said_whole = {name for name in said_sent
+                      if id(steps[int(name[1:])]) not in stubbed}
+
+        # What the next call really carries.
+        model = _RecordingModel(script=[AIMessage(content='ok')])
+        agent = build_agent(model)
+        payload, config = backends._run('and now?', thread, dataset='diary-en')
+        agent.invoke(payload, config=config)
+        handed = model.seen[0]
+        held = {m.id: memory._text(m.content) for m in messages}
+        sent = {m.id for m in handed if m.id in held
+                and getattr(m, 'type', '') != 'system'}
+        whole = {m.id for m in handed if m.id in sent
+                 and memory._text(m.content) == held[m.id]}
+        real_notes = [memory._text(m.content) for m in handed
+                      if memory._text(m.content).startswith('[This question')]
+
+        assert said_sent == sent, f'{thread}: the page named the wrong steps'
+        assert said_whole == whole, f'{thread}: the page stubbed the wrong step'
+        assert said_notes == real_notes, f'{thread}: wrong interrupted note(s)'
+
+    # The generator really did produce both endings, or this proves one case
+    # four hundred times.
+    assert 50 < mid_turn < 350
 
 
 def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):

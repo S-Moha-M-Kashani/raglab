@@ -28,6 +28,7 @@ from langchain_core.tools import tool
 from pydantic import ConfigDict, StrictBool, StrictStr
 from pydantic import BaseModel
 
+from raglab.agents.widget import turn_logger
 from raglab.configuration.env_settings import ROOT
 
 #: The thread a reader is in when the lab has no experiment open.
@@ -252,12 +253,66 @@ def interrupted_turn_cuts(shapes: list) -> dict:
     Only the record is authoritative, and this touches none of it: the thread
     keeps every message whole, which is what `/dev/trace` and the reader's own
     history read back.
+
+    The exemption is a fact about the *payload*, not about a stored thread.
+    `hooks._close_interrupted` only ever sees a list a new question is already
+    the end of, so its last turn is the one being answered by construction. A
+    reader of a stored thread — the trace page — has to add that coming
+    question before asking this, or the very turn it is looking at is the one
+    turn it can never be told about: see `next_call_continues`.
     """
     turns = conversation_turns(shapes)
     return {turn.start: [i for i in range(turn.start + 1, turn.stop)
                          if shapes[i] != TURN_SYSTEM]
             for turn in turns[:-1]
             if not turn.closed and shapes[turn.start] == TURN_HUMAN}
+
+
+def next_call_continues(thread: str) -> bool:
+    """Whether the next model call on a *stored* thread carries on its last
+    turn, rather than opening a new one.
+
+    Almost never, and that is the point. This widget has no continuation to
+    offer a thread it is not already running: `backends.ask` and
+    `backends._stream_agent` both build a fresh payload through
+    `backends._run`, which appends the reader's new question, so a stored
+    thread's unclosed last turn is followed by a new question and becomes an
+    interrupted turn — question kept, everything after it cut. The only time
+    the answer here is True is while a run is *in flight* in this process, with
+    the model about to read the tool reply at the end of the state. That state
+    is real (every tool hop passes through it) and it is not stored so much as
+    passed through.
+
+    Two shapes, one meaning, so shape cannot tell them apart: an interrupted
+    turn and a turn in flight are both "a question with unanswered work after
+    it". What separates them is a fact from outside the conversation — a run
+    that died owes a row, and `_log_interrupted_turn` writes one under the
+    question's own id (`turn_logger.interrupted_question_ids`). A run still
+    going owes nothing yet, so it has no row. That is a record of what
+    happened rather than a guess from message shapes, which is what the trace
+    page needs: it reports in the tense of the next call, and a page that read
+    a dead turn as a live one would show a 20 KB tool body as context the model
+    has while the next call drops it.
+
+    A question with no id at all cannot be matched to a row, and reads as in
+    flight. In production there is no such question — `add_messages` stamps a
+    uuid on every message it appends — so this is a fence for hand-seeded
+    threads, and it fails towards leaving the log alone rather than towards
+    dimming a step that may well be sent.
+    """
+    name = (thread or '').strip() or GENERAL
+    spoken = [m for m in (_channels(name).get('messages') or [])
+              if turn_shape(m) != TURN_SYSTEM]
+    if not spoken:
+        return False
+    last = conversation_turns([turn_shape(m) for m in spoken])[-1]
+    asked = spoken[last.start]
+    if last.closed or turn_shape(asked) != TURN_HUMAN:
+        return False
+    question_id = str(getattr(asked, 'id', '') or '')
+    if not question_id:
+        return True
+    return question_id not in turn_logger.interrupted_question_ids(name)
 
 
 #: What a closed turn's tool reply says in a prompt instead of its body, and

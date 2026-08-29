@@ -188,6 +188,16 @@ def closed_turn_tool_replies(shapes: list) -> set:
 #: called with means a follow-up question can re-issue exactly that call. That
 #: is the second of this reduction's two fences — the first being that only a
 #: closed turn is ever reduced at all.
+#:
+#: It stays in code, unlike the widget prompts and tool descriptions in
+#: `fixtures/prompts/`, but only half of it is really coupled to the rule
+#: beside it: `{name}`, `{args}` and `{chars}` are load-bearing — the fences
+#: and the tests are about those three fields — while the sentence around them
+#: is free prose a fixture could hold perfectly safely. It sits here because it
+#: is written *by* the filter rather than read by it, the way
+#: `hooks.SUMMARIZE_MEMORY_PROMPT` sits beside the store that enforces it;
+#: moving the wording out later would cost nothing as long as the three fields
+#: travel with it.
 TOOL_STUB = ('[{name}({args}) returned {chars} characters, which the answer in '
              'this turn was written from. Call it again to read them.]')
 MAX_STUB_ARGS = 160

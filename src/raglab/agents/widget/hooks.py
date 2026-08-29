@@ -69,6 +69,14 @@ MAX_TOOL_HOPS = 8             # hard stop before a pathological tool loop
 # It is spent on the history in front of the turn being answered, oldest turn
 # first; the turn being answered is neither trimmed nor counted. See
 # `_within_budget`.
+#
+# So this bounds the ride-along and not the prompt, and the difference is worth
+# stating plainly: a call still carries whatever the turn being answered costs,
+# on top of this. Eight hops of `read_rag_skill` inside one turn is about
+# 160,000 characters and none of it is trimmed — `MAX_TOOL_HOPS` is what bounds
+# that, and the model reading a reply it just asked for is the one thing this
+# window may never shorten. What used to be unbounded, and is bounded here, is
+# how long those characters keep riding along after the turn that read them.
 MAX_HISTORY_CHARS = 20_000
 
 # One model node plus one tools node. It was four until 2026-08-28: two more
@@ -373,6 +381,32 @@ def _as_stubs(messages: list) -> tuple[list, int]:
     return shaped, reduced
 
 
+def history_budget_cut(shapes: list, sizes: list) -> int:
+    """Where the window starts once the history fits `MAX_HISTORY_CHARS`.
+
+    The budget rule itself, over one `turn_shape` and one character count per
+    message — the projection, not the messages, for the same reason
+    `superseded_standing_lines` takes marks rather than system lines. Two
+    readers need this answer and they hold the conversation in two forms:
+    `_within_budget` applies it to the messages a call is about to carry, and
+    `dashboard.dev_trace_page` applies it to the same thread's trace steps, so
+    the page dims exactly what the next call will have dropped. A page that
+    worked this out for itself would sooner or later promise a developer that
+    the model read a body it never received.
+
+    Returns the position of the first message the window keeps — 0 when
+    nothing is dropped. The cut always lands on a turn boundary and never on
+    the last turn: see `_within_budget` for both reasons.
+    """
+    turns = conversation_turns(shapes)
+    totals = [sum(sizes[t.start:t.stop]) for t in turns]
+    total, cut = sum(totals[:-1]), 0
+    while cut < len(turns) - 1 and total > MAX_HISTORY_CHARS:
+        total -= totals[cut]
+        cut += 1
+    return turns[cut].start
+
+
 def _within_budget(messages: list) -> tuple[list, int]:
     """The window's size ceiling: drop whole turns off the front until the
     history in front of the current turn fits `MAX_HISTORY_CHARS`.
@@ -397,15 +431,9 @@ def _within_budget(messages: list) -> tuple[list, int]:
     Measured *after* `_as_stubs`, so the budget is spent on what the call will
     really carry rather than on bodies that are no longer in it.
     """
-    turns = conversation_turns([turn_shape(m) for m in messages])
-    sizes = [sum(_chars(m) for m in messages[t.start:t.stop]) for t in turns]
-    total, cut = sum(sizes[:-1]), 0
-    while cut < len(turns) - 1 and total > MAX_HISTORY_CHARS:
-        total -= sizes[cut]
-        cut += 1
-    if not cut:
-        return messages, 0
-    return messages[turns[cut].start:], turns[cut].start
+    start = history_budget_cut([turn_shape(m) for m in messages],
+                               [_chars(m) for m in messages])
+    return (messages, 0) if not start else (messages[start:], start)
 
 
 @wrap_model_call

@@ -2403,6 +2403,47 @@ def test_the_dev_trace_says_a_closed_turns_tool_reply_travelled_as_a_stub(
     assert str(widget.MAX_HISTORY_CHARS) in text
 
 
+def test_the_dev_trace_dims_a_turn_the_character_budget_drops(client, monkeypatch):
+    # this is an integration test
+    """The page counted messages and never characters, so a thread holding one
+    enormous answer rendered every step undimmed and drew no divider at all —
+    while `hooks._within_budget` drops that whole turn from the next call. A
+    developer asking "why did it say that?" read 25 KB as context the model had
+    and it had never received it.
+
+    This page's entire job is to say what the model was actually handed, so it
+    applies the very rule the hook applies (`widget.history_budget_cut`) rather
+    than a second imitation of it — measured on the stubs, dropped a whole turn
+    at a time, and reported in the tense of the next call, which is why a
+    finished last turn is history here rather than the turn being answered."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents import widget
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    big = 'a very long answer. ' * 1_250          # 25,000 characters
+    assert len(big) > widget.MAX_HISTORY_CHARS
+    write_messages('exp-budget', [
+        HumanMessage(content='the long one?'), AIMessage(content=big),
+        HumanMessage(content='and the short one?'),
+        AIMessage(content='short.')])
+    monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
+    client.post('/dev/trace', data={'key': 'open-sesame'})
+
+    text = client.get('/dev/trace', params={'thread': 'exp-budget'}).text
+
+    # The whole first turn is dimmed — the question with its answer, never the
+    # answer alone, because the budget drops turns rather than messages.
+    assert '<div class="human trimmed">' in text
+    assert '<div class="ai trimmed">' in text
+    # And the divider lands where the next call starts reading.
+    assert 'from here on, sent to the model' in text
+    kept = text.split('from here on, sent to the model')[1]
+    assert 'and the short one?' in kept and 'short.' in kept
+    assert big not in html_unescape(kept)
+    # The standing panel counts both dropped steps, not zero.
+    assert '2 oldest non-system step(s) are no longer sent' in text
+
+
 def test_the_dev_key_never_appears_in_any_trace_response(client, monkeypatch):
     # this is an integration test
     """A key holding `#`, `%` and `&` — legal in .env, special in a URL — must

@@ -288,12 +288,38 @@ def _stubs(steps: list) -> dict:
     return out
 
 
+def _dropped_from_the_window(steps: list) -> list:
+    """The non-system steps the next call will not carry, oldest first.
+
+    Both of the window's ceilings, applied in the order `trim_and_call` applies
+    them and through its own functions: a closed turn's tool replies become
+    stubs (`_stubs`), then `widget.history_budget_cut` drops whole turns off
+    the front until the history fits `MAX_HISTORY_CHARS`, then `MAX_HISTORY`
+    caps what is left. Sizes are measured on the stubs, exactly as the hook
+    measures them, or the page would drop a turn the call keeps.
+
+    The phantom question at the end is not decoration. This page reports in the
+    tense of the *next* call, and that call brings a question the log does not
+    hold yet — so without it the thread's last turn would read as the turn
+    being answered, exempt from the budget, and the page would promise a
+    developer that a finished 25 KB turn still rides along when the next call
+    will have dropped it. A question is capped at `MAX_QUESTION`, which is
+    nothing against this budget, so it is counted as free.
+    """
+    rest = [s for s in steps if s['kind'] != 'system']
+    stubs = _stubs(steps)
+    shapes = [widget.turn_shape(s) for s in rest] + [widget.TURN_HUMAN]
+    sizes = [len(stubs.get(id(s)) or s.get('text') or '') for s in rest] + [0]
+    start = widget.history_budget_cut(shapes, sizes)
+    over_count = max(0, len(rest) + 1 - start - widget.MAX_HISTORY)
+    return rest[:start + over_count]
+
+
 def _standing(steps: list) -> str:
     """What the model stands on before it reads a step: the system prompt
     `create_agent` binds to every call (not in the log, so shown from the
     fixture), the tools it may call, and the window `trim_and_call` applies."""
-    rest = [s for s in steps if s['kind'] != 'system']
-    dropped = max(0, len(rest) - widget.MAX_HISTORY)
+    dropped = len(_dropped_from_the_window(steps))
     stale = len(_superseded(steps))
     stubs = len(_stubs(steps))
     tools = ', '.join(t.name for t in widget.TOOLS)
@@ -313,8 +339,9 @@ def _standing(steps: list) -> str:
            'turns, and the turn it is answering always carries its tool '
            'replies whole.' if stubs else '')
         + f' The window also stops at {widget.MAX_HISTORY_CHARS} characters of '
-        'history, dropped a whole turn at a time and never counted against '
-        'the turn being answered.'
+        'history, dropped a whole turn at a time — so a tool reply never '
+        'loses the call that asked for it — and never counted against the '
+        'turn being answered.'
         + f' Tool hops per turn stop at {widget.hooks.MAX_TOOL_HOPS}; a question is '
         f'capped at {widget.MAX_QUESTION} characters.</p></details>')
 
@@ -327,12 +354,12 @@ def thread(name: str) -> str:
               f' · dataset {_esc(found["dataset_id"]) or "—"}'
               f' · began {_esc(found["started_at"]) or "—"}'
               f' · {len(steps)} step(s)')
-    rest = [s for s in steps if s['kind'] != 'system']
     # Two ways a step is in the log but not in the call: it fell out of the
-    # window, or a newer standing line superseded it. Both read as trimmed —
-    # the page's one claim is what the model was handed, and a superseded
-    # memory context was not.
-    outside = ({id(s) for s in rest[:max(0, len(rest) - widget.MAX_HISTORY)]}
+    # window — by count or by character budget, whole turn at a time — or a
+    # newer standing line superseded it. Both read as trimmed: the page's one
+    # claim is what the model was handed, and neither a dropped turn nor a
+    # superseded memory context was.
+    outside = ({id(s) for s in _dropped_from_the_window(steps)}
                | _superseded(steps))
     stubs = _stubs(steps)
     parts, cut_drawn = [], False

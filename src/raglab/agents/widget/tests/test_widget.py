@@ -1678,3 +1678,47 @@ def test_an_enormous_current_turn_does_not_empty_the_conversation():
     sent = [str(m.content) for m in seen['messages']]
     assert sent[:6] == ['q0', 'a0', 'q1', 'a1', 'q2', 'a2']
     assert sent[-1] == 'y' * 40_000
+
+
+def test_the_budget_drops_whole_turns_so_a_tool_reply_keeps_the_call_that_asked():
+    # this is a unit test
+    """The reason `_within_budget` drops turns and not messages, fenced.
+
+    A budget that walked the list dropping one message at a time until it fit
+    would, on this thread, hand the model `[tool reply, answer, question]` — a
+    tool reply with no tool call in front of it. Some providers reject that
+    outright and every provider reads it as an answer to a question nobody
+    asked, which is the one shape a prompt this careful must never emit. The
+    assertions below fail on exactly that mutation: the window either starts at
+    a reader's question or it does not."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    seen = {}
+
+    # The bulk sits on the assistant's tool-call message, so stubbing the tool
+    # reply cannot bring the turn back inside the budget: it has to go whole.
+    given = [HumanMessage(content='the long one?'),
+             AIMessage(content='x' * 25_000, tool_calls=[
+                 {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+                  'id': 'c1'}]),
+             ToolMessage(content='a body', tool_call_id='c1',
+                         name='read_rag_skill'),
+             AIMessage(content='chunk by heading.'),
+             HumanMessage(content='and now?')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = seen['messages']
+    assert [m.type for m in sent] == ['human']
+    assert str(sent[0].content) == 'and now?'
+
+    # And the invariant behind it, stated so a future trim is held to it too:
+    # every tool reply the window carries is preceded by the call it answers.
+    for i, message in enumerate(sent):
+        if getattr(message, 'type', '') != 'tool':
+            continue
+        asked = {call.get('id') for earlier in sent[:i]
+                 for call in (getattr(earlier, 'tool_calls', None) or [])}
+        assert message.tool_call_id in asked, (
+            'the window handed the model a tool reply whose call it dropped')
+    assert request.messages == given

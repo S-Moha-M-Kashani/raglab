@@ -16,8 +16,10 @@ halves the supersteps a hop costs. The `_fired` labels they wrote
 (`before_model`, `after_model`) are kept — see the comment on `trim_and_call`
 — so the account of a run still names the same moments.
 
-One line of real work each: the point is that they are visible, and that each
-has somewhere obvious to put a breakpoint.
+Each is still one obvious place to put a breakpoint — that is what they are
+for. It is no longer one line of real work each: the fold gave `trim_and_call`
+five jobs, and the paragraph above says why they belong together rather than
+in nodes of their own.
 """
 import collections
 
@@ -28,7 +30,16 @@ from langchain_core.messages import AIMessage
 from raglab.agents.widget.conversation_memory import (
     MAX_RELEVANCE_TEXT,
     MemoryPolicy,
+    _text,
+    closed_turn_tool_replies,
+    conversation_turns,
+    interrupted_note,
+    interrupted_turn_cuts,
     relevance_guard,
+    standing_mark,
+    superseded_standing_lines,
+    tool_stub,
+    turn_shape,
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from raglab.agents.widget import long_term_memory
@@ -37,8 +48,38 @@ from raglab.agents.widget.prompts import MEMORY_POLICY_PROMPT
 HOOKS_VERBOSE = False        # __main__ turns this on; the route leaves it off
 
 MAX_QUESTION = MAX_RELEVANCE_TEXT  # the longest request it will accept
-MAX_HISTORY = 20             # how much history one model call sees
+MAX_HISTORY = 20             # how much history one model call sees, in messages
 MAX_TOOL_HOPS = 8             # hard stop before a pathological tool loop
+
+# ...and how much it sees in characters, because twenty messages can be five
+# hundred characters or forty thousand and a count cannot tell those apart.
+# The arithmetic, over the twenty messages the count already admits:
+#
+#   ten reader questions, each capped at MAX_QUESTION      10 *   500 =  5,000
+#   the ten answers beside them, at three times a question 10 * 1,500 = 15,000
+#                                                                       ------
+#                                                                       20,000
+#
+# Nothing caps an answer, which is why the second line is a budget rather than
+# a ceiling read off a constant: 1,500 characters is already a long widget
+# reply, so a thread of twenty ordinary messages passes untouched and never
+# meets this number. What it stops is the case this branch measured — one
+# `read_rag_skill` reply is about 20,000 characters on its own, so the whole
+# of a call's history may now cost about what one tool reply used to, and no
+# more.
+#
+# It is spent on the history in front of the turn being answered, oldest turn
+# first; the turn being answered is neither trimmed nor counted. See
+# `_within_budget`.
+#
+# So this bounds the ride-along and not the prompt, and the difference is worth
+# stating plainly: a call still carries whatever the turn being answered costs,
+# on top of this. Eight hops of `read_rag_skill` inside one turn is about
+# 160,000 characters and none of it is trimmed — `MAX_TOOL_HOPS` is what bounds
+# that, and the model reading a reply it just asked for is the one thing this
+# window may never shorten. What used to be unbounded, and is bounded here, is
+# how long those characters keep riding along after the turn that read them.
+MAX_HISTORY_CHARS = 20_000
 
 # One model node plus one tools node. It was four until 2026-08-28: two more
 # supersteps went to `before_model`/`after_model`, the graph nodes that used
@@ -78,15 +119,45 @@ RECURSION_LIMIT = 1 + 1 + MAX_TOOL_HOPS * SUPERSTEPS_PER_HOP + 1 + 1
 HOOK_LOG: collections.deque = collections.deque(maxlen=RECURSION_LIMIT * 8)
 
 
+#: What the hop guard says instead of an answer. A constant rather than a
+#: literal because two other places have to recognise it as a refusal rather
+#: than read it as prose — see `HOP_GUARD_MARK`.
+HOP_GUARD_REFUSAL = ('I could not complete this lookup safely because the tool '
+                     'calls started repeating. Please ask for the run by its '
+                     'experiment ID.')
+
+#: The flag `trim_and_call` puts on `response_metadata` when it answers with
+#: the refusal above instead of calling the model.
+#:
+#: Until 2026-08-28 the guard only appended a message and let the run die on
+#: the recursion ceiling, so nothing downstream ever saw a finished turn made
+#: of it. Now it produces a real, well-formed reply — and a reply is what
+#: `backends` files as memory and logs as `answered`. A refusal is neither: it
+#: says nothing about the lab, so remembering it would be filing the widget's
+#: own apology as a fact about an experiment. Matching on the text would work
+#: today and break the first time the copy is reworded; a flag on the message
+#: that wrote it cannot drift from it.
+HOP_GUARD_MARK = 'widget_hop_guard'
+
+
 def stop_repeated_tool_hops(state) -> str | None:
     """Return a final fallback once a run has called tools too many times."""
     calls = sum(len(getattr(message, 'tool_calls', None) or [])
                 for message in state.get('messages', []))
     if calls >= MAX_TOOL_HOPS:
-        return ('I could not complete this lookup safely because the tool '
-                'calls started repeating. Please ask for the run by its '
-                'experiment ID.')
+        return HOP_GUARD_REFUSAL
     return None
+
+
+def hop_guard_refused(messages) -> bool:
+    """Whether this run ended in the hop guard's refusal rather than an answer.
+
+    Read off the last message's own metadata, which is where `trim_and_call`
+    stamped it — the run's own account of what it produced, not a guess made
+    afterwards from the words."""
+    last = (messages or [None])[-1]
+    metadata = getattr(last, 'response_metadata', None) or {}
+    return bool(metadata.get(HOP_GUARD_MARK))
 
 
 class MemoryUpdate(BaseModel):
@@ -161,6 +232,42 @@ def evaluate_memory_policy(text: str, model, *, experiment_id: str = '',
                    'nothing was saved.')
 
 
+#: What the summarizer is asked for. Named rather than left inline where it
+#: was, because two other places now state the same rule and a reader has to
+#: be able to find all three: this instruction, the store's check
+#: (`long_term_memory.names_one_corpus`) and the read-time filter.
+#: It stays in code, unlike every prompt in `fixtures/prompts/`, for the
+#: reason it was already in code: the rule it states is enforced by the store,
+#: so wording and check are one change, and a fixture a reader could edit into
+#: disagreement with the check would be a promise the store then breaks.
+#:
+#: The two summaries are not the same kind of sentence, so the instruction
+#: says so. `dataset_summary` is filed under one corpus and read only by that
+#: corpus's threads, so it may name that corpus — and only that one, since a
+#: note about somebody else's corpus filed under this one is the same lie one
+#: thread wide. `global_summary` is the single row every dataset's thread is
+#: handed, so it may hold only a pattern that holds across corpora — which is
+#: why it may name no dataset id, no experiment id and no single run's
+#: numbers. Told this, a summarizer still wrote
+#: "Last experiment details for smoke-import-check: 6 questions analyzed …"
+#: into it, and a `nosrat-fa` thread was handed it as fact. So the instruction
+#: is the request and `long_term_memory.names_one_corpus` is the check;
+#: neither end is enough alone, because the write gate cannot repair a row
+#: written before it existed and the read filter cannot stop the store filling
+#: up with notes no thread will ever be shown.
+SUMMARIZE_MEMORY_PROMPT = (
+    'Summarize this accepted RAG-lab answer for bounded long-term memory. '
+    'Return only dataset_summary and optional global_summary. Do not invent '
+    'measurements.\n'
+    'dataset_summary is about the dataset named below: it may name that '
+    'dataset, and it must name no other dataset and no experiment id.\n'
+    'global_summary is different: every dataset\'s thread reads it, so write '
+    'one only for a pattern that holds across corpora. It must name no '
+    'dataset id, no experiment id, and no single run\'s numbers. If this '
+    'answer only says something about this one dataset or this one run, leave '
+    'global_summary empty — that is the ordinary case, not a failure.')
+
+
 def summarize_memory_update(question: str, answer: str, *, dataset_id: str,
                             experiment_id: str = '', subtopic: str = '',
                             model=None) -> MemoryUpdate:
@@ -169,9 +276,7 @@ def summarize_memory_update(question: str, answer: str, *, dataset_id: str,
         raise RuntimeError('memory summarizer is unavailable')
     structured = model.with_structured_output(MemoryUpdate)
     result = structured.invoke([
-        ('system', 'Summarize this accepted RAG-lab answer for bounded long-term '
-                    'memory. Return only dataset_summary and optional '
-                    'global_summary. Do not invent measurements.'),
+        ('system', SUMMARIZE_MEMORY_PROMPT),
         ('user', (f'Question: {str(question).strip()}\n'
                   f'Answer: {str(answer).strip()}\n'
                   f'Dataset: {dataset_id or "unknown"}\n'
@@ -203,8 +308,18 @@ def _validate(text: str) -> str:
 
 
 def _account(reply: str) -> str:
-    """Likewise `close_the_log`'s half."""
-    _fired('after_agent', f'{len(reply)} chars, {len(HOOK_LOG)} hooks fired')
+    """Likewise `close_the_log`'s half.
+
+    The second number says how much is *in the shared log*, and no longer
+    claims to be this run's hook count. It never could be: `HOOK_LOG` is one
+    module-level deque that every concurrent turn writes into, so under two
+    turns at once the number already included the other turn's lines, and
+    since the deque was bounded it saturates at its cap and stops moving at
+    all. Both are fine for what the log is — `__main__` clears it and reads one
+    run at a time — but a line has to say the thing it counts.
+    """
+    _fired('after_agent',
+           f'{len(reply)} chars, {len(HOOK_LOG)} lines in the shared log')
     return reply
 
 
@@ -220,6 +335,157 @@ def check_request(state, runtime):
     if text == str(last.content):
         return None
     return {'messages': [last.model_copy(update={'content': text})]}
+
+
+def _chars(message) -> int:
+    """What one message costs the window, rendered the way every other reader
+    of a message's content renders it (`conversation_memory._text`).
+
+    Characters, not tokens. A tokenizer would be a dependency, a download and a
+    per-model answer to a question the window only needs a proxy for; the ratio
+    between the two is near enough constant across the text this widget carries
+    that a character budget bounds a token budget just as well.
+    """
+    return len(_text(getattr(message, 'content', '')))
+
+
+def _as_stubs(messages: list) -> tuple[list, int]:
+    """A closed turn's tool replies, replaced by a stub for *this call only*.
+
+    The record is untouched. These are copies, handed to `request.override`
+    alongside the messages that were not copied, exactly as the standing-line
+    filter above hands over a shorter list — the thread still holds every tool
+    reply whole, which is what `/dev/trace` reads and what a follow-up turn can
+    ask the tool for again.
+
+    Only a closed turn is reduced (`conversation_turns` states what closed
+    means and why the current turn can never be one), and the stub still names
+    the tool and the arguments it was called with, so the model can re-issue
+    the very same call. Those are the two fences on the one change here most
+    able to cost an answer.
+    """
+    shapes = [turn_shape(m) for m in messages]
+    replies = closed_turn_tool_replies(shapes)
+    if not replies:
+        return messages, 0
+    asked = {call.get('id'): call for m in messages
+             for call in (getattr(m, 'tool_calls', None) or [])}
+    shaped, reduced = list(messages), 0
+    for position in sorted(replies):
+        message = messages[position]
+        call = asked.get(getattr(message, 'tool_call_id', None)) or {}
+        text = _text(getattr(message, 'content', ''))
+        stub = tool_stub(getattr(message, 'name', '') or call.get('name', ''),
+                         call.get('args'), text)
+        if stub != text:
+            shaped[position] = message.model_copy(update={'content': stub})
+            reduced += 1
+    return shaped, reduced
+
+
+def _close_interrupted(messages: list) -> tuple[list, int]:
+    """An interrupted turn, sent as the question that was asked and one line
+    saying it was never answered.
+
+    The decision this implements, and why it is this one. A turn whose run died
+    after the graph had written something leaves a question and, usually, a
+    tool call with its reply — and the next call hands the model that shape
+    with nothing after it. A model reads a tool reply as evidence it asked for
+    and is still working from, so the abandoned turn arrives as live reasoning
+    to continue: the reader's real question is now the second thing in the
+    prompt, behind a train of thought nobody wanted.
+
+    Three answers were possible and only one of them keeps every promise this
+    package has already made:
+
+    - **Delete it from the thread.** Withdrawn on this branch once already
+      (`RemoveMessage`, task 3): the record is what `/dev/trace` and the
+      reader's own history read back, and a lab whose row must never lie about
+      what produced it cannot have a prompt-shaping rule editing the evidence.
+    - **Leave it and mark it.** Marking it in the record is the same edit
+      wearing a friendlier name.
+    - **Shape the prompt, keep the record** — this. The unfinished work is
+      left out of *this call* and the question keeps its place, followed by
+      one assistant line stating that nothing answered it. The thread still
+      holds every message whole.
+
+    The question stays because a follow-up depends on it: "try that again" has
+    a subject only if the model can still read what was asked. The unfinished
+    work goes because it is the half that misleads, and because a lone tool
+    reply is not merely unhelpful — a call whose tool result has no answer
+    after it is a shape several providers reject outright.
+
+    A copy, never a write. `request.override` carries these alongside the
+    messages that were not copied, exactly as the standing-line filter and
+    `_as_stubs` hand theirs over.
+    """
+    cuts = interrupted_turn_cuts([turn_shape(m) for m in messages])
+    if not cuts:
+        return messages, 0
+    dropped = {i for positions in cuts.values() for i in positions}
+    shaped = []
+    for i, message in enumerate(messages):
+        if i in dropped:
+            continue
+        shaped.append(message)
+        if i in cuts:
+            shaped.append(AIMessage(content=interrupted_note(len(cuts[i]))))
+    return shaped, len(cuts)
+
+
+def history_budget_cut(shapes: list, sizes: list) -> int:
+    """Where the window starts once the history fits `MAX_HISTORY_CHARS`.
+
+    The budget rule itself, over one `turn_shape` and one character count per
+    message — the projection, not the messages, for the same reason
+    `superseded_standing_lines` takes marks rather than system lines. Two
+    readers need this answer and they hold the conversation in two forms:
+    `_within_budget` applies it to the messages a call is about to carry, and
+    `dashboard.dev_trace_page` applies it to the same thread's trace steps, so
+    the page dims exactly what the next call will have dropped. A page that
+    worked this out for itself would sooner or later promise a developer that
+    the model read a body it never received.
+
+    Returns the position of the first message the window keeps — 0 when
+    nothing is dropped. The cut always lands on a turn boundary and never on
+    the last turn: see `_within_budget` for both reasons.
+    """
+    turns = conversation_turns(shapes)
+    totals = [sum(sizes[t.start:t.stop]) for t in turns]
+    total, cut = sum(totals[:-1]), 0
+    while cut < len(turns) - 1 and total > MAX_HISTORY_CHARS:
+        total -= totals[cut]
+        cut += 1
+    return turns[cut].start
+
+
+def _within_budget(messages: list) -> tuple[list, int]:
+    """The window's size ceiling: drop whole turns off the front until the
+    history in front of the current turn fits `MAX_HISTORY_CHARS`.
+
+    Whole turns, and never the last one. Dropping single messages is what the
+    count window does, and it can cut between an assistant's tool call and the
+    reply to it — a shape some providers reject outright and every provider
+    reads as a question nobody answered. Dropping by turn also means the thing
+    that goes is a topic the conversation has finished with, which is the
+    cheapest context there is to lose.
+
+    The budget is spent on history and never on the turn being answered. That
+    turn is what the model is reasoning over — its tool replies are the one
+    thing this whole change promises to leave whole — so it is neither trimmed
+    nor counted. Counting it would be almost as bad as trimming it: a turn that
+    has just read 20,000 characters of skill bodies would exhaust the budget by
+    itself and throw away every earlier turn, which is to say the conversation
+    would lose its context at exactly the moment the reader asked a hard
+    question. What this bounds is the ride-along, and that is what needed
+    bounding.
+
+    Measured *after* `_as_stubs`, so the budget is spent on what the call will
+    really carry rather than on bodies that are no longer in it.
+    """
+    start = history_budget_cut([turn_shape(m) for m in messages],
+                               [_chars(m) for m in messages])
+    return (messages, 0) if not start else (messages[start:], start)
 
 
 @wrap_model_call
@@ -243,21 +509,70 @@ def trim_and_call(request, handler):
 
     `request.override` is 1.x's non-destructive trim — langgraph's
     `llm_input_messages` is gone, and writing `messages` from a `before_model`
-    node would delete the transcript rather than shorten a prompt.
+    node would delete the transcript rather than shorten a prompt. Everything
+    below shapes that one request and nothing else: the thread keeps every
+    system line, every tool reply and every word of both.
+
+    The window was a count and only a count until 2026-08-29, and the reason
+    that stopped being enough is measured rather than argued
+    (`tests/prompt_payload_probe.py`). `MAX_HISTORY` messages can be five
+    hundred characters or forty thousand: one `read_rag_skill` call put about
+    20,000 characters of skill bodies into the window and the count then held
+    them there for the next twenty messages, re-sent on every hop of every
+    turn that followed. So the window now has four parts —
+    `_as_stubs` (a closed turn's tool replies travel as a stub naming the tool
+    and what it was asked), `_close_interrupted` (a turn whose run died
+    mid-flight travels as its question plus one line saying nothing answered
+    it), `_within_budget` (`MAX_HISTORY_CHARS`, spent oldest turn first and
+    never on the turn being answered) and `MAX_HISTORY` itself, still standing
+    as the second ceiling.
     """
     stop = stop_repeated_tool_hops(request.state)
     if stop:
         _fired('before_model', 'tool-hop guard stopped the run')
-        return AIMessage(content=stop)
+        # Stamped, not just worded: this message ends the run as if it were an
+        # answer, and `backends` has to be able to tell that it is not one
+        # before it files the turn as memory or logs it as answered.
+        return AIMessage(content=stop,
+                         response_metadata={HOP_GUARD_MARK: True})
     _fired('before_model', f'{len(request.state["messages"])} messages in state')
-    # System lines are written once, at the top of the thread — which
-    # experiment it is about, the memory context — so they must outlive the
-    # window or the model forgets its subject on the twenty-first message.
-    # They are kept whole; the window counts everything else.
-    standing = [m for m in request.messages if getattr(m, 'type', '') == 'system']
+    # System lines say what the whole thread is about — which experiment it is,
+    # what long-term memory holds — so they must outlive the window or the
+    # model forgets its subject on the twenty-first message. The window is
+    # everything else, and it is bounded three ways: see the docstring.
+    #
+    # Exempt is not unbounded, and that was the bug. The memory context grows
+    # on every accepted turn and `backends._run` appends the new text, so a
+    # real 29-step thread handed the model twelve system messages: several
+    # versions of one memory, oldest first, the stale ones contradicting the
+    # newest. A standing line a newer line of the same kind supersedes is now
+    # left out of *this call*. The thread keeps it — `request.override` is
+    # 1.x's non-destructive trim, and the reasons for keeping it are in
+    # `superseded_standing_lines` — and the model reads one identity line and
+    # one memory context.
+    #
+    # Only marked lines are filtered. A thread whose lines predate the marker
+    # still sends all of them: nothing can now tell one of those from a system
+    # line the widget did not write, and dropping a line on a guess is how a
+    # future middleware's instruction disappears. Those threads stop growing —
+    # every line written from now on is marked — which is the bound that
+    # matters.
+    system = [m for m in request.messages if getattr(m, 'type', '') == 'system']
     rest = [m for m in request.messages if getattr(m, 'type', '') != 'system']
-    if len(rest) > MAX_HISTORY:
-        request = request.override(messages=standing + rest[-MAX_HISTORY:])
+    stale = superseded_standing_lines([standing_mark(m) for m in system])
+    standing = [m for i, m in enumerate(system) if i not in stale]
+    # Four shapings of the rest, in the order that makes each one honest.
+    # First a closed turn's tool replies become stubs and an interrupted turn
+    # loses the work it never finished, so the size the next step measures is
+    # the size this call will really carry; then the size ceiling drops whole
+    # finished turns off the front; then the count cap stands where it always
+    # did, as the second ceiling.
+    shaped, reduced = _as_stubs(rest)
+    shaped, closed = _close_interrupted(shaped)
+    shaped, dropped = _within_budget(shaped)
+    if stale or reduced or closed or dropped or len(shaped) > MAX_HISTORY:
+        window = shaped[-MAX_HISTORY:] if len(shaped) > MAX_HISTORY else shaped
+        request = request.override(messages=standing + window)
     name = getattr(request.model, 'model_name', type(request.model).__name__)
     _fired('wrap_model_call', f'{name}, {len(request.messages)} messages')
     response = handler(request)

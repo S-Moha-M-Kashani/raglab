@@ -16,7 +16,10 @@ key: no file, no env, no artifact. A restart forgets every token, which for a
 developer's window is the right default.
 
 Plain HTML built here, no script beyond the theme stamp the three surfaces
-share; it reads the conversation log and writes nothing.
+share; it reads and writes nothing of its own. Two readings, both the widget's:
+the conversation, and — for the one question a conversation cannot answer about
+itself, whether a run that stopped mid-turn is still going — the turn log,
+through `widget.next_call_continues`.
 """
 from __future__ import annotations
 
@@ -122,6 +125,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:var(--s-2) 0 0;font:var(-
 .card .calls{margin-top:var(--s-3);padding-top:var(--s-3);border-top:1px dashed var(--rule)}
 .card .bill{margin-top:var(--s-2)}
 .trimmed{opacity:.5}
+.stub{color:var(--ink-soft);border-left:2px solid var(--rule);padding-left:var(--s-3)}
 .cut{grid-column:1/-1;display:flex;align-items:center;gap:var(--s-3);color:var(--ink-soft);font:var(--label-font);letter-spacing:var(--label-track);text-transform:uppercase}
 .cut:before,.cut:after{content:"";flex:1;border-top:1px dashed var(--rule)}
 /* the plate */
@@ -135,7 +139,13 @@ main.gate{max-width:none;margin:0;min-height:100vh;box-sizing:border-box;display
 .plate button:hover{background:var(--chassis-soft)}
 .plate .err{color:var(--alert);margin:0 0 var(--s-3)}
 .plate .hint{color:var(--ink-soft);font-size:var(--t-sm);margin:var(--s-4) 0 0}
-:focus-visible{outline:2px solid var(--step-generation-lit);outline-offset:2px}
+/* currentColor, not step ink: the header above says the widget is a helper
+   rather than a pipeline stage, and this page is its checkout window, so
+   generation blue has no business marking a focus ring here. The ink the
+   focused element already carries contrasts with whatever it sits on —
+   card, plate or chassis — so the ring stays visible on both themes
+   without a colour of its own. Same reason widget.css takes it. */
+:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 @media (max-width:40rem){.tape{grid-template-columns:1fr}.no{text-align:left;padding:0}.ai .card,.tool .card{margin-left:0}}
 """
 
@@ -204,9 +214,24 @@ def index() -> str:
                  + body + '</main>')
 
 
-def _step(number: int, step: dict, trimmed: bool = False) -> str:
+def _step(number: int, step: dict, trimmed: bool = False, stub: str = '',
+          abandoned: bool = False, note: str = '') -> str:
     kind = step['kind']
-    cls = f'{kind}{" trimmed" if trimmed else ""}'
+    cls = (f'{kind}{" trimmed" if trimmed else ""}'
+           f'{" stubbed" if stub else ""}{" abandoned" if abandoned else ""}')
+    # Dimming alone says "not sent"; on a step in the middle of the tape it
+    # does not say why, and there are two whys. This one is the turn whose run
+    # died before it answered.
+    why = ('<div class="kind">not sent · this turn was interrupted</div>'
+           if abandoned else '')
+    # And on the question that opened such a turn, the line the model really
+    # got in place of the steps below — shown verbatim, for the same reason a
+    # stub is: a developer asking "why did it say that?" must be able to read
+    # every word the model was handed, and a page that only dimmed what went
+    # missing would leave him inferring the replacement.
+    if note:
+        why += (f'<div class="kind">sent after this question</div>'
+                f'<pre class="stub">{_esc(note)}</pre>')
     no = f'<div class="no {cls}">{number:02d}</div>'
     text = f'<pre>{_esc(step["text"])}</pre>' if step.get('text') else ''
     bill = ''
@@ -214,10 +239,17 @@ def _step(number: int, step: dict, trimmed: bool = False) -> str:
         bill = (f'<div class="meta bill">tokens in {_esc(step.get("input_tokens"))}'
                 f' · out {_esc(step.get("output_tokens"))}</div>')
     if kind == 'tool':
+        # A stubbed reply was sent, so it is not dimmed — but the page must not
+        # let a reader think the model read the body below. The stub is shown
+        # above it, in the words the model actually got.
+        reduced = (f'<div class="kind">sent as a stub</div>'
+                   f'<pre class="stub">{_esc(stub)}</pre>' if stub else '')
         return (no + f'<div class="tool {cls}"><div class="card"><details>'
                 f'<summary><span class="kind">tool reply <span class="mono">'
                 f'{_esc(step.get("name"))} → {_esc(step.get("tool_call_id"))}'
-                f'</span></span></summary>{text}</details></div></div>')
+                f'</span>{" · reduced" if stub else ""}'
+                f'{" · interrupted" if abandoned else ""}</span></summary>'
+                f'{why}{reduced}{text}</details></div></div>')
     calls = ''
     for call in step.get('tool_calls') or []:
         calls += (f'<div class="calls"><div class="kind">calls <span class="mono">'
@@ -225,24 +257,241 @@ def _step(number: int, step: dict, trimmed: bool = False) -> str:
                   f'<pre>{_esc(json.dumps(call.get("args"), ensure_ascii=False, indent=2))}</pre></div>')
     label = {'human': 'reader', 'ai': 'model', 'system': 'system'}.get(kind, kind)
     return (no + f'<div class="{cls}"><div class="card"><div class="kind">{_esc(label)}'
-            '</div>' + text + calls + bill + '</div></div>')
+            '</div>' + why + text + calls + bill + '</div></div>')
 
 
-def _standing(steps: list) -> str:
+def _superseded(steps: list) -> set:
+    """Which system steps a newer standing line of the same kind replaced.
+
+    The thread keeps every memory context it was handed — that is what makes it
+    a record — so a long thread holds several, and only the newest goes to the
+    model. The rule is `conversation_memory.superseded_standing_lines`, the one
+    `trim_and_call` filters the prompt with, applied here to the same thread's
+    steps: a page that decided this for itself would sooner or later dim a line
+    the model actually read.
+    """
+    system = [s for s in steps if s['kind'] == 'system']
+    stale = widget.superseded_standing_lines([s.get('standing', '')
+                                              for s in system])
+    return {id(s) for i, s in enumerate(system) if i in stale}
+
+
+def _stubs(steps: list) -> dict:
+    """Which tool replies the next call sends as a stub, and what each stub
+    says — keyed by the step's identity, the way `_superseded` keys its own.
+
+    The rule is `conversation_memory`'s, not this page's: `turn_shape` reads a
+    trace step as readily as it reads a message, `closed_turn_tool_replies`
+    says which replies belong to a turn the model has already answered from,
+    and `tool_stub` writes the line — the same three calls `hooks._as_stubs`
+    makes over the messages themselves. A page that decided this for itself
+    would sooner or later show a body the model never read as though it had.
+
+    What this marks is what the *next* call carries — the same tense the
+    window, the superseded lines and the interrupted turns are already reported
+    in. It needs no phantom question to say it, unlike those last two: only a
+    closed turn is ever reduced, and whether a turn is closed does not depend
+    on what comes after it. A turn still being answered is not closed, so its
+    replies are whole here for the same reason they are whole in the call.
+    """
+    shapes = [widget.turn_shape(s) for s in steps]
+    asked = {call.get('id'): call for s in steps
+             for call in (s.get('tool_calls') or [])}
+    out = {}
+    for position in widget.closed_turn_tool_replies(shapes):
+        step = steps[position]
+        call = asked.get(step.get('tool_call_id')) or {}
+        text = step.get('text') or ''
+        stub = widget.tool_stub(step.get('name') or call.get('name') or '',
+                                call.get('args'), text)
+        if stub != text:
+            out[id(step)] = stub
+    return out
+
+
+def _cuts(steps: list, continues: bool) -> dict:
+    """Which of this thread's turns the next call leaves the work out of, and
+    which positions it leaves out — `{question, [positions]}` over the
+    thread's non-system steps.
+
+    The rule is `conversation_memory.interrupted_turn_cuts`, the one
+    `hooks._close_interrupted` shapes the prompt with, read here off the same
+    thread's steps. It exempts the last turn of whatever it is handed, because
+    the hook only ever sees a list the turn being answered ends — so this hands
+    it the question the next call will open with, unless a run is in flight and
+    there is no such question yet (`continues`). Without that, the one turn
+    this page most needs to be honest about is the one turn the rule is
+    forbidden to mention.
+    """
+    rest = [s for s in steps if s['kind'] != 'system']
+    shapes = [widget.turn_shape(s) for s in rest]
+    if not continues:
+        shapes = shapes + [widget.TURN_HUMAN]
+    return widget.interrupted_turn_cuts(shapes)
+
+
+def _interrupted(steps: list, continues: bool) -> set:
+    """The steps of an interrupted turn that no call carries — everything the
+    turn produced before its run died, the reader's question excepted.
+
+    They stay in the log because the log is the record; what goes to the model
+    in their place is `widget.interrupted_note`, which is why
+    `_dropped_from_the_window` measures that line rather than nothing.
+    """
+    rest = [s for s in steps if s['kind'] != 'system']
+    return {id(rest[i]) for positions in _cuts(steps, continues).values()
+            for i in positions}
+
+
+def _interrupted_notes(steps: list, continues: bool) -> dict:
+    """The line each interrupted turn travels as, keyed by the question step it
+    follows — the way `_stubs` keys the line each reduced tool reply travels
+    as, and shown the same way for the same reason.
+
+    Only the lines the next call really carries. A note is a message in the
+    projection like any other, so the window can drop one: with its whole turn
+    when the character budget spends the turn, or on its own when the count cap
+    slices the front of the window between a question and the line that follows
+    it. Showing one there would say a sentence was sent that was not — which is
+    this page's one claim, in miniature.
+    """
+    rest, origin, _gone, cut, notes = _projection(steps, continues)
+    return {id(step): text for at, (step, text) in notes.items() if at >= cut}
+
+
+def _projection(steps: list, continues: bool):
+    """What the next call carries, as the page can read it back: `(rest,
+    origin, gone, cut, notes)`.
+
+    `rest` is the thread's non-system steps; `origin` is the projection the
+    call is built from, each entry the step it came from or `None` for a line
+    no log holds; `gone` are the steps an interrupted turn loses; `cut` is how
+    many of the projection's leading entries the window drops; `notes` maps a
+    projection position to `(question step, the line sent after it)`.
+
+    One reading for every claim the page makes, because they are claims about
+    one call. The window drops a *prefix of the projection*, and the projection
+    holds lines that are in no log beside steps that are — so a reader that
+    took the window's answer over the steps alone would put a note after a
+    question the call never sent.
+
+    Three shapings, applied in the order `trim_and_call` applies them and
+    through its own functions: a closed turn's tool replies become stubs
+    (`_stubs`) and an interrupted turn loses its unfinished work
+    (`_interrupted`, replaced by one note the model does read, so the
+    projection below carries it at its real length), then
+    `widget.history_budget_cut` drops whole turns off the front until the
+    history fits `MAX_HISTORY_CHARS`, then `MAX_HISTORY` caps what is left.
+    Sizes are measured on the stubs, exactly as the hook measures them, or the
+    page would drop a turn the call keeps.
+
+    The phantom question at the end is not decoration, and it is left out in
+    exactly one case. This page reports in the tense of the *next* call, and
+    which call that is depends on whether a run is going right now:
+
+    - **Almost always the next call is a new question**, whatever shape the
+      thread ends in, because this widget has no continuation to offer:
+      `backends.ask` and `backends._stream_agent` both build a fresh payload
+      through `backends._run`, which appends the reader's next question.
+      Without the phantom the thread's last turn would read as the turn being
+      answered — exempt from the budget, never stubbed, never cut — and the
+      page would promise a developer that a finished 25 KB turn still rides
+      along, or that a dead turn's 20 KB tool body is context the model has,
+      when the next call has dropped both.
+    - **A run in flight** is the exception, and it is the state every tool hop
+      passes through: the model is about to read the tool reply at the end of
+      the state, that turn is the turn being answered, and a phantom here would
+      invent a question nobody asked and dim a body the model is in fact handed
+      whole. Which is the same lie, inverted.
+
+    `widget.next_call_continues` is what says which of the two this is, and it
+    says it from the record rather than from the shape of the messages — a run
+    that died owes a `widget_turn_log` row and a run still going does not,
+    while the two look identical in the log. Reading it off the shape was this
+    page's third disagreement with the real call: `conversation_turns` says
+    where a turn ends, which is not the same question as whether anyone is
+    still answering it. A question is capped at `MAX_QUESTION`, nothing against
+    this budget, so the phantom is free.
+    """
+    rest = [s for s in steps if s['kind'] != 'system']
+    stubs = _stubs(steps)
+    gone = _interrupted(rest, continues)
+    cuts = _cuts(rest, continues)
+    # The projection the next call really carries: the steps that survive the
+    # interrupted-turn cut, with each cut turn's note standing where its work
+    # was. `origin` maps every entry back to the step it came from — `None` for
+    # the note, which is in no log — so the window's answer, taken over the
+    # projection, can be read back as steps.
+    origin, shapes, sizes, notes = [], [], [], {}
+    for i, step in enumerate(rest):
+        if id(step) in gone:
+            continue
+        origin.append(step)
+        shapes.append(widget.turn_shape(step))
+        sizes.append(len(stubs.get(id(step)) or step.get('text') or ''))
+        if i in cuts:
+            notes[len(origin)] = (step, widget.interrupted_note(len(cuts[i])))
+            origin.append(None)
+            shapes.append(widget.TURN_ANSWER)
+            sizes.append(len(widget.interrupted_note(len(cuts[i]))))
+    if not continues:
+        shapes, sizes = shapes + [widget.TURN_HUMAN], sizes + [0]
+        origin = origin + [None]
+    start = widget.history_budget_cut(shapes, sizes)
+    over_count = max(0, len(shapes) - start - widget.MAX_HISTORY)
+    return rest, origin, gone, start + over_count, notes
+
+
+def _dropped_from_the_window(steps: list, continues: bool) -> list:
+    """The non-system steps the next call will not carry, oldest first — the
+    window's answer (`_projection`) read back as steps, with the work of an
+    interrupted turn, which no call carries at all."""
+    rest, origin, gone, cut, _notes = _projection(steps, continues)
+    windowed = {id(s) for s in origin[:cut] if s is not None}
+    return [s for s in rest if id(s) in windowed or id(s) in gone]
+
+
+def _standing(steps: list, continues: bool) -> str:
     """What the model stands on before it reads a step: the system prompt
     `create_agent` binds to every call (not in the log, so shown from the
     fixture), the tools it may call, and the window `trim_and_call` applies."""
-    rest = [s for s in steps if s['kind'] != 'system']
-    dropped = max(0, len(rest) - widget.MAX_HISTORY)
+    # Two reasons a step is not sent, counted apart because they are not the
+    # same news: one turn fell out of the window, another never finished. A
+    # step can be both, so the window's count is the one taken by difference.
+    gone = _interrupted([s for s in steps if s['kind'] != 'system'], continues)
+    outside = _dropped_from_the_window(steps, continues)
+    abandoned = len(gone)
+    dropped = len([s for s in outside if id(s) not in gone])
+    stale = len(_superseded(steps))
+    stubs = len(_stubs(steps))
     tools = ', '.join(t.name for t in widget.TOOLS)
     return (
         '<details class="standing"><summary>standing system prompt — every call'
         '</summary><pre>' + _esc(widget.SYSTEM_PROMPT) + '</pre>'
         f'<p class="meta">tools it may call: {_esc(tools)}</p>'
-        f'<p class="meta">window: every system line below, plus the last '
+        f'<p class="meta">window: the system lines below, plus the last '
         f'{widget.MAX_HISTORY} other messages — '
         + (f'the {dropped} oldest non-system step(s) are no longer sent.'
            if dropped else 'nothing has been trimmed yet.')
+        + (f' {stale} superseded standing line(s) stay in this log but are '
+           'left out of every call: the memory context grows each turn, and '
+           'the model is handed the newest.' if stale else '')
+        + (f' {abandoned} step(s) belong to a turn whose run died before it '
+           'answered: they stay in this log and no call carries them, and the '
+           'question that opened that turn is sent with one line saying '
+           'nothing answered it.' if abandoned else '')
+        + (' This thread stops in the middle of a turn and no row says that '
+           'run died, so it is still going: the next call continues it rather '
+           'than opening a new question, and that turn travels whole — never '
+           'stubbed, never budgeted, never cut.' if continues else '')
+        + (f' {stubs} tool repl(y/ies) below travel as a stub naming the tool '
+           'and what it was asked: the model has already answered from those '
+           'turns, and the turn it is answering always carries its tool '
+           'replies whole.' if stubs else '')
+        + f' The window also stops at {widget.MAX_HISTORY_CHARS} characters of '
+        'history, dropped a whole turn at a time — so a tool reply never '
+        'loses the call that asked for it — and never counted against the '
+        'turn being answered.'
         + f' Tool hops per turn stop at {widget.hooks.MAX_TOOL_HOPS}; a question is '
         f'capped at {widget.MAX_QUESTION} characters.</p></details>')
 
@@ -255,16 +504,38 @@ def thread(name: str) -> str:
               f' · dataset {_esc(found["dataset_id"]) or "—"}'
               f' · began {_esc(found["started_at"]) or "—"}'
               f' · {len(steps)} step(s)')
-    rest = [s for s in steps if s['kind'] != 'system']
-    outside = {id(s) for s in rest[:max(0, len(rest) - widget.MAX_HISTORY)]}
+    # Three ways a step is in the log but not in the call: it fell out of the
+    # window — by count or by character budget, whole turn at a time — a newer
+    # standing line superseded it, or it is the unfinished work of a turn whose
+    # run died. All three read as trimmed: the page's one claim is what the
+    # model was handed, and none of the three was.
+    # Which of the two calls this thread's next one is — read from the turn
+    # log, since a run that died and a run still going leave the same shape
+    # behind. Taken once here and handed down, so every count on the page is
+    # answering about the same call.
+    continues = widget.next_call_continues(found['thread'])
+    gone = _interrupted([s for s in steps if s['kind'] != 'system'], continues)
+    windowed = ({id(s) for s in _dropped_from_the_window(steps, continues)}
+                - gone)
+    outside = windowed | gone | _superseded(steps)
+    stubs = _stubs(steps)
+    notes = _interrupted_notes(steps, continues)
     parts, cut_drawn = [], False
     for i, s in enumerate(steps, 1):
         trimmed = id(s) in outside
-        if not trimmed and outside and not cut_drawn and s['kind'] != 'system':
+        # The divider answers "where does the next call start reading?", so
+        # only the window's own cut may draw it. An interrupted turn is dimmed
+        # in the middle of the tape, and a divider in front of it would promise
+        # that everything after it was sent.
+        if (id(s) not in windowed and windowed and not cut_drawn
+                and s['kind'] != 'system'):
             parts.append('<div class="cut">from here on, sent to the model</div>')
             cut_drawn = True
-        parts.append(_step(i, s, trimmed=trimmed))
+        parts.append(_step(i, s, trimmed=trimmed, stub=stubs.get(id(s), ''),
+                           abandoned=id(s) in gone,
+                           note=notes.get(id(s), '')))
     tape = (f'<div class="tape">{"".join(parts)}</div>' if steps else
             '<p class="empty">This thread holds no messages.</p>')
     return _page(f'trace · {found["thread"]}',
-                 _mast(crumbs) + '<main>' + _standing(steps) + tape + '</main>')
+                 _mast(crumbs) + '<main>' + _standing(steps, continues)
+                 + tape + '</main>')

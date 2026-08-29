@@ -2,6 +2,7 @@
 """The policy-to-memory flow is selective and delivery ordered."""
 from langchain_core.messages import AIMessage
 import pytest
+import threading
 import time
 
 from raglab.agents import widget
@@ -10,9 +11,17 @@ from raglab.agents.widget import long_term_memory as long_memory
 
 @pytest.fixture(autouse=True)
 def _clean_long_term_memory():
+    """A clean store either side of the test — and no writer still running.
+
+    The deferred decision outlives the call that started it, so the clear on
+    the way out has to come after the last daemon this test started has
+    finished. Clearing first and joining never would leave a write landing in
+    widget.db after the *next* test's clear, failing an assertion in a test
+    that started nothing."""
     widget.experiment_tools.set_experiment_reader(None)
     long_memory.clear_long_term_memory()
     yield
+    _join_deferred_memory()
     long_memory.clear_long_term_memory()
     widget.experiment_tools.set_experiment_reader(None)
 
@@ -82,6 +91,19 @@ def _eventually(predicate):
             return
         time.sleep(0.005)
     assert predicate()
+
+
+def _join_deferred_memory():
+    """Wait for the deferred decision's own thread to finish.
+
+    `_defer_memory` starts a daemon called `widget-memory`, and a test that
+    returns while one is still inside `save_widget_memory` leaves it writing
+    into the session's widget.db after the next test's autouse clear — a flake
+    landing on whichever test runs next, which is the one place it cannot be
+    explained from."""
+    for thread in threading.enumerate():
+        if thread.name == 'widget-memory':
+            thread.join(5)
 
 
 def test_deterministic_rejection_happens_before_agent_and_memory(monkeypatch):
@@ -413,13 +435,31 @@ def test_accepted_turn_can_update_global_pattern(monkeypatch):
     assert 'Session-aware chunking recurs' in context
 
 
-def test_stream_emits_authoritative_answer_before_save(monkeypatch):
+class _StreamAgent(_Agent):
+    """The stub `agent.stream` both streaming tests drive: one piece, then the
+    state the run ended in — the two modes `_stream_agent` reads."""
+
+    def stream(self, payload, config=None, stream_mode=None):
+        yield ('messages', (AIMessage(content=self.answer), {}))
+        yield ('values', {'messages': [*payload['messages'],
+                                       AIMessage(content=self.answer)]})
+
+
+def test_stream_emits_authoritative_answer_then_defers_the_decision(monkeypatch):
+    """The streamed turn's last event is a status, not a verdict.
+
+    It was the verdict until 2026-08-28, which meant the event stream stayed
+    open through the policy call, the summarizer call and two readings of the
+    board — all after the reader had every word of the answer. The decision is
+    the same decision and still happens; it happens on a thread of its own, the
+    way `ask` has always handed it over, so the generator ends where the answer
+    does and the event says `pending`."""
     widget.experiment_tools.set_experiment_reader(_ExperimentReader('smoke-mini'))
     policy = {
         'relevant': True, 'should_save': True, 'dataset_id': 'smoke-mini',
         'subtopic': 'retrieval', 'reason': 'reusable',
     }
-    agent, _ = _setup(monkeypatch, policy, answer='streamed answer')
+    _setup(monkeypatch, policy, answer='streamed answer')
     events = []
 
     def summarize(**kwargs):
@@ -432,18 +472,8 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
 
     monkeypatch.setattr(widget.backends, '_summarize_memory_update', summarize)
     monkeypatch.setattr(widget.tools, 'save_widget_memory', save)
-
-    # The stream stub is supplied by the backend tests; this test pins the
-    # save boundary by using the public stream path's final event.
-    class StreamAgent(_Agent):
-        def stream(self, payload, config=None, stream_mode=None):
-            yield ('messages', (AIMessage(content='streamed answer'), {}))
-            yield ('values', {'messages': [
-                *payload['messages'], AIMessage(content='streamed answer')
-            ]})
-
-    stream_agent = StreamAgent('streamed answer')
-    monkeypatch.setattr(widget.backends, '_agent_for', lambda model: stream_agent)
+    monkeypatch.setattr(widget.backends, '_agent_for',
+                        lambda model: _StreamAgent('streamed answer'))
     output = widget.stream('What should we retain?',
                            model='openai/gpt-5-nano', thread='stream-exp')
 
@@ -451,16 +481,123 @@ def test_stream_emits_authoritative_answer_before_save(monkeypatch):
     reply = next(output)
     assert reply == {'reply': 'streamed answer',
                      'input_tokens': None, 'output_tokens': None}
-    assert events == []
-    assert long_memory.memory_context('smoke-mini') == ''
 
-    status = next(output)
-    assert status['memory']['saved'] is True
-    assert status['memory']['dataset_id'] == 'smoke-mini'
-    assert events == ['summarize', 'save']
-
+    # The same status `ask` reports for the same question: one turn, one
+    # contract, whichever way the answer was asked for.
+    assert next(output) == {'memory': {'status': 'pending', 'saved': False}}
     with pytest.raises(StopIteration):
         next(output)
+
+    # Deferred, not dropped: the write lands, just not on this connection.
+    _eventually(lambda: events == ['summarize', 'save'])
+    _join_deferred_memory()
+
+
+def test_the_streamed_generator_ends_before_the_summarizer_does(monkeypatch):
+    """The claim the deferral is for: no summarizer call is between the last
+    event and the caller getting control back.
+
+    The summarizer here blocks until this test releases it, and this test does
+    not release it until the generator is exhausted: a generator that still
+    waited on it would be the one thing that cannot finish. It also names the
+    thread it ran on, which must not be the thread the events were read from."""
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('smoke-mini'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'smoke-mini',
+        'subtopic': 'retrieval', 'reason': 'reusable'}, answer='streamed answer')
+    running = threading.Event()
+    release = threading.Event()
+    ran_on, summarized = [], []
+
+    def summarize(**kwargs):
+        ran_on.append(threading.current_thread())
+        running.set()
+        release.wait(30)
+        summarized.append(True)
+        return {'dataset_summary': 'stream finding', 'global_summary': ''}
+
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update', summarize)
+    monkeypatch.setattr(widget.tools, 'save_widget_memory',
+                        lambda **kwargs: {'saved': True,
+                                          'dataset_id': 'smoke-mini'})
+    monkeypatch.setattr(widget.backends, '_agent_for',
+                        lambda model: _StreamAgent('streamed answer'))
+    try:
+        events = list(widget.stream('What should we retain?',
+                                    model='openai/gpt-5-nano',
+                                    thread='stream-defer'))
+        # The generator is exhausted while the summarizer is still inside a
+        # call this test has not released: it cannot have waited for one.
+        assert running.wait(5)
+        assert summarized == []
+        assert events[-1] == {'memory': {'status': 'pending', 'saved': False}}
+        assert ran_on[0] is not threading.current_thread()
+    finally:
+        # Released and then waited for: a daemon still inside the write when
+        # this test returns would be writing into widget.db after the next
+        # test's autouse clear.
+        release.set()
+        _join_deferred_memory()
+
+
+def test_one_memory_pass_reads_the_board_once(monkeypatch):
+    """`leaderboard.board_rows` reads up to `SCAN` run files off disk, and the
+    pass needed the rows twice — once for the foreign-experiment refusal, once
+    for the validated ids the write is checked against. Two full readings per
+    saved turn, growing with `.runs/`; one snapshot now serves both."""
+    class Counted:
+        def __init__(self):
+            self.reads = 0
+
+        def experiment(self, experiment_id):
+            return {'experiment_id': experiment_id, 'dataset': 'diary-en'}
+
+        def board_rows(self, limit=500):
+            self.reads += 1
+            return [{'experiment_id': 'this-exp', 'dataset': 'diary-en'}]
+
+    reader = Counted()
+    widget.experiment_tools.set_experiment_reader(reader)
+    monkeypatch.setattr(widget.backends, '_memory_model',
+                        lambda model: _PolicyModel({
+                            'relevant': True, 'should_save': True,
+                            'dataset_id': 'diary-en', 'subtopic': 'retrieval',
+                            'reason': 'reusable'}))
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: {'dataset_summary': 'a finding',
+                                          'global_summary': ''})
+
+    decision = widget.backends._finish_memory(
+        'Did reranking help?', 'an answer naming nothing', 'openai/gpt-5-nano',
+        'this-exp', 'diary-en', '', '')
+
+    assert decision['saved'] is True
+    assert reader.reads == 1
+
+
+def test_a_turn_no_policy_client_can_judge_is_not_reported_as_pending(
+        monkeypatch):
+    """`pending` promises a decision is coming. Where no policy client can be
+    built there is nothing to make one: the deferred work would return `None`
+    on a daemon thread with nobody to tell, and the reader would be left
+    watching for a verdict that can never arrive. That turn says `unavailable`,
+    the same word the panel uses for a judge nobody could reach."""
+    monkeypatch.setattr(widget.backends, '_agent_for', lambda model: _Agent())
+
+    def unbuildable(model):
+        raise widget.WidgetUnavailable('OPENROUTER_API_KEY is not set')
+
+    monkeypatch.setattr(widget.backends, '_memory_model', unbuildable)
+    monkeypatch.setattr(widget.backends, '_finish_memory',
+                        lambda *args, **kwargs: (_ for _ in ()).throw(
+                            AssertionError('a decision nobody can make was '
+                                           'started anyway')))
+
+    result = widget.ask('Which chunker should I compare?',
+                        model='openai/gpt-5-nano', thread='keyless-exp')
+
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory'] == {'status': 'unavailable', 'saved': False}
 
 
 def test_save_failure_keeps_the_authoritative_answer(monkeypatch):
@@ -540,9 +677,11 @@ def test_an_experiment_thread_tells_the_agent_which_experiment_it_is_about(monke
 def test_a_threads_system_lines_are_written_once_not_once_per_turn(monkeypatch):
     """Seen in the developer trace: every turn appended the active-experiment
     line and the memory context again, so a five-turn thread carried ten
-    system messages and the model reread them all each time. A system line
-    already in the thread, word for word, is not added a second time; a memory
-    context that changed is, because it says something new."""
+    system messages and the model reread them all each time. Neither is sent
+    twice now — the identity line because the thread already holds it, the
+    memory line because this turn's memory says exactly what the last one
+    did. A memory context that *changed* is sent, and the three tests below
+    say what happens to the line it supersedes."""
     from raglab.agents.widget.tests.widget_examples import write_messages
     from langchain_core.messages import SystemMessage
     widget.experiment_tools.set_experiment_reader(_TwoDatasetReader())
@@ -559,3 +698,399 @@ def test_a_threads_system_lines_are_written_once_not_once_per_turn(monkeypatch):
     second = [str(m.content) for m in agent.payloads[1]['messages']
               if isinstance(m, SystemMessage)]
     assert second == []
+
+
+def _standing(payload) -> list:
+    """The system lines one turn's input writes, in order."""
+    from langchain_core.messages import SystemMessage
+    return [m for m in payload['messages'] if isinstance(m, SystemMessage)]
+
+
+def _thread_after(stored: list, payload) -> list:
+    """What the thread holds once the graph has applied this turn's input —
+    `add_messages` is the reducer behind `WidgetState.messages`, so running it
+    here is what the checkpointer would have written, not a guess at it."""
+    from langgraph.graph.message import add_messages
+    return add_messages(stored, payload['messages'])
+
+
+def test_a_grown_memory_context_is_added_and_marked_as_the_standing_line():
+    """The finding this task exists for: the memory context grows on every
+    accepted turn, so a long thread accumulates several versions of it and the
+    model was handed all of them, oldest first.
+
+    The thread still keeps them — it is the record of what the widget was
+    told, and `long_term_memory._bounded` caps the stored aggregate, so an
+    older line can be the last surviving copy of a note the store has since
+    truncated away. What changes is that every line says which standing line
+    it is, so `hooks.trim_and_call` can send the newest and leave the rest out
+    of that call."""
+    from langchain_core.messages import AIMessage
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-standing-line'
+    first, _ = widget.backends._run(
+        'one?', thread, dataset='diary-en',
+        memory_text='Dataset memory (diary-en):\nchunk 400 won')
+    assert [memory.standing_mark(m) for m in _standing(first)] == [
+        memory.IDENTITY_LINE, memory.MEMORY_LINE]
+    stored = _thread_after([], first) + [AIMessage(content='a')]
+    write_messages(thread, stored)
+
+    second, _ = widget.backends._run(
+        'two?', thread, dataset='diary-en',
+        memory_text='Dataset memory (diary-en):\nchunk 400 won; rerank helped')
+
+    # The identity line is not repeated — the thread already holds it — and the
+    # grown memory arrives beside the older one rather than over it.
+    lines = _standing(second)
+    assert [memory.standing_mark(m) for m in lines] == [memory.MEMORY_LINE]
+    assert lines[0].content.endswith('rerank helped')
+    kept = [str(m.content) for m in _thread_after(stored, second)
+            if getattr(m, 'type', '') == 'system']
+    assert kept == [_standing(first)[0].content,
+                    'Dataset memory (diary-en):\nchunk 400 won',
+                    'Dataset memory (diary-en):\nchunk 400 won; rerank helped']
+
+
+def test_an_unchanged_memory_context_is_not_written_again():
+    """Nothing to supersede and nothing to add: a turn whose memory says
+    exactly what the thread was already told sends no system line at all."""
+    from langchain_core.messages import AIMessage
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-same-line'
+    text = 'Dataset memory (diary-en):\nchunk 400 won'
+    first, _ = widget.backends._run('one?', thread, dataset='diary-en',
+                                    memory_text=text)
+    write_messages(thread, _thread_after([], first) + [AIMessage(content='a')])
+
+    second, _ = widget.backends._run('two?', thread, dataset='diary-en',
+                                     memory_text=text)
+    assert _standing(second) == []
+
+
+def test_a_memory_context_that_shrank_back_is_still_written():
+    """Memory does not only grow. `long_term_memory` can be cleared and regrow,
+    and a rewritten aggregate can land byte-for-byte on something the thread
+    said earlier — so "this text appears somewhere in the thread" is the wrong
+    question to skip a write on.
+
+    It was the question `_run` asked, and with only the newest standing line
+    now reaching the model, asking it was a quality bug: memory A, then "A; B",
+    then back to A wrote nothing, and the call carried "A; B" — a memory
+    context that was not this turn's. The right question is whether the line is
+    already the *newest* standing line of its kind."""
+    from langchain_core.messages import AIMessage
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-shrunk-memory'
+    first, _ = widget.backends._run('one?', thread, dataset='diary-en',
+                                    memory_text='Global memory:\nA')
+    stored = _thread_after([], first) + [AIMessage(content='a')]
+    second, _ = widget.backends._run('two?', thread, dataset='diary-en',
+                                     memory_text='Global memory:\nA; B')
+    stored = _thread_after(stored, second) + [AIMessage(content='b')]
+    write_messages(thread, stored)
+
+    third, _ = widget.backends._run('three?', thread, dataset='diary-en',
+                                    memory_text='Global memory:\nA')
+
+    lines = _standing(third)
+    assert [str(m.content) for m in lines] == ['Global memory:\nA']
+    assert [memory.standing_mark(m) for m in lines] == [memory.MEMORY_LINE]
+    # And what the call carries is this turn's memory, not the older, longer
+    # line that would otherwise have been the newest standing one.
+    held = [m for m in _thread_after(stored, third)
+            if getattr(m, 'type', '') == 'system']
+    stale = memory.superseded_standing_lines(
+        [memory.standing_mark(m) for m in held])
+    assert [str(held[i].content) for i in range(len(held)) if i not in stale] \
+        == [_standing(first)[0].content, 'Global memory:\nA']
+
+
+def test_two_turns_that_start_from_the_same_state_both_land():
+    """Two tabs open on one experiment thread, two questions at once. Both
+    turns read the thread before either has written, so both build their input
+    from the same state — and both must land.
+
+    They do, because a turn only ever adds. An earlier version of this change
+    replaced the standing line in place and deleted the ones it superseded:
+    that input names existing message ids, so the second turn's delete arrived
+    after the first turn had already removed them, `add_messages` raises on an
+    id that is no longer there, and a perfectly good question became a 500.
+    Nothing written here names an id that already exists, so there is nothing
+    to lose a race over — and the prompt is still one memory line, because the
+    filter reads the state after both have landed."""
+    from langchain_core.messages import AIMessage
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-two-tabs'
+    opened, _ = widget.backends._run('one?', thread, dataset='diary-en',
+                                     memory_text='Global memory:\nv1')
+    stored = _thread_after([], opened) + [AIMessage(content='a')]
+    write_messages(thread, stored)
+
+    first, _ = widget.backends._run('two?', thread, dataset='diary-en',
+                                    memory_text='Global memory:\nv2')
+    second, _ = widget.backends._run('three?', thread, dataset='diary-en',
+                                     memory_text='Global memory:\nv3')
+
+    after = _thread_after(_thread_after(stored, first), second)  # neither raises
+    lines = [m for m in after if getattr(m, 'type', '') == 'system']
+    assert [str(m.content) for m in lines] == [
+        _standing(opened)[0].content, 'Global memory:\nv1',
+        'Global memory:\nv2', 'Global memory:\nv3']
+
+    # And of the three memory lines the thread now holds, one is sent.
+    stale = memory.superseded_standing_lines(
+        [memory.standing_mark(m) for m in lines])
+    assert [str(lines[i].content) for i in range(len(lines)) if i not in stale] \
+        == [_standing(opened)[0].content, 'Global memory:\nv3']
+
+
+def test_the_two_standing_lines_are_written_independently_of_each_other():
+    """A turn may write either line, both, or neither.
+
+    Worth pinning because a reader could reasonably assume otherwise: today
+    `_preflight` only reads memory once a dataset has resolved, so in practice
+    a memory context arrives with a dataset beside it. `_run` does not rely on
+    that — a version of it that did would misbehave the day the two stop
+    travelling together, in a function no caller would think to re-read."""
+    from raglab.agents.widget import conversation_memory as memory
+
+    payload, _ = widget.backends._run('q?', 'exp-memory-only', dataset='',
+                                      memory_text='Global memory:\nrerank wins')
+    assert [memory.standing_mark(m) for m in _standing(payload)] == [
+        memory.MEMORY_LINE]
+
+    payload, _ = widget.backends._run('q?', 'exp-identity-only',
+                                      dataset='diary-en', memory_text='')
+    assert [memory.standing_mark(m) for m in _standing(payload)] == [
+        memory.IDENTITY_LINE]
+
+    payload, _ = widget.backends._run('q?', 'exp-neither', dataset='',
+                                      memory_text='')
+    assert _standing(payload) == []
+
+
+def _reason_on_the_row(thread: str) -> str:
+    from raglab.agents.widget import turn_logger
+    rows = turn_logger.list_turns(thread)
+    assert rows, f'no turn-log row was written for {thread}'
+    return rows[-1]['memory_reason'] or ''
+
+
+def test_a_deferred_decision_nobody_can_return_to_still_says_why(monkeypatch):
+    """The decision runs on a daemon thread after the answer has gone, so its
+    return value has no reader. Every non-save outcome used to end there: the
+    summarizer raised, `save_error` was set on a dict the thread dropped, and
+    the turn was unfiled forever with no record of why. It goes on the turn's
+    own row now."""
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable'})
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            RuntimeError('the summarizer is down')))
+
+    result = widget.ask('Which retrieval setting should we retain?',
+                        model='openai/gpt-5-nano', thread='exp-lost-reason')
+
+    assert result['memory'] == {'status': 'pending', 'saved': False}
+    _join_deferred_memory()
+    reason = _reason_on_the_row('exp-lost-reason')
+    assert reason.startswith('not filed:')
+    assert 'the summarizer is down' in reason
+    assert long_memory.memory_context('diary-en') == ''
+
+
+def test_a_refused_save_and_an_accepted_one_both_name_themselves_on_the_row(
+        monkeypatch):
+    """The column says what the memory pass decided, not only what went wrong.
+    A column filled only by failures reads as a failure list, and a blank one
+    cannot then be told from a pass that never happened."""
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'not worth keeping'})
+    widget.ask('Was that useful?', model='openai/gpt-5-nano',
+               thread='exp-declined')
+    _join_deferred_memory()
+    assert _reason_on_the_row('exp-declined') == (
+        'not filed: not worth keeping')
+
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable'})
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: {'dataset_summary': 'a finding',
+                                          'global_summary': ''})
+    widget.ask('Which retrieval setting should we retain?',
+               model='openai/gpt-5-nano', thread='exp-kept')
+    _join_deferred_memory()
+    assert _reason_on_the_row('exp-kept') == 'filed: reusable'
+
+
+def test_a_turn_that_answered_survives_a_turn_log_write_that_failed(monkeypatch):
+    """Three widget stores share one sqlite file behind three independent
+    locks, and the deferred writer is on the stream path too — so one turn's
+    write can find the file busy while the next turn is answering. An
+    operational write is reported and never fatal: the reader keeps the answer
+    the lab really produced."""
+    import sqlite3
+
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': 'diary-en',
+        'subtopic': '', 'reason': 'a question'})
+    monkeypatch.setattr(widget.backends.turn_logger, 'log_turn',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            sqlite3.OperationalError('database is locked')))
+    widget.HOOK_LOG.clear()
+
+    result = widget.ask('Which chunker won?', model='openai/gpt-5-nano',
+                        thread='exp-busy-file')
+
+    assert result['reply'] == 'authoritative answer'
+    assert result['memory'] == {'status': 'pending', 'saved': False}
+    assert any('database is locked' in line for line in widget.HOOK_LOG), (
+        'a failed operational write must be reported, not swallowed')
+    _join_deferred_memory()
+
+
+def test_the_streamed_turn_also_survives_a_turn_log_write_that_failed(
+        monkeypatch):
+    """The same guarantee on the path the browser actually uses."""
+    import sqlite3
+
+    widget.experiment_tools.set_experiment_reader(_ExperimentReader('diary-en'))
+    agent, _ = _setup(monkeypatch, {
+        'relevant': True, 'should_save': False, 'dataset_id': 'diary-en',
+        'subtopic': '', 'reason': 'a question'})
+    agent.stream = lambda payload, config=None, stream_mode=None: iter([
+        ('values', {'messages': [*payload['messages'],
+                                 AIMessage(content='streamed answer')]})])
+    monkeypatch.setattr(widget.backends.turn_logger, 'log_turn',
+                        lambda **kwargs: (_ for _ in ()).throw(
+                            sqlite3.OperationalError('database is locked')))
+
+    events = list(widget.stream('Which chunker won?',
+                                model='openai/gpt-5-nano',
+                                thread='exp-busy-stream'))
+
+    assert events[-2]['reply'] == 'streamed answer'
+    assert events[-1] == {'memory': {'status': 'pending', 'saved': False}}
+    _join_deferred_memory()
+
+
+def test_a_saved_turn_resolves_the_threads_dataset_exactly_once(monkeypatch):
+    """`_preflight` settles the trusted dataset for the whole turn because each
+    resolution is a ledger query plus a run-file read. The write gate then
+    asked `validated_dataset_ids(thread)` for the same value a second time —
+    and handed it the raw thread, bypassing `_experiment_of`, which this file
+    calls its single reading of the thread's experiment."""
+    class CountingReader(_ExperimentReader):
+        def __init__(self, dataset):
+            super().__init__(dataset)
+            self.lookups = []
+
+        def experiment(self, experiment_id):
+            self.lookups.append(experiment_id)
+            return super().experiment(experiment_id)
+
+        def board_rows(self, limit=500):
+            return [{'experiment_id': 'exp-other', 'dataset': 'meetings-de'}]
+
+    reader = CountingReader('diary-en')
+    widget.experiment_tools.set_experiment_reader(reader)
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'diary-en',
+        'subtopic': 'retrieval', 'reason': 'reusable'})
+    saved = {}
+    monkeypatch.setattr(widget.backends, '_summarize_memory_update',
+                        lambda **kwargs: {'dataset_summary': 'a finding',
+                                          'global_summary': 'a pattern'})
+    monkeypatch.setattr(widget.tools, 'save_widget_memory',
+                        lambda **kwargs: saved.update(kwargs) or {'saved': True})
+
+    widget.ask('Which retrieval setting should we retain?',
+               model='openai/gpt-5-nano', thread='exp-once')
+    _join_deferred_memory()
+
+    assert reader.lookups == ['exp-once']
+    # The board's ids plus this thread's own, which is what the second lookup
+    # was ever for.
+    assert saved['validated_dataset_ids'] == {'meetings-de', 'diary-en'}
+
+
+def test_over_reaching_global_note_is_refused_and_the_turn_row_says_so(
+        monkeypatch):
+    """A summarizer that writes one corpus's run into the row every corpus
+    reads: the dataset finding is still filed, the note is not, and the reason
+    is on the turn's own row rather than nowhere."""
+    class Reader(_ExperimentReader):
+        def board_rows(self, limit=500):
+            return [{'dataset': 'nosrat-fa'}, {'dataset': 'smoke-import-check'}]
+
+    widget.experiment_tools.set_experiment_reader(Reader('smoke-import-check'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True,
+        'dataset_id': 'smoke-import-check', 'subtopic': 'indexing',
+        'reason': 'reusable'})
+    monkeypatch.setattr(
+        widget.backends, '_summarize_memory_update',
+        lambda **kwargs: {
+            'dataset_summary': 'Indexing stayed flat here.',
+            'global_summary': ('Last experiment details for '
+                               'smoke-import-check: 6 questions analyzed.')})
+
+    widget.ask('What did indexing produce?',
+               model='openai/gpt-5-nano', thread='exp-smoke')
+    _join_deferred_memory()
+
+    assert 'Indexing stayed flat here.' in \
+        long_memory.memory_context('smoke-import-check')
+    assert '6 questions analyzed' not in long_memory.memory_context('nosrat-fa')
+    # The deferred path, not `settled_memory`, because the reason reaching the
+    # row is half of what is being asserted: the decision is taken with no
+    # caller left to return to.
+    row = widget.turn_logger.list_turns('exp-smoke')[0]
+    assert row['memory_reason'].startswith('filed:')
+    assert 'The cross-dataset note was not kept' in row['memory_reason']
+    assert 'smoke-import-check' in row['memory_reason']
+
+
+def test_a_dataset_note_about_another_corpus_is_refused_and_the_row_says_so(
+        monkeypatch):
+    """`foreign_experiments` reads the *answer* for recorded experiment ids, so
+    a summary naming another corpus by name slipped past it and filed under
+    this thread's dataset. One thread rather than all of them, and the same
+    lie."""
+    class Reader(_ExperimentReader):
+        def board_rows(self, limit=500):
+            return [{'dataset': 'nosrat-fa'}, {'dataset': 'smoke-import-check'}]
+
+    widget.experiment_tools.set_experiment_reader(Reader('nosrat-fa'))
+    _setup(monkeypatch, {
+        'relevant': True, 'should_save': True, 'dataset_id': 'nosrat-fa',
+        'subtopic': 'indexing', 'reason': 'reusable'})
+    monkeypatch.setattr(
+        widget.backends, '_summarize_memory_update',
+        lambda **kwargs: {
+            'dataset_summary': ('smoke-import-check produced a flat '
+                                'structure.'),
+            'global_summary': ''})
+
+    widget.ask('What did indexing produce?',
+               model='openai/gpt-5-nano', thread='exp-nosrat')
+    _join_deferred_memory()
+
+    assert 'smoke-import-check' not in long_memory.memory_context('nosrat-fa')
+    row = widget.turn_logger.list_turns('exp-nosrat')[0]
+    assert row['memory_reason'].startswith('not filed: the dataset note names')
+    assert "corpus other than 'nosrat-fa'" in row['memory_reason']

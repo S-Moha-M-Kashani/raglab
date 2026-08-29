@@ -40,6 +40,7 @@ from raglab.agents.widget import long_term_memory
 from raglab.agents.widget import probe
 from raglab.agents.widget import prompts
 from raglab.agents.widget import tools
+from raglab.agents.widget import turn_logger
 from raglab.agents.widget.backends import (
     DEFAULT_MODEL,
     REQUIRED_ENV,
@@ -56,29 +57,51 @@ from raglab.agents.widget.backends import (
     stream)
 from raglab.agents.widget.conversation_memory import (
     GENERAL,
+    IDENTITY_LINE,
+    INTERRUPTED_TURN,
     MAX_RECALLED,
+    MEMORY_LINE,
+    STANDING_LINE,
+    TOOL_STUB,
+    TURN_ANSWER,
+    TURN_HUMAN,
+    Turn,
     WidgetState,
+    closed_turn_tool_replies,
+    conversation_turns,
     forget,
     history,
+    interrupted_note,
+    interrupted_turn_cuts,
+    next_call_continues,
     recall_conversation,
+    standing_mark,
+    superseded_standing_lines,
     thread_summaries,
     threads,
-    trace)
+    tool_stub,
+    trace,
+    turn_shape)
 from raglab.agents.widget.long_term_memory import (
     MAX_SUMMARY_CHARS,
     clear_long_term_memory,
     db_path,
+    forget_board_dataset_ids,
     memory_context,
     save_memory_update)
 from raglab.agents.widget.hooks import (
     HOOK_LOG,
+    HOP_GUARD_REFUSAL,
     MAX_HISTORY,
+    MAX_HISTORY_CHARS,
     MAX_QUESTION,
     MIDDLEWARE,
     RECURSION_LIMIT,
     _validate,
     check_request,
     close_the_log,
+    history_budget_cut,
+    hop_guard_refused,
     log_tool_call,
     stop_repeated_tool_hops,
     trim_and_call)

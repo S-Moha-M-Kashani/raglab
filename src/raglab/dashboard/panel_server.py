@@ -346,17 +346,43 @@ def _safe_widget_event(event):
     unchanged. A malformed or absent memory value is omitted rather than
     guessed at.
 
-    Four statuses, not three: a turn nobody judged is `unavailable`, never
-    `irrelevant`. Both arrive here as `relevant: False`, because saving fails
-    closed when the policy cannot be reached — but telling a reader their
-    question was off-topic when the judge was simply down is telling them
-    something untrue, which is the one thing no record in this lab may do.
+    Four statuses, and every one of them is a thing `widget.ask` and
+    `widget.stream` can actually put on an event.
+
+    `pending` is the ordinary case: both answer paths file after they answer,
+    so the decision is still being taken when the turn lands. `unavailable` is
+    a turn nobody judged — no policy client could be built. `not_filed` is a
+    turn that ran to the end and must not be filed, which today means the
+    tool-hop guard answered in the widget's own voice. `irrelevant` is the
+    deterministic relevance guard's refusal (`backends._refused`), the one
+    memory block that still arrives here as policy booleans.
+
+    There were two more until 2026-08-28: `saved` and `not_saved`, read off a
+    resolved verdict's `saved` flag. No caller can produce one any more — the
+    verdict is taken on a thread of its own, after the response has gone, and
+    it lands on the `widget_turn_log` row rather than on any event. Statuses
+    this route cannot emit were removed rather than left standing, because a
+    documented status is a promise about what a client may see, and a promise
+    only a monkeypatched test could keep is not one.
+
+    Only `pending`, `unavailable` and `not_filed` reach the panel — the
+    deferred decision is the only memory event the page routes to a reader,
+    and of those three the page writes a line for the first two (`widget.js`,
+    `widgetMemoryStatus`). `irrelevant` is this API's alone, for a client
+    reading the route rather than the page.
     """
     if not isinstance(event, dict) or 'memory' not in event:
         return event
     memory = event.get('memory')
     if not isinstance(memory, dict):
         return {key: value for key, value in event.items() if key != 'memory'}
+    deferred = memory.get('status')
+    if deferred in ('pending', 'unavailable', 'not_filed'):
+        # A deferred or withheld decision carries no booleans, because there is
+        # no verdict to put in them. Dropping the block would leave the reader
+        # with no memory line at all, and no line reads as "nothing was worth
+        # keeping" — a verdict, and one nobody gave.
+        return event | {'memory': {'status': deferred}}
     if not all(isinstance(memory.get(key), bool)
                for key in ('relevant', 'should_save', 'saved')):
         return {key: value for key, value in event.items() if key != 'memory'}
@@ -364,10 +390,11 @@ def _safe_widget_event(event):
         status = 'unavailable'
     elif not memory['relevant']:
         status = 'irrelevant'
-    elif memory['saved']:
-        status = 'saved'
     else:
-        status = 'not_saved'
+        # A relevant, boolean-bearing memory block is a shape no answer path
+        # builds. Rather than guess a verdict for it, the block is dropped the
+        # way a malformed one is.
+        return {key: value for key, value in event.items() if key != 'memory'}
     return event | {'memory': {'status': status}}
 
 
@@ -1248,6 +1275,14 @@ def create_app() -> FastAPI:
             # is the final step under the same lock, so no later index lookup
             # can observe the new file through an old cached index.
             registry.invalidate_dataset(found.id)
+        # The corpus set this installation knows has just changed, and the
+        # widget caches the board's dataset ids for the life of the process —
+        # it filters every turn's memory context against them and cannot pay
+        # for a board reading per turn. Forgetting them here is what stops an
+        # import needing a restart before the filter can see past it. This
+        # route, not the store: the widget is a sealed leaf and `corpora/` may
+        # not reach into it, while this module is the one that already does.
+        widget.forget_board_dataset_ids()
         # The same declaration table a catalogue entry carries, so the panel
         # can show what it just read without a second round trip.
         return found.as_dict() | _dataset_declaration(found.id)
@@ -1305,11 +1340,17 @@ def create_app() -> FastAPI:
     @app.post('/api/widget/stream')
     def widget_stream(payload: dict):
         """The same turn as POST /api/widget, sent as it is written: one
-        server-sent event per piece of the answer, then one final event
-        carrying the reply the lab now holds and its token account — the very
-        body the other route returns whole. The page renders the pieces as
-        they land and adopts the final reply, so what stays on screen is what
-        the conversation log holds rather than whatever the pieces spelled.
+        server-sent event per piece of the answer, then the reply event —
+        carrying the reply the lab now holds and its token account, the very
+        body the other route returns whole — and after it one memory event.
+        The reply is the event with a `reply` key, not the last one: the
+        memory event is last, and it says only what the decision about keeping
+        this turn is at the moment it is written, because that decision now
+        outlives the response (`backends._defer_memory`). A client that reads
+        the final event as the reply reads the memory block as an answer. The
+        page renders the pieces as they land and adopts the reply event, so
+        what stays on screen is what the conversation log holds rather than
+        whatever the pieces spelled.
 
         `widget.stream` raises before it yields anything, which is what keeps a
         refusal a status code: an unserved model is a 400 and an unreachable

@@ -17,6 +17,8 @@ the experiments" are different sentences.
 """
 from langchain_core.tools import tool
 
+from raglab.agents.widget import long_term_memory
+
 # The reader, injected. None until a panel wires one in — the `__main__`
 # harness and any test that does not want records both run without one.
 _READER = None
@@ -38,9 +40,17 @@ _UNWIRED = ('Experiment records are not available: this widget was started '
 
 
 def set_experiment_reader(reader) -> None:
-    """Wire the records in, or pass None to unwire them."""
+    """Wire the records in, or pass None to unwire them.
+
+    `long_term_memory` caches this reader's dataset ids for the life of the
+    process — it filters every turn's memory context against them and cannot
+    afford a board reading per turn — so a change of reader has to forget
+    them. A cache that outlived the record it was taken from would let one
+    installation's corpus names go on answering for the next one's.
+    """
     global _READER
     _READER = reader
+    long_term_memory.forget_board_dataset_ids()
 
 
 def experiment_reader_wired() -> bool:
@@ -72,16 +82,36 @@ def trusted_dataset_id(experiment_id: str) -> str:
     return dataset.strip()
 
 
-def validated_dataset_ids(experiment_id: str = '') -> set[str]:
-    """Return dataset ids present in the injected, validated experiment view."""
+def board_snapshot() -> list:
+    """Every recorded row the caller is about to read, taken once.
+
+    `leaderboard.board_rows` reads up to `SCAN` run files off disk, and one
+    memory pass needs those rows twice: once to refuse an answer describing
+    another corpus, once to say which dataset ids are validated. Two full
+    readings of the board per saved turn is a cost that grows with `.runs/`, so
+    the caller takes one and hands it to both.
+
+    A snapshot, not a cache: it lives as long as the pass that took it, and
+    nothing here keeps it between passes. A board this widget remembered could
+    describe a run that has since finished or a row that has since arrived, and
+    a record that lies about what it read is the one thing this repo refuses.
+    """
     if _READER is None:
-        return set()
-    rows = []
+        return []
     try:
-        rows = _READER.board_rows(limit=SCAN) or []
+        return list(_READER.board_rows(limit=SCAN) or [])
     except Exception:
-        rows = []
-    ids = {row['dataset'].strip() for row in rows
+        return []
+
+
+def validated_dataset_ids(experiment_id: str = '', rows=None) -> set[str]:
+    """Return dataset ids present in the injected, validated experiment view.
+
+    `rows` is a `board_snapshot()` its caller has already taken. Handed
+    nothing, this reads its own — the tool path and the tests call it that
+    way, and a function that only works as half of a pair is a trap."""
+    ids = {row['dataset'].strip()
+           for row in (board_snapshot() if rows is None else rows)
            if isinstance(row, dict) and isinstance(row.get('dataset'), str)
            and row['dataset'].strip()}
     active = trusted_dataset_id(experiment_id)
@@ -90,7 +120,7 @@ def validated_dataset_ids(experiment_id: str = '') -> set[str]:
     return ids
 
 
-def foreign_experiments(text: str, dataset_id: str) -> dict[str, str]:
+def foreign_experiments(text: str, dataset_id: str, rows=None) -> dict[str, str]:
     """The recorded experiments `text` names that ran on a dataset other than
     `dataset_id`: {experiment_id: its dataset}.
 
@@ -99,15 +129,15 @@ def foreign_experiments(text: str, dataset_id: str) -> dict[str, str]:
     claim — seen when a `meetings-de` thread asked about "the last experiment"
     and was told about the newest run overall — so the caller refuses to file
     it. Only the validated record says which dataset an id belongs to; an id
-    the record does not know is not evidence either way."""
+    the record does not know is not evidence either way.
+
+    `rows` is the caller's `board_snapshot()`, or nothing at all — in which
+    case this takes its own reading, the way it always did."""
     dataset_id = (dataset_id or '').strip()
     text = str(text or '')
-    if _READER is None or not dataset_id or not text:
+    if not dataset_id or not text:
         return {}
-    try:
-        rows = _READER.board_rows(limit=SCAN) or []
-    except Exception:
-        rows = []
+    rows = board_snapshot() if rows is None else rows
     foreign = {}
     for row in rows:
         if not isinstance(row, dict):

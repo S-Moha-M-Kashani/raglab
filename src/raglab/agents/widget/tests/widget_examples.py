@@ -11,6 +11,8 @@ langgraph upgrade that changes what the saver accepts gets fixed in one
 place and left silently wrong in the other, surfacing later as a confusing
 failure in whichever file still carries the old shape.
 """
+import uuid
+
 from langgraph.checkpoint.base import empty_checkpoint
 
 from raglab.agents.widget import conversation_memory as memory
@@ -36,7 +38,24 @@ def write_messages(thread: str, messages: list) -> None:
     config = {'configurable': {'thread_id': thread, 'checkpoint_ns': ''}}
     saver = memory.saver()
     checkpoint = empty_checkpoint()
-    checkpoint['id'] = f'{thread}-1'
+    # A real checkpoint id, and one that says this is where the thread began.
+    #
+    # `f'{thread}-1'` read well and was unreadable to langgraph: `_algo`
+    # unhexlifies a checkpoint id when a run resumes from one, so a seeded
+    # thread could be read back but never handed to the compiled agent — which
+    # is exactly what a test that drives production's own graph over a
+    # pre-existing conversation has to do.
+    #
+    # The zero prefix is not decoration either. The saver returns a thread's
+    # checkpoints newest-id-first, and a real one is time-ordered (uuid7), so
+    # an id built from the thread's name alone could sort *above* the
+    # checkpoint a later run writes — the seed would shadow the run, and a
+    # test would read back the state it wrote rather than the state the graph
+    # produced. Zeroed high bits put every seed before every run; the tail is
+    # derived from the thread's name, so re-seeding one thread keeps the same
+    # id and two threads never share one.
+    checkpoint['id'] = ('00000000-0000-7000-8000-'
+                        + uuid.uuid5(uuid.NAMESPACE_URL, thread).hex[-12:])
     checkpoint['ts'] = started
     checkpoint['channel_values'] = {'messages': messages, **stamp,
                                     'started_at': started}

@@ -427,7 +427,12 @@ def test_cli_irrelevance_refuses_before_cli_invocation_or_memory(monkeypatch):
     result = widget.ask('Tell me a joke about penguins.', model='codex')
 
     assert 'RAG lab' in result['reply']
-    assert result['memory']['blocked'] is True
+    # The refusal is its own decision: nothing ran, so nothing was filed.
+    # Read off the two fields a reader of this API actually has
+    # (`panel_server._safe_widget_event` turns them into `irrelevant`) rather
+    # than off a `blocked` flag that no code left reads.
+    assert result['memory']['relevant'] is False
+    assert result['memory']['saved'] is False
 
 
 # --- the model picker: four choices, each saying what it can do ----------
@@ -679,11 +684,38 @@ def test_the_route_exposes_irrelevant_memory_as_a_safe_status(client, monkeypatc
     assert answer.json()['memory'] == {'status': 'irrelevant'}
 
 
-def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
+def test_the_route_says_not_filed_when_the_hop_guard_ended_the_run(
         client, monkeypatch):
     # this is an integration test
-    """A successful long-term write is a useful reader-facing fact, but the
-    policy and writer payload are not part of the widget API."""
+    """A run the tool-hop guard stopped answers in the widget's own voice, so
+    there is nothing about the lab to keep and no decision to wait for.
+
+    It is its own status and not `irrelevant`: the question was a fair one and
+    the deterministic guard let it through — what failed was the lookup. A
+    route that called this off-topic would describe the turn as something it
+    was not."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': widget.hooks.HOP_GUARD_REFUSAL,
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {'status': 'not_filed', 'saved': False,
+                   'reason': 'internal reason nobody outside needs'}})
+
+    answer = client.post('/api/widget', json={'message': 'find that run'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'not_filed'}
+
+
+def test_the_route_emits_no_status_for_a_verdict_no_answer_path_can_produce(
+        client, monkeypatch):
+    # this is an integration test
+    """`saved` and `not_saved` were removed on 2026-08-28, when the verdict
+    moved to a thread that outlives the response.
+
+    Nothing can put a resolved, relevant verdict on an event any more — it
+    lands on the `widget_turn_log` row instead — so a block shaped like one is
+    treated the way a malformed block is: dropped, never turned into a claim
+    about what the lab kept. The reply beside it is untouched."""
     monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
         'reply': 'The comparison is worth retaining.',
         'input_tokens': 8, 'output_tokens': 4,
@@ -697,7 +729,8 @@ def test_the_route_exposes_relevant_memory_as_saved_without_internal_details(
     answer = client.post('/api/widget', json={'message': 'remember this'})
 
     assert answer.status_code == 200
-    assert answer.json()['memory'] == {'status': 'saved'}
+    assert answer.json() == {'reply': 'The comparison is worth retaining.',
+                             'input_tokens': 8, 'output_tokens': 4}
 
 
 def test_the_route_says_unavailable_when_no_judge_ever_answered(
@@ -722,6 +755,26 @@ def test_the_route_says_unavailable_when_no_judge_ever_answered(
 
     assert answer.status_code == 200
     assert answer.json()['memory'] == {'status': 'unavailable'}
+
+
+def test_the_route_says_pending_while_the_decision_is_still_being_made(
+        client, monkeypatch):
+    # this is an integration test
+    """The ordinary case since both paths answer first and file afterwards.
+
+    The deferred block carries no policy booleans — there is no verdict to put
+    in them yet — and it used to be dropped here, leaving the reader with no
+    memory line at all. No line is not neutral: it reads as the lab finding
+    nothing worth keeping, which is a verdict nobody gave."""
+    monkeypatch.setattr(widget, 'ask', lambda message, model='', thread='': {
+        'reply': 'The comparison is worth retaining.',
+        'input_tokens': 8, 'output_tokens': 4,
+        'memory': {'status': 'pending', 'saved': False}})
+
+    answer = client.post('/api/widget', json={'message': 'remember this'})
+
+    assert answer.status_code == 200
+    assert answer.json()['memory'] == {'status': 'pending'}
 
 
 def test_a_policy_nobody_could_reach_is_marked_as_unreached_not_refused(
@@ -1090,8 +1143,10 @@ def _streaming(agent, model='openai/gpt-5-nano'):
 
 def test_stream_yields_the_answer_in_pieces_then_the_account():
     # this is a unit test
-    """One event per piece while the answer is written, then exactly one final
-    event — the same dict `ask` returns, so a page can render either."""
+    """One event per piece while the answer is written, then exactly one reply
+    event — the same dict `ask` returns, so a page can render either. The
+    memory status follows it and is the last thing said; the reply is picked
+    out by name rather than by position, the way the page picks it out."""
     from langchain_core.messages import HumanMessage
     stub = _StreamStub(_chunks('the ', 'ports ', 'are 9002'),
                        {'messages': [HumanMessage(content='which ports?'),
@@ -1105,9 +1160,12 @@ def test_stream_yields_the_answer_in_pieces_then_the_account():
         events = list(widget.stream('which ports?', model=model, thread='exp-a'))
     finally:
         widget.reset()
-    assert [e['delta'] for e in events[:-1]] == ['the ', 'ports ', 'are 9002']
-    assert events[-1] == {'reply': 'the ports are 9002',
-                          'input_tokens': 30, 'output_tokens': 7}
+    assert [e['delta'] for e in events if 'delta' in e] == ['the ', 'ports ',
+                                                            'are 9002']
+    replies = [e for e in events if 'reply' in e]
+    assert replies == [{'reply': 'the ports are 9002',
+                        'input_tokens': 30, 'output_tokens': 7}]
+    assert 'memory' in events[-1]
     # The same thread the same way `ask` runs it, stamp included.
     assert stub.seen['config']['configurable']['thread_id'] == 'exp-a'
     assert stub.seen['payload']['experiment_id'] == 'exp-a'
@@ -1166,7 +1224,130 @@ def test_streaming_names_the_tool_being_called():
     assert statuses == [{'status': 'search_knowledge_base'}]
     assert said.index(statuses[0]) < said.index({'delta': '9002 it is'})
     assert [e['delta'] for e in said if 'delta' in e] == ['9002 it is']
-    assert said[-1]['reply'] == '9002 it is'
+    assert [e['reply'] for e in said if 'reply' in e] == ['9002 it is']
+
+
+def test_an_interrupted_row_never_bills_the_turn_before_it():
+    # this is a unit test
+    """The account of an interrupted turn is read back from the checkpoint,
+    because a run that raised returned no state. The last question in the
+    thread is this turn's in every ordinary failure — the graph writes the
+    input before it does anything else — but a run that dies *in front of*
+    that write leaves the previous turn at the head of the span.
+
+    Reading it anyway would put the last turn's tokens and the last turn's
+    steps on a row whose question is this one: the bill charged twice and a row
+    lying about what produced it, which is this repo's first rule. So the span
+    is claimed only when its head is the question being logged, and when it is
+    not, the honest answer is that this run wrote nothing — no account, no
+    steps."""
+    import json
+
+    from langchain_core.messages import HumanMessage
+
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget import turn_logger
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-before-the-write'
+    memory.forget(thread)
+    write_messages(thread, [
+        HumanMessage(content='the turn before'),
+        AIMessage(content='and its answer',
+                  usage_metadata={'input_tokens': 900, 'output_tokens': 40,
+                                  'total_tokens': 940})])
+
+    class _NeverStarts:
+        """A run that dies before the graph writes anything of its own."""
+
+        def invoke(self, payload, config=None):
+            raise RuntimeError('the checkpointer is locked')
+
+    model = 'openai/gpt-5-nano'
+    widget.reset()
+    widget._AGENTS[model] = _NeverStarts()
+    try:
+        with pytest.raises(widget.WidgetUnavailable):
+            widget.ask('the turn that never ran', model=model, thread=thread)
+    finally:
+        widget.reset()
+
+    row = turn_logger.list_turns(thread)[-1]
+    assert row['user_message'] == 'the turn that never ran'
+    assert row['status'] == 'interrupted'
+    # Not 900/40: those belong to the turn before, and they are already billed
+    # on its own row. None says the bill is unknown, which is the truth here.
+    assert row['total_input_tokens'] is None
+    assert row['total_output_tokens'] is None
+    assert row['total_tokens'] is None
+    # And no invented trace either: an interrupted turn's steps are what
+    # happened, or nothing.
+    assert json.loads(row['steps_json']) == []
+
+
+def test_a_stream_the_reader_walks_away_from_still_writes_its_row():
+    # this is a unit test
+    """A streamed turn dies three ways and all three owe a row.
+
+    A run that raises mid-stream is the obvious one. The second is a reader who
+    closes the tab: the route stops iterating, the generator is closed, and
+    what arrives inside it is `GeneratorExit` — not an exception, so an
+    ordinary `except Exception` never sees it, and the turn used to end with
+    the graph's partial work in the thread and nothing anywhere else. The third
+    is the run that streams pieces and then ends with no state to read the
+    reply back from: the widget refuses to assemble an answer out of the
+    fragments, which makes it a turn that produced no reply and therefore a
+    turn that owes the same row. All three land as `interrupted`, each saying
+    which it was."""
+    class _Halts:
+        def stream(self, payload, config=None, stream_mode=None):
+            yield from _chunks('half a th')
+            raise RuntimeError('the provider hung up')
+
+    model = _streaming(_Halts())
+    try:
+        with pytest.raises(widget.WidgetUnavailable):
+            list(widget.stream('why?', model=model, thread='exp-halt'))
+    finally:
+        widget.reset()
+
+    class _Endless:
+        def stream(self, payload, config=None, stream_mode=None):
+            yield from _chunks('one ', 'two ', 'three ', 'four')
+
+    model = _streaming(_Endless())
+    try:
+        events = widget.stream('and?', model=model, thread='exp-walk-away')
+        assert next(events) == {'delta': 'one '}
+        events.close()          # the reader closed the tab
+    finally:
+        widget.reset()
+
+    class _NoState:
+        def stream(self, payload, config=None, stream_mode=None):
+            yield from _chunks('half an ans')
+
+    model = _streaming(_NoState())
+    try:
+        with pytest.raises(widget.WidgetUnavailable):
+            list(widget.stream('so?', model=model, thread='exp-no-state'))
+    finally:
+        widget.reset()
+
+    from raglab.agents.widget import turn_logger
+    halted = turn_logger.list_turns('exp-halt')
+    walked = turn_logger.list_turns('exp-walk-away')
+    stateless = turn_logger.list_turns('exp-no-state')
+    assert [row['status'] for row in halted + walked + stateless] \
+        == ['interrupted'] * 3
+    assert halted[0]['status_reason'] == 'the provider hung up'
+    assert walked[0]['status_reason'] == 'the reader closed the stream'
+    assert walked[0]['user_message'] == 'and?'
+    assert 'streamed no answer' in stateless[0]['status_reason']
+    # The refusal the reader sees and the reason on the row are the same
+    # sentence: a turn does not get to say one thing to a person and another
+    # to the record.
+    assert stateless[0]['ai_message'] is None
 
 
 def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
@@ -1185,22 +1366,30 @@ def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():
         events = list(widget.stream('q', model=model))
     finally:
         widget.reset()
-    assert events[-1]['reply'] == 'half an answer, whole'
+    assert [e['reply'] for e in events if 'reply' in e] == [
+        'half an answer, whole']
 
 
-def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch):
+def test_the_event_after_the_streamed_reply_is_the_deferred_status(monkeypatch):
     # this is a unit test
-    """The authoritative reply is emitted before the stream resumes, and the
-    following event carries the memory status after the save is performed."""
-    from langchain_core.messages import HumanMessage
+    """The authoritative reply is emitted first, and the event after it says a
+    decision is pending — not what the decision was.
 
-    decision = {'relevant': True, 'should_save': True, 'saved': False,
-                'dataset_id': 'dataset', 'subtopic': 'topic', 'reason': 'retain'}
+    It carried the resolved decision until 2026-08-28, which it could only do
+    by holding the event stream open through the policy call, the summarizer
+    call and two readings of the board, every bit of it after the reader had
+    the whole answer. The judgement is unchanged and still happens; it happens
+    on a thread of its own, which is what this last event reports."""
+    from langchain_core.messages import HumanMessage
+    import threading
+
     stub = _StreamStub(
         _chunks('answer'),
         {'messages': [HumanMessage(content='q'), AIMessage(content='answer')]})
+    judged = threading.Event()
+    monkeypatch.setattr(widget.backends, '_memory_model', lambda model: object())
     monkeypatch.setattr(widget.backends, '_finish_memory',
-                        lambda *args: {**decision, 'saved': True})
+                        lambda *args: judged.set())
     model = _streaming(stub)
     try:
         events = widget.stream('q', model=model)
@@ -1208,7 +1397,12 @@ def test_stream_final_event_carries_the_post_response_memory_result(monkeypatch)
         assert next(events) == {
             'reply': 'answer', 'input_tokens': None, 'output_tokens': None,
         }
-        assert next(events) == {'memory': {**decision, 'saved': True}}
+        assert next(events) == {'memory': {'status': 'pending',
+                                           'saved': False}}
+        with pytest.raises(StopIteration):
+            next(events)
+        # Deferred, not dropped: the decision is being taken elsewhere.
+        assert judged.wait(5)
     finally:
         widget.reset()
 
@@ -1299,20 +1493,22 @@ def test_the_stream_route_sanitizes_memory_on_the_authoritative_final_event(
         client, monkeypatch):
     # this is an integration test
     """The final event remains the answer the browser adopts, with only the
-    safe memory status added beside it; the request's thread is unchanged."""
+    safe memory status added beside it; the request's thread is unchanged.
+
+    The shape a streamed turn really sends since 2026-08-28: the reply event
+    on its own, then a separate memory event carrying the deferred status. The
+    verdict is taken after the connection closes, so no event here can hold
+    one, and the internal reason never reaches the wire."""
     seen = {}
 
     def fake_stream(message, model='', thread=''):
         seen.update(message=message, model=model, thread=thread)
-        return iter([{
-            'reply': 'answer from the lab', 'input_tokens': 4,
-            'output_tokens': 2,
-            'memory': {
-                'relevant': True, 'should_save': False, 'saved': False,
-                'dataset_id': 'private-dataset',
-                'reason': 'private policy reasoning',
-            },
-        }])
+        return iter([
+            {'reply': 'answer from the lab', 'input_tokens': 4,
+             'output_tokens': 2},
+            {'memory': {'status': 'pending', 'saved': False,
+                        'reason': 'private policy reasoning'}},
+        ])
 
     monkeypatch.setattr(widget, 'stream', fake_stream)
     answer = client.post('/api/widget/stream', json={
@@ -1320,10 +1516,11 @@ def test_the_stream_route_sanitizes_memory_on_the_authoritative_final_event(
         'thread': 'exp-stream'})
 
     assert answer.status_code == 200
-    assert _sse(answer) == [{
-        'reply': 'answer from the lab', 'input_tokens': 4,
-        'output_tokens': 2, 'memory': {'status': 'not_saved'},
-    }]
+    assert _sse(answer) == [
+        {'reply': 'answer from the lab', 'input_tokens': 4,
+         'output_tokens': 2},
+        {'memory': {'status': 'pending'}},
+    ]
     assert seen == {'message': 'what should I retain?',
                     'model': 'openai/gpt-5-mini', 'thread': 'exp-stream'}
 
@@ -1385,22 +1582,270 @@ def test_a_failure_halfway_through_arrives_as_an_error_event(client, monkeypatch
     assert not any('reply' in event for event in said)
 
 
+def _standing_line(text: str, mark: str):
+    """A system line as `backends._run` writes one — the marker included, since
+    that is what says which standing line it is."""
+    from langchain_core.messages import SystemMessage
+    from raglab.agents.widget import conversation_memory as memory
+    return SystemMessage(content=text,
+                         additional_kwargs={memory.STANDING_LINE: mark})
+
+
 def test_the_trim_keeps_every_system_line_and_the_newest_of_the_rest():
     # this is a unit test
     """The thread's system lines — which experiment it is about, the memory
-    context — are written once, at the top. A trim that kept only the newest
-    twenty messages would drop them on the twenty-first, and the model would
-    forget mid-conversation which experiment it was discussing. System lines
-    survive the trim; the window counts the rest."""
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+    context — are written at the top. A trim that kept only the newest twenty
+    messages would drop them on the twenty-first, and the model would forget
+    mid-conversation which experiment it was discussing. System lines survive
+    the trim; the window counts the rest."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    from raglab.agents.widget import conversation_memory as memory
     seen = {}
 
     tail = [m for i in range(15) for m in (HumanMessage(content=f'q{i}'),
                                            AIMessage(content=f'a{i}'))]
-    request = _FakeModelRequest([SystemMessage(content='about exp-1'),
-                                 SystemMessage(content='memory'), *tail])
+    request = _FakeModelRequest([
+        _standing_line('about exp-1', memory.IDENTITY_LINE),
+        _standing_line('memory', memory.MEMORY_LINE), *tail])
     widget.trim_and_call.wrap_model_call(
         request, lambda r: seen.setdefault('messages', r.messages))
     kept = seen['messages']
     assert [m.content for m in kept[:2]] == ['about exp-1', 'memory']
     assert kept[2:] == tail[-widget.MAX_HISTORY:]
+
+
+def test_only_the_newest_standing_memory_line_is_sent_to_the_model():
+    # this is a unit test
+    """The finding: system lines are exempt from the window, the memory context
+    grows on every accepted turn, and the thread keeps every version — so the
+    model was handed several, oldest first, the stale ones contradicting the
+    newest. The call carries the newest of each kind. The thread is untouched:
+    `request.override` shapes one prompt, it does not rewrite the log."""
+    from langchain_core.messages import HumanMessage
+    from raglab.agents.widget import conversation_memory as memory
+    seen = {}
+
+    lines = [_standing_line('about exp-1', memory.IDENTITY_LINE),
+             _standing_line('memory v1', memory.MEMORY_LINE),
+             _standing_line('memory v2', memory.MEMORY_LINE),
+             _standing_line('memory v3', memory.MEMORY_LINE)]
+    given = [*lines, HumanMessage(content='q')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    assert [m.content for m in seen['messages']] == ['about exp-1',
+                                                     'memory v3', 'q']
+    assert request.messages == given
+
+
+def test_a_system_line_the_widget_did_not_write_is_always_sent():
+    # this is a unit test
+    """The filter drops a line only when a newer line says it is superseded,
+    and only a line the widget marked can say that. A system message from
+    anywhere else — a future middleware's instruction, or a line written before
+    the marker existed — is not the widget's standing text to supersede, so it
+    goes to the model whatever else the thread holds. Guessing from the text
+    instead is how such an instruction would silently disappear."""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from raglab.agents.widget import conversation_memory as memory
+    seen = {}
+
+    request = _FakeModelRequest([
+        SystemMessage(content='SAFETY: never quote a key'),
+        SystemMessage(content='an unmarked memory line from an old thread'),
+        _standing_line('memory v1', memory.MEMORY_LINE),
+        _standing_line('memory v2', memory.MEMORY_LINE),
+        HumanMessage(content='q')])
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    assert [m.content for m in seen['messages']] == [
+        'SAFETY: never quote a key',
+        'an unmarked memory line from an old thread',
+        'memory v2', 'q']
+
+
+def _turn(question: str, tool_text: str, answer: str, call_id: str) -> list:
+    """One tool-using turn: the question, the model asking for something, what
+    came back, and the answer written from it."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    return [HumanMessage(content=question),
+            AIMessage(content='', tool_calls=[
+                {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+                 'id': call_id}]),
+            ToolMessage(content=tool_text, tool_call_id=call_id,
+                        name='read_rag_skill'),
+            AIMessage(content=answer)]
+
+
+def test_a_closed_turns_tool_reply_is_sent_as_a_stub_and_kept_in_the_thread():
+    # this is a unit test
+    """The measured finding: one `read_rag_skill` reply is about 20,000
+    characters, and the count window then re-sent it on every call for the next
+    twenty messages. A turn the model has already answered from does not need
+    the bodies again — it needs to know they were read and how to read them
+    again — so the prompt carries a stub naming the tool and its subject.
+
+    The request is shaped; the thread is not. `request.messages` is unchanged
+    after the call, which is what makes this a smaller prompt rather than a
+    rewritten record."""
+    from langchain_core.messages import HumanMessage
+    seen = {}
+
+    body = 'a skill body. ' * 1_500
+    given = _turn('what about chunking?', body, 'chunk by heading.', 'c1') \
+        + [HumanMessage(content='and rerankers?')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = [str(m.content) for m in seen['messages']]
+    assert body not in sent
+    assert sent[2].startswith('[read_rag_skill(') and 'names=chunking' in sent[2]
+    assert str(len(body)) in sent[2]
+    # Everything else the turn said is still there: the reduction is of the
+    # evidence the model has finished with, not of the conversation.
+    assert sent[0] == 'what about chunking?' and sent[3] == 'chunk by heading.'
+    assert request.messages == given
+
+
+def test_the_tool_replies_of_the_turn_being_answered_are_never_stubbed():
+    # this is a unit test
+    """The quality fence. A model reasoning over what a tool has just returned
+    always has the whole of it — that is the state every answering call is in,
+    since a turn the model has not answered yet cannot be closed. Two turns
+    here: the finished one travels as a stub, the one in flight travels whole.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    seen = {}
+
+    old, new = 'the old body. ' * 1_500, 'the new body. ' * 1_500
+    given = _turn('what about chunking?', old, 'chunk by heading.', 'c1') + [
+        HumanMessage(content='and rerankers?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'rerankers'},
+             'id': 'c2'}]),
+        ToolMessage(content=new, tool_call_id='c2', name='read_rag_skill')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = [str(m.content) for m in seen['messages']]
+    assert old not in sent
+    assert sent[-1] == new
+
+
+def test_the_window_is_bounded_by_characters_as_well_as_by_messages():
+    # this is a unit test
+    """Twenty messages can be five hundred characters or forty thousand, and
+    the count cannot tell them apart. `MAX_HISTORY_CHARS` is the second
+    ceiling: history is dropped a whole turn at a time, oldest first, until it
+    fits.
+
+    Whole turns rather than single messages, because the count window can
+    already cut between an assistant's tool call and the reply to it. And the
+    turn being answered is neither trimmed nor counted — a turn that has just
+    read 20,000 characters would otherwise spend the entire budget on itself
+    and throw away the conversation it belongs to."""
+    from langchain_core.messages import AIMessage, HumanMessage
+    seen = {}
+
+    # Six turns of two messages each — inside MAX_HISTORY, far outside the
+    # character budget.
+    fat = 'x' * 6_000
+    given = [m for i in range(6)
+             for m in (HumanMessage(content=f'q{i}'),
+                       AIMessage(content=f'{fat}{i}'))]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = seen['messages']
+    assert len(sent) < len(given) <= widget.MAX_HISTORY
+    # What is left starts at a question, never mid-turn — the two oldest turns
+    # went, which is the fewest that brings the history inside the budget.
+    assert sent[0].content == 'q2'
+    # ...the history in front of the current turn is inside the budget...
+    history = sum(len(str(m.content)) for m in sent[:-2])
+    assert history <= widget.MAX_HISTORY_CHARS
+    # ...and the turn being answered survives whatever it costs.
+    assert [str(m.content) for m in sent[-2:]] == ['q5', f'{fat}5']
+    assert request.messages == given
+
+
+def test_an_enormous_current_turn_does_not_empty_the_conversation():
+    # this is a unit test
+    """The budget is spent on history and never on the turn being answered, so
+    a turn that has just read three skill bodies does not cost the model every
+    earlier turn as well. Counting the current turn would be almost as bad as
+    trimming it: the conversation would lose its context at exactly the moment
+    the reader asked something that needed a big lookup."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    seen = {}
+
+    chat = [m for i in range(3)
+            for m in (HumanMessage(content=f'q{i}'),
+                      AIMessage(content=f'a{i}'))]
+    given = chat + [
+        HumanMessage(content='and the skills?'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+             'id': 'c9'}]),
+        ToolMessage(content='y' * 40_000, tool_call_id='c9',
+                    name='read_rag_skill')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = [str(m.content) for m in seen['messages']]
+    assert sent[:6] == ['q0', 'a0', 'q1', 'a1', 'q2', 'a2']
+    assert sent[-1] == 'y' * 40_000
+
+
+def test_the_budget_drops_whole_turns_so_a_tool_reply_keeps_the_call_that_asked():
+    # this is a unit test
+    """The reason `_within_budget` drops turns and not messages, fenced.
+
+    A budget that walked the list dropping one message at a time until it fit
+    would, on this thread, hand the model `[tool reply, answer, question]` — a
+    tool reply with no tool call in front of it. Some providers reject that
+    outright and every provider reads it as an answer to a question nobody
+    asked, which is the one shape a prompt this careful must never emit. The
+    assertions below fail on exactly that mutation: the window either starts at
+    a reader's question or it does not."""
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    seen = {}
+
+    # The bulk sits on the assistant's tool-call message, so stubbing the tool
+    # reply cannot bring the turn back inside the budget: it has to go whole.
+    given = [HumanMessage(content='the long one?'),
+             AIMessage(content='x' * 25_000, tool_calls=[
+                 {'name': 'read_rag_skill', 'args': {'names': 'chunking'},
+                  'id': 'c1'}]),
+             ToolMessage(content='a body', tool_call_id='c1',
+                         name='read_rag_skill'),
+             AIMessage(content='chunk by heading.'),
+             HumanMessage(content='and now?')]
+    request = _FakeModelRequest(given)
+    widget.trim_and_call.wrap_model_call(
+        request, lambda r: seen.setdefault('messages', r.messages))
+
+    sent = seen['messages']
+
+    # The invariant first, because it is the durable one: every tool reply the
+    # window carries is preceded by the call it answers, whatever a future trim
+    # decides to drop. A message-wise budget fails here, on `[tool, answer,
+    # question]`, before the exact-window assertion below is ever reached.
+    for i, message in enumerate(sent):
+        if getattr(message, 'type', '') != 'tool':
+            continue
+        asked = {call.get('id') for earlier in sent[:i]
+                 for call in (getattr(earlier, 'tool_calls', None) or [])}
+        assert message.tool_call_id in asked, (
+            'the window handed the model a tool reply whose call it dropped')
+
+    # And what this thread in particular comes to: the turn went whole.
+    assert [m.type for m in sent] == ['human']
+    assert str(sent[0].content) == 'and now?'
+    assert request.messages == given

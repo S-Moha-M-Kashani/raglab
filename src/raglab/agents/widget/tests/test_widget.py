@@ -1227,16 +1227,78 @@ def test_streaming_names_the_tool_being_called():
     assert [e['reply'] for e in said if 'reply' in e] == ['9002 it is']
 
 
+def test_an_interrupted_row_never_bills_the_turn_before_it():
+    # this is a unit test
+    """The account of an interrupted turn is read back from the checkpoint,
+    because a run that raised returned no state. The last question in the
+    thread is this turn's in every ordinary failure — the graph writes the
+    input before it does anything else — but a run that dies *in front of*
+    that write leaves the previous turn at the head of the span.
+
+    Reading it anyway would put the last turn's tokens and the last turn's
+    steps on a row whose question is this one: the bill charged twice and a row
+    lying about what produced it, which is this repo's first rule. So the span
+    is claimed only when its head is the question being logged, and when it is
+    not, the honest answer is that this run wrote nothing — no account, no
+    steps."""
+    import json
+
+    from langchain_core.messages import HumanMessage
+
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget import turn_logger
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-before-the-write'
+    memory.forget(thread)
+    write_messages(thread, [
+        HumanMessage(content='the turn before'),
+        AIMessage(content='and its answer',
+                  usage_metadata={'input_tokens': 900, 'output_tokens': 40,
+                                  'total_tokens': 940})])
+
+    class _NeverStarts:
+        """A run that dies before the graph writes anything of its own."""
+
+        def invoke(self, payload, config=None):
+            raise RuntimeError('the checkpointer is locked')
+
+    model = 'openai/gpt-5-nano'
+    widget.reset()
+    widget._AGENTS[model] = _NeverStarts()
+    try:
+        with pytest.raises(widget.WidgetUnavailable):
+            widget.ask('the turn that never ran', model=model, thread=thread)
+    finally:
+        widget.reset()
+
+    row = turn_logger.list_turns(thread)[-1]
+    assert row['user_message'] == 'the turn that never ran'
+    assert row['status'] == 'interrupted'
+    # Not 900/40: those belong to the turn before, and they are already billed
+    # on its own row. None says the bill is unknown, which is the truth here.
+    assert row['total_input_tokens'] is None
+    assert row['total_output_tokens'] is None
+    assert row['total_tokens'] is None
+    # And no invented trace either: an interrupted turn's steps are what
+    # happened, or nothing.
+    assert json.loads(row['steps_json']) == []
+
+
 def test_a_stream_the_reader_walks_away_from_still_writes_its_row():
     # this is a unit test
-    """A streamed turn dies two ways and both owe a row.
+    """A streamed turn dies three ways and all three owe a row.
 
-    A run that raises mid-stream is the obvious one. The other is a reader who
+    A run that raises mid-stream is the obvious one. The second is a reader who
     closes the tab: the route stops iterating, the generator is closed, and
     what arrives inside it is `GeneratorExit` — not an exception, so an
     ordinary `except Exception` never sees it, and the turn used to end with
-    the graph's partial work in the thread and nothing anywhere else. Both
-    land as `interrupted`, each saying which it was."""
+    the graph's partial work in the thread and nothing anywhere else. The third
+    is the run that streams pieces and then ends with no state to read the
+    reply back from: the widget refuses to assemble an answer out of the
+    fragments, which makes it a turn that produced no reply and therefore a
+    turn that owes the same row. All three land as `interrupted`, each saying
+    which it was."""
     class _Halts:
         def stream(self, payload, config=None, stream_mode=None):
             yield from _chunks('half a th')
@@ -1261,13 +1323,31 @@ def test_a_stream_the_reader_walks_away_from_still_writes_its_row():
     finally:
         widget.reset()
 
+    class _NoState:
+        def stream(self, payload, config=None, stream_mode=None):
+            yield from _chunks('half an ans')
+
+    model = _streaming(_NoState())
+    try:
+        with pytest.raises(widget.WidgetUnavailable):
+            list(widget.stream('so?', model=model, thread='exp-no-state'))
+    finally:
+        widget.reset()
+
     from raglab.agents.widget import turn_logger
     halted = turn_logger.list_turns('exp-halt')
     walked = turn_logger.list_turns('exp-walk-away')
-    assert [row['status'] for row in halted + walked] == ['interrupted'] * 2
+    stateless = turn_logger.list_turns('exp-no-state')
+    assert [row['status'] for row in halted + walked + stateless] \
+        == ['interrupted'] * 3
     assert halted[0]['status_reason'] == 'the provider hung up'
     assert walked[0]['status_reason'] == 'the reader closed the stream'
     assert walked[0]['user_message'] == 'and?'
+    assert 'streamed no answer' in stateless[0]['status_reason']
+    # The refusal the reader sees and the reason on the row are the same
+    # sentence: a turn does not get to say one thing to a person and another
+    # to the record.
+    assert stateless[0]['ai_message'] is None
 
 
 def test_the_last_word_on_the_answer_is_the_log_the_lab_kept():

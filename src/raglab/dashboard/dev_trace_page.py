@@ -212,7 +212,7 @@ def index() -> str:
 
 
 def _step(number: int, step: dict, trimmed: bool = False, stub: str = '',
-          abandoned: bool = False) -> str:
+          abandoned: bool = False, note: str = '') -> str:
     kind = step['kind']
     cls = (f'{kind}{" trimmed" if trimmed else ""}'
            f'{" stubbed" if stub else ""}{" abandoned" if abandoned else ""}')
@@ -221,6 +221,14 @@ def _step(number: int, step: dict, trimmed: bool = False, stub: str = '',
     # died before it answered.
     why = ('<div class="kind">not sent · this turn was interrupted</div>'
            if abandoned else '')
+    # And on the question that opened such a turn, the line the model really
+    # got in place of the steps below — shown verbatim, for the same reason a
+    # stub is: a developer asking "why did it say that?" must be able to read
+    # every word the model was handed, and a page that only dimmed what went
+    # missing would leave him inferring the replacement.
+    if note:
+        why += (f'<div class="kind">sent after this question</div>'
+                f'<pre class="stub">{_esc(note)}</pre>')
     no = f'<div class="no {cls}">{number:02d}</div>'
     text = f'<pre>{_esc(step["text"])}</pre>' if step.get('text') else ''
     bill = ''
@@ -309,6 +317,16 @@ def _interrupted(steps: list) -> set:
     rest = [s for s in steps if s['kind'] != 'system']
     cuts = widget.interrupted_turn_cuts([widget.turn_shape(s) for s in rest])
     return {id(rest[i]) for positions in cuts.values() for i in positions}
+
+
+def _interrupted_notes(steps: list) -> dict:
+    """The line each interrupted turn travels as, keyed by the question step it
+    follows — the way `_stubs` keys the line each reduced tool reply travels
+    as, and shown the same way for the same reason."""
+    rest = [s for s in steps if s['kind'] != 'system']
+    cuts = widget.interrupted_turn_cuts([widget.turn_shape(s) for s in rest])
+    return {id(rest[at]): widget.interrupted_note(len(positions))
+            for at, positions in cuts.items()}
 
 
 def _dropped_from_the_window(steps: list) -> list:
@@ -433,6 +451,7 @@ def thread(name: str) -> str:
     windowed = ({id(s) for s in _dropped_from_the_window(steps)} - gone)
     outside = windowed | gone | _superseded(steps)
     stubs = _stubs(steps)
+    notes = _interrupted_notes(steps)
     parts, cut_drawn = [], False
     for i, s in enumerate(steps, 1):
         trimmed = id(s) in outside
@@ -445,7 +464,8 @@ def thread(name: str) -> str:
             parts.append('<div class="cut">from here on, sent to the model</div>')
             cut_drawn = True
         parts.append(_step(i, s, trimmed=trimmed, stub=stubs.get(id(s), ''),
-                           abandoned=id(s) in gone))
+                           abandoned=id(s) in gone,
+                           note=notes.get(id(s), '')))
     tape = (f'<div class="tape">{"".join(parts)}</div>' if steps else
             '<p class="empty">This thread holds no messages.</p>')
     return _page(f'trace · {found["thread"]}',

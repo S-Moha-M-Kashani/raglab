@@ -475,7 +475,7 @@ def _safely(work, note: str, fallback=None):
 def _log_turn(*, message: str, reply: str, thread: str, started: float,
               input_tokens=None, output_tokens=None, messages=None,
               dataset_id='', status='answered', status_reason='',
-              ai_message_id='') -> str:
+              invent_steps=True, ai_message_id='') -> str:
     """Write the human-readable operational row after the answer exists.
 
     `dataset_id` is the turn's trusted dataset, not the policy's opinion of
@@ -484,7 +484,15 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
 
     Returns `''` when the row could not be written — see `_safely`. Every
     caller already treats an empty turn id as "there is no row to amend",
-    which is exactly what is true then."""
+    which is exactly what is true then.
+
+    `invent_steps` is the one thing a caller may switch off. A turn that
+    answered always has at least a question and an answer, so standing a
+    two-step trace in for a state nobody kept is a fair reading of a run that
+    finished. A turn that did *not* answer has no such pair to assume: writing
+    an `ai` step for an answer that never existed would be the row lying about
+    what produced it, in the smallest possible way. An interrupted turn's
+    steps are what happened, or nothing."""
     name = (thread or '').strip() or memory.GENERAL
     experiment_id = name if name != memory.GENERAL else ''
     user_id = ''
@@ -493,7 +501,7 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
             if isinstance(item, HumanMessage):
                 user_id = str(getattr(item, 'id', '') or '')
     trace = _turn_steps(messages or [])
-    if not trace:
+    if not trace and invent_steps:
         trace = [{'id': str(uuid.uuid4()), 'kind': 'human',
                   'text': message, 'latency_ms': 0},
                  {'id': str(uuid.uuid4()), 'kind': 'ai', 'text': reply,
@@ -508,6 +516,23 @@ def _log_turn(*, message: str, reply: str, thread: str, started: float,
             total_latency_ms=max(0, round((time.monotonic() - started) * 1000)),
             status=status, status_reason=status_reason),
         'the turn-log row was not written', '')
+
+
+def _questions_as_written(message: str) -> set:
+    """Every form the thread can hold the question just asked in.
+
+    Two: as it was sent, and capped to `hooks.MAX_QUESTION` — `check_request`
+    writes an over-long question back over itself, so the thread holds the
+    capped text under the original message id. A question `_validate` refuses
+    outright never reaches the graph, so an empty set there is the right
+    answer rather than a case to handle.
+    """
+    forms = {memory._text(message)}
+    try:
+        forms.add(hooks._validate(message))
+    except Exception:
+        pass
+    return forms
 
 
 def _log_interrupted_turn(*, message: str, thread: str, started: float,
@@ -531,6 +556,20 @@ def _log_interrupted_turn(*, message: str, thread: str, started: float,
     span `_turn_account` calls a turn. The reply is empty because there was
     none; `status` says `interrupted` and `status_reason` says what raised.
 
+    The span is claimed only when it is *this* turn's. The last question in
+    the thread is this turn's question in every ordinary failure, because the
+    graph writes the input before it does anything else — but a run that dies
+    in front of that write (a locked checkpointer, a `before_agent` that
+    raised, a bad config) leaves the *previous* turn at the head of the span.
+    Reading it anyway would put the last turn's tokens and the last turn's
+    steps on a row whose question is this one, which double-bills the account
+    and is a row lying about what produced it. So the head's text is compared
+    with the question being logged, in both the forms the thread can hold it —
+    as sent, and capped the way `check_request` writes it back. A span that is
+    not this turn's is no span at all: the run wrote nothing of its own, the
+    account is `None` rather than someone else's number, and the row carries no
+    steps.
+
     Never fatal, and never the reason a reader sees. Every write here goes
     through `_safely`, and the caller re-raises the original failure the moment
     this returns: what the reader is owed is the error, and what the lab is
@@ -544,6 +583,11 @@ def _log_interrupted_turn(*, message: str, thread: str, started: float,
         if isinstance(held[i], HumanMessage):
             turn = list(held[i:])
             break
+    if turn and memory._text(turn[0].content) not in _questions_as_written(message):
+        hooks._fired('operational',
+                     'the interrupted turn wrote nothing of its own: the '
+                     'thread ends on an earlier question')
+        turn = []
     used = [m.usage_metadata for m in turn
             if getattr(m, 'usage_metadata', None)]
     account = _accounted('', used)
@@ -551,7 +595,7 @@ def _log_interrupted_turn(*, message: str, thread: str, started: float,
                      input_tokens=account['input_tokens'],
                      output_tokens=account['output_tokens'], messages=turn,
                      dataset_id=dataset_id, status='interrupted',
-                     status_reason=reason)
+                     status_reason=reason, invent_steps=False)
 
 
 def _agent_for(model: str):

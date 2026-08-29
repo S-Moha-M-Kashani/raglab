@@ -113,11 +113,23 @@ def turn_shape(step) -> str:
     """
     if isinstance(step, dict):
         kind, calls = step.get('kind', ''), step.get('tool_calls')
+        content = step.get('text', '')
     else:
         kind = getattr(step, 'type', '')
         calls = getattr(step, 'tool_calls', None)
+        content = getattr(step, 'content', '')
     if kind == 'ai':
-        return TURN_CALL if calls else TURN_ANSWER
+        # An assistant message that asked for nothing *and said nothing* is
+        # neither of the two shapes a model call ends in — it is the `clichat`
+        # finding `hooks.trim_and_call` already names out loud, and a run can
+        # die on one. Calling it an answer would close the turn it ends, and a
+        # closed turn is exempt from everything this module reshapes: the
+        # abandoned tool body would ride along whole for the next twenty
+        # messages, which is the very bug the interrupted turn exists to fix,
+        # arriving through a shape the code already knew about.
+        if calls:
+            return TURN_CALL
+        return TURN_ANSWER if _text(content).strip() else TURN_OTHER
     return kind if kind in (TURN_HUMAN, TURN_TOOL, TURN_SYSTEM) else TURN_OTHER
 
 
@@ -188,6 +200,13 @@ def closed_turn_tool_replies(shapes: list) -> set:
 #: turn's own missing answer. A system line saying the same thing would be a
 #: standing instruction about one moment in the past, and the model reads
 #: standing lines as rules about the whole conversation.
+#:
+#: This is the outer edge of `TOOL_STUB`'s precedent and not a comfortable
+#: place to sit: a stub is a descriptive label, while the last sentence here is
+#: an instruction to the model about what to do with what it just read. It
+#: stays only because `fixtures/prompts/` has no home for a line a filter
+#: writes rather than reads. It should be the first thing moved when one
+#: exists, and the three fields between the two of them travel with it.
 INTERRUPTED_TURN = (
     '[This question was never answered: the run ended before a reply, and the '
     '{dropped} unfinished step(s) it had produced are in the log but are not '

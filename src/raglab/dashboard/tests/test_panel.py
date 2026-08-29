@@ -2518,6 +2518,7 @@ def test_the_dev_trace_marks_the_work_of_a_turn_that_never_answered(
     the tape rather than at its front; drawing the divider in front of one
     would promise that everything after it was sent."""
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from raglab.agents import widget
     from raglab.agents.widget.tests.widget_examples import write_messages
     monkeypatch.setenv('RAGLAB_DEV_KEY', 'open-sesame')
     client.post('/dev/trace', data={'key': 'open-sesame'})
@@ -2539,8 +2540,12 @@ def test_the_dev_trace_marks_the_work_of_a_turn_that_never_answered(
     assert '<div class="tool tool trimmed abandoned">' in text
     assert text.count('not sent · this turn was interrupted') == 2
     # The question that opened it is not dimmed: it still travels, because a
-    # follow-up needs to know what was asked.
+    # follow-up needs to know what was asked — and the line that travels after
+    # it is printed verbatim, the way a stub is. Dimming says what went; only
+    # the words say what arrived.
     assert '<div class="human trimmed' not in text
+    assert 'sent after this question' in text
+    assert widget.interrupted_note(2) in html_unescape(text)
     # The standing panel counts them apart from a turn the window dropped.
     assert '2 step(s) belong to a turn whose run died before it answered' in text
     assert 'nothing has been trimmed yet' in text

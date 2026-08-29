@@ -444,6 +444,13 @@ def test_an_interrupted_turn_is_an_unclosed_turn_that_is_not_the_last():
     # A standing line inside the span belongs to no turn and is never cut: it
     # is exempt from the window by design, and dropping one would take a
     # memory context away from the call that needed it.
+    #
+    # Defensive, not a guarantee anything relies on today: both callers strip
+    # system messages before they ask (`hooks.trim_and_call` splits them off,
+    # `dev_trace_page` filters them out), so neither can reach this branch.
+    # It is pinned because the rule is written over shapes rather than over
+    # either caller's list, and a third reader handing it a whole thread is
+    # the obvious next use.
     with_line = [HumanMessage(content='q1'),
                  SystemMessage(content='memory'),
                  AIMessage(content='', tool_calls=calls),
@@ -455,6 +462,23 @@ def test_an_interrupted_turn_is_an_unclosed_turn_that_is_not_the_last():
     # abandoned question, so nothing is marked under it.
     assert memory.interrupted_turn_cuts(
         shapes([AIMessage(content='hello')] + asked_again)) == {}
+
+    # The shape the widget already knows about by name — an assistant message
+    # that asked for nothing and said nothing, the `clichat` finding
+    # `hooks.trim_and_call` reports as 'empty reply'. It answered nothing, so
+    # it closes nothing, so a turn that died on one is interrupted like any
+    # other. Reading it as an answer would leave the turn closed, exempt from
+    # every reshaping here, and its abandoned tool body riding along whole.
+    assert memory.turn_shape(AIMessage(content='')) == memory.TURN_OTHER
+    assert memory.turn_shape({'kind': 'ai', 'text': ''}) == memory.TURN_OTHER
+    empty = [HumanMessage(content='q1'),
+             AIMessage(content='', tool_calls=calls),
+             ToolMessage(content='the row', tool_call_id='c1',
+                         name='read_experiment'),
+             AIMessage(content='')]
+    assert memory.conversation_turns(shapes(empty))[-1].closed is False
+    assert memory.interrupted_turn_cuts(shapes(empty + asked_again)) \
+        == {0: [1, 2, 3]}
 
     # The line that stands where the cut work was names how much went.
     note = memory.interrupted_note(2)

@@ -60,3 +60,5 @@ CLAUDE.md
 AGENTS.md
 .vscode/
 .githooks/
+.agents
+openspec/

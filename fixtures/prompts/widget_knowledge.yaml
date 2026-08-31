@@ -6,23 +6,29 @@ purpose: >-
   The RAG lab is a generic retrieval workbench: chunking and retrieval
   choices for any use case are decided by measurement against a
   ground-truth corpus, which is itself a config field. The bundled default
-  is diary-fa (fixtures/corpus_groundtruth_datasets/diary_year_fa_corpus.json
-  plus diary_year_fa_groundtruth.json), 167 sessions of synthetic Farsi
-  diary chat — one case study among five shipped corpora, with imports
-  supported.
+  is diary-en (fixtures/corpus_groundtruth_datasets/diary_year_en_corpus.json
+  plus diary_year_en_groundtruth.json), 167 sessions of a synthetic
+  one-year English diary, translated from the Farsi original diary-fa,
+  which ships beside it — one case study among seven shipped corpora, with
+  imports supported. An empty dataset field in an old config still means
+  diary-fa, so recorded fingerprints keep their meaning.
 ports: >-
   The lab serves everything on port 9002
   (uv run --extra local-embeddings raglab): the panel at /, the read-only
   Inspector at /inspector, and the board at /leaderboard — one origin, three
-  surfaces.
+  surfaces. A fourth page, the developer's step-by-step trace of a widget
+  thread at /dev/trace, exists only when RAGLAB_DEV_KEY is set and is a 404
+  otherwise.
 architecture: >-
-  The lab prescribes no single architecture: every stage is a config knob,
-  and the right pipeline depends on the use case. For the bundled diary
-  case study, the measured choice was candidate F, the gated pipeline:
-  semantic-drift chunks, heydariAI/persian-embeddings, hybrid-RRF at k=8,
-  lexical rerank, time filter, plus an LLM relevance gate (grader=llm,
-  grade_threshold=0.4) between retrieval and generation — a finding about
-  that corpus, not a default for others.
+  The lab prescribes no single RAG architecture: every stage is a config
+  knob, and the right pipeline depends on the use case — measurement
+  decides, never taste. The lab itself has three pipeline steps — indexing
+  (chunker, embedder, optional summary hierarchy, all into the in-memory
+  store), retrieval (query understanding, retrieve, fuse, rerank, grade)
+  and generation — plus an evaluation harness that scores what the stages
+  produced and records each run. The frontend serves the panel, the
+  read-only Inspector and the leaderboard from one origin, and the widget
+  is a helper riding all three surfaces, outside the measured pipeline.
 metrics: >-
   Exactly four judged metrics choose the architecture: faithfulness,
   answer relevancy, LLM context precision and context recall. Their
@@ -32,17 +38,23 @@ storage: >-
   The index lives in process memory (MemoryVectors, brute-force cosine)
   and is discarded when the process ends. The durable artifacts are one
   JSON file per run in .runs/, one ledger row per job in
-  databases/raglab.db, and the widget's own conversations in
+  databases/raglab.db, the widget's own conversations in
   databases/widget.db — a log of what was said, with no metric, run or
-  ledger row in it, that no board or ranking ever reads.
+  ledger row in it, that no board or ranking ever reads — and
+  databases/corpora.db, the corpus every archived experiment ran on, one
+  row per distinct content version, fetched by id and verified against its
+  recorded fingerprint before it is served. An experiment that finishes
+  archives itself into the ledger the same way the export button would
+  have written it; a cancelled or errored one is never archived.
 commands: >-
   Entry points: raglab (panel, Inspector and board on one port), raglab-lab,
   raglab-sweep, raglab-judgescreen, raglab-leaderboard. The sweep changes
   exactly one knob per candidate and refuses to run on the fake backend.
 embedder: >-
   The default embedder is heydariAI/persian-embeddings over
-  sentence-transformers (the local-embeddings extra), because the bundled
-  default corpus is Farsi — a different corpus wants an encoder verified
-  on its own language. The ascii-hash embedder is kept as a reference
-  point: it embeds Farsi to the zero vector and scores ~0.01 recall
+  sentence-transformers (the local-embeddings extra) — Persian-tuned but
+  bilingual (Farsi + English), kept from the original Farsi diary case
+  study — and a different corpus wants an encoder verified on its own
+  language. The ascii-hash embedder is kept as a reference point: it
+  embeds Farsi to the zero vector and scores ~0.01 recall on diary-fa
   against 0.617 for the real encoder.

@@ -76,7 +76,12 @@ def _scripted_tool_model(script):
     drive a real graph through a chosen number of tool-calling hops. No
     network, no real model: this is what makes it safe to run the real
     compiled graph offline instead of recomputing `RECURSION_LIMIT`'s own
-    arithmetic and calling that a proof."""
+    arithmetic and calling that a proof.
+
+    A script entry that is an exception is raised instead of returned, which is
+    how a caller writes "and then the run died here" — a real run dies inside a
+    model call more often than anywhere else, and a script that simply ran out
+    would die on an `IndexError` that says nothing about what was being tested."""
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.outputs import ChatGeneration, ChatResult
 
@@ -94,6 +99,8 @@ def _scripted_tool_model(script):
         def _generate(self, messages, stop=None, run_manager=None, **kwargs):
             message = self.script[self.calls]
             self.calls += 1
+            if isinstance(message, BaseException):
+                raise message
             return ChatResult(generations=[ChatGeneration(message=message)])
 
     return _Model(script=list(script))
@@ -154,6 +161,110 @@ def test_recursion_limit_admits_max_tool_hops_and_the_closing_answer():
 
     with pytest.raises(GraphRecursionError):
         _drive_real_graph(hops, widget.hooks.RECURSION_LIMIT - 1)
+
+
+def _drive_into_the_log(thread: str, script, tools):
+    """The real compiled graph over the real (test-redirected) `widget.db`, so
+    what a test reads back is what `GET /api/widget/history` would serve.
+
+    `_drive_real_graph` above hands the graph an `InMemorySaver` because its
+    claim is about the recursion ceiling and nothing has to outlive the call.
+    The claims below are about the log itself, which means the checkpointer has
+    to be the one `conversation_memory` reads from — anything else would prove
+    a shape rather than a record."""
+    from langchain.agents import create_agent
+
+    agent = create_agent(_scripted_tool_model(script), tools=tools,
+                         middleware=widget.hooks.MIDDLEWARE,
+                         checkpointer=widget.conversation_memory.saver())
+    return agent.invoke(
+        {'messages': [HumanMessage(content='drive the log')]},
+        config={'recursion_limit': widget.hooks.RECURSION_LIMIT,
+                'configurable': {'thread_id': thread, 'checkpoint_ns': ''}})
+
+
+def test_a_finished_turn_leaves_a_tool_row_beside_its_reply():
+    """The whole path in one test: a real graph calls a real tool, the real
+    checkpointer stores the turn, and the thread the history route serves shows
+    which tool the answer stands on.
+
+    `test_conversation_memory` pins the reading; this pins that a run actually
+    produces something to read. The two are worth having apart — a seeded
+    message list can be given any shape a test likes, and the question here is
+    what the graph's own write looks like."""
+    from langchain_core.tools import tool
+
+    @tool
+    def count_sessions(dataset: str = '') -> str:
+        """Say how many sessions a corpus holds."""
+        return '167'
+
+    _drive_into_the_log('exp-tool-row', [
+        AIMessage(content='', tool_calls=[{'name': 'count_sessions',
+                                           'args': {}, 'id': 'c1'}]),
+        AIMessage(content='167 sessions.')], [count_sessions])
+
+    assert widget.conversation_memory.history('exp-tool-row')['turns'] == [
+        {'role': 'you', 'text': 'drive the log'},
+        {'role': 'tool',
+         'text': widget.conversation_memory.tool_line('count_sessions')},
+        {'role': 'bot', 'text': '167 sessions.'}]
+
+
+def test_a_turn_that_called_nothing_leaves_no_tool_row_behind():
+    """The same path, the same graph, one script shorter. Silence has to survive
+    the round trip too: a reader who sees no tool row is being told the model
+    answered out of its own head, and that has to be true."""
+    from langchain_core.tools import tool
+
+    @tool
+    def count_sessions(dataset: str = '') -> str:
+        """Say how many sessions a corpus holds."""
+        return '167'
+
+    _drive_into_the_log('exp-no-tool-row',
+                        [AIMessage(content='Four metrics decide.')],
+                        [count_sessions])
+
+    assert widget.conversation_memory.history('exp-no-tool-row')['turns'] == [
+        {'role': 'you', 'text': 'drive the log'},
+        {'role': 'bot', 'text': 'Four metrics decide.'}]
+
+
+def test_a_run_that_dies_after_a_tool_leaves_the_call_and_no_reply():
+    """A stream cut between the tool and the answer. What the thread must hold
+    afterwards is exactly what happened — the question and the call — and not a
+    reply assembled from it, nor a call the run never made.
+
+    That the log cannot be half-written is a property of where the rows come
+    from rather than a check performed on them: the tool rows are read back out
+    of the graph's own checkpoint, which advances a superstep at a time and
+    stops wherever the run stopped. There is no second write to fall out of step
+    with it, which is the reason the ephemeral status events on the page are
+    still ephemeral — persisting *those* is what could have left a dangling row.
+    """
+    from langchain_core.tools import tool
+
+    @tool
+    def count_sessions(dataset: str = '') -> str:
+        """Say how many sessions a corpus holds."""
+        return '167'
+
+    class _Died(RuntimeError):
+        pass
+
+    with pytest.raises(_Died):
+        _drive_into_the_log('exp-run-cut-after-tool', [
+            AIMessage(content='', tool_calls=[{'name': 'count_sessions',
+                                               'args': {}, 'id': 'c1'}]),
+            _Died('the reader closed the stream')], [count_sessions])
+
+    turns = widget.conversation_memory.history('exp-run-cut-after-tool')['turns']
+    assert turns == [
+        {'role': 'you', 'text': 'drive the log'},
+        {'role': 'tool',
+         'text': widget.conversation_memory.tool_line('count_sessions')}]
+    assert not [turn for turn in turns if turn['role'] == 'bot']
 
 
 def test_stream_request_is_kept_alive_when_the_page_navigates():

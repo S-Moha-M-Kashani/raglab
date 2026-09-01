@@ -535,22 +535,63 @@ def _text(content) -> str:
     return content if isinstance(content, str) else str(content)
 
 
+#: What one tool call reads as in the log. The only load-bearing part is the
+#: name — the requirement is that the record says *which* tool ran, so a reader
+#: scrolling back can tell an answer that stands on a real record from one the
+#: model wrote alone — and the word around it is free prose.
+#:
+#: Past tense, unlike the ephemeral live line the page shows while it waits
+#: ("calling <name>…", `widget.js`). The two are the same fact at two moments
+#: and they are deliberately worded apart: one is the lab saying what it is
+#: doing now and is gone the instant the answer lands, the other is what the
+#: thread still holds tomorrow. A durable row phrased in the present tense
+#: would read, on a reload, as a call still in flight.
+#:
+#: `TURN_TOOL` above is the same word for a different thing, and the two do not
+#: meet: that one names a message *from* a tool, in the vocabulary the prompt
+#: trimmer splits a thread with, while this is a row about the model *calling*
+#: one, in the vocabulary the reader's log is written in. What a tool said back
+#: never becomes a row here at all.
+TOOL_LINE = 'called {name}'
+
+
+def tool_line(name: str) -> str:
+    """One tool call as the log words it. A function rather than a bare format
+    string because both the renderer's tests and this module have to agree on
+    the wording exactly, and two `.format` calls in two files is how they come
+    to disagree by a space."""
+    return TOOL_LINE.format(name=name)
+
+
 def _turns(messages) -> list[dict]:
-    """The conversation as a reader saw it: what was asked, what was answered.
+    """The conversation as a reader saw it: what was asked, which tools were
+    asked for it, and what was answered.
 
-    Two kinds of message are left out, for two unrelated reasons. An assistant
-    message carrying tool calls is dropped because a tool call is how an answer
-    was reached rather than part of the answer — the reader was never shown it,
-    and a log is what the reader saw. A message with no text at all is dropped
-    because there is nothing of it to show; that is what an assistant message
-    looks like in the moment it calls a tool instead of speaking.
+    Three roles, and the middle one is the newest. A tool call is still not a
+    `bot` turn — it is how an answer was reached rather than part of the answer,
+    and the reader was never shown its words — but it is no longer nothing
+    either: each call the run made comes back as its own `tool` row naming the
+    tool, in the order it was made. That is the whole of what the chat says
+    about the model's working; the arguments, the tool's own reply and the
+    steps around them are `trace`'s business and the developer's page, not a
+    reader's log.
 
-    Neither rule may swallow a reply that simply arrives in another shape. This
+    Two things stay out. The tool's own result message, for the reason above.
+    And an assistant message's *text* when that message carries calls: the page
+    suppresses those pieces as they stream (`backends._delta`), so the reader
+    never saw them, and a log is what the reader saw.
+
+    That rule may not swallow a reply that simply arrives in another shape. This
     once tested `isinstance(text, str)` and dropped everything else, which meant
     a block-shaped answer the reader had watched arrive was gone from the log by
     the next day, leaving a question with nothing under it — a record that
     misrepresents the conversation as surely as an invented turn would. Rendering
     is `_text`'s job, and it keeps them.
+
+    A nameless call is dropped rather than rendered as a call to nothing. It is
+    the same chunk `backends._tool_named` skips when it names the live status
+    line, and a row saying a tool ran while refusing to say which is worse than
+    the silence.
 
     A bot turn also carries `input_tokens`/`output_tokens` when the message it
     came from has them — `usage_metadata` rides on the stored `AIMessage` and
@@ -559,22 +600,41 @@ def _turns(messages) -> list[dict]:
     turn, and any AI turn a backend did not account for — a CLI reply keeps
     nothing at all) carries neither key, never zeros: the same distinction
     `_accounted` in `backends.py` draws between "the bill says zero" and "no
-    bill was ever produced," read back on the way out instead of in."""
+    bill was ever produced," read back on the way out instead of in. A tool row
+    never carries one: the account is a bill for a reply, and the message that
+    happens to carry the call is not the reply that reader was billed for.
+
+    Nothing here writes. The calls have always been in `widget.db` — the
+    checkpointer stores the assistant message whole, `trace` has been reading
+    them out for the developer's page all along — so this is a second reading of
+    a record the graph already wrote when the turn completed, not a second
+    record kept alongside it. That is what makes a half-written history
+    impossible: a stream that dies mid-turn leaves the checkpoint exactly where
+    the graph last committed it, and this reads whatever that is. It is also why
+    threads written before this change show their tool calls too."""
     out = []
     for message in messages or []:
         kind = getattr(message, 'type', '')
         text = _text(getattr(message, 'content', ''))
-        if not text.strip():
-            continue
         if kind == 'human':
-            out.append({'role': 'you', 'text': text})
-        elif kind == 'ai' and not getattr(message, 'tool_calls', None):
-            turn = {'role': 'bot', 'text': text}
-            used = getattr(message, 'usage_metadata', None)
-            if used:
-                turn['input_tokens'] = used.get('input_tokens')
-                turn['output_tokens'] = used.get('output_tokens')
-            out.append(turn)
+            if text.strip():
+                out.append({'role': 'you', 'text': text})
+            continue
+        if kind != 'ai':
+            continue
+        calls = getattr(message, 'tool_calls', None) or []
+        for call in calls:
+            name = str(call.get('name') or '').strip()
+            if name:
+                out.append({'role': 'tool', 'text': tool_line(name)})
+        if calls or not text.strip():
+            continue
+        turn = {'role': 'bot', 'text': text}
+        used = getattr(message, 'usage_metadata', None)
+        if used:
+            turn['input_tokens'] = used.get('input_tokens')
+            turn['output_tokens'] = used.get('output_tokens')
+        out.append(turn)
     return out
 
 

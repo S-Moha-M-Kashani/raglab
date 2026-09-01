@@ -338,6 +338,34 @@ CONVENTIONS = [
      'they answer, so an undecided turn is the ordinary case — the only case, '
      'on a keyed install — and a reader shown no memory line at all reads it '
      'as the lab finding nothing worth keeping, a verdict no model gave'),
+    # The widget's own type. Every surface renders the same widget, and until
+    # 2026-09-01 it inherited each page's body font instead of stating one —
+    # 14px on the Laboratory and the Leaderboard, 16px on the Inspector, while
+    # the parts written in rem tokens stayed put either way, so the window read
+    # as two scales stacked. Pinned the way the two themes are: the chassis, the
+    # launcher beside it (a sibling, so it needs its own), and the three form
+    # controls, which inherit no type from a container at all.
+    ('widget.css', 'font: var(--t-base)/1.55 var(--sans);', None,
+     "the widget must declare its own family and base size, or it is whatever "
+     'type the page underneath it happens to set — the Inspector sets --t-md '
+     'and the other two --t-base, so the same thread read at two sizes'),
+    ('widget.css', None, 'font: inherit',
+     'and no part of the widget may go back to taking the page\'s font: '
+     '`font: inherit` on the launcher is exactly how the surfaces came to '
+     'disagree, and it is invisible until someone opens two of them'),
+    ('widget.css', '.widget-form input { font: var(--t-base)/1.4 var(--sans); }',
+     None,
+     'a control inherits no type from its container, so the widget states its '
+     "own: the Inspector loads no panel.css and says nothing at all about an "
+     'input, which left the question box at the browser default font there'),
+    ('panel.css', None, '.widget-',
+     'no surface may dress the widget from its own sheet — it is one '
+     'component on three pages, and a page reaching into it is how one '
+     'declaration becomes three that drift. The Laboratory and the '
+     "Leaderboard share this sheet; the Inspector's own is pinned the same "
+     'way in test_inspector.py'),
+    ('chrome.css', None, '.widget-',
+     'and the same for the shared chassis sheet'),
     ('widget.css', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '
@@ -356,6 +384,23 @@ CONVENTIONS = [
      "the window's real anchor values, distinct from the launcher's own — "
      'same collision this guards against as the launcher row above. The '
      "2.6rem is the launcher's own box, which has no ramp step"),
+    # The tool row: the log's record of which real records an answer stands on.
+    # It has to be its own kind on both sides — the sheet and the script — and
+    # it has to be told apart from the two lines it sits nearest. `note` is the
+    # lab's own voice about its own state, and `meta` is the bill under a reply;
+    # a tool row wearing either one's dress is the same blur, one shade down.
+    ('widget.css', '.widget-msg.tool', None,
+     'a tool call must be drawn as its own kind, or the log has a sixth kind '
+     'the sheet renders as an unstyled bubble'),
+    ('widget.css', 'font: var(--t-xs)/1.5 var(--mono);', None,
+     'and it must not be told apart from the account line by shade alone — '
+     'both are faint and bubbleless, so what separates them is that a tool '
+     'row is mostly an identifier and is set as one'),
+    ('widget.js', "const WIDGET_KINDS = ['you', 'bot', 'tool', 'meta', 'note', 'err']",
+     None,
+     'the kinds the log can hold are one list, and `tool` is on it — the class '
+     'is written straight into the markup, so a kind the page does not know '
+     'must write none at all'),
     ('widget.css', None, '--step-',
      'the widget is a helper, not a pipeline stage, and must wear no step ink'),
     ('widget.css', 'background: var(--card)', None,

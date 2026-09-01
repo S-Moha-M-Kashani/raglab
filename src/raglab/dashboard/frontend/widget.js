@@ -283,6 +283,24 @@
   // Replies are model output rendered into the page, so they pass through the
   // shared escapeHtml like every other untrusted string.
 
+  // Every kind of line this log can hold, and the whole list of them:
+  //
+  //   you      the reader's question
+  //   bot      the model's reply
+  //   tool     a tool the model called on the way to one — the log's record of
+  //            which real records an answer stands on. Not `note`: the lab
+  //            speaking about itself is a different voice from the model
+  //            reaching for something, and a reader has to be able to tell them
+  //            apart at a glance without reading either.
+  //   meta     the token account under a reply, a bill and never a measurement
+  //   note     the lab saying what it just did
+  //   err      what went wrong
+  //
+  // `thinking` is deliberately absent: it is built by `widgetThinking`, lives
+  // for the length of one wait and is never said. Nothing that passes through
+  // here is ephemeral.
+  const WIDGET_KINDS = ['you', 'bot', 'tool', 'meta', 'note', 'err'];
+
   function widgetSay(kind, text) {
     const log = $('widget-log');
     // The empty state goes on the first thing said, not on the first reply: a
@@ -292,8 +310,16 @@
     // opened — so it lands under the examples instead of clearing them.
     const offer = log.querySelector('.widget-empty');
     if (offer && kind !== 'note') offer.remove();
+    // A kind this page does not know renders as a bare line and nothing else.
+    // The class is written straight into the markup, so an unrecognised one is
+    // both a styling question and — since the log is fed by a route — an
+    // injection one; the answer to both is the same list. Inert rather than
+    // dropped: a lab that grew a seventh kind must not make the reader's own
+    // history disappear on the way to a page that has not been updated yet,
+    // and the text is the part that carries what was said.
+    const known = WIDGET_KINDS.includes(kind) ? ` ${kind}` : '';
     log.insertAdjacentHTML('beforeend',
-      `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
+      `<div class="widget-msg${known}">${escapeHtml(text)}</div>`);
     log.scrollTop = log.scrollHeight;
   }
 

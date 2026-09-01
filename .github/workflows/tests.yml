@@ -22,3 +22,17 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --all-extras
       - run: uv run pytest src/raglab -q
+
+  browser-suite:
+    # The opt-in Playwright journeys — a real headless Chromium against a lab
+    # this job starts itself. Kept out of the push-to-master path so the
+    # offline suite above stays the fast gate; it runs on pull requests and
+    # when someone presses "Run workflow".
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest src/raglab -m browser -q

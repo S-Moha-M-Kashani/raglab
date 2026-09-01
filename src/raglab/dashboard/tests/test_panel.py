@@ -1988,20 +1988,75 @@ def test_the_settings_popover_gathers_every_installation_level_control(panel_tex
     # this is a convention test
     """Three unrelated controls used to sit loose in the top bar — Settings,
     Import JSON, Export experiment — competing for the same corner as the
-    surface switcher. They have one thing in common: none of them is about the
-    experiment on screen, they are about this installation. So they are one
-    button now, and this pins that the archive pair actually moved inside the
-    popover rather than merely surviving somewhere on the page. The ids are
-    unchanged on purpose: panel.js and archive_io.js reach for them by id, and
-    a move that renames its hooks is a rewrite, not a move."""
+    surface switcher. They became one disc, and then the split got finer: the
+    disc keeps what configures the *app* — which theme to draw, which
+    OpenRouter key to hold — and the archive exchange left it for the setup
+    panel, because bringing an experiment in and taking one out is about
+    content, the same act as importing a dataset. So this pins both halves:
+    the two groups that stayed, and the trio that must no longer be here.
+    The ids are unchanged on purpose: panel.js and archive_io.js reach for
+    them by id, and a move that renames its hooks is a rewrite, not a move."""
     html = panel_texts['index.html']
     popover = html[html.index('id="app-settings-panel"'):]
     popover = popover[:popover.index('</header>')]
-    for hook in ('id="theme-control"', 'id="openrouter_key"',
-                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+    for hook in ('id="theme-control"', 'id="openrouter_key"'):
         assert hook in popover, (
             f'{hook} must live inside the Settings popover — a control left '
             'loose in the bar is the crowding this replaces')
+    for moved in ('id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+        assert moved not in popover, (
+            f'{moved} belongs to the setup panel now — two homes for one '
+            'control is how a reader learns to look in both')
+
+
+def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_texts):
+    # this is a convention test
+    """The split the left panel exists to draw: selecting is a knob, ingesting
+    is not. The bench keeps the dataset *selector*, because which corpus is
+    loaded decides what every knob under it means; bringing a corpus in, and
+    the archive exchange that does the same for a whole recorded experiment,
+    are acts on this installation and live in the panel.
+
+    Read off the served markup by slicing the `<aside>` and the bench apart,
+    because 'the control is somewhere on the page' is exactly the assertion
+    that would keep passing through a move that put it back."""
+    html = panel_texts['index.html']
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    for hook in ('id="dataset-corpus-file"', 'id="dataset-groundtruth-file"',
+                 'id="dataset-import"', 'id="importInfo"',
+                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+        assert hook in sidebar, (
+            f'{hook} must live in the setup panel — the bench is the pipeline '
+            'and nothing else now')
+    bench = html[html.index('<div class="bench">'):]
+    bench = bench[:bench.index('<div class="stack">')]
+    assert 'id="dataset"' in bench, (
+        'the dataset selector stays on the bench: it is the knob every other '
+        'knob is read against')
+    for gone in ('id="dataset-import"', 'id="archive-export"'):
+        assert gone not in bench, (
+            f'{gone} moved to the setup panel and must not have been left '
+            'behind on the bench as well')
+
+
+def test_the_archive_status_stays_a_page_level_banner(panel_texts):
+    # this is a convention test
+    """The exchange moved into the setup panel; its status did not follow it
+    there. A collapsed panel is `display: none` for everything inside it, and
+    an archive opened from the leaderboard reports on a page load nobody
+    clicked — so a banner inside the panel would be a report a reader is never
+    shown. It stays under the bar, where it is visible in every state the
+    panel has."""
+    html = panel_texts['index.html']
+    assert 'id="archive-status"' in html
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    assert 'id="archive-status"' not in sidebar[:sidebar.index('</aside>')], (
+        'the banner must not sit inside the panel that can be collapsed over '
+        'it')
+    assert html.index('id="archive-status"') < html.index('<aside class="sidebar"'), (
+        'and it must stay above the two columns, so it reads as the page '
+        'speaking rather than as one column speaking')
 
 
 @pytest.mark.parametrize('surface', SURFACES)

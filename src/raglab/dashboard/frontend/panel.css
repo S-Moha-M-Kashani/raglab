@@ -273,6 +273,20 @@ body {
 :root[data-sidebar="collapsed"] .sidebar { overflow: visible; }
 :root[data-sidebar="collapsed"] .sidebar-head { justify-content: center; }
 :root[data-sidebar="collapsed"] .sidebar-chevron { transform: rotate(180deg); }
+/* The panel's own cards. Bench cards lift off the plate because each one is a
+   stage you act in; these two are the furniture around it, so they keep the
+   card's plane and give up its shadow. No step border either — `.card[data-step]`
+   draws that, and neither of these carries a step. */
+.side-card { box-shadow: none; }
+/* A file input in a 17.5rem column: the browser draws the button and the
+   filename beside it, and at the page's base size that pair runs off the
+   edge. Two of them stand one above the other here, so they also need the
+   gap the surrounding `.field` gives everything else. */
+.side-card input[type=file] {
+  width: 100%; margin-bottom: var(--s-1);
+  font: var(--t-xs)/1.5 var(--sans); color: var(--ink-soft);
+}
+
 /* Drawn only over a narrow viewport, and only while the drawer is open. */
 .sidebar-scrim { display: none; }
 

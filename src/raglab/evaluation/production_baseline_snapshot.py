@@ -1,12 +1,12 @@
-"""A dated snapshot of Lodestar's shipped retrieval config, not a live import.
+"""A dated snapshot of the retrieval config the production assistant shipped, not a live import.
 
 Re-snapshot deliberately from the constants named in the comments below —
 `retrieve_fuse_rerank_grade.py` for the numbers, `config.Settings` for the two backend defaults.
 """
 
 SNAPSHOT_DATE = '2026-08-11'
-# lodestar_brain/retrieve_fuse_rerank_grade.py at this commit; the two Settings defaults below
-# came from lodestar_brain/lab_config.py in the same tree (development, fa959e2).
+# The parent assistant's retrieve_fuse_rerank_grade.py at this commit; the two Settings
+# defaults below came from its lab_config.py in the same tree.
 SNAPSHOT_COMMIT = '04cafac'
 LABEL = f'the shipped assistant (snapshot {SNAPSHOT_DATE})'
 

@@ -1,12 +1,12 @@
 """Repo-wide guards that pin an absence or a source-text rule rather than a
-behaviour: the dependency that was cut (lodestar/brain, chromadb), no
+behaviour: the dependency that was cut (the parent assistant's brain package, chromadb), no
 hardcoded machine path, the `.env.example` two-way contract, entry points
 that resolve to real callables and name no database, ports that stay
 distinct and unreserved, and the README launch line naming the extra the
 default embedder needs. One tree walk over `src/` and `tests/`, computed
 once, backs the source-scanning guards below.
 
-Retires test_no_lodestar.py, test_config.py, test_ports.py,
+Retires the old parent-import scan, test_config.py, test_ports.py,
 and folds in the chromadb-import scan from test_store_index.py plus
 the two "no vector database" checks from test_raglab.py and the
 `explain.missing()`/`explain.missing_metrics()` gate — all guards about an
@@ -235,10 +235,11 @@ def test_the_tree_walk_finds_a_plausible_number_of_files():
         f'tree walk only found {len(_PY_FILES)} files — check the glob')
 
 
-def test_nothing_imports_lodestar_brain():
+def test_nothing_imports_the_parent_brain_package():
     # this is a convention test
-    """Prose mentioning lodestar_brain is fine; only a line the interpreter
-    follows is not."""
+    """`lodestar_brain` is the package of the production assistant this lab
+    was extracted from. Prose mentioning it is fine; only a line the
+    interpreter follows is not."""
     offenders = []
     for path in _PY_FILES:
         for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
@@ -273,16 +274,16 @@ def test_the_lab_names_no_vector_database_at_all():
     settings = LabSettings()
     assert [f for f in vars(settings) if 'chroma' in f or 'database' in f] == []
     with pytest.raises(TypeError):
-        LabSettings(chroma_database='lodestar')
+        LabSettings(chroma_database='legacy')
 
 
 def test_the_lab_ignores_a_leftover_chroma_environment(monkeypatch):
     # this is a convention test
     """The board's Chroma stack runs whenever a board does, and a shell that
     ran the old lab commands still exports these; neither may reach the lab."""
-    monkeypatch.setenv('RAGLAB_CHROMA_DATABASE', 'lodestar')
+    monkeypatch.setenv('RAGLAB_CHROMA_DATABASE', 'legacy')
     monkeypatch.setenv('BRAIN_CHROMA_URL', 'http://localhost:8001')
-    assert 'lodestar' not in repr(config.load_lab_settings())
+    assert 'legacy' not in repr(config.load_lab_settings())
 
 
 def test_a_build_exposes_no_vector_store_gate():
@@ -379,10 +380,10 @@ def test_env_example_documents_every_variable_the_code_reads():
     assert documented - read == set(), 'in .env.example, read by nothing'
 
 
-def test_the_lab_takes_no_port_lodestar_owns():
+def test_the_lab_takes_no_reserved_port():
     # this is a convention test
-    """`RESERVED` is a copy of Lodestar's port list, not a live read — it can
-    drift out of sync and must be updated by hand if Lodestar's changes. There
+    """`RESERVED` is a hand-copied list of ports other local services own, not
+    a live read — it can drift out of sync and must be updated by hand. There
     is one port now: the Inspector moved to /inspector on this one, so that a
     conversation and a theme choice can cross between the surfaces."""
     assert serve.PANEL_PORT == 9002

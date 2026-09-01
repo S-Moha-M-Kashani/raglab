@@ -263,7 +263,7 @@ test('a handoff storage event pins an already-open Inspector without consuming i
                              groundtruth: CORPUS });
     await page.settled;
     const event = {
-      key: 'lodestar:raglab-open-experiment',
+      key: 'raglab:open-experiment',
       newValue: JSON.stringify({ experiment_id: 'exp-2', at: 2 }),
     };
     for (const listener of page.listeners.storage || []) listener(event);

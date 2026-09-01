@@ -841,20 +841,32 @@ def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
         'is the left one')
 
 
-def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
+def test_a_disabled_knob_still_says_why_it_is_disabled(panel_texts):
     # this is a convention test
-    """A knob this pipeline would ignore is dimmed, and the one sentence saying
-    why is the only part of it still worth reading — so the dimming is colour on
-    the fields, never `opacity` on the group. Opacity composites the whole
-    subtree: a child cannot climb back out of an ancestor's, which is why the
-    `opacity: 1` this block used to carry on the note did nothing at all and the
-    sentence rendered at half of an already soft ink."""
+    """A knob this pipeline would ignore is dimmed and locked, and it still owes
+    the reader one sentence saying why. Two claims, and the second one changed.
+
+    The dimming is colour on the fields, never `opacity` on the group. Opacity
+    composites the whole subtree: a child cannot climb back out of an
+    ancestor's, which is why an `opacity: 1` this block once carried on the
+    reason did nothing at all.
+
+    The reason itself used to be a permanent italic sentence under the control,
+    and the argument for that was sound as far as it went: a `title` is a copy
+    reachable only by a mouse, and a reason worth giving is worth giving on the
+    page. What changed is not the argument but the alternative. The explainer is
+    a real focusable trigger now, with the sentence announced through
+    `aria-describedby`, so the reason reaches a keyboard and a screen reader as
+    well as a pointer — and it no longer occupies the card for ever, which
+    mattered because the lab boots with no hierarchy and six knobs inert at
+    once, printing six near-identical sentences about a graph nothing is
+    building.
+
+    So this pins where the reason went: recorded per knob, read back by both
+    lengths of that knob's explainer, leading the definition rather than
+    replacing it — and never as a `title`, which is the one option the original
+    comment ruled out and which stays ruled out."""
     css = panel_texts['panel.css']
-    # The end anchor is the next rule after the block. It used to be
-    # `\nbutton.why {` — the *bare* selector, because `.rag-field-off
-    # button.why {` is inside this block and would have cut the slice in half.
-    # That rule now lives in chrome.css, shared with the Inspector, so the
-    # anchor is the explainer paragraph that follows instead.
     block = css[css.index('/* A knob the current pipeline would ignore'):
                 css.index('\np.explain {')]
     # Comments out: this block's own comment explains the bug by naming it, and
@@ -866,9 +878,19 @@ def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
     assert 'var(--ink-off)' in block, (
         'the dimming is a named ink, so the one value that means "this knob is '
         'out of play" is decided once')
-    assert 'color: var(--ink-soft)' in block, (
-        'the reason itself stays at the page\'s ordinary soft ink, which is '
-        'what full contrast means here')
+
+    js = panel_texts['panel.js']
+    assert 'INERT_REASON[path] = reason' in js, (
+        'the reason has to be recorded somewhere a reader can still get at it')
+    assert 'const reason = INERT_REASON[topic]' in js and '${said} ${text}' in js, (
+        'and both lengths of the explainer have to lead with it: a definition '
+        'is not what a reader wants first from a control they cannot use')
+    assert 'rag-when-dep' not in js and 'rag-when-dep' not in css, (
+        'the permanent note is gone, in the script and in the sheet — a class '
+        'nothing writes is a rule nobody deletes')
+    assert '.setAttribute(\'title\'' not in js, (
+        'not a `title`: that is the mouse-only copy the original note was '
+        'written to replace, and nothing here brings it back')
 
 
 def test_the_smallest_controls_clear_the_target_floor(panel_texts):

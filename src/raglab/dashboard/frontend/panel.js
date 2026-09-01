@@ -404,8 +404,22 @@ function decorateExplainers() {
   // The two lengths every explainer is read in: the brief on hover, the whole
   // note on a click. lab.js owns the hover and asks these two for the text, so
   // the resolver is registered here, beside the pass that builds the triggers.
-  LabHelp.brief = (topic) => (OPTIONS.brief || {})[topic] || '';
-  LabHelp.full = (topic) => (OPTIONS.help || {})[topic] || '';
+  // An inert knob leads with why it is inert, in both lengths: that is the
+  // thing a reader wants first from a control they cannot use, and the
+  // definition follows it rather than being replaced by it.
+  const withReason = (topic, text) => {
+    const reason = INERT_REASON[topic];
+    if (!reason) return text || '';
+    // The served reasons are lowercase fragments with no full stop, written to
+    // sit under a control rather than to open a sentence. Given the first line
+    // of an explainer now, they get a capital and a stop — otherwise the box
+    // reads `…build no graph — What an edge between two chunks means.`
+    const said = reason[0].toUpperCase() + reason.slice(1)
+      + (/[.!?]$/.test(reason) ? '' : '.');
+    return text ? `${said} ${text}` : said;
+  };
+  LabHelp.brief = (topic) => withReason(topic, (OPTIONS.brief || {})[topic]);
+  LabHelp.full = (topic) => withReason(topic, (OPTIONS.help || {})[topic]);
 
   // Scoped to `.page`, which is both columns — the bench and the setup panel.
   // It used to read `main`, which was the whole knob surface until the models
@@ -441,7 +455,7 @@ function decorateExplainers() {
     if (!btn) return;
     const open = btn.parentElement.nextElementSibling;
     if (open && open.classList.contains('explain')) { open.remove(); return; }
-    const text = btn.dataset.help || (OPTIONS.help || {})[btn.dataset.topic] || '';
+    const text = btn.dataset.help || LabHelp.full(btn.dataset.topic) || '';
     btn.parentElement.insertAdjacentHTML('afterend',
       `<p class="explain">${escapeHtml(text)}</p>`);
   });
@@ -587,6 +601,11 @@ function dependencyState(rules, cfg) {
   return state;
 }
 
+// Why each inert knob is inert, by config path, kept as long as it is inert.
+// Read by the explainer resolvers below, which is the whole of how a reader
+// gets at it.
+const INERT_REASON = {};
+
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
   const cfg = readConfig();
@@ -606,20 +625,20 @@ function applyDependencies() {
     const holder = el.closest('div') || el.parentElement;
     if (!holder) continue;
     holder.classList.toggle('rag-field-off', !enabled);
-    // No `title` here. The same sentence is written into the visible note
-    // below, so the tooltip was a second copy reachable only by hovering —
-    // and a reason worth giving is worth giving on the page.
-    let note = holder.querySelector('.rag-when-dep');
-    if (!enabled) {
-      if (!note) {
-        note = document.createElement('span');
-        note.className = 'rag-when rag-when-dep';
-        holder.appendChild(note);
-      }
-      note.textContent = reason;
-    } else if (note) {
-      note.remove();
-    }
+    // The reason is recorded here and read by the knob's own explainer, which
+    // leads with it while the knob is inert.
+    //
+    // It used to be printed under the control as a permanent italic sentence,
+    // and the comment here argued the case: a `title` was a copy reachable
+    // only by a mouse, and a reason worth giving is worth giving on the page.
+    // That argument was right about the `title` and is answered rather than
+    // abandoned — the explainer is a real focusable trigger now, so the reason
+    // reaches a keyboard and a screen reader as well as a pointer. What it
+    // stops doing is standing on the page for ever: the lab boots with no
+    // hierarchy, which makes six knobs inert at once, and six near-identical
+    // sentences about a graph nothing is building was most of the Index card.
+    if (!enabled) INERT_REASON[path] = reason;
+    else delete INERT_REASON[path];
   }
 }
 

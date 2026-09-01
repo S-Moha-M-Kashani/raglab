@@ -71,10 +71,13 @@ body {
 .settings-popover button.ghost:hover {
   background: var(--rule-soft); color: var(--ink); border-color: var(--ink-soft);
 }
-/* Import and Export moved into the popover with everything else about this
-   installation. The rule that separated them from Settings in the bar went
-   with the move: inside the popover the group heading above them does that
-   job, and a second divider two lines under the first reads as a mistake. */
+/* Import and Export sit in the settings popover with everything else about
+   this installation. The rule that separated them from Settings in the bar
+   went with that move: inside the popover the group heading above them does
+   that job, and a second divider two lines under the first reads as a mistake.
+   They spent a while in the setup panel and came back — the panel is where a
+   corpus arrives, and carrying one recorded experiment between installations is
+   a fact about the installation instead. */
 .archive-exchange { display: flex; align-items: center; min-width: 0; }
 .archive-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 /* A <label> standing in for a button, because the control it fronts is a file

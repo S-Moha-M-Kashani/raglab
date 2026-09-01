@@ -51,8 +51,8 @@ def _wait_until_serving(process: subprocess.Popen, base_url: str) -> None:
 
 #: What the developer owns and no browser test may touch. Snapshotted before
 #: the suite's own lab boots and compared again when it stops.
-REAL_PATHS = (Path(__file__).resolve().parents[3].parent / 'databases',
-              Path(__file__).resolve().parents[3].parent / '.runs')
+_ROOT = Path(__file__).resolve().parents[3].parent
+REAL_PATHS = (_ROOT / 'databases', _ROOT / '.runs', _ROOT / '.datasets')
 
 
 def _snapshot(paths=REAL_PATHS) -> dict[str, int]:
@@ -96,6 +96,7 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
     their order never matters.
     """
     port = _free_port()
+    base_url = f'http://127.0.0.1:{port}'
     env = {
         **os.environ,
         # The four durable paths, redirected exactly as the offline suite
@@ -104,6 +105,15 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
         'RAGLAB_WIDGET_DB': str(lab_home / 'widget.db'),
         'RAGLAB_CORPORA_DB': str(lab_home / 'corpora.db'),
         'RAGLAB_BROWSER_RUNS': str(lab_home / 'runs'),
+        # The fifth durable place, and the one the offline suite redirects
+        # per-test rather than per-session: a dataset imported through the
+        # page lands here, and the repo's own `.datasets/` must not be it.
+        'RAGLAB_DATASETS': str(lab_home / 'datasets'),
+        # The Inspector asks the lab about experiments and jobs over HTTP, and
+        # its default is :9002 — the developer's own daemon. Pointing it at
+        # this lab is what keeps a record-mode journey talking to the
+        # experiments this suite actually recorded.
+        'RAGLAB_INSPECTOR_LAB_URL': base_url,
         'RAGLAB_BROWSER_PORT': str(port),
         # No live model, and no credential for one. The blanks are set rather
         # than removed because `load_env_file` uses `setdefault`: a name that
@@ -115,12 +125,17 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
         'OPENAI_API_KEY': '',
         'LANGSMITH_API_KEY': '',
         'LANGSMITH_TRACING': 'false',
+        # Saving a key makes the lab ask OpenRouter which models it serves.
+        # That is the one call this suite could make to the internet, so it is
+        # pointed at a closed local port: the probe fails at once, offline,
+        # and the catalogue reports what an installation without OpenRouter
+        # really has.
+        'OPENROUTER_BASE_URL': 'http://127.0.0.1:1',
     }
     env.pop('RAGLAB_MODEL', None)
     process = subprocess.Popen(
         [sys.executable, '-m', 'raglab.dashboard.tests.browser_lab_server'],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    base_url = f'http://127.0.0.1:{port}'
     try:
         _wait_until_serving(process, base_url)
         yield base_url

@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG lab</title>
+<style>
+  /* The deck wears the lab's own chassis: same inks as tokens.css, committed
+     to one theme because the chassis is the same ink on both lab themes.
+     All fonts resolve locally — the lab is offline-first and so is its deck. */
+  :root {
+    --chassis: #101620;
+    --panel: #1c2734;
+    --ink: #c3cdda;
+    --ink-soft: #7d8b9c;
+    --rule: #2a3646;
+    --index: oklch(0.78 0.13 62);       /* saffron  — what gets stored  */
+    --retrieval: oklch(0.75 0.11 168);  /* verdigris — what gets found  */
+    --generation: oklch(0.76 0.11 258); /* lapis    — what gets written */
+    --alert: oklch(0.72 0.13 29);
+    --slab: "Superclarendon", "Rockwell", "Roboto Slab", Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-snap-type: y mandatory; }
+  body {
+    margin: 0; background: var(--chassis); color: var(--ink);
+    font-family: var(--sans); font-size: clamp(15px, 1.6vw, 18px); line-height: 1.6;
+  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+
+  .slide {
+    min-height: 100vh; min-height: 100svh; scroll-snap-align: start;
+    display: grid; align-content: center; justify-items: start;
+    padding: clamp(1.5rem, 6vw, 5rem); max-width: 62rem; margin: 0 auto;
+    position: relative;
+  }
+  .slide > * { max-width: 100%; }
+
+  /* the machine's own voice */
+  h1, h2 { font-family: var(--slab); font-weight: 600; text-wrap: balance; margin: 0 0 1rem; }
+  h1 { font-size: clamp(2.6rem, 7vw, 5rem); line-height: 1.05; letter-spacing: -0.01em; }
+  h2 { font-size: clamp(1.6rem, 3.6vw, 2.6rem); line-height: 1.15; }
+  p  { max-width: 34em; margin: 0.4rem 0; }
+  .soft { color: var(--ink-soft); }
+  .mono, code { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  code { background: var(--panel); padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.9em; }
+  a { color: var(--retrieval); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--index); outline-offset: 3px; }
+
+  /* the experiment-row eyebrow: slide number set like a ledger id */
+  .row-id {
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--ink-soft); margin-bottom: 1.2rem;
+  }
+  .row-id b { color: var(--ink); font-weight: 500; }
+
+  /* the step inks — the one place colour appears, and it always means a step */
+  .ink-index { color: var(--index); }
+  .ink-retrieval { color: var(--retrieval); }
+  .ink-generation { color: var(--generation); }
+
+  .big-number {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: clamp(3rem, 10vw, 7rem); line-height: 1; font-weight: 500;
+  }
+  .arrow-fall { color: var(--ink-soft); font-size: clamp(2rem, 6vw, 4rem); vertical-align: 0.12em; }
+
+  .steps { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin-top: 1.5rem; width: 100%; }
+  @media (min-width: 720px) { .steps { grid-template-columns: 1fr 1fr 1fr; } }
+  .step { background: var(--panel); padding: 1.2rem 1.4rem; }
+  .step h3 { font-family: var(--slab); font-weight: 600; font-size: 1.1rem; margin: 0 0 0.5rem; }
+  .step ul { margin: 0; padding-left: 1.1rem; color: var(--ink-soft); font-size: 0.9em; }
+  .step li { margin: 0.15rem 0; }
+  .step .knob-count { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; display: block; margin-top: 0.8rem; }
+
+  .rules { display: grid; gap: 1rem; margin-top: 1.4rem; width: 100%; }
+  @media (min-width: 720px) { .rules { grid-template-columns: 1fr 1fr; } }
+  .rule-card { border-left: 3px solid var(--rule); padding: 0.2rem 0 0.2rem 1.1rem; }
+  .rule-card h3 { font-family: var(--slab); font-size: 1.05rem; font-weight: 600; margin: 0 0 0.3rem; }
+  .rule-card p { font-size: 0.92em; color: var(--ink-soft); margin: 0; max-width: 30em; }
+  .rule-card.r-index { border-color: var(--index); }
+  .rule-card.r-retrieval { border-color: var(--retrieval); }
+  .rule-card.r-generation { border-color: var(--generation); }
+  .rule-card.r-alert { border-color: var(--alert); }
+
+  .metrics { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 1.2rem 0 0; padding: 0; list-style: none; }
+  .metrics li {
+    font-family: var(--mono); font-size: 0.85rem; padding: 0.35rem 0.8rem;
+    border: 1px solid var(--rule); border-radius: 999px; background: var(--panel);
+  }
+
+  table { border-collapse: collapse; margin-top: 1.4rem; font-size: 0.95em; width: 100%; max-width: 40rem; }
+  th, td { text-align: left; padding: 0.5rem 1rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); font-weight: 500; }
+  td.mono { white-space: nowrap; }
+  .table-scroll { overflow-x: auto; width: 100%; }
+
+  .closer { font-family: var(--slab); font-size: clamp(1.3rem, 3vw, 2rem); line-height: 1.3; max-width: 24em; }
+
+  /* the rail: one dot per slide, inked by the section it belongs to */
+  nav.rail {
+    position: fixed; right: clamp(0.6rem, 2vw, 1.6rem); top: 50%; translate: 0 -50%;
+    display: grid; gap: 0.7rem; z-index: 2;
+  }
+  nav.rail a {
+    width: 9px; height: 9px; border-radius: 50%; display: block;
+    background: var(--rule); border: none;
+  }
+  nav.rail a[data-ink="index"] { background: var(--index); }
+  nav.rail a[data-ink="retrieval"] { background: var(--retrieval); }
+  nav.rail a[data-ink="generation"] { background: var(--generation); }
+  nav.rail a { opacity: 0.45; }
+  nav.rail a.here { opacity: 1; scale: 1.35; }
+  @media (max-width: 600px) { nav.rail { display: none; } }
+
+  .hint {
+    position: fixed; bottom: 1rem; left: 50%; translate: -50% 0;
+    font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-soft); z-index: 2;
+    transition: opacity 0.5s;
+  }
+  footer { font-size: 0.85em; color: var(--ink-soft); margin-top: 2.2rem; }
+</style>
+</head>
+<body>
+
+<nav class="rail" aria-label="Slides">
+  <a href="#s1" aria-label="Title"></a>
+  <a href="#s2" aria-label="One number"></a>
+  <a href="#s3" data-ink="index" aria-label="The pipeline"></a>
+  <a href="#s4" data-ink="retrieval" aria-label="Rules of evidence"></a>
+  <a href="#s5" data-ink="retrieval" aria-label="Honesty rules"></a>
+  <a href="#s6" data-ink="generation" aria-label="The surfaces"></a>
+  <a href="#s7" data-ink="index" aria-label="The data"></a>
+  <a href="#s8" aria-label="Close"></a>
+</nav>
+<div class="hint" id="hint">scroll or press ↓</div>
+
+<section class="slide" id="s1">
+  <p class="row-id"><b>raglab</b> · a retrieval workbench</p>
+  <h1>Choices by measurement,<br>never by taste.</h1>
+  <p style="max-width:32em">Every RAG tutorial hands you a chunk size, a retriever, an embedder —
+  and no evidence. <strong>RAG lab</strong> is a workbench where each of those
+  choices is a knob, and a scored experiment is what turns one.</p>
+  <footer class="mono">Moha Kashani · github.com/S-Moha-M-Kashani/raglab</footer>
+</section>
+
+<section class="slide" id="s2">
+  <p class="row-id">01 · <b>why measure</b></p>
+  <h2>One knob moved. Nothing else.</h2>
+  <p class="big-number"><span class="ink-retrieval">0.617</span> <span class="arrow-fall">→</span> <span style="color:var(--alert)">0.01</span></p>
+  <p>Recall on the same corpus, same retriever, same prompts — swapping a real
+  bilingual encoder for a hash baseline that embeds Farsi to the zero vector.</p>
+  <p class="soft">A demo would have looked fine. The measurement did not.
+  That gap is the reason this project exists.</p>
+</section>
+
+<section class="slide" id="s3">
+  <p class="row-id">02 · <b>the pipeline</b></p>
+  <h2>Three steps, every stage a knob.</h2>
+  <div class="steps">
+    <div class="step">
+      <h3 class="ink-index">Indexing</h3>
+      <ul>
+        <li>six chunkers</li>
+        <li>five embedders</li>
+        <li>optional summary hierarchy — Leiden, Louvain, RAPTOR, …</li>
+        <li>in-memory store, no vector database</li>
+      </ul>
+      <span class="knob-count ink-index">what gets stored</span>
+    </div>
+    <div class="step">
+      <h3 class="ink-retrieval">Retrieval</h3>
+      <ul>
+        <li>query understanding</li>
+        <li>dense · BM25 · hybrid fusion</li>
+        <li>six rerankers, three graders</li>
+        <li>a Farsi text normaliser</li>
+      </ul>
+      <span class="knob-count ink-retrieval">what gets found</span>
+    </div>
+    <div class="step">
+      <h3 class="ink-generation">Generation</h3>
+      <ul>
+        <li>extractive or LLM answerer</li>
+        <li>answerer and judge are never the same model</li>
+        <li>every degraded answer carries its reason</li>
+      </ul>
+      <span class="knob-count ink-generation">what gets written</span>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="s4">
+  <p class="row-id">03 · <b>rules of evidence</b></p>
+  <h2>Exactly four metrics vote.</h2>
+  <ul class="metrics">
+    <li>faithfulness</li>
+    <li>answer relevancy</li>
+    <li>context precision</li>
+    <li>context recall</li>
+  </ul>
+  <div class="rules">
+    <div class="rule-card r-index">
+      <h3>One knob per candidate</h3>
+      <p>A sweep moves a single setting and holds every model fixed, so a
+      score difference has one possible cause.</p>
+    </div>
+    <div class="rule-card r-retrieval">
+      <h3>The judge is screened</h3>
+      <p>A model must pass a screening gate before it may grade — and it can
+      never be the model that answered.</p>
+    </div>
+    <div class="rule-card r-generation">
+      <h3>Grouped before ranked</h3>
+      <p>Runs compare only inside one (dataset, question set, judge) group.
+      Across groups there is no ranking at all.</p>
+    </div>
+    <div class="rule-card r-alert">
+      <h3>No winner inside the error</h3>
+      <p>The decision score never appears without its spread, and a verdict
+      refuses when the lead sits inside the combined error.</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="s5">
+  <p class="row-id">04 · <b>honesty rules</b></p>
+  <h2>A row must never lie about what produced it.</h2>
+  <div class="rules">
+    <div class="rule-card">
+      <h3>Refusal over substitution</h3>
+      <p>A model the backend does not serve is a refusal, never a silent
+      swap — embedders, chat models, and hierarchy partitions alike.</p>
+    </div>
+    <div class="rule-card">
+      <h3>Unparsable costs work</h3>
+      <p>A verdict that cannot be parsed is read in the direction that costs
+      more work, never as a passing default.</p>
+    </div>
+    <div class="rule-card">
+      <h3>Rebuilds are a promise</h3>
+      <p>An index config fingerprints to a collection name; the same
+      fingerprint means the same build, months later.</p>
+    </div>
+    <div class="rule-card">
+      <h3>The suite stays offline</h3>
+      <p><span class="mono">1219</span> tests run on a fake backend with
+      temporary databases — no key, no network, no live model.</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="s6">
+  <p class="row-id">05 · <b>the surfaces</b></p>
+  <h2>One origin, one port, four pages.</h2>
+  <div class="table-scroll">
+  <table>
+    <tr><th>surface</th><th>route</th><th>what it does</th></tr>
+    <tr><td>Panel</td><td class="mono">/</td><td>the knob surface — configure, build, run, score</td></tr>
+    <tr><td>Inspector</td><td class="mono">/inspector</td><td>read-only: chunks, traces, verdicts, evidence</td></tr>
+    <tr><td>Leaderboard</td><td class="mono">/leaderboard</td><td>one sortable table per dataset — it names no winner</td></tr>
+    <tr><td>Ask widget</td><td class="mono">everywhere</td><td>an agentic helper with 10 tools and two kinds of memory — it advises, you decide</td></tr>
+  </table>
+  </div>
+  <p class="soft" style="margin-top:1.2rem">The helper writes no run, no ledger row, no score —
+  it sits outside the measured seam, which is exactly what allows it to trace
+  to LangSmith.</p>
+</section>
+
+<section class="slide" id="s7">
+  <p class="row-id">06 · <b>the data</b></p>
+  <h2>Seven corpora with known answers.</h2>
+  <p>A synthetic one-year diary in <strong>English and Farsi</strong>
+  (<span class="mono">167</span> sessions each), German meeting notes,
+  an English support desk, a multi-hop research set, and a smoke corpus —
+  because a finding that only holds on one corpus is a preference wearing
+  a number.</p>
+  <p class="soft">Any corpus/ground-truth pair that passes the machine-checked
+  import contract can be measured the same way. Bilingual retrieval is where
+  taste fails loudest — see slide 01.</p>
+</section>
+
+<section class="slide" id="s8">
+  <p class="row-id">07 · <b>close</b></p>
+  <p class="closer">If you didn't measure it, it's a preference —
+  not an architecture.</p>
+  <p style="margin-top:1.6rem">Python · FastAPI · LangGraph · RAGAS ·
+  sentence-transformers — and no vector database on purpose.</p>
+  <p class="mono"><a href="https://github.com/S-Moha-M-Kashani/raglab">github.com/S-Moha-M-Kashani/raglab</a></p>
+  <footer>© 2026 Moha Kashani · published for portfolio and demonstration purposes</footer>
+</section>
+
+<script>
+  // Arrow-key paging and the rail's "you are here" dot. No library: the deck
+  // must open from a file:// double-click on a machine with no network.
+  const slides = [...document.querySelectorAll('.slide')];
+  const dots = [...document.querySelectorAll('nav.rail a')];
+  const hint = document.getElementById('hint');
+  const current = () => Math.round(window.scrollY / window.innerHeight);
+  const go = (i) => slides[Math.max(0, Math.min(slides.length - 1, i))]
+      .scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(current() + 1); }
+    if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); go(current() - 1); }
+    if (e.key === 'Home') { e.preventDefault(); go(0); }
+    if (e.key === 'End') { e.preventDefault(); go(slides.length - 1); }
+  });
+  const mark = () => {
+    const i = current();
+    dots.forEach((d, n) => d.classList.toggle('here', n === i));
+    hint.style.opacity = i === 0 ? 1 : 0;
+  };
+  addEventListener('scroll', mark, { passive: true });
+  mark();
+</script>
+</body>
+</html>

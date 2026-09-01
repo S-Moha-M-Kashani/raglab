@@ -156,13 +156,40 @@ function fillModels() {
 const datasetValue = (d) => (d.id === ArchiveIO.BUILTIN_DATASET ? '' : d.id);
 const datasetValues = () => (OPTIONS.datasets || []).map(datasetValue);
 
+// What one option has to do is let a reader tell this corpus from the other
+// eight: the name first, because that is what a reader recognises, then the
+// id, because a name is not unique — `smoke-mini` and an imported copy of it
+// carry the same name, and the id is the only thing that separates them (and
+// the only name the board, a fingerprint and a run file ever use). The census
+// follows, shortened: a picker is for choosing, and the full count of parts
+// and the period are one click away under "View full dataset summary".
+const datasetOptionLabel = (d) =>
+  `${d.name} — ${d.id} · ${d.language || '?'} · ${d.documents} docs`
+  + ` · ${d.questions} questions`;
+
+// Grouped by where the corpus came from, which is the one distinction worth a
+// divider in the list: what shipped with the lab, and what a reader imported
+// into this installation. That grouping also replaced a trailing '· imported'
+// tag at the end of a long line nobody could see past the width of the select.
+const DATASET_GROUPS = [['bundled', 'Bundled'], ['imported', 'Imported']];
+
 function fillDatasets() {
   const found = OPTIONS.datasets || [];
-  $('dataset').innerHTML = found.map((d) =>
-    `<option value="${escapeHtml(datasetValue(d))}">`
-    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.documents} `
-    + `documents · ${d.questions} questions`
-    + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
+  const option = (d) => `<option value="${escapeHtml(datasetValue(d))}">`
+    + `${escapeHtml(datasetOptionLabel(d))}</option>`;
+  const grouped = new Set();
+  let html = '';
+  for (const [source, label] of DATASET_GROUPS) {
+    const rows = found.filter((d) => d.source === source);
+    for (const d of rows) grouped.add(d);
+    if (!rows.length) continue;
+    html += `<optgroup label="${label}">${rows.map(option).join('')}</optgroup>`;
+  }
+  // A `source` neither group names is still offered, ungrouped, rather than
+  // filtered out: a corpus the service serves and the picker hides is a corpus
+  // nobody can measure against, and this page does not get to decide that.
+  html += found.filter((d) => !grouped.has(d)).map(option).join('');
+  $('dataset').innerHTML = html;
   $('dataset').onchange = () => {
     describeDataset();
     syncArchiveViewOnlyFromDataset();

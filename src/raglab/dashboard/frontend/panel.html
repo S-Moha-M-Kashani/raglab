@@ -227,9 +227,15 @@
   <section class="card" id="card-index" data-step="index">
     <div class="card-head"><span class="num">1</span><h2 id="head-index">Index</h2></div>
     <p class="card-note" id="note-index"></p>
+    <!-- Three groups, in the order a build actually reads them: which corpus,
+         how it is cut, and what is summarised on top of the pieces. The first
+         tag carries no rule above it — a divider directly under the card's own
+         heading separates the heading from the card. -->
+    <div class="step-tag group-tag lead" data-step="index">Corpus</div>
     <!-- Which corpus decides what every knob below it operates on. Served
          (/api/options -> datasets), so the panel can't offer one the service
-         can't load. -->
+         can't load. Bringing a corpus *in* is the setup panel's job; choosing
+         among the ones already here is a knob, so it stays. -->
     <div class="field">
       <label>Dataset</label>
       <select id="dataset"></select>
@@ -255,6 +261,7 @@
          reading (`/api/options` -> datasets[].label_declarations) both paths
          share. -->
     <div id="datasetLabels"></div>
+    <div class="step-tag group-tag" data-step="index">Chunking</div>
     <div class="field">
       <label>Chunking strategy</label>
       <select id="chunker"></select>
@@ -304,6 +311,18 @@
   <section class="card" id="card-retrieval" data-step="retrieval">
     <div class="card-head"><span class="num">2</span><h2 id="head-retrieval">Retrieval</h2></div>
     <p class="card-note" id="note-retrieval"></p>
+    <!-- Four groups, in the order one question travels through them: what the
+         query becomes, what comes back, what survives the sort, and what the
+         summaries above the leaves are allowed to contribute. The knobs are
+         the same knobs, under the same ids — only the order and the labels
+         over them are new. -->
+    <div class="step-tag group-tag lead" data-step="retrieval">Query understanding</div>
+    <div class="switches">
+      <label><input type="checkbox" id="time_filter"> time-scope filter</label>
+      <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
+      <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
+    </div>
+    <div class="step-tag group-tag" data-step="retrieval">Retrieve &amp; fuse</div>
     <div class="field">
       <label>Retriever</label>
       <select id="retriever"></select>
@@ -313,6 +332,11 @@
       <div><label>Candidates</label><input type="number" id="candidates" min="5" max="200" step="5"></div>
     </div>
     <div class="field">
+      <label>MMR λ (1 = off)</label>
+      <input type="number" id="mmr_lambda" min="0.1" max="1" step="0.05">
+    </div>
+    <div class="step-tag group-tag" data-step="retrieval">Rerank &amp; grade</div>
+    <div class="field">
       <label>Reranker</label>
       <select id="reranker"></select>
     </div>
@@ -320,13 +344,13 @@
       <div><label>Rerank depth</label><input type="number" id="rerank_depth" min="5" max="100" step="5"></div>
       <div><label>Half-life (days)</label><input type="number" id="recency_half_life_days" min="7" max="900" step="7"></div>
     </div>
-    <div class="field-row">
-      <div><label>MMR λ (1 = off)</label><input type="number" id="mmr_lambda" min="0.1" max="1" step="0.05"></div>
-      <div><label>Grade threshold</label><input type="number" id="grade_threshold" min="0" max="1" step="0.05"></div>
-    </div>
     <div class="field">
       <label>Relevance gate (enables abstention)</label>
       <select id="grader"></select>
+    </div>
+    <div class="field">
+      <label>Grade threshold</label>
+      <input type="number" id="grade_threshold" min="0" max="1" step="0.05">
     </div>
     <!-- Live only when the index above holds summaries — what retrieval may do
          with them is decided by whether the build wrote any. Outside the index
@@ -339,11 +363,6 @@
     <div class="field-row">
       <div><label>Summary boost (1 = off)</label><input type="number" id="summary_boost" min="0.1" max="50" step="0.1"></div>
       <div><label>Levels <span class="muted">· blank = all</span></label><input type="text" id="summary_levels" placeholder="1 2"></div>
-    </div>
-    <div class="switches">
-      <label><input type="checkbox" id="time_filter"> time-scope filter</label>
-      <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
-      <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
     </div>
     <!-- Retrieval on its own, over the questions the experiment beside it has
          selected. No answering and no judging, so it is the step you can afford
@@ -359,10 +378,18 @@
   <section class="card" id="card-generation" data-step="generation">
     <div class="card-head"><span class="num">3</span><h2 id="head-generation">Generation</h2></div>
     <p class="card-note" id="note-generation"></p>
+    <!-- Two acts and the run's own name: answering the questions, grading the
+         answers, and what to call the row that comes out. -->
+    <div class="step-tag group-tag lead" data-step="generation">Answering</div>
     <div class="field">
       <label>Answerer</label>
       <select id="answerer"></select>
     </div>
+    <div class="field">
+      <label>Questions (0 = all)</label>
+      <input type="number" id="limit" min="0" max="200" value="0">
+    </div>
+    <div class="step-tag group-tag" data-step="generation">Judging</div>
     <div class="switches">
       <label><input type="checkbox" id="fact_judge"> LLM fact judge</label>
     </div>
@@ -374,10 +401,11 @@
         <option value="off">off</option>
       </select>
     </div>
-    <div class="field-row">
-      <div><label>Questions (0 = all)</label><input type="number" id="limit" min="0" max="200" value="0"></div>
-      <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="200" value="0"></div>
+    <div class="field">
+      <label>RAGAS samples</label>
+      <input type="number" id="ragas_limit" min="0" max="200" value="0">
     </div>
+    <div class="step-tag group-tag" data-step="generation">This run</div>
     <!-- Question-type sampling has no controls on this page: `labels` and
          `balance` still travel in a run's ui block and in the archive codec,
          carried by panel.js the way UNSHOWN carries config fields with no

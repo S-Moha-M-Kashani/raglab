@@ -2053,6 +2053,64 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
         assert step in bench, f'{step} is a pipeline step and stays on the bench'
 
 
+def test_every_step_card_groups_its_knobs_under_labels(panel_texts):
+    # this is a convention test
+    """A step card used to be a flat run of controls — eleven of them on the
+    Index card — under one heading. Each card now names its sub-stages, so a
+    reader scans by topic instead of reading the whole column to find one knob.
+
+    Two claims, because either alone is satisfiable by accident: every card has
+    at least two labelled groups, and the first one in each carries `lead`,
+    the variant with no rule above it — a divider directly under the card's own
+    heading separates the heading from the card it heads."""
+    html = panel_texts['index.html']
+    for card in ('card-index', 'card-retrieval', 'card-generation'):
+        section = html[html.index(f'id="{card}"'):]
+        section = section[:section.index('</section>')]
+        tags = re.findall(r'class="step-tag group-tag( lead)?"', section)
+        assert len(tags) >= 2, (
+            f'{card} names {len(tags)} groups — a card with one label is the '
+            'flat list this replaces wearing a heading')
+        assert tags[0] == ' lead', (
+            f"{card}'s first group must be the `lead` variant, or the card "
+            'opens with a rule between its heading and its first knob')
+    css = panel_texts['panel.css']
+    assert '.group-tag.lead {' in css, (
+        'the variant has to exist in the sheet the markup names, or `lead` is '
+        'a class that does nothing')
+
+
+def test_the_dataset_picker_stays_readable_as_corpora_arrive(panel_texts):
+    # this is a convention test
+    """Nine corpora are installed here and two of them are called `Smoke set —
+    five sessions`: the bundled one and an imported copy. Named alone they are
+    the same option twice, so the id is in the label — and the id is what the
+    board, a fingerprint and a run file call a corpus anyway, so it is the name
+    a reader can carry between surfaces.
+
+    The list is also divided by where a corpus came from, which retired a
+    trailing '· imported' tag at the end of a line longer than the select is
+    wide. And a corpus whose `source` neither group names is still offered,
+    ungrouped: a corpus the service serves and the picker hides is one nobody
+    can measure against."""
+    js = panel_texts['panel.js']
+    label = js[js.index('const datasetOptionLabel'):]
+    label = label[:label.index(';')]
+    assert '${d.id}' in label, (
+        'the option has to name the id, or two corpora sharing a name are one '
+        'option twice')
+    assert '${d.name}' in label and label.index('${d.name}') < label.index('${d.id}'), (
+        'and the name leads, because that is what a reader recognises — the id '
+        'is what disambiguates it')
+    fill = js[js.index('function fillDatasets'):]
+    fill = fill[:fill.index('\n}')]
+    assert '<optgroup' in fill, 'the list is grouped by where a corpus came from'
+    assert '!grouped.has(d)' in fill, (
+        'a served corpus in neither group must still be offered — filtering it '
+        'out would hide a corpus this installation can actually measure '
+        'against')
+
+
 def test_the_panel_reaches_a_knob_wherever_the_layout_put_it(panel_texts):
     # this is a convention test
     """Two of panel.js's whole-surface queries were scoped to `main`, which was

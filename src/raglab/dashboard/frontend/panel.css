@@ -479,6 +479,9 @@ p.explain {
   margin: var(--s-4) 0 var(--s-2); padding-top: var(--s-3);
   border-top: 1px solid var(--rule-soft);
 }
+/* The first group in a card names itself without dividing anything: the rule
+   above it would fall between the card's own heading and the card. */
+.group-tag.lead { margin-top: var(--s-2); padding-top: 0; border-top: 0; }
 
 /* ── readings ────────────────────────────────────────────────────────────── */
 .scores { display: grid; gap: var(--s-2);

@@ -129,6 +129,88 @@ test('a stream that ends on a status event has no final and is refused', async (
     /stopped before the lab said what it holds/);
 });
 
+// The renderer, one function wide. `widgetSay` is the single door every line in
+// the log comes through, and what it decides — which class a kind is allowed to
+// write, and whether an unknown one may write anything at all — is a decision
+// about escaping as much as about styling, since the log is fed by a route. It
+// needs a `#widget-log` and nothing else, so the double is a box that remembers
+// what was appended to it rather than a browser.
+function loadSay() {
+  const written = [];
+  const log = {
+    scrollTop: 0, scrollHeight: 0,
+    querySelector: () => null,
+    insertAdjacentHTML: (where, html) => written.push(html),
+  };
+  const context = {
+    written,
+    $: (id) => (id === 'widget-log' ? log : null),
+    escapeHtml: (text) => String(text).replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
+  };
+  const say = source.slice(source.indexOf('  // Every kind of line this log'),
+                           source.indexOf('  // --- the answer, as it is written'));
+  // `WIDGET_KINDS` is a `const`, so it is lexical and never lands on the
+  // sandbox's global the way the function declaration beside it does — handed
+  // back as the slice's last expression instead of reached for afterwards.
+  context.WIDGET_KINDS = runInNewContext(`${say}\n;WIDGET_KINDS`, context);
+  return context;
+}
+
+// The change this whole capability is: a tool call is a line in the log, not a
+// status that vanished. It has to be its own kind — `note` is the lab speaking
+// about its own state, and an answer that stands on a real record is a
+// different fact from the lab reporting one.
+test('a tool call renders as its own kind, distinct from the lab\'s own voice', () => {
+  const page = loadSay();
+  page.widgetSay('tool', 'called search_knowledge_base');
+  page.widgetSay('note', 'No knob was changed.');
+  assert.deepEqual(page.written, [
+    '<div class="widget-msg tool">called search_knowledge_base</div>',
+    '<div class="widget-msg note">No knob was changed.</div>']);
+});
+
+// A thread written before this change is replayed through the same loop, and
+// nothing about it may move: the rows it does have are the rows it had.
+test('a thread with no tool rows renders exactly as it did before', () => {
+  const page = loadSay();
+  for (const turn of [{ role: 'you', text: 'what decides?' },
+                      { role: 'bot', text: 'four judged metrics' }]) {
+    page.widgetSay(turn.role, turn.text);
+  }
+  assert.deepEqual(page.written, [
+    '<div class="widget-msg you">what decides?</div>',
+    '<div class="widget-msg bot">four judged metrics</div>']);
+});
+
+// Every kind the lab can send, and only those. A seventh arriving from a route
+// this page has not caught up with must still show the reader what was said —
+// dropping it would make their own history disappear — but it may not write a
+// class, because the class is the one part of that markup that is not escaped.
+test('a kind this page does not know renders inert, and never writes a class', () => {
+  const page = loadSay();
+  page.widgetSay('stage', 'retrieving');
+  page.widgetSay('bot"><script>alert(1)</script><b class="', 'nice try');
+  assert.deepEqual(page.written, [
+    '<div class="widget-msg">retrieving</div>',
+    '<div class="widget-msg">nice try</div>']);
+});
+
+// The list itself, pinned. `thinking` is the one live line the log can hold and
+// it is deliberately not here: it is built by `widgetThinking`, lives for the
+// length of one wait, and is never said — the same ephemerality the status
+// events it is fed by keep.
+test('the log holds six kinds and the ephemeral line is not one of them', () => {
+  const page = loadSay();
+  // Spread first: the array was built inside the sandbox's own realm, so it is
+  // an Array from another Array — same structure, different prototype, and
+  // `deepStrictEqual` compares that too.
+  assert.deepEqual([...page.WIDGET_KINDS],
+    ['you', 'bot', 'tool', 'meta', 'note', 'err']);
+  assert.ok(!page.WIDGET_KINDS.includes('thinking'));
+});
+
 test('with no experiment open, every surface shares the general thread', () => {
   assert.equal(load({}).widgetThread(), 'general');
 });

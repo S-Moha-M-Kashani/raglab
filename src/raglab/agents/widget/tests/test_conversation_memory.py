@@ -154,11 +154,15 @@ def test_a_turn_with_no_reported_account_carries_no_keys():
     assert 'output_tokens' not in turns[1]
 
 
-def test_the_moment_the_model_calls_a_tool_is_not_a_turn():
-    """The other half of the same rule, pinned so widening the first cannot
-    quietly widen this one too. A tool call is how an answer was reached, not
-    part of it, and the reader was never shown it — so neither the empty
-    message that carries the call nor the tool's own result is a turn."""
+def test_a_tool_call_is_a_record_of_its_own_never_the_answer():
+    """A tool call is how an answer was reached rather than part of it, so it is
+    still not a `bot` turn — but it is no longer nothing. The reader gets one
+    `tool` row naming what was asked of the lab, which is the difference between
+    an answer that stands on a real record and one the model wrote alone.
+
+    What stays out is the tool's own body. `167 sessions` is the material the
+    reply was built from, not something the reader watched arrive, and putting
+    it in the log would make the chat a second, worse copy of `/dev/trace`."""
     _write_messages('exp-6', [
         HumanMessage(content='how many sessions in the diary?'),
         AIMessage(content='', tool_calls=[{'name': 'search_knowledge_base',
@@ -168,7 +172,75 @@ def test_the_moment_the_model_calls_a_tool_is_not_a_turn():
         AIMessage(content='167')])
     assert memory.history('exp-6')['turns'] == [
         {'role': 'you', 'text': 'how many sessions in the diary?'},
+        {'role': 'tool', 'text': memory.tool_line('search_knowledge_base')},
         {'role': 'bot', 'text': '167'}]
+
+
+def test_every_tool_a_turn_called_gets_its_own_row_in_the_order_called():
+    """Two calls in one assistant message and a third in the next hop. The count
+    and the order are the whole claim: a reader scrolling back is asking which
+    records an answer stands on, and a log that collapses three calls into one
+    line answers a question they did not ask."""
+    _write_messages('exp-6b', [
+        HumanMessage(content='compare the two runs'),
+        AIMessage(content='', tool_calls=[
+            {'name': 'read_experiment', 'args': {'id': 'a'}, 'id': 'c1'},
+            {'name': 'read_experiment', 'args': {'id': 'b'}, 'id': 'c2'}]),
+        ToolMessage(content='run a', tool_call_id='c1'),
+        ToolMessage(content='run b', tool_call_id='c2'),
+        AIMessage(content='', tool_calls=[{'name': 'search_knowledge_base',
+                                           'args': {'query': 'recall'},
+                                           'id': 'c3'}]),
+        ToolMessage(content='a page about recall', tool_call_id='c3'),
+        AIMessage(content='b recalls more')])
+    assert [turn['role'] for turn in memory.history('exp-6b')['turns']] == [
+        'you', 'tool', 'tool', 'tool', 'bot']
+    assert memory.history('exp-6b')['turns'][1:4] == [
+        {'role': 'tool', 'text': memory.tool_line('read_experiment')},
+        {'role': 'tool', 'text': memory.tool_line('read_experiment')},
+        {'role': 'tool', 'text': memory.tool_line('search_knowledge_base')}]
+
+
+def test_a_turn_that_called_nothing_says_nothing_about_tools():
+    """The other direction, and the one a reader is trusting: silence has to
+    mean silence. If a log grew a `tool` row for a turn the model answered out
+    of its own head, the row would be the lie the rest of this project's records
+    are not allowed to tell."""
+    _write('exp-6c', 'what is the decision score?', 'the unweighted mean of four')
+    assert [turn['role'] for turn in memory.history('exp-6c')['turns']] == [
+        'you', 'bot']
+
+
+def test_a_tool_call_with_no_name_is_left_out_rather_than_named_nothing():
+    """A malformed call — a chunk that never stated its name — is dropped. A row
+    reading "called" with nothing after it would claim a tool ran and refuse to
+    say which, which is worse than the silence, and the ephemeral live line
+    already skips the same nameless chunk (`backends._tool_named`)."""
+    _write_messages('exp-6d', [
+        HumanMessage(content='anything?'),
+        AIMessage(content='', tool_calls=[{'name': '', 'args': {}, 'id': 'c1'}]),
+        ToolMessage(content='nothing', tool_call_id='c1'),
+        AIMessage(content='no')])
+    assert [turn['role'] for turn in memory.history('exp-6d')['turns']] == [
+        'you', 'bot']
+
+
+def test_a_tool_row_carries_no_token_account():
+    """The account is a bill for a reply, and a tool row is not a reply. Pinned
+    because `_turns` builds all three roles in one loop, and a stray
+    `usage_metadata` on the message that carried the call would otherwise ride
+    out on a row no reader could match it to."""
+    _write_messages('exp-6e', [
+        HumanMessage(content='how many sessions?'),
+        AIMessage(content='', tool_calls=[{'name': 'search_knowledge_base',
+                                           'args': {}, 'id': 'c1'}],
+                  usage_metadata={'input_tokens': 11, 'output_tokens': 2,
+                                  'total_tokens': 13}),
+        ToolMessage(content='167', tool_call_id='c1'),
+        AIMessage(content='167')])
+    tool_row = memory.history('exp-6e')['turns'][1]
+    assert tool_row == {'role': 'tool',
+                        'text': memory.tool_line('search_knowledge_base')}
 
 
 def test_recall_reads_another_experiments_conversation():

@@ -1,0 +1,24 @@
+# The canonical offline check, run on every push to master. The suite pins
+# the fake backend and temporary databases itself (src/raglab/conftest.py),
+# so no secret and no live model is ever needed here. Node is on the runner
+# because the browser-contract *.test.js files are executed through their
+# pytest wrappers, not on their own.
+name: tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  offline-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras
+      - run: uv run pytest src/raglab -q

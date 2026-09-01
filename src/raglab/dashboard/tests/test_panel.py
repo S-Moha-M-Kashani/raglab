@@ -1440,9 +1440,32 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
         'the way to the full summary opens from the corpus dropdown, not from '
         'the middle of the Index card')
     bench = html[html.index('<div class="bench">'):]
-    assert 'id="dataset-detail-open"' not in bench[:bench.index('<div class="stack">')], (
+    bench = bench[:bench.index('<div class="stack">')]
+    assert 'id="dataset-detail-open"' not in bench, (
         'and only from there — two buttons opening one box is two places to '
         'look for one answer')
+    # And the summary is read in one place too. The Index card used to print
+    # the description and the whole declaration table as well, which is the
+    # same facts twice and a table tall enough to push the chunking knobs off
+    # the screen. The card is a place to choose a corpus; the summary is where
+    # you read about one.
+    assert 'id="datasetLabels"' not in html, (
+        'the second declaration table is gone — one reading of '
+        'datasets[].label_declarations, in the summary')
+    js = panel_texts['panel.js']
+    assert "renderDatasetLabels(found, 'dataset-detail-labels')" in js
+    assert 'renderDatasetLabels(found)' not in js, (
+        'a call with no target is the old in-card copy asking to come back'
+    )
+    assert "renderDatasetLabels(found, target)" in js, (
+        'the target has no default any more, so the one host is named at the '
+        'one call site rather than assumed')
+    # The line under the picker survives, empty, because one thing still
+    # speaks there: an archived corpus this installation does not have.
+    assert 'id="datasetInfo"' in bench
+    assert "$('datasetInfo').textContent = ''" in js, (
+        "describeDataset must clear that line, or the view-only warning "
+        'outlives a switch to a corpus that is installed')
 
 
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):

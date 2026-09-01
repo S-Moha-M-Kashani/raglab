@@ -172,10 +172,16 @@
          report — an archive opened from the board says what it did on a page
          load nobody clicked. -->
     <section class="card side-card" id="exchangeCard">
+      <!-- The head explains itself, the way a knob does: hover the name for a
+           sentence, click for the rest. The bench keeps its notes on the page,
+           because a paragraph in a 400px card costs three lines and the same
+           paragraph in this 280px column costs six — and this column is the
+           furniture around the experiment rather than the experiment. -->
       <div class="card-head"><span class="num" aria-hidden="true">⇄</span>
-        <h2>Bring in &amp; take out</h2></div>
-      <p class="card-note">Nothing here is measured. A dataset is two JSON
-        files; an experiment archive is one.</p>
+        <h2><button type="button" class="why-term"
+              data-brief="Nothing here is measured."
+              data-help="Nothing here is measured. A dataset is two JSON files, a corpus and the ground truth measured against it; an experiment archive is one file carrying a whole recorded run.">Bring
+            in &amp; take out</button></h2></div>
       <div class="field">
         <!-- The one trigger written by hand rather than built from a control.
              `run.dataset-file` explains an *act* — what a pair of files has to
@@ -186,7 +192,7 @@
              files, the id became two ids, and the explainer detached silently.
              A test now fails when a served topic has no trigger at all. -->
         <label><button type="button" class="why-term" data-topic="run.dataset-file">Import
-          a dataset</button> <span class="muted">· two JSON files, paired by id (D1)</span></label>
+          a dataset</button></label>
         <!-- Two file pickers a browser draws identically, and picking the
              wrong way round is a refusal with a puzzling reason. So each says
              which file it wants, in a quieter voice than the label above them
@@ -200,10 +206,13 @@
         <!-- Under the action, not between it and the two pickers: this is what
              to read when you have no pair to import yet, and it was holding the
              button four lines away from the files it acts on. -->
-        <div class="muted template-links">start from the templates:
-          <a href="/api/dataset-templates/corpus" download="corpus_template.json">corpus_template.json</a>
+        <!-- Two words rather than two filenames: the `download` attribute is
+             what names each file on disk, and the note above states both names
+             in full. Three wrapped lines became one. -->
+        <div class="muted template-links">templates:
+          <a href="/api/dataset-templates/corpus" download="corpus_template.json">corpus</a>
           &middot;
-          <a href="/api/dataset-templates/groundtruth" download="groundtruth_template.json">groundtruth_template.json</a>
+          <a href="/api/dataset-templates/groundtruth" download="groundtruth_template.json">ground truth</a>
         </div>
       </div>
       <div class="field">
@@ -225,9 +234,10 @@
          the ink of the step it drives — the tags name the stage a model runs
          for, which is the only step colour this panel is allowed. -->
     <section class="card side-card rag-models" id="modelCard">
-      <div class="card-head"><span class="num">M</span><h2>Models</h2></div>
-      <p class="card-note">One per task. The dropdowns list what has actually run
-        here; a model this installation cannot load says NA.</p>
+      <div class="card-head"><span class="num">M</span>
+        <h2><button type="button" class="why-term"
+              data-brief="One model per task, and every dropdown lists only what has actually run here."
+              data-help="One model per task, and every dropdown lists only what has actually run here — a model this installation cannot load says NA rather than offering itself. Each role is called only in the one case its own explainer names; the rest of the time the lab never reaches for it.">Models</button></h2></div>
       <!-- Where the LLM stages run. A mode is a served preset (/api/options →
            modes): picking one applies the lab's own patch and stamps the run's
            provider, so this panel cannot invent a pairing the lab never served. -->
@@ -242,6 +252,9 @@
           <select id="embedder"></select>
         </div>
         <div class="field">
+          <!-- The aside stays, alone among the panel's asides: a pinned row
+               in test_panel.py claims this label names the two backends that
+               load a model at all, and that claim is worth a line. -->
           <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
           <select id="embed_model"></select>
         </div>

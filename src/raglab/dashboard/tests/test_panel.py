@@ -199,7 +199,11 @@ CONVENTIONS = [
     ('panel_server.py', 'api/dataset-templates/groundtruth', None,
      'the panel must serve the ground-truth template on the same terms as '
      'the corpus template beside it'),
-    ('index.html', 'start from the templates', None,
+    # The line reads `templates: corpus · ground truth` now — two words rather
+    # than two filenames, because `download` names each file on disk and the
+    # note above states both names in full. The claim is unchanged: the import
+    # section points at the templates and not only at the schema help.
+    ('index.html', 'class="muted template-links">templates:', None,
      'the import section must guide an author to the templates, not only to '
      'the schema help text — the templates are the readable path'),
     ('index.html', 'href="/api/dataset-templates/corpus"', None,
@@ -918,7 +922,7 @@ def test_a_disabled_knob_still_says_why_it_is_disabled(panel_texts):
         'out of play" is decided once')
 
     js = panel_texts['panel.js']
-    assert 'INERT_REASON[path] = reason' in js, (
+    assert 'INERT_REASON[key] = reason' in js, (
         'the reason has to be recorded somewhere a reader can still get at it')
     assert 'const reason = INERT_REASON[topic]' in js and '${said} ${text}' in js, (
         'and both lengths of the explainer have to lead with it: a definition '

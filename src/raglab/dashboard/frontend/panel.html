@@ -115,6 +115,24 @@
   </button>
   <div class="context-detail" id="corpus-detail" popover aria-label="Corpus census">
     <span id="corpus"></span>
+    <!-- The census, then the way to the whole of it. Both answers to one
+         question — which corpus is this — so the second opens from the first
+         rather than from a button four fields down the Index card. The full
+         summary was already anchored to this pill; now its invoker is here
+         too. -->
+    <button class="ghost dataset-detail-open" id="dataset-detail-open"
+            type="button" popovertarget="dataset-detail">
+      View full dataset summary
+    </button>
+  </div>
+  <div class="context-detail dataset-detail" id="dataset-detail" popover
+       aria-labelledby="dataset-detail-title">
+    <div class="card-head">
+      <h2 id="dataset-detail-title">Dataset summary</h2>
+    </div>
+    <p id="dataset-detail-description" class="prose"></p>
+    <p id="dataset-detail-census" class="dataset-detail-census"></p>
+    <div id="dataset-detail-labels"></div>
   </div>
 </div>
 
@@ -249,19 +267,6 @@
       <label>Dataset</label>
       <select id="dataset"></select>
       <div id="datasetInfo" class="muted"></div>
-      <button class="ghost dataset-detail-open" id="dataset-detail-open"
-              type="button" popovertarget="dataset-detail">
-        View full dataset summary
-      </button>
-    </div>
-    <div class="context-detail dataset-detail" id="dataset-detail" popover
-         aria-labelledby="dataset-detail-title">
-      <div class="card-head">
-        <h2 id="dataset-detail-title">Dataset summary</h2>
-      </div>
-      <p id="dataset-detail-description" class="prose"></p>
-      <p id="dataset-detail-census" class="dataset-detail-census"></p>
-      <div id="dataset-detail-labels"></div>
     </div>
     <!-- The declaration table: every label this dataset's corpus and ground
          truth declare, read straight off the loaded files (D4) — never

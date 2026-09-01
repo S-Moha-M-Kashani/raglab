@@ -1420,7 +1420,13 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
     # this is a convention test
     """The inline dataset description is not enough for the full census and
     declaration table. The selected dataset therefore needs an accessible
-    control and a top-layer detail surface that can be read at viewport size."""
+    control and a top-layer detail surface that can be read at viewport size.
+
+    Where the control lives is pinned too: inside the corpus pill's own
+    dropdown, one step further into the question that pill already asks. The
+    detail box was always anchored to that pill — it just used to be opened
+    from a button four fields down the Index card, which is a control placed
+    away from the thing it belongs to."""
     html = panel_texts['index.html']
     css = panel_texts['panel.css']
     assert 'dataset-detail' in html
@@ -1428,6 +1434,15 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
     assert 'popover' in html[html.index('id="dataset-detail"'):]
     assert 'dataset-detail' in css
     assert '100vw' in css or '100dvw' in css
+    dropdown = html[html.index('id="corpus-detail"'):]
+    dropdown = dropdown[:dropdown.index('</div>')]
+    assert 'id="dataset-detail-open"' in dropdown, (
+        'the way to the full summary opens from the corpus dropdown, not from '
+        'the middle of the Index card')
+    bench = html[html.index('<div class="bench">'):]
+    assert 'id="dataset-detail-open"' not in bench[:bench.index('<div class="stack">')], (
+        'and only from there — two buttons opening one box is two places to '
+        'look for one answer')
 
 
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):

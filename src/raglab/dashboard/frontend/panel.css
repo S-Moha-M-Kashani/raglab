@@ -605,7 +605,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .prose code { font: var(--t-xs) var(--mono); }
 #indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
 #datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
-#dataset-detail-open { margin-top: var(--s-2); }
+/* Inside the corpus pill's own dropdown now, under the census it opens out:
+   a block of its own, because the census above it is one inline run of text. */
+#dataset-detail-open { display: block; margin-top: var(--s-2); }
 .dataset-detail {
   width: min(90vw, 76rem); max-width: calc(100vw - 2rem);
   max-height: calc(100dvh - 2rem); overflow: auto;

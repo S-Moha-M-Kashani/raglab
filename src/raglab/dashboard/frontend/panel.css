@@ -619,7 +619,6 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
   max-height: calc(100dvh - 2rem); overflow: auto;
 }
 .dataset-detail-census { color: var(--ink-soft); font: var(--t-xs)/1.5 var(--mono); }
-#dataset-file { font-size: var(--t-xs); padding: var(--s-1); }
 #jobBox pre {
   white-space: pre-wrap; font: var(--t-2xs)/1.5 var(--mono); max-height: 30rem;
   overflow: auto; background: var(--plate); padding: var(--s-2); border-radius: var(--radius-sm);

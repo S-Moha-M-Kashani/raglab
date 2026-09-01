@@ -28,9 +28,10 @@ HELP = {
         'with 112 ground-truth questions; its Farsi original, a second '
         'Farsi corpus and four smaller control corpora ship beside it so a '
         'general finding can be told from a fact about one corpus. Import '
-        'your own with the button beside it — the ! there states the shape a '
-        'file must have — and a dataset whose evidence quotes are not verbatim '
-        'in the messages they cite is refused.'),
+        'your own from the setup panel on the left — the underlined "Import a '
+        'dataset" there states the shape a file must have — and a dataset '
+        'whose evidence quotes are not verbatim in the messages they cite is '
+        'refused.'),
     # `run.` not `index.` — this is not a field, it's the control beside one —
     # and the key's last segment is the file input's own id, which is how the
     # panel finds an explainer at all. The one entry written as a shape rather

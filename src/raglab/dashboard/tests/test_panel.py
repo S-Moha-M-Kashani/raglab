@@ -2432,6 +2432,16 @@ UNSHOWN_KNOBS = frozenset({
     'retrieval.rrf_k', 'retrieval.agentic_weights', 'retrieval.max_context_chars',
 })
 
+# `run.*` topics the panel serves an explainer for and deliberately gives no
+# control: the two question-selection knobs travel in a run's ui block and in
+# the archive codec without a widget to show them (`QUESTION_SELECTION`), and
+# the worker count is a service setting rather than a knob of the experiment.
+# Every other served topic must have a trigger on the page — see
+# test_every_explainer_the_panel_serves_can_be_opened_on_it.
+UNCONTROLLED_RUN_TOPICS = frozenset({
+    'run.labels', 'run.balance', 'run.workers',
+})
+
 
 def _config_knobs():
     """Every knob the lab has, as `group.field`, from the definition itself."""
@@ -2499,6 +2509,67 @@ def _controlled_knobs(panel_js):
             if group and field != 'label':
                 knobs.add(f'{group}.{field}')
     return knobs | {role.field for role in model_roles.ROLES}
+
+
+def test_every_explainer_the_panel_serves_can_be_opened_on_it(panel_texts, client):
+    # this is a convention test
+    """A sentence nothing on the page can open is a sentence nobody reads.
+
+    This is the gate for a failure that had already happened and was invisible:
+    `run.dataset-file` explains the shape a corpus/ground-truth pair must have,
+    and the pass that hangs an explainer on a control matches a topic's last
+    segment against a control id. The import used to be one file input with
+    `id="dataset-file"`; it became two, the id became two ids, and the note
+    detached — while `index.dataset`'s own text went on telling readers to look
+    for it there.
+
+    Reachable means one of four things, which are the four ways a trigger is
+    made: a control whose id is the topic's last segment (`decorateExplainers`),
+    a trigger written into the markup with the topic on it, a model role
+    (`fillModels` builds one per served role), or a metric (`measureWhy`).
+    Anything else has to be declared above, with the reason it has no control.
+    """
+    served = client.get('/api/options').json()['help']
+    html = panel_texts['index.html']
+    ids = set(re.findall(r'id="([^"]+)"', html))
+    unreachable = []
+    for topic in sorted(served):
+        if topic.startswith(('model.', 'metric.')):
+            continue
+        if topic.split('.')[-1] in ids:
+            continue
+        if f'data-topic="{topic}"' in html:
+            continue
+        if topic in UNSHOWN_KNOBS or topic in UNCONTROLLED_RUN_TOPICS:
+            continue
+        unreachable.append(topic)
+    assert unreachable == [], (
+        'the panel serves an explainer for these and offers no way to open '
+        f'one: {unreachable}. Either the thing they describe needs its trigger '
+        'back, or — if it genuinely has no control — say so in '
+        'UNCONTROLLED_RUN_TOPICS or UNSHOWN_KNOBS with the reason')
+
+
+def test_the_dataset_help_points_at_the_import_that_exists(panel_texts, client):
+    # this is a convention test
+    """The corpus knob's own text tells a reader where to import one, and it had
+    gone stale twice over: it named a `!` no page draws any more, and it said
+    "the button beside it" after the import moved out of the Index card into the
+    setup panel. Text that directs a reader to a place is a claim about the
+    layout, and it has to be checked like one."""
+    served = client.get('/api/options').json()['help']
+    dataset = served['index.dataset']
+    assert 'the ! there' not in dataset, (
+        'no page draws that mark any more — a text naming it sends the reader '
+        'looking for something that is not there')
+    assert 'setup panel' in dataset, (
+        'the import lives in the left panel now, and the sentence that points '
+        'at it has to point there')
+    html = panel_texts['index.html']
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    assert 'data-topic="run.dataset-file"' in sidebar, (
+        'and what it points at is the trigger on the import block itself')
 
 
 def test_every_knob_reaches_the_export_file(panel_texts):

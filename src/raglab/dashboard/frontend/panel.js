@@ -156,13 +156,40 @@ function fillModels() {
 const datasetValue = (d) => (d.id === ArchiveIO.BUILTIN_DATASET ? '' : d.id);
 const datasetValues = () => (OPTIONS.datasets || []).map(datasetValue);
 
+// What one option has to do is let a reader tell this corpus from the other
+// eight: the name first, because that is what a reader recognises, then the
+// id, because a name is not unique — `smoke-mini` and an imported copy of it
+// carry the same name, and the id is the only thing that separates them (and
+// the only name the board, a fingerprint and a run file ever use). The census
+// follows, shortened: a picker is for choosing, and the full count of parts
+// and the period are one click away under "View full dataset summary".
+const datasetOptionLabel = (d) =>
+  `${d.name} — ${d.id} · ${d.language || '?'} · ${d.documents} docs`
+  + ` · ${d.questions} questions`;
+
+// Grouped by where the corpus came from, which is the one distinction worth a
+// divider in the list: what shipped with the lab, and what a reader imported
+// into this installation. That grouping also replaced a trailing '· imported'
+// tag at the end of a long line nobody could see past the width of the select.
+const DATASET_GROUPS = [['bundled', 'Bundled'], ['imported', 'Imported']];
+
 function fillDatasets() {
   const found = OPTIONS.datasets || [];
-  $('dataset').innerHTML = found.map((d) =>
-    `<option value="${escapeHtml(datasetValue(d))}">`
-    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.documents} `
-    + `documents · ${d.questions} questions`
-    + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
+  const option = (d) => `<option value="${escapeHtml(datasetValue(d))}">`
+    + `${escapeHtml(datasetOptionLabel(d))}</option>`;
+  const grouped = new Set();
+  let html = '';
+  for (const [source, label] of DATASET_GROUPS) {
+    const rows = found.filter((d) => d.source === source);
+    for (const d of rows) grouped.add(d);
+    if (!rows.length) continue;
+    html += `<optgroup label="${label}">${rows.map(option).join('')}</optgroup>`;
+  }
+  // A `source` neither group names is still offered, ungrouped, rather than
+  // filtered out: a corpus the service serves and the picker hides is a corpus
+  // nobody can measure against, and this page does not get to decide that.
+  html += found.filter((d) => !grouped.has(d)).map(option).join('');
+  $('dataset').innerHTML = html;
   $('dataset').onchange = () => {
     describeDataset();
     syncArchiveViewOnlyFromDataset();
@@ -343,7 +370,11 @@ function decorateExplainers() {
   for (const [topic, text] of Object.entries(OPTIONS.help || {})) {
     byField[topic.split('.').pop()] = { topic, text };
   }
-  for (const control of document.querySelectorAll('main [id]')) {
+  // Scoped to `.page`, which is both columns — the bench and the setup panel.
+  // It used to read `main`, which was the whole knob surface until the models
+  // and the two imports moved into the panel beside it; left as it was, every
+  // model knob would have quietly lost the one sentence explaining it.
+  for (const control of document.querySelectorAll('.page [id]')) {
     const found = byField[control.id];
     // A checkbox lives *inside* its own label, so it explains itself there; every
     // other control is preceded by one. Walking up blindly would hang a
@@ -586,6 +617,61 @@ function applyDefaults(d) {
   }
 }
 
+// --- the setup panel --------------------------------------------------------
+// The left column's one piece of state: open or collapsed. It lives in an
+// attribute on <html> rather than a class on the aside, for the same reason
+// the theme does — the head's inline script has to set it before the first
+// paint, and at that point the aside does not exist yet. CSS reads the
+// attribute; this keeps the key and `aria-expanded` in step with it.
+//
+// The key is a bare string, not JSON: the inline copy in the head reads it
+// too, and a one-line script in a <head> should not have to parse anything.
+// A per-viewer convenience and nothing more — no run, no ledger row, no
+// artifact ever records which way a reader left this panel.
+const SIDEBAR_KEY = 'raglab-sidebar';
+// Same number as the CSS breakpoint below which the panel becomes a drawer.
+// Two copies of one number, which is one too many, but the alternative is
+// `matchMedia` in the head before the stylesheet has arrived.
+const SIDEBAR_WIDE = 1024;
+
+function sidebarState() {
+  const stamped = document.documentElement.dataset.sidebar;
+  if (stamped === 'open' || stamped === 'collapsed') return stamped;
+  // Storage threw for the head's script too, so nothing was stamped: fall
+  // back to the same reading it would have made.
+  return window.innerWidth >= SIDEBAR_WIDE ? 'open' : 'collapsed';
+}
+
+// `remember` is false for the one call that only catches the button up with
+// what the head already stamped: writing there would turn a width the reader
+// happens to be at into a choice they never made, and a wide-screen 'open'
+// stored that way is exactly what the head's narrow rule exists to ignore.
+function applySidebar(state, remember = true) {
+  document.documentElement.dataset.sidebar = state;
+  $('sidebar-toggle').setAttribute('aria-expanded', String(state === 'open'));
+  if (!remember) return;
+  try {
+    localStorage.setItem(SIDEBAR_KEY, state);
+  } catch (e) { /* private browsing: applied for this tab, not remembered */ }
+}
+
+$('sidebar-toggle').onclick = () => {
+  applySidebar(sidebarState() === 'open' ? 'collapsed' : 'open');
+};
+// Only ever visible over a narrow viewport, where the open panel is a drawer
+// covering the bench: a click outside it means "give me the bench back".
+$('sidebar-scrim').onclick = () => applySidebar('collapsed');
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || sidebarState() !== 'open') return;
+  // The wide layout is a column, not an overlay — Escape closing it there
+  // would take a panel nothing is covering away from a reader who was
+  // dismissing a popover.
+  if (window.innerWidth < SIDEBAR_WIDE) applySidebar('collapsed');
+});
+// The attribute is already stamped; this is what makes the button agree with
+// it on the first frame rather than after the first click.
+applySidebar(sidebarState(), false);
+
 // --- what survives a reload -------------------------------------------------
 // The readings card is only ever filled by a finishing job or a leaderboard
 // click, so without this a reload leaves it blank and every control back at
@@ -739,12 +825,25 @@ async function boot() {
     document.addEventListener(event, () => remember(SAVED_CONFIG, readConfig()));
   }
   if (!ARCHIVE_EVENTS_BOUND) {
-    const experimentControls = document.querySelector('main');
+    // `.page` again, and for a sharper reason than the explainers: a model is
+    // an experiment knob, so changing one while a recorded experiment is on
+    // screen must make the readings stale. Scoped to `main`, the move into the
+    // setup panel would have let a reader swap the answerer and still export
+    // the previous run's numbers as if this configuration had produced them.
+    //
+    // The three file inputs are not knobs: two of them choose a dataset to
+    // import and the third chooses an archive to open, and a file picker
+    // firing `change` is the reader starting one of those acts, not editing
+    // the experiment on screen. `archive-file` joins the list because it lives
+    // in the panel now — it used to sit in the header, outside this listener
+    // altogether.
+    const experimentControls = document.querySelector('.page');
     for (const event of ['change', 'input']) {
       experimentControls.addEventListener(event, (change) => {
         if (!CURRENT_ARCHIVE || !change.target.matches('input, select, textarea')
             || change.target.id === 'dataset-corpus-file'
-            || change.target.id === 'dataset-groundtruth-file') return;
+            || change.target.id === 'dataset-groundtruth-file'
+            || change.target.id === 'archive-file') return;
         CURRENT_ARCHIVE = null;
         setArchiveStatus(
           'Readings belong to the previous settings; export will contain settings only.',

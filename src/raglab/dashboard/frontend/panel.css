@@ -16,6 +16,12 @@
      cannot climb back out of an ancestor's opacity. Page-local: the Inspector
      has no knobs to disable. */
   --ink-off: #8b98a6;
+  /* The setup panel's two widths. Page-local: the Inspector and the board
+     have no such column. 17.5rem is what the Models card asked for at 300px
+     plus the room a file input needs to show a filename; the rail is what one
+     32px button needs with the page's own gutter around it. */
+  --side-w: 17.5rem;
+  --rail-w: 2.5rem;
 }
 [data-step="index"] { --step: var(--step-index); }
 [data-step="retrieval"] { --step: var(--step-retrieval); }
@@ -204,6 +210,130 @@ body {
 .spine-caption b { color: var(--step, #fff); font-weight: 600; }
 .spine-caption .right { margin-left: auto; }
 
+/* ── the page: setup panel, then bench ───────────────────────────────────────
+   The band the two columns share. It carries the measure and the gutter that
+   `main` carries on the other two surfaces, because on this one `main` is no
+   longer the whole page — it is the right-hand column of it. The leaderboard
+   still reads the bare `main` rule below, which is why that rule keeps its
+   band and this one resets it for the Laboratory only. */
+.page {
+  max-width: var(--measure); margin: 0 auto;
+  padding: var(--s-5) var(--gutter);
+  display: grid; gap: var(--s-5); align-items: start;
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+}
+:root[data-sidebar="collapsed"] .page {
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+}
+.page > main { max-width: none; margin: 0; padding: 0; min-width: 0; }
+
+/* ── the setup panel ─────────────────────────────────────────────────────────
+   Everything on this page that is not the experiment: the two ways content
+   arrives (a dataset, a recorded experiment) and the models that run the
+   stages. It is chrome, not a stage, so the column itself takes no step ink —
+   the only saturated colour inside it is the step tags in Models, which name
+   the stage a model runs rather than claiming the panel is one.
+
+   It scrolls with the page rather than holding still inside its own bounded,
+   scrollable box. Sticky was tried and is wrong here for one measurable
+   reason: the Models card is taller than a laptop viewport, and a sticky
+   column tall enough to clip has to grow a second scrollbar beside the
+   page's — two scroll regions, one of which hides the last model role until
+   you find the right one to drag. */
+.sidebar {
+  min-width: 0; display: grid; gap: var(--s-3); align-content: start;
+}
+/* The rule under it is the column's top edge, and the only thing that gives
+   two flat cards and a label above them one outline. Suppressed when the
+   column is a rail: a hairline the width of one button reads as a mistake. */
+.sidebar-head {
+  display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-6);
+  padding-bottom: var(--s-2); border-bottom: 1px solid var(--rule);
+}
+.sidebar-title {
+  margin: 0; font: var(--label-font); text-transform: uppercase;
+  letter-spacing: var(--label-track); color: var(--ink-soft);
+}
+/* A 32px target for a control a reader hits often, and the one button that is
+   neither a run action nor a ghost: it commands the page's furniture rather
+   than the experiment, so it is drawn as quietly as the label beside it. */
+.sidebar-toggle {
+  margin-left: auto; display: grid; place-items: center; padding: 0;
+  width: var(--s-6); height: var(--s-6);
+  color: var(--ink-soft); background: transparent;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+}
+.sidebar-toggle:hover {
+  color: var(--ink); background: var(--rule-soft); border-color: var(--ink-soft);
+}
+.sidebar-chevron { font: 600 var(--t-md)/1 var(--sans); transition: transform .15s ease; }
+.sidebar-body { display: grid; gap: var(--s-3); min-width: 0; }
+/* Collapsed: the column is the rail and the button is all of it. The body is
+   `display: none` rather than merely invisible, so nothing a reader cannot
+   see can take the focus — a hidden control that still answers Tab is a
+   keyboard trap, not a hidden control. */
+:root[data-sidebar="collapsed"] .sidebar-body,
+:root[data-sidebar="collapsed"] .sidebar-title { display: none; }
+:root[data-sidebar="collapsed"] .sidebar-head {
+  justify-content: center; padding-bottom: 0; border-bottom: 0;
+}
+:root[data-sidebar="collapsed"] .sidebar-chevron { transform: rotate(180deg); }
+/* The panel's own cards. Bench cards lift off the plate because each one is a
+   stage you act in; these two are the furniture around it, so they keep the
+   card's plane and give up its shadow. No step border either — `.card[data-step]`
+   draws that, and neither of these carries a step. */
+.side-card { box-shadow: none; }
+/* A file input in a 17.5rem column: the browser draws the button and the
+   filename beside it, and at the page's base size that pair runs off the
+   edge. Two of them stand one above the other here, so they also need the
+   gap the surrounding `.field` gives everything else. */
+.side-card input[type=file] {
+  width: 100%; margin-bottom: var(--s-1);
+  font: var(--t-xs)/1.5 var(--sans); color: var(--ink-soft);
+}
+/* Naming a file, not a knob: sentence case and normal weight, so the two of
+   them read as parts of the act the uppercase label above them names. */
+.side-card label.file-label {
+  margin: var(--s-2) 0 var(--s-px); font: 400 var(--t-xs)/1.4 var(--sans);
+  text-transform: none; letter-spacing: 0; color: var(--ink-soft);
+}
+
+/* Drawn only over a narrow viewport, and only while the drawer is open. */
+.sidebar-scrim { display: none; }
+
+/* Too narrow for a column beside the bench: the panel becomes a bar across
+   the top of the page that opens as a drawer over it. The bar is what keeps
+   the affordance on screen — an off-canvas panel with its handle off-canvas
+   too is a control nobody can find. */
+@media (max-width: 1024px) {
+  .page { grid-template-columns: minmax(0, 1fr); gap: var(--s-4); }
+  :root[data-sidebar="collapsed"] .page { grid-template-columns: minmax(0, 1fr); }
+  .sidebar-head {
+    padding: var(--s-2) var(--s-3); background: var(--card);
+    border: 1px solid var(--rule); border-radius: var(--radius-md);
+  }
+  :root:not([data-sidebar="open"]) .sidebar-body { display: none; }
+  :root:not([data-sidebar="open"]) .sidebar-title { display: block; }
+  :root:not([data-sidebar="open"]) .sidebar-head { justify-content: flex-start; }
+  :root:not([data-sidebar="open"]) .sidebar-chevron { transform: rotate(180deg); }
+  :root[data-sidebar="open"] .sidebar {
+    position: fixed; top: var(--bar-h); left: 0; z-index: 28;
+    width: min(22rem, 92vw); padding: var(--s-3);
+    max-height: calc(100dvh - var(--bar-h) - var(--rail-h));
+    overflow: hidden auto; background: var(--plate);
+    border-right: 1px solid var(--rule); box-shadow: var(--shadow);
+  }
+  :root[data-sidebar="open"] .sidebar-head { background: transparent; border: 0; padding: 0; }
+  :root[data-sidebar="open"] .sidebar-body { display: grid; }
+  /* Under the bar and under the widget's own corner, over everything else:
+     the drawer dims the page, it does not take the chrome down with it. The
+     wash is the chassis at 45%, so the one colour it uses is still a token. */
+  :root[data-sidebar="open"] .sidebar-scrim {
+    display: block; position: fixed; inset: var(--bar-h) 0 0; z-index: 27;
+    background: color-mix(in oklab, var(--chassis) 45%, transparent);
+  }
+}
+
 /* ── the bench ───────────────────────────────────────────────────────────── */
 /* Vertical padding is --s-5, one step above the ramp's exact match for the
    old 1.2rem value (--s-4): this band's breathing room is what the old
@@ -213,19 +343,15 @@ main { max-width: var(--measure); margin: 0 auto;
        padding: var(--s-5) var(--gutter); }
 .bench {
   display: grid; gap: var(--s-4);
-  /* Four step cards, then the models column — pinned explicitly below rather
-     than left to auto-placement, which would wrap the models card onto a
-     second row instead of keeping it in the one right-hand column. */
-  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 300px);
+  /* Three step cards and nothing else. The models column that used to be
+     pinned at the right end of this grid is the setup panel's now, which is
+     also why the widths below are three, two, one rather than the old
+     four-plus-a-column ladder: what the bench holds is the pipeline. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: start;
 }
-/* The models card holds the last column at every width; the step cards take the
-   rest and wrap among themselves. */
-.bench > .rag-models { grid-column: -2 / -1; }
-@media (max-width: 1400px) { .bench { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 300px); } }
-@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(0, 300px); } }
-@media (max-width: 980px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 780px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1280px) { .bench { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr); } }
 /* `minmax(0, 1fr)`, not the implicit `auto` track: an auto track sizes to its
    content's max-content width, so a wide table stretched the column past the
    viewport and the PAGE scrolled sideways — no `min-width: 0` on the card can
@@ -365,6 +491,9 @@ p.explain {
   margin: var(--s-4) 0 var(--s-2); padding-top: var(--s-3);
   border-top: 1px solid var(--rule-soft);
 }
+/* The first group in a card names itself without dividing anything: the rule
+   above it would fall between the card's own heading and the card. */
+.group-tag.lead { margin-top: var(--s-2); padding-top: 0; border-top: 0; }
 
 /* ── readings ────────────────────────────────────────────────────────────── */
 .scores { display: grid; gap: var(--s-2);
@@ -476,7 +605,9 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .prose code { font: var(--t-xs) var(--mono); }
 #indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
 #datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
-#dataset-detail-open { margin-top: var(--s-2); }
+/* Inside the corpus pill's own dropdown now, under the census it opens out:
+   a block of its own, because the census above it is one inline run of text. */
+#dataset-detail-open { display: block; margin-top: var(--s-2); }
 .dataset-detail {
   width: min(90vw, 76rem); max-width: calc(100vw - 2rem);
   max-height: calc(100dvh - 2rem); overflow: auto;

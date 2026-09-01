@@ -921,13 +921,21 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
     # this is a convention test
-    """Six page-level bands set their own max-width: the banner, the status
-    rail, the capability chips and main in panel.css, the top bar and the
-    context scope in chrome.css. They are one band at six widths and must read
-    from one token, or the next one added drifts. Counted per sheet, each
-    against its own number: a count over both sheets together passes with one
-    band gone and another added, which is the failure this pins."""
-    bands = {'panel.css': 4, 'chrome.css': 2}
+    """Seven page-level bands set their own max-width: the banner, the status
+    rail, the capability chips, `main` and the two-column page in panel.css,
+    the top bar and the context scope in chrome.css. They are one band at
+    seven widths and must read from one token, or the next one added drifts.
+    Counted per sheet, each against its own number: a count over both sheets
+    together passes with one band gone and another added, which is the failure
+    this pins.
+
+    `.page` is the fifth in panel.css and it is the setup panel's arrival: the
+    Laboratory is two columns now — the panel and the bench — so the band that
+    centres the page is the grid holding both, and `main` is one column of it.
+    The bare `main` rule keeps its own band all the same, because the
+    leaderboard reads this sheet too and its `main` is still the whole page;
+    `.page > main` resets it for this surface only."""
+    bands = {'panel.css': 5, 'chrome.css': 2}
     for sheet, expected in bands.items():
         found = panel_texts[sheet].count('max-width: var(--measure)')
         assert found == expected, (
@@ -1412,7 +1420,13 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
     # this is a convention test
     """The inline dataset description is not enough for the full census and
     declaration table. The selected dataset therefore needs an accessible
-    control and a top-layer detail surface that can be read at viewport size."""
+    control and a top-layer detail surface that can be read at viewport size.
+
+    Where the control lives is pinned too: inside the corpus pill's own
+    dropdown, one step further into the question that pill already asks. The
+    detail box was always anchored to that pill — it just used to be opened
+    from a button four fields down the Index card, which is a control placed
+    away from the thing it belongs to."""
     html = panel_texts['index.html']
     css = panel_texts['panel.css']
     assert 'dataset-detail' in html
@@ -1420,6 +1434,15 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
     assert 'popover' in html[html.index('id="dataset-detail"'):]
     assert 'dataset-detail' in css
     assert '100vw' in css or '100dvw' in css
+    dropdown = html[html.index('id="corpus-detail"'):]
+    dropdown = dropdown[:dropdown.index('</div>')]
+    assert 'id="dataset-detail-open"' in dropdown, (
+        'the way to the full summary opens from the corpus dropdown, not from '
+        'the middle of the Index card')
+    bench = html[html.index('<div class="bench">'):]
+    assert 'id="dataset-detail-open"' not in bench[:bench.index('<div class="stack">')], (
+        'and only from there — two buttons opening one box is two places to '
+        'look for one answer')
 
 
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
@@ -1980,20 +2003,179 @@ def test_the_settings_popover_gathers_every_installation_level_control(panel_tex
     # this is a convention test
     """Three unrelated controls used to sit loose in the top bar — Settings,
     Import JSON, Export experiment — competing for the same corner as the
-    surface switcher. They have one thing in common: none of them is about the
-    experiment on screen, they are about this installation. So they are one
-    button now, and this pins that the archive pair actually moved inside the
-    popover rather than merely surviving somewhere on the page. The ids are
-    unchanged on purpose: panel.js and archive_io.js reach for them by id, and
-    a move that renames its hooks is a rewrite, not a move."""
+    surface switcher. They became one disc, and then the split got finer: the
+    disc keeps what configures the *app* — which theme to draw, which
+    OpenRouter key to hold — and the archive exchange left it for the setup
+    panel, because bringing an experiment in and taking one out is about
+    content, the same act as importing a dataset. So this pins both halves:
+    the two groups that stayed, and the trio that must no longer be here.
+    The ids are unchanged on purpose: panel.js and archive_io.js reach for
+    them by id, and a move that renames its hooks is a rewrite, not a move."""
     html = panel_texts['index.html']
     popover = html[html.index('id="app-settings-panel"'):]
     popover = popover[:popover.index('</header>')]
-    for hook in ('id="theme-control"', 'id="openrouter_key"',
-                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+    for hook in ('id="theme-control"', 'id="openrouter_key"'):
         assert hook in popover, (
             f'{hook} must live inside the Settings popover — a control left '
             'loose in the bar is the crowding this replaces')
+    for moved in ('id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+        assert moved not in popover, (
+            f'{moved} belongs to the setup panel now — two homes for one '
+            'control is how a reader learns to look in both')
+
+
+def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_texts):
+    # this is a convention test
+    """The split the left panel exists to draw: selecting is a knob, ingesting
+    is not. The bench keeps the dataset *selector*, because which corpus is
+    loaded decides what every knob under it means; bringing a corpus in, and
+    the archive exchange that does the same for a whole recorded experiment,
+    are acts on this installation and live in the panel.
+
+    Read off the served markup by slicing the `<aside>` and the bench apart,
+    because 'the control is somewhere on the page' is exactly the assertion
+    that would keep passing through a move that put it back."""
+    html = panel_texts['index.html']
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    for hook in ('id="dataset-corpus-file"', 'id="dataset-groundtruth-file"',
+                 'id="dataset-import"', 'id="importInfo"',
+                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"',
+                 'id="mode"', 'id="embedder"', 'id="embed_model"',
+                 'id="modelRoles-index"', 'id="modelRoles-retrieval"',
+                 'id="modelRoles-generation"', 'id="modelRoles"'):
+        assert hook in sidebar, (
+            f'{hook} must live in the setup panel — the bench is the pipeline '
+            'and nothing else now')
+    bench = html[html.index('<div class="bench">'):]
+    bench = bench[:bench.index('<div class="stack">')]
+    assert 'id="dataset"' in bench, (
+        'the dataset selector stays on the bench: it is the knob every other '
+        'knob is read against')
+    for gone in ('id="dataset-import"', 'id="archive-export"', 'id="mode"',
+                 'id="embedder"', 'id="modelRoles-index"'):
+        assert gone not in bench, (
+            f'{gone} moved to the setup panel and must not have been left '
+            'behind on the bench as well')
+    # The bench is three numbered steps and nothing else. Counted, because
+    # 'the models card is not here' passes just as well when a fourth card
+    # nobody meant to add is.
+    assert bench.count('<section class="card"') == 3, (
+        'the bench holds 1 Index, 2 Retrieval and 3 Generation — a fourth '
+        'card on it is either a pipeline step nobody documented or something '
+        'that belongs in the setup panel')
+    for step in ('id="card-index"', 'id="card-retrieval"', 'id="card-generation"'):
+        assert step in bench, f'{step} is a pipeline step and stays on the bench'
+
+
+def test_every_step_card_groups_its_knobs_under_labels(panel_texts):
+    # this is a convention test
+    """A step card used to be a flat run of controls — eleven of them on the
+    Index card — under one heading. Each card now names its sub-stages, so a
+    reader scans by topic instead of reading the whole column to find one knob.
+
+    Two claims, because either alone is satisfiable by accident: every card has
+    at least two labelled groups, and the first one in each carries `lead`,
+    the variant with no rule above it — a divider directly under the card's own
+    heading separates the heading from the card it heads."""
+    html = panel_texts['index.html']
+    for card in ('card-index', 'card-retrieval', 'card-generation'):
+        section = html[html.index(f'id="{card}"'):]
+        section = section[:section.index('</section>')]
+        tags = re.findall(r'class="step-tag group-tag( lead)?"', section)
+        assert len(tags) >= 2, (
+            f'{card} names {len(tags)} groups — a card with one label is the '
+            'flat list this replaces wearing a heading')
+        assert tags[0] == ' lead', (
+            f"{card}'s first group must be the `lead` variant, or the card "
+            'opens with a rule between its heading and its first knob')
+    css = panel_texts['panel.css']
+    assert '.group-tag.lead {' in css, (
+        'the variant has to exist in the sheet the markup names, or `lead` is '
+        'a class that does nothing')
+
+
+def test_the_dataset_picker_stays_readable_as_corpora_arrive(panel_texts):
+    # this is a convention test
+    """Nine corpora are installed here and two of them are called `Smoke set —
+    five sessions`: the bundled one and an imported copy. Named alone they are
+    the same option twice, so the id is in the label — and the id is what the
+    board, a fingerprint and a run file call a corpus anyway, so it is the name
+    a reader can carry between surfaces.
+
+    The list is also divided by where a corpus came from, which retired a
+    trailing '· imported' tag at the end of a line longer than the select is
+    wide. And a corpus whose `source` neither group names is still offered,
+    ungrouped: a corpus the service serves and the picker hides is one nobody
+    can measure against."""
+    js = panel_texts['panel.js']
+    label = js[js.index('const datasetOptionLabel'):]
+    label = label[:label.index(';')]
+    assert '${d.id}' in label, (
+        'the option has to name the id, or two corpora sharing a name are one '
+        'option twice')
+    assert '${d.name}' in label and label.index('${d.name}') < label.index('${d.id}'), (
+        'and the name leads, because that is what a reader recognises — the id '
+        'is what disambiguates it')
+    fill = js[js.index('function fillDatasets'):]
+    fill = fill[:fill.index('\n}')]
+    assert '<optgroup' in fill, 'the list is grouped by where a corpus came from'
+    assert '!grouped.has(d)' in fill, (
+        'a served corpus in neither group must still be offered — filtering it '
+        'out would hide a corpus this installation can actually measure '
+        'against')
+
+
+def test_the_panel_reaches_a_knob_wherever_the_layout_put_it(panel_texts):
+    # this is a convention test
+    """Two of panel.js's whole-surface queries were scoped to `main`, which was
+    the entire knob surface right up until the models and the two imports moved
+    into the panel beside it. Both had to follow the move to `.page`, the band
+    holding both columns, and each for its own reason.
+
+    The explainer pass is the milder one: scoped to `main` it would have left
+    every model knob without the one sentence that explains it, silently.
+
+    The archive listener is the sharper one. Changing a knob while a recorded
+    experiment is on screen is what marks its readings stale — so scoped to
+    `main`, a reader could swap the answerer in the panel and then export the
+    previous run's numbers as though this configuration had produced them.
+    That is a row lying about what produced it, which is the one thing this
+    project does not permit."""
+    js = panel_texts['panel.js']
+    assert "querySelectorAll('main [id]')" not in js, (
+        'the explainer pass must not stop at the bench — the setup panel holds '
+        'knobs too')
+    assert "querySelectorAll('.page [id]')" in js
+    assert "querySelector('main')" not in js, (
+        'the stale-readings listener must not stop at the bench either')
+    assert "querySelector('.page')" in js
+    # And the file pickers stay excluded from it: `archive-file` is new to the
+    # list, because it moved from the header into the panel and so came inside
+    # the listener's reach for the first time.
+    for picker in ('dataset-corpus-file', 'dataset-groundtruth-file', 'archive-file'):
+        assert f"change.target.id === '{picker}'" in js, (
+            f'choosing a file with {picker} is the start of an import, not an '
+            'edit to the experiment on screen')
+
+
+def test_the_archive_status_stays_a_page_level_banner(panel_texts):
+    # this is a convention test
+    """The exchange moved into the setup panel; its status did not follow it
+    there. A collapsed panel is `display: none` for everything inside it, and
+    an archive opened from the leaderboard reports on a page load nobody
+    clicked — so a banner inside the panel would be a report a reader is never
+    shown. It stays under the bar, where it is visible in every state the
+    panel has."""
+    html = panel_texts['index.html']
+    assert 'id="archive-status"' in html
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    assert 'id="archive-status"' not in sidebar[:sidebar.index('</aside>')], (
+        'the banner must not sit inside the panel that can be collapsed over '
+        'it')
+    assert html.index('id="archive-status"') < html.index('<aside class="sidebar"'), (
+        'and it must stay above the two columns, so it reads as the page '
+        'speaking rather than as one column speaking')
 
 
 @pytest.mark.parametrize('surface', SURFACES)

@@ -243,8 +243,12 @@ body {
 .sidebar {
   min-width: 0; display: grid; gap: var(--s-3); align-content: start;
 }
+/* The rule under it is the column's top edge, and the only thing that gives
+   two flat cards and a label above them one outline. Suppressed when the
+   column is a rail: a hairline the width of one button reads as a mistake. */
 .sidebar-head {
   display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-6);
+  padding-bottom: var(--s-2); border-bottom: 1px solid var(--rule);
 }
 .sidebar-title {
   margin: 0; font: var(--label-font); text-transform: uppercase;
@@ -270,7 +274,9 @@ body {
    keyboard trap, not a hidden control. */
 :root[data-sidebar="collapsed"] .sidebar-body,
 :root[data-sidebar="collapsed"] .sidebar-title { display: none; }
-:root[data-sidebar="collapsed"] .sidebar-head { justify-content: center; }
+:root[data-sidebar="collapsed"] .sidebar-head {
+  justify-content: center; padding-bottom: 0; border-bottom: 0;
+}
 :root[data-sidebar="collapsed"] .sidebar-chevron { transform: rotate(180deg); }
 /* The panel's own cards. Bench cards lift off the plate because each one is a
    stage you act in; these two are the furniture around it, so they keep the
@@ -284,6 +290,12 @@ body {
 .side-card input[type=file] {
   width: 100%; margin-bottom: var(--s-1);
   font: var(--t-xs)/1.5 var(--sans); color: var(--ink-soft);
+}
+/* Naming a file, not a knob: sentence case and normal weight, so the two of
+   them read as parts of the act the uppercase label above them names. */
+.side-card label.file-label {
+  margin: var(--s-2) 0 var(--s-px); font: 400 var(--t-xs)/1.4 var(--sans);
+  text-transform: none; letter-spacing: 0; color: var(--ink-soft);
 }
 
 /* Drawn only over a narrow viewport, and only while the drawer is open. */

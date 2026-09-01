@@ -26,8 +26,40 @@ decision to you.
   launch.
 
 **Who it is for.** Engineers and students building a RAG system over their
-own documents who need evidence for a design decision, and reviewers who
-want to audit how an answer was produced.
+own documents who need evidence for a design decision.
+
+## Quick start
+
+Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), and Node.js for
+the browser-contract tests. Docker Compose is optional.
+
+```sh
+uv sync --extra local-embeddings
+cp .env.example .env
+uv run raglab
+```
+
+Open <http://localhost:9002> — the panel at `/`, the Inspector at
+`/inspector`, the board at `/leaderboard`. With `RAGLAB_DEV_KEY` set in `.env`,
+`/dev/trace` shows every widget conversation step by step — it asks for the
+key on the page.
+
+The default backend is local Ollama:
+
+```sh
+ollama pull 4skl/gemma4-e2b-mtp
+```
+
+Set `RAGLAB_LLM` in `.env` to choose another backend:
+
+- `ollama` — local model server; set `RAGLAB_MODEL` if needed.
+- `openrouter` — remote model; set `OPENROUTER_API_KEY`.
+- `claude` or `codex` — a locally installed and authenticated CLI.
+- `fake` — offline test backend only.
+
+The first local index build downloads the embedding model, approximately
+2.2 GB. The panel can start before a model is available; answering and judging
+require a working backend.
 
 ## Overview
 
@@ -67,39 +99,6 @@ scripts/              the release script and the git hooks that enforce the
 
 Tests are colocated — each section's `tests/` folder holds its own — and
 `src/raglab/tests/test_conventions.py` holds every repo-wide guard.
-
-## Quick start
-
-Requirements: Python 3.13, [uv](https://docs.astral.sh/uv/), and Node.js for
-the browser-contract tests. Docker Compose is optional.
-
-```sh
-uv sync --extra local-embeddings
-cp .env.example .env
-uv run raglab
-```
-
-Open <http://localhost:9002> — the panel at `/`, the Inspector at
-`/inspector`, the board at `/leaderboard`. With `RAGLAB_DEV_KEY` set in `.env`,
-`/dev/trace` shows every widget conversation step by step — it asks for the
-key on the page.
-
-The default backend is local Ollama:
-
-```sh
-ollama pull 4skl/gemma4-e2b-mtp
-```
-
-Set `RAGLAB_LLM` in `.env` to choose another backend:
-
-- `ollama` — local model server; set `RAGLAB_MODEL` if needed.
-- `openrouter` — remote model; set `OPENROUTER_API_KEY`.
-- `claude` or `codex` — a locally installed and authenticated CLI.
-- `fake` — offline test backend only.
-
-The first local index build downloads the embedding model, approximately
-2.2 GB. The panel can start before a model is available; answering and judging
-require a working backend.
 
 ## Run an experiment
 
@@ -258,7 +257,7 @@ That shape was chosen against the alternatives, not by default.
 | **Reflection / critic loop** | A second model pass grades the first answer and it is rewritten. | Rejected for the answer, used elsewhere. Self-grading doubles the cost and asks the model to be its own judge, which is exactly what this project refuses to do for experiments. The honesty rules are enforced deterministically instead — the tool-hop guard, the provenance check that refuses to file a memory under the wrong dataset, and the length cap. Two *separate* structured calls do exist around the turn: the memory policy that decides whether anything may be stored, and the summary writer that runs after the answer is delivered. |
 | **Autonomous / goal-driven agent** | Given an objective, it acts until it is met — here, launching experiments on its own. | Rejected on purpose. The product rule is that the human decides what to run. The helper reads and advises; the Build and Run buttons stay with the reader. |
 
-Two footnotes a reviewer should have:
+Two implementation details worth knowing:
 
 - **The CLI path is not an agent at all.** `claude` and `codex` run as one
   subprocess per call with the knowledge base inlined into the prompt, because

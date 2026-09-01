@@ -7,7 +7,7 @@
 CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap', 'message', 'turn-pair',
             'session')
 # Chunkers that read chunk_chars/overlap, per chunking_strategies.py's own branches — the
-# rest emit one piece per message, pair or day and ignore both numbers.
+# rest emit one piece per part, pair or document and ignore both numbers.
 CHAR_SIZED_CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap')
 OVERLAP_CHUNKERS = ('fixed-overlap',)
 # fastembed (its own ONNX list) and sentence-transformers (any HuggingFace

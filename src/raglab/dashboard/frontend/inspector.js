@@ -192,7 +192,7 @@ let FOLLOWED_DATASET = '';
 // --- which direction the corpus reads ---
 // This page used to answer that with a hardcoded rtl written into fourteen template
 // strings and a Persian face pinned into four CSS rules, because the first
-// corpus was a Farsi diary. Four of the five bundled corpora are German or
+// corpus was a Farsi diary. Five of the seven bundled corpora are German or
 // English, and every one of them rendered right-to-left in Vazirmatn with its
 // chunk column against the wrong edge. The dataset has always known its
 // language; `/api/groundtruth` says so now, and this is the page asking.
@@ -302,8 +302,9 @@ function renderGroundTruth(body) {
     const row = document.createElement('div');
     row.className = 'gt-row';
     // Label above its text, never beside it. A label set inline with a
-    // right-aligned Farsi block ends up at the opposite edge of the row from the
-    // thing it labels, with the width of the page in between.
+    // right-aligned block — which is what a right-to-left corpus renders —
+    // ends up at the opposite edge of the row from the thing it labels, with
+    // the width of the page in between.
     const field = (label, text, corpusText) => text
       ? `<div class="gt-field"><div class="qh-label">${label}</div>`
         + `<div${corpusText ? ` dir="${CORPUS_DIR}"` : ''}>${escapeHtml(text)}</div></div>` : '';
@@ -378,7 +379,8 @@ function renderChunkGroups(container, groups) {
       const line = document.createElement('div');
       line.className = 'chunk-line';
       // The number is a Latin marker on its own line rather than a prefix inside
-      // the Farsi string, where bidi puts it at whichever edge the run ends on.
+      // the corpus's own text, where bidi puts it at whichever edge the run
+      // ends on.
       line.innerHTML = `<div class="chunk-no">chunk ${i + 1}</div>`
         + `<div dir="${CORPUS_DIR}">${escapeHtml(c.text)}</div>`;
       det.appendChild(line);

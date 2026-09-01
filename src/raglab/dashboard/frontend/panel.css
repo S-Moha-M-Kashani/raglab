@@ -469,7 +469,6 @@ p.explain {
 details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs); }
 .right { margin-left: auto; }
 .hidden { display: none; }
-.fa { direction: rtl; text-align: right; font-family: "Vazirmatn", Tahoma, sans-serif; }
 .section-meta { font: var(--t-xs)/1.5 var(--mono); color: var(--ink-soft); }
 .prose { font-size: var(--t-xs); line-height: 1.55; color: var(--ink-soft);
          margin: var(--s-px) 0 var(--s-3); max-width: 92ch; }

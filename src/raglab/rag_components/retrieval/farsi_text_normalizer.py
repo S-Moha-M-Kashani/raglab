@@ -1,9 +1,9 @@
 """Persian text normalisation and tokenisation for BM25, the lexical reranker,
-and the time filter — the same tokeniser Lodestar's retrieval uses.
+and the time filter — the same tokeniser the production assistant's retrieval uses.
 Two texts a reader would call identical must tokenise identically.
 """
-# Vendored from lodestar_brain/farsi_text_normalizer.py at 057a755 — copied, not imported,
-# so it can drift from Lodestar's tokeniser without anything noticing.
+# Vendored from the parent assistant's farsi_text_normalizer.py — copied, not imported,
+# so it can drift from that tokeniser without anything noticing.
 
 import re
 import unicodedata

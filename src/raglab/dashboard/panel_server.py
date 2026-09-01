@@ -633,7 +633,7 @@ def create_app() -> FastAPI:
     # This service owns the ledger, so this is the one place a recorder is passed.
     jobs = Jobs(record=ledger.record)
     archives = ImportedArchiveStore()
-    app = FastAPI(title='Lodestar RAG Lab')
+    app = FastAPI(title='RAG Lab')
 
     @app.middleware('http')
     async def never_serve_yesterdays_page(request, call_next):

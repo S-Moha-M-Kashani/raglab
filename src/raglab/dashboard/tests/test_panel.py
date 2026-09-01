@@ -278,9 +278,9 @@ CONVENTIONS = [
     ('panel.js', 'localStorage', None,
      'the grades card and the settings on screen must be remembered across a '
      'reload'),
-    ('panel.js', 'lodestar:raglab-last-run', None,
+    ('panel.js', 'raglab:last-run', None,
      'the last experiment must be remembered by id'),
-    ('panel.js', 'lodestar:raglab-config', None,
+    ('panel.js', 'raglab:config', None,
      'the settings on screen must be remembered too'),
     ('panel.js', 'restoreLastRun', None,
      'the remembered run must be re-read by id from the service, or a run '
@@ -382,7 +382,7 @@ CONVENTIONS = [
     ('widget.js', 'widget-empty', None,
      'the empty log offers four questions and clears them on the first '
      'thing said'),
-    ('widget.js', 'lodestar:raglab-widget-size', None,
+    ('widget.js', 'raglab:widget-size', None,
      'an adjusted window is a preference, not a gesture, and survives a '
      'reload under the same prefix as the settings and the last run'),
     ('widget.js', 'setPointerCapture', None,

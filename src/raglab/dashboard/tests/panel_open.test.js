@@ -149,14 +149,14 @@ function panelPage({ search = '', initialSavedConfig = null,
   // of it, as opposed to `openHandedExperiment`'s.
   const storage = new Map();
   if (initialSavedConfig) {
-    storage.set('lodestar:raglab-config', JSON.stringify(initialSavedConfig));
+    storage.set('raglab:config', JSON.stringify(initialSavedConfig));
   }
   // A remembered backend ('' is the lab-boot one). With nothing saved at all,
   // boot() treats the page as a first visit and applies DEFAULT_MODE's own
   // preset before anything else happens — a test whose claim needs the panel
   // at the *served* defaults seeds this to opt out of that preset.
   if (initialSavedMode !== null) {
-    storage.set('lodestar:raglab-mode', JSON.stringify(initialSavedMode));
+    storage.set('raglab:mode', JSON.stringify(initialSavedMode));
   }
 
   const sandbox = {
@@ -298,7 +298,7 @@ test('a fresh page load leaves no poison behind for the next one', async () => {
   // were hardened) must not keep reintroducing it on every later boot.
   const page = panelPage({ search: `?experiment=${EXPERIMENT_ID}` });
   await page.settled;
-  const saved = JSON.parse(page.sandbox.localStorage.getItem('lodestar:raglab-config'));
+  const saved = JSON.parse(page.sandbox.localStorage.getItem('raglab:config'));
   assert.equal('key_facts_judge' in saved.generation, false);
   assert.equal('fact_judge' in saved.generation, true);
 });

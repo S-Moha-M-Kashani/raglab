@@ -225,7 +225,7 @@ def create_inspector_app() -> FastAPI:
     # No recorder: "the Inspector writes nothing" is what makes it safe to
     # point at a lab that is running.
     jobs = Jobs()
-    app = FastAPI(title='Lodestar RAG Lab Inspector')
+    app = FastAPI(title='RAG Lab Inspector')
 
     @app.middleware('http')
     async def never_serve_yesterdays_page(request, call_next):

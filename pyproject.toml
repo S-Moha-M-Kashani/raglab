@@ -1,7 +1,17 @@
 [project]
 name = "raglab"
-version = "0.32.1"
+version = "0.33.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
+readme = "README.md"
+authors = [{ name = "Moha Kashani", email = "s.moha.m.kashani@gmail.com" }]
+license = { file = "LICENSE" }
+keywords = ["rag", "retrieval", "evaluation", "ragas", "langgraph"]
+classifiers = [
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3.13",
+  "Intended Audience :: Developers",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.13"
 dependencies = [
   "fastapi>=0.115",
@@ -88,6 +98,9 @@ semantic = ["fastembed>=0.7"]
 # HuggingFace checkpoints fastembed does not serve. The default embedder needs
 # this — see README's launch line and tests/test_conventions.py.
 local-embeddings = ["sentence-transformers>=3.0"]
+
+[project.urls]
+Repository = "https://github.com/S-Moha-M-Kashani/raglab"
 
 [project.scripts]
 raglab = "raglab.dashboard.cli.serve:panel"

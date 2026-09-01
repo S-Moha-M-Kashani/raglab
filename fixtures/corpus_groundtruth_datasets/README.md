@@ -18,8 +18,11 @@ A dataset is exactly two JSON files, joined by an id each one declares:
   `expected_answer` (what to say) and `relevant_corpus_documents` (what to
   retrieve, quoted as `evidence`).
 
-There is no third shape. `diary-fa`, the bundled default, is an ordinary pair
-like the other four — no native schema, no special-cased loader. Every pair
+There is no third shape. `diary-en`, the panel default, is an ordinary pair
+like the other six — no native schema, no special-cased loader. The two
+diaries (`diary-en` and its Farsi original `diary-fa`) are model-generated
+fiction: every event, person, and recurring thread in them is invented, and
+so is every name. Every pair
 is checked, in full, against `schema_corpus.json` and `schema_groundtruth.json`
 in this same folder — the machine-checked contract, run through the
 `jsonschema` library plus the handful of cross-file rules a JSON Schema

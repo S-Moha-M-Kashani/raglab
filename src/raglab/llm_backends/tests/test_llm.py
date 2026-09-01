@@ -1,4 +1,4 @@
-"""The lab's own chat-model seam, after the move off lodestar_brain."""
+"""The lab's own chat-model seam, after the extraction from the production assistant."""
 from dataclasses import dataclass
 
 import pytest

@@ -1,0 +1,57 @@
+Copyright (c) 2026 Moha Kashani. All Rights Reserved.
+
+PROPRIETARY LICENSE — the RAG lab (raglab)
+
+This software — the RAG lab ("raglab"), including its source code, its
+fixtures and bundled corpora, its documentation, and every other file in
+this repository — is the exclusive property of Moha Kashani ("the Author").
+It is published on GitHub solely for portfolio and demonstration purposes;
+publication is not a grant of any right.
+
+RESERVED RIGHTS
+
+All rights are expressly reserved by the Author. Without the Author's
+prior written permission, no person or entity may:
+
+  1. Use this software or any portion of it in any project, product,
+     or service, whether commercial or non-commercial — including
+     running it as a service, or reusing its pipeline, evaluation
+     harness, prompts, or datasets.
+
+  2. Copy, reproduce, or extract any portion of this repository,
+     including the prompt fixtures, skill files, and corpus/ground-truth
+     datasets shipped under `fixtures/`.
+
+  3. Modify, adapt, translate, or create derivative works based on
+     this code or its bundled data.
+
+  4. Distribute, sublicense, publish, transmit, or otherwise transfer
+     this software or any portion of it.
+
+  5. Reverse engineer, decompile, or disassemble this software, except
+     to the extent such activity is expressly permitted by applicable
+     law notwithstanding this limitation.
+
+  6. Use this repository or any portion of it as training data for a
+     machine-learning model, or include it in a dataset assembled for
+     that purpose.
+
+PERMITTED USE
+
+Viewing this repository for personal educational reference is permitted,
+provided no portion of it is copied, stored, or reproduced beyond what a
+web browser or Git client ordinarily caches in the course of viewing.
+
+NO WARRANTY
+
+This software is provided "as is", without warranty of any kind, express
+or implied, including but not limited to the warranties of
+merchantability, fitness for a particular purpose, and non-infringement.
+In no event shall the Author be liable for any claim, damages, or other
+liability arising from, out of, or in connection with the software or the
+use of or inability to use the software.
+
+PERMISSION REQUESTS
+
+To request permission for any use not covered above, contact the Author:
+s.moha.m.kashani@gmail.com

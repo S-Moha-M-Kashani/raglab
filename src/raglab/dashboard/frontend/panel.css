@@ -455,10 +455,6 @@ button:disabled { opacity: .4; cursor: default; }
 .rag-field-off button.why, .rag-field-off .why-term {
   color: var(--ink-off); border-bottom-color: var(--rule-soft);
 }
-.rag-field-off .rag-when-dep {
-  display: block; font-style: italic; font-size: var(--t-xs);
-  color: var(--ink-soft); margin-top: var(--s-1);
-}
 
 /* The '!' mark itself — its box, its 24×24 target and its hover — is in
    chrome.css, shared with the Inspector, which draws the same one. What is

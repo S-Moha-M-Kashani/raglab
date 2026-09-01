@@ -921,13 +921,21 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
     # this is a convention test
-    """Six page-level bands set their own max-width: the banner, the status
-    rail, the capability chips and main in panel.css, the top bar and the
-    context scope in chrome.css. They are one band at six widths and must read
-    from one token, or the next one added drifts. Counted per sheet, each
-    against its own number: a count over both sheets together passes with one
-    band gone and another added, which is the failure this pins."""
-    bands = {'panel.css': 4, 'chrome.css': 2}
+    """Seven page-level bands set their own max-width: the banner, the status
+    rail, the capability chips, `main` and the two-column page in panel.css,
+    the top bar and the context scope in chrome.css. They are one band at
+    seven widths and must read from one token, or the next one added drifts.
+    Counted per sheet, each against its own number: a count over both sheets
+    together passes with one band gone and another added, which is the failure
+    this pins.
+
+    `.page` is the fifth in panel.css and it is the setup panel's arrival: the
+    Laboratory is two columns now — the panel and the bench — so the band that
+    centres the page is the grid holding both, and `main` is one column of it.
+    The bare `main` rule keeps its own band all the same, because the
+    leaderboard reads this sheet too and its `main` is still the whole page;
+    `.page > main` resets it for this surface only."""
+    bands = {'panel.css': 5, 'chrome.css': 2}
     for sheet, expected in bands.items():
         found = panel_texts[sheet].count('max-width: var(--measure)')
         assert found == expected, (

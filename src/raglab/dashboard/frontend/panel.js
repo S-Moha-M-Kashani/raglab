@@ -586,6 +586,61 @@ function applyDefaults(d) {
   }
 }
 
+// --- the setup panel --------------------------------------------------------
+// The left column's one piece of state: open or collapsed. It lives in an
+// attribute on <html> rather than a class on the aside, for the same reason
+// the theme does — the head's inline script has to set it before the first
+// paint, and at that point the aside does not exist yet. CSS reads the
+// attribute; this keeps the key and `aria-expanded` in step with it.
+//
+// The key is a bare string, not JSON: the inline copy in the head reads it
+// too, and a one-line script in a <head> should not have to parse anything.
+// A per-viewer convenience and nothing more — no run, no ledger row, no
+// artifact ever records which way a reader left this panel.
+const SIDEBAR_KEY = 'raglab-sidebar';
+// Same number as the CSS breakpoint below which the panel becomes a drawer.
+// Two copies of one number, which is one too many, but the alternative is
+// `matchMedia` in the head before the stylesheet has arrived.
+const SIDEBAR_WIDE = 1024;
+
+function sidebarState() {
+  const stamped = document.documentElement.dataset.sidebar;
+  if (stamped === 'open' || stamped === 'collapsed') return stamped;
+  // Storage threw for the head's script too, so nothing was stamped: fall
+  // back to the same reading it would have made.
+  return window.innerWidth >= SIDEBAR_WIDE ? 'open' : 'collapsed';
+}
+
+// `remember` is false for the one call that only catches the button up with
+// what the head already stamped: writing there would turn a width the reader
+// happens to be at into a choice they never made, and a wide-screen 'open'
+// stored that way is exactly what the head's narrow rule exists to ignore.
+function applySidebar(state, remember = true) {
+  document.documentElement.dataset.sidebar = state;
+  $('sidebar-toggle').setAttribute('aria-expanded', String(state === 'open'));
+  if (!remember) return;
+  try {
+    localStorage.setItem(SIDEBAR_KEY, state);
+  } catch (e) { /* private browsing: applied for this tab, not remembered */ }
+}
+
+$('sidebar-toggle').onclick = () => {
+  applySidebar(sidebarState() === 'open' ? 'collapsed' : 'open');
+};
+// Only ever visible over a narrow viewport, where the open panel is a drawer
+// covering the bench: a click outside it means "give me the bench back".
+$('sidebar-scrim').onclick = () => applySidebar('collapsed');
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || sidebarState() !== 'open') return;
+  // The wide layout is a column, not an overlay — Escape closing it there
+  // would take a panel nothing is covering away from a reader who was
+  // dismissing a popover.
+  if (window.innerWidth < SIDEBAR_WIDE) applySidebar('collapsed');
+});
+// The attribute is already stamped; this is what makes the button agree with
+// it on the first frame rather than after the first click.
+applySidebar(sidebarState(), false);
+
 // --- what survives a reload -------------------------------------------------
 // The readings card is only ever filled by a finishing job or a leaderboard
 // click, so without this a reload leaves it blank and every control back at

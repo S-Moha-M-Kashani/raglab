@@ -10,6 +10,15 @@
      between the three surfaces. Inline because a separate file is a request,
      and the flash lasts exactly as long as that request. -->
 <script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
+<!-- The setup panel's state, stamped for the same reason and in the same
+     place: panel.js owns the toggle, and this owns only the first frame —
+     read from the foot of the page instead and a reader who collapsed the
+     panel watches it fold away on every load. One key and two values. A wide
+     viewport gets the remembered choice, open by default; a narrow one gets
+     it shut, because there the panel is a drawer over the bench and a drawer
+     that greets you open is a page you have to dismiss before you can read
+     it. -->
+<script>try{var s=localStorage.getItem('raglab-sidebar');document.documentElement.dataset.sidebar=window.innerWidth>=1024?(s==='collapsed'?'collapsed':'open'):'collapsed'}catch(e){}</script>
 <!-- Design tokens shared with the Inspector, now the same origin; before
      panel.css so its overrides still win. -->
 <link rel="stylesheet" href="/tokens.css">
@@ -118,6 +127,34 @@
     <span id="corpus"></span>
   </div>
 </div>
+
+<!-- Two columns, and the split between them is one question: is this control
+     about the experiment on screen, or about this installation? The bench on
+     the right is the pipeline and nothing else. The panel on the left is
+     everything else — bringing a corpus or a recorded experiment in, taking
+     one out, and choosing which model runs which stage. Selecting a dataset
+     stays a bench knob, because it decides what every knob under it means;
+     bringing one in does not. -->
+<div class="page">
+
+<aside class="sidebar" id="sidebar" aria-labelledby="sidebar-title">
+  <div class="sidebar-head">
+    <h2 class="sidebar-title" id="sidebar-title">Setup</h2>
+    <!-- The whole of the collapse: one button, one attribute on <html>, one
+         key. `aria-expanded` is kept in step by panel.js, which is also where
+         the key is written. -->
+    <button class="sidebar-toggle" id="sidebar-toggle" type="button"
+            aria-controls="sidebar" aria-expanded="true"
+            aria-label="Setup panel">
+      <span class="sidebar-chevron" aria-hidden="true">‹</span>
+    </button>
+  </div>
+  <div class="sidebar-body" id="sidebar-body">
+  </div>
+</aside>
+<!-- Only ever drawn over a narrow viewport, where the panel is a drawer
+     rather than a column. Click it and the drawer shuts. -->
+<div class="sidebar-scrim" id="sidebar-scrim"></div>
 
 <main id="main">
 <div class="bench">
@@ -388,6 +425,7 @@
        has finished. -->
 </div>
 </main>
+</div>
 
 <!-- ── the status rail ──────────────────────────────────────────────────────
      What the header used to shout, reporting quietly from the foot of the

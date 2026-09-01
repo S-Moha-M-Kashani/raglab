@@ -967,7 +967,7 @@ let liveDatasetBeforeArchive = '';
 let activeExperimentId = null;
 let recordLoadingId = null;
 let recordRequestGeneration = 0;
-const RECORDED_EXPERIMENT_KEY = 'lodestar:raglab-inspector-experiment';
+const RECORDED_EXPERIMENT_KEY = 'raglab:inspector-experiment';
 
 function rememberedExperiment() {
   try { return localStorage.getItem(RECORDED_EXPERIMENT_KEY); }

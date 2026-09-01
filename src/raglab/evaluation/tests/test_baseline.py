@@ -16,7 +16,7 @@ def test_the_preset_is_a_dated_snapshot_and_says_so():
     assert 'shipped assistant' in baseline.LABEL
 
 
-def test_the_preset_mirrors_what_lodestar_shipped():
+def test_the_preset_mirrors_what_the_production_assistant_shipped():
     # this is a unit test
     """Two honest differences from the sweep's own winner: fixed-overlap
     500/100 rather than semantic-drift, and no contextual header — the label
@@ -77,7 +77,7 @@ def test_the_snapshot_does_not_mutate_the_defaults_it_was_given():
 def test_the_shipped_settings_archive_is_a_credential_free_snapshot():
     # this is a unit test
     archived = json.loads((config.ROOT / 'fixtures' /
-                          'loadstar-rag-setting.json').read_text(encoding='utf-8'))
+                          'production_baseline_settings.json').read_text(encoding='utf-8'))
     assert archived['format'] == 'raglab-experiment'
     assert archived['version'] == 1
     assert 'evaluation' not in archived

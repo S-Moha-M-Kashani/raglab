@@ -5,7 +5,7 @@ measurement. That claim is worth exactly as much as the suite behind it, so this
 runner refuses to open the panel on code whose tests do not pass: a green
 terminal above the URL is the point, not a convenience.
 
-Was `scripts/lab.mjs` in the Lodestar repository, where it also had to avoid
+Was `scripts/lab.mjs` in the parent repository this lab was extracted from, where it also had to avoid
 respelling a uvicorn line carrying four version pins and an extra. Those are in
 `uv.lock` and `serve.py` now; what remains worth not repeating is the port.
 """

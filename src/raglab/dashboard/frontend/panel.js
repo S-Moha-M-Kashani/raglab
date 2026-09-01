@@ -589,10 +589,10 @@ function applyDefaults(d) {
 // --- what survives a reload -------------------------------------------------
 // The readings card is only ever filled by a finishing job or a leaderboard
 // click, so without this a reload leaves it blank and every control back at
-// its served default. Remembered under the board's own `lodestar:` prefix.
-const SAVED_CONFIG = 'lodestar:raglab-config';
-const SAVED_RUN = 'lodestar:raglab-last-run';
-const SAVED_MODE = 'lodestar:raglab-mode';
+// its served default. Remembered under the board's own `raglab:` prefix.
+const SAVED_CONFIG = 'raglab:config';
+const SAVED_RUN = 'raglab:last-run';
+const SAVED_MODE = 'raglab:mode';
 
 function saved(key) {
   try {

@@ -9,17 +9,19 @@ import uvicorn
 
 PANEL_PORT = 9002
 
-# Lodestar's allocation on this machine, copied on 2026-08-11 when the lab moved
-# out. Copied, not read: that repository is no longer a dependency, so nothing
-# here can notice if these change. See test_conventions.py for what that costs.
+# Ports already bound on the development machine by the production assistant
+# this lab was extracted from and its neighbours, copied by hand on 2026-08-11
+# when the lab moved out. Copied, not read: that system is no longer a
+# dependency, so nothing here can notice if these change. See
+# test_conventions.py for what that costs.
 RESERVED = {
-    3000: 'the Lodestar board',
-    3001: 'the Lodestar test board',
+    3000: "the production assistant's board",
+    3001: "the production assistant's test board",
     8001: 'the external vectordb-lab stack',
     8002: 'the external vectordb-lab stack',
-    8003: "Lodestar's Chroma",
-    8004: "Lodestar's test Chroma",
-    9000: 'the Lodestar brain',
+    8003: "the production assistant's Chroma",
+    8004: "the production assistant's test Chroma",
+    9000: "the production assistant's brain service",
     9001: 'the paired test brain',
 }
 

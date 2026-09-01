@@ -1065,8 +1065,8 @@
   // The window is anchored bottom-right, so growing it means gaining width and
   // height while the anchor holds — which is what dragging those two edges
   // outward looks like. The size is a preference, not a gesture, so it is
-  // remembered under the same `lodestar:` prefix as the settings and the last run.
-  const SAVED_WIDGET_SIZE = 'lodestar:raglab-widget-size';
+  // remembered under the same `raglab:` prefix as the settings and the last run.
+  const SAVED_WIDGET_SIZE = 'raglab:widget-size';
 
   // Open or shut travels with the reader, the way the size already does. The
   // point of the helper being on three surfaces is that crossing between them

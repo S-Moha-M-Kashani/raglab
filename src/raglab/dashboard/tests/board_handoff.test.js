@@ -77,7 +77,7 @@ function openLink(experimentId) {
 }
 const elsewhere = { closest: () => null };
 
-const slot = (kept) => JSON.parse(kept['lodestar:raglab-open-experiment']);
+const slot = (kept) => JSON.parse(kept['raglab:open-experiment']);
 
 // This is a unit test.
 test('opening an experiment hands it to the Laboratory as well', () => {
@@ -97,7 +97,7 @@ test('the open cell stays a link the browser follows', () => {
     preventDefault: () => { prevented = true; },
   });
   assert.equal(prevented, false, 'the Inspector link must still be a link');
-  assert.ok(kept['lodestar:raglab-open-experiment'], 'and the slot still written');
+  assert.ok(kept['raglab:open-experiment'], 'and the slot still written');
 });
 
 // This is a unit test.
@@ -107,16 +107,16 @@ test('opening the same experiment twice is heard twice', () => {
   // the same bytes would leave the second one silent.
   const { fire, kept } = board();
   fire('click', { target: openLink('exp-1') });
-  const first = kept['lodestar:raglab-open-experiment'];
+  const first = kept['raglab:open-experiment'];
   fire('click', { target: openLink('exp-1') });
-  assert.notEqual(kept['lodestar:raglab-open-experiment'], first);
+  assert.notEqual(kept['raglab:open-experiment'], first);
 });
 
 // This is a unit test.
 test('clicking anything else on the board hands over nothing', () => {
   const { fire, kept } = board();
   fire('click', { target: elsewhere });
-  assert.equal(kept['lodestar:raglab-open-experiment'], undefined);
+  assert.equal(kept['raglab:open-experiment'], undefined);
 });
 
 // This is a unit test.

@@ -21,7 +21,7 @@
 // the reader is already looking at the experiment and wants the panel nearer to
 // it — so this path applies what it can and says what it could not.
 const ExperimentHandoff = (() => {
-  const KEY = 'lodestar:raglab-open-experiment';
+  const KEY = 'raglab:open-experiment';
   const GROUPS = Object.freeze(['index', 'retrieval', 'generation']);
 
   // --- the slot -------------------------------------------------------------

@@ -452,7 +452,9 @@ button:disabled { opacity: .4; cursor: default; }
   color: var(--ink-off); background: var(--plate);
   border-color: var(--rule-soft); cursor: not-allowed;
 }
-.rag-field-off button.why { color: var(--ink-off); border-color: var(--rule-soft); }
+.rag-field-off button.why, .rag-field-off .why-term {
+  color: var(--ink-off); border-bottom-color: var(--rule-soft);
+}
 .rag-field-off .rag-when-dep {
   display: block; font-style: italic; font-size: var(--t-xs);
   color: var(--ink-soft); margin-top: var(--s-1);

@@ -167,3 +167,158 @@ function mountScrollRail(region) {
   measure();
   return measure;
 }
+
+
+// --- one explainer, read in two lengths ------------------------------------
+// Every knob and every metric on these pages carries a sentence, and until now
+// the only way to see it was to click a `!` and read the whole thing. Forty of
+// those marks on one knob surface is a page speckled with punctuation, and the
+// full paragraph is more than a reader wants for "what is Candidates?".
+//
+// So the explainer is read in two lengths, which is the pattern IBM's Carbon
+// calls a *definition tooltip* (a term with a dotted underline; hover or focus
+// shows a short definition, read-only) sitting in front of its *interactive*
+// one (opened by a click, and it stays until dismissed). The brief comes from
+// the service — the opening sentence of the same text, taken once server-side,
+// so the two lengths cannot come to disagree.
+//
+// This half is the hover. The click is each page's own, because *where* the
+// full text lands is a page decision the pages already make differently: the
+// lab puts it after the whole field, the Inspector at the end of the metrics
+// row so opening one cannot push the scores out of line.
+//
+// Rules taken from the pattern rather than invented here: a short delay on
+// hover so the box does not flash at a mouse crossing the page, no delay at
+// all on keyboard focus, `aria-describedby` while it is open so a screen
+// reader gets the sentence, and — because a hover is not available to every
+// reader — nothing is *only* reachable this way: the same trigger opens the
+// full text with Enter.
+const HELP_HOVER_MS = 140;
+// Long enough to cross the gap between a trigger and the box under it, short
+// enough that the box does not linger over the control it explains.
+const HELP_LEAVE_MS = 160;
+const HELP_TRIGGERS = '.why, .why-term';
+
+const LabHelp = {
+  // Each page sets these two: a topic key -> its one sentence, and the same
+  // key -> the whole note. The defaults keep a page that never sets them
+  // silent rather than broken.
+  brief: () => '',
+  full: () => '',
+  box: null,
+  trigger: null,
+  timer: null,
+  inside: false,
+};
+
+// A trigger says its own sentence if it carries one (a board row's error text
+// has no topic to look up); otherwise the page resolves its topic; otherwise
+// the first sentence of the full text is the honest fallback.
+function helpBrief(trigger) {
+  const own = trigger.dataset.brief;
+  if (own) return own;
+  const resolved = trigger.dataset.topic ? LabHelp.brief(trigger.dataset.topic) : '';
+  if (resolved) return resolved;
+  const full = trigger.dataset.help || '';
+  return full.split(/(?<=[.!?])\s/)[0] || '';
+}
+
+function helpBox() {
+  if (LabHelp.box) return LabHelp.box;
+  const box = document.createElement('div');
+  box.className = 'help-brief';
+  box.id = 'help-brief';
+  box.setAttribute('role', 'tooltip');
+  box.hidden = true;
+  // The box is a click target as well as a hover one: the reader who is
+  // already looking at the sentence should be able to open the rest of it
+  // where their eyes are, rather than travelling back to the trigger.
+  box.addEventListener('mouseenter', () => { LabHelp.inside = true; });
+  box.addEventListener('mouseleave', () => { LabHelp.inside = false; hideHelpBrief(); });
+  box.addEventListener('click', () => {
+    const trigger = LabHelp.trigger;
+    hideHelpBrief(true);
+    if (trigger) trigger.click();
+  });
+  document.body.appendChild(box);
+  LabHelp.box = box;
+  return box;
+}
+
+// Above the trigger when there is room, below it when there is not, and never
+// off the side. Above by preference, because a knob's name sits directly on top
+// of the knob: a box opening downwards lands on the control the reader is about
+// to change, and they then have to wait for it to close before they can reach
+// it. Same reasoning as `placeReveal`, and deliberately not the same function:
+// that one places a box against a table cell inside a scroll region.
+function placeHelpBrief(trigger, box) {
+  const at = trigger.getBoundingClientRect();
+  const gap = 6;
+  const height = box.offsetHeight;
+  const above = at.top - gap - height;
+  box.style.top = `${above >= gap ? above : at.bottom + gap}px`;
+  box.style.left = `${Math.max(gap,
+    Math.min(at.left, window.innerWidth - box.offsetWidth - gap))}px`;
+}
+
+// Whether the click has anything left to say. A trigger carrying its own text
+// answers for itself; otherwise the page resolves the topic.
+function helpHasMore(trigger, brief) {
+  const full = trigger.dataset.help
+    || (trigger.dataset.topic ? LabHelp.full(trigger.dataset.topic) : '');
+  return Boolean(full) && full.trim() !== brief.trim();
+}
+
+function showHelpBrief(trigger) {
+  const text = helpBrief(trigger);
+  if (!text) return;
+  const box = helpBox();
+  box.textContent = text;
+  box.dataset.more = String(helpHasMore(trigger, text));
+  box.hidden = false;
+  LabHelp.trigger = trigger;
+  trigger.setAttribute('aria-describedby', 'help-brief');
+  placeHelpBrief(trigger, box);
+}
+
+function hideHelpBrief(now = false) {
+  clearTimeout(LabHelp.timer);
+  const close = () => {
+    if (LabHelp.inside && !now) return;
+    if (LabHelp.box) LabHelp.box.hidden = true;
+    if (LabHelp.trigger) LabHelp.trigger.removeAttribute('aria-describedby');
+    LabHelp.trigger = null;
+  };
+  if (now) close();
+  else LabHelp.timer = setTimeout(close, HELP_LEAVE_MS);
+}
+
+function mountHelpBriefs() {
+  document.addEventListener('mouseover', (event) => {
+    const trigger = event.target.closest && event.target.closest(HELP_TRIGGERS);
+    if (!trigger || trigger === LabHelp.trigger) return;
+    clearTimeout(LabHelp.timer);
+    LabHelp.timer = setTimeout(() => showHelpBrief(trigger), HELP_HOVER_MS);
+  });
+  document.addEventListener('mouseout', (event) => {
+    if (event.target.closest && event.target.closest(HELP_TRIGGERS)) hideHelpBrief();
+  });
+  // No delay for a keyboard: a reader who tabbed here asked for it.
+  document.addEventListener('focusin', (event) => {
+    const trigger = event.target.closest && event.target.closest(HELP_TRIGGERS);
+    if (trigger) showHelpBrief(trigger);
+  });
+  document.addEventListener('focusout', (event) => {
+    if (event.target.closest && event.target.closest(HELP_TRIGGERS)) hideHelpBrief(true);
+  });
+  // The brief has said its piece the moment the full text opens.
+  document.addEventListener('click', (event) => {
+    if (event.target.closest && event.target.closest(HELP_TRIGGERS)) hideHelpBrief(true);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hideHelpBrief(true);
+  });
+  window.addEventListener('scroll', () => hideHelpBrief(true), { passive: true });
+}
+
+document.addEventListener('DOMContentLoaded', mountHelpBriefs);

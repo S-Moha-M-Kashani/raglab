@@ -134,7 +134,7 @@ function formatConfig(cfg) {
 // --- What every score means: the '!' marks, reading the lab's own text -------
 // Fetched from /api/explain rather than written here, so this page and the
 // panel on :9002 cannot end up explaining the same metric differently.
-let EXPLAIN = { metrics: [], help: {} };
+let EXPLAIN = { metrics: [], help: {}, brief: {} };
 
 // Which followed job each view is currently drawing. Declared up here because
 // `loadGroundTruth` clears two of these when the fixture lands, and it runs
@@ -156,9 +156,24 @@ function whyText(key) {
 
 function whyMark(key) {
   const label = escapeHtml(measureOf(key).label || key);
+  // `data-topic` as well as `data-why`: the second is this page's own key for
+  // its click handler, the first is what lab.js's hover reads, and they are the
+  // same metric under two names because the shared engine may not learn a
+  // per-page attribute.
   return `<button type="button" class="why" data-why="${escapeHtml(key)}"`
-    + ` aria-label="What is ${label}?">!</button>`;
+    + ` data-topic="metric.${escapeHtml(key)}"`
+    + ` aria-label="What is ${label}?">?</button>`;
 }
+
+// The brief on hover, the whole note on a click — the same two lengths the
+// Laboratory reads, from the same route. The full text here is this page's own
+// assembly (`whyText`), which is the metric's note, formula and source joined
+// to the served help, so the hover's "is there more?" test compares against
+// what the click will actually show.
+LabHelp.brief = (topic) => (EXPLAIN.brief || {})[topic] || '';
+LabHelp.full = (topic) => (topic.startsWith('metric.')
+  ? whyText(topic.slice('metric.'.length))
+  : (EXPLAIN.help || {})[topic] || '');
 
 // One listener for the page: the marks are re-rendered on every poll tick, and
 // a listener per button would leak one per render.

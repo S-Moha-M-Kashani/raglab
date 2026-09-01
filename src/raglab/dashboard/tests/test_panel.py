@@ -7,6 +7,7 @@ import re
 import pytest
 from html import unescape as html_unescape
 
+from raglab.configuration import explainer_assembly as explain
 from raglab.configuration import lab_config as config
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
@@ -690,6 +691,12 @@ CONVENTIONS = [
      "dataset-specific is the served help text's claim "
      "(retrieval.time_filter), not the markup's"),
 ]
+
+
+# Topics whose brief is written rather than taken from the note's opening
+# sentence, read from the one place that declares them — so this file holds no
+# second copy of the list and a topic added there needs no edit here.
+_DECLARED_BRIEFS = set(explain.BRIEF)
 
 
 def test_the_panel_spells_the_built_in_corpus_one_way(panel_texts):
@@ -2089,6 +2096,136 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
         'that belongs in the setup panel')
     for step in ('id="card-index"', 'id="card-retrieval"', 'id="card-generation"'):
         assert step in bench, f'{step} is a pipeline step and stays on the bench'
+
+
+def test_the_retrieval_card_is_ordered_by_the_pipeline_it_drives(panel_texts):
+    # this is a convention test
+    """The knobs are laid out in the order the code runs them, and this reads
+    that order out of the code rather than trusting a list written here.
+
+    `retrieve()` times five stages by name — understand, retrieve, rerank,
+    diversify, grade — and the card's labelled groups are those stages. So the
+    test extracts the stage order from `question_to_answer_pipeline.py` and
+    asserts the card's groups never run backwards against it. Move a stage in
+    the pipeline and this fails: the page is then claiming an order the code
+    does not have."""
+    source = (RAGLAB_DIR / 'rag_components'
+              / 'question_to_answer_pipeline.py').read_text(encoding='utf-8')
+    stages = []
+    for stage in re.findall(r"timings\['(\w+)_ms'\]", source):
+        if stage not in stages:
+            stages.append(stage)
+    assert stages == ['understand', 'retrieve', 'rerank', 'diversify', 'grade',
+                      'answer'], (
+        f'the pipeline times these stages, in this order: {stages} — the map '
+        'below names them, so it has to be told when they change. `answer` is '
+        "the Generation card's, and it is last here for the same reason it is "
+        'last there')
+
+    # Which stage each group belongs to. Two groups share `understand` because
+    # the code's own understand block does both jobs: it rewrites the question
+    # and it decides which layers are eligible, in one pass.
+    group_stage = {
+        'Understand the question': 'understand',
+        'What the search may see': 'understand',
+        'Retrieve &amp; fuse': 'retrieve',
+        'Rerank': 'rerank',
+        'Diversify &amp; select': 'diversify',
+        'Grade': 'grade',
+    }
+    html = panel_texts['index.html']
+    card = html[html.index('id="card-retrieval"'):]
+    card = card[:card.index('</section>')]
+    shown = re.findall(r'group-tag[^>]*>([^<]+)</div>', card)
+    assert shown == list(group_stage), (
+        f'the card names these groups, in this order: {shown} — every one of '
+        'them is a stage the pipeline runs, so the page and the map must agree')
+    order = [stages.index(group_stage[name]) for name in shown]
+    assert order == sorted(order), (
+        'the groups run backwards against the pipeline: the page would be '
+        'telling a reader that one stage happens before a stage it follows')
+
+    # The three knobs the reorder actually moved, each pinned to the stage that
+    # reads it — the rest of the card would pass this test unchanged.
+    def group_of(knob):
+        before = card[:card.index(f'id="{knob}"')]
+        return re.findall(r'group-tag[^>]*>([^<]+)</div>', before)[-1]
+    assert group_of('hyde') == 'Understand the question'
+    assert group_of('summary_boost') == 'Retrieve &amp; fuse', (
+        'the boost multiplies the fused scores before the candidate cut, so it '
+        'belongs to fusion and not to the two scope knobs it used to sit with')
+    assert group_of('k') == 'Diversify &amp; select', (
+        'k is the size of the set MMR selects, which is where the pipeline '
+        'fixes it')
+
+
+def test_the_generation_card_selects_before_it_answers(panel_texts):
+    # this is a convention test
+    """`run_eval` chooses the sample before the index is even asked, so the
+    question count stands above the answerer that will see the contexts."""
+    html = panel_texts['index.html']
+    card = html[html.index('id="card-generation"'):]
+    card = card[:card.index('</section>')]
+    assert card.index('id="limit"') < card.index('id="answerer"'), (
+        'the sample is chosen first — a reader reading down the card is '
+        'reading the order the run happens in')
+
+
+def test_every_explainer_is_read_in_two_lengths(panel_texts, client):
+    # this is a convention test
+    """The `!` beside every knob is gone, and what replaced it is two lengths of
+    one text: hover a knob's own name for a sentence, click it for the whole
+    note. Four claims, because each one on its own is satisfiable while the
+    feature is broken.
+
+    The service serves both lengths under the same keys, from one text
+    (`explain.briefs()` takes the opening sentence of `explain.topics()`), so a
+    brief cannot drift from the note it opens.
+
+    The trigger is the knob's own name, underlined — no mark. A checkbox is the
+    exception and keeps one, because its words are already a click target that
+    toggles it and they cannot also open a sentence.
+
+    The hover lives in `lab.js`, once, for all three surfaces; and it obeys the
+    two rules a hover reveal has to obey to be usable at all — a delay for a
+    pointer crossing the page, none for a reader who tabbed here on purpose."""
+    served = client.get('/api/options').json()
+    assert set(served['brief']) == set(served['help']), (
+        'both lengths, same keys, on the one payload the panel boots from — a '
+        'topic with a note and no brief has nothing to show on hover')
+    for topic, brief in served['brief'].items():
+        assert served['help'][topic].startswith(brief) or topic in _DECLARED_BRIEFS, (
+            f'{topic}: a brief that is not the note\'s own opening sentence '
+            'has to be declared in explain.BRIEF, or it is a second copy '
+            'nobody will keep in step')
+    # The Inspector's half of this claim — its own route, its own marks — is in
+    # test_inspector.py, where an Inspector client exists.
+
+    js = panel_texts['panel.js']
+    assert '>!</button>' not in js, (
+        'the exclamation mark is retired on every trigger this page builds'
+    )
+    assert 'class="why-term"' in js and 'markTerm(label, found.topic)' in js, (
+        "a knob's own name is the trigger now")
+    assert "control.type === 'checkbox'" in js and '>?</button>' in js, (
+        'a checkbox keeps a mark, because underlining words that already '
+        'toggle a box would give one phrase two jobs')
+    assert 'LabHelp.brief = (topic)' in js and 'LabHelp.full = (topic)' in js, (
+        'the page resolves both lengths for the shared hover engine')
+
+    lab = panel_texts['lab.js']
+    assert 'HELP_HOVER_MS' in lab and 'showHelpBrief(trigger)' in lab
+    assert "document.addEventListener('focusin'" in lab, (
+        'a hover-only reveal is a reveal half the readers never get')
+    focus = lab[lab.index("document.addEventListener('focusin'"):]
+    focus = focus[:focus.index('});')]
+    assert 'setTimeout' not in focus, (
+        'no delay on focus: a reader who tabbed to a trigger has already asked')
+    assert "trigger.setAttribute('aria-describedby', 'help-brief')" in lab, (
+        'the sentence has to reach a screen reader, not only an eye')
+    assert "box.dataset.more = String(helpHasMore(trigger, text))" in lab, (
+        'the box offers "more" only when there is more — a brief that is '
+        'already the whole note must not promise a second half')
 
 
 def test_every_step_card_groups_its_knobs_under_labels(panel_texts):

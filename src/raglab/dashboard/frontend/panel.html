@@ -334,31 +334,52 @@
   <section class="card" id="card-retrieval" data-step="retrieval">
     <div class="card-head"><span class="num">2</span><h2 id="head-retrieval">Retrieval</h2></div>
     <p class="card-note" id="note-retrieval"></p>
-    <!-- Four groups, in the order one question travels through them: what the
-         query becomes, what comes back, what survives the sort, and what the
-         summaries above the leaves are allowed to contribute. The knobs are
-         the same knobs, under the same ids — only the order and the labels
-         over them are new. -->
-    <div class="step-tag group-tag lead" data-step="retrieval">Query understanding</div>
+    <!-- Six groups, and the order is the order `retrieve()` runs them in
+         (`question_to_answer_pipeline.py`), not the order they were added to
+         the page: understand the question, decide what the search may see,
+         retrieve and fuse, rerank, diversify down to k, grade. The code times
+         five of those stages by name — understand, retrieve, rerank,
+         diversify, grade — and every stage's knobs sit under it, so a reader
+         scanning down the card is reading the pipeline.
+
+         The one knob that acts in two places is `summary_scope`: it filters
+         what is eligible here, before anything is retrieved, and its
+         "drill-down" value acts once more after grading, expanding a kept
+         summary into its members. It is filed where it first takes effect. -->
+    <div class="step-tag group-tag lead" data-step="retrieval">Understand the question</div>
     <div class="switches">
       <label><input type="checkbox" id="time_filter"> time-scope filter</label>
       <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
       <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
+    </div>
+    <!-- Live only when the index above holds summaries — what retrieval may do
+         with them is decided by whether the build wrote any. Outside the index
+         fingerprint, so all four scopes sweep free against a single build. -->
+    <div class="step-tag group-tag" data-step="retrieval">What the search may see</div>
+    <div class="field">
+      <label>Summary scope</label>
+      <select id="summary_scope"></select>
+    </div>
+    <div class="field">
+      <label>Levels <span class="muted">· blank = all</span></label>
+      <input type="text" id="summary_levels" placeholder="1 2">
     </div>
     <div class="step-tag group-tag" data-step="retrieval">Retrieve &amp; fuse</div>
     <div class="field">
       <label>Retriever</label>
       <select id="retriever"></select>
     </div>
-    <div class="field-row">
-      <div><label>k (contexts)</label><input type="number" id="k" min="1" max="40"></div>
-      <div><label>Candidates</label><input type="number" id="candidates" min="5" max="200" step="5"></div>
-    </div>
     <div class="field">
-      <label>MMR λ (1 = off)</label>
-      <input type="number" id="mmr_lambda" min="0.1" max="1" step="0.05">
+      <label>Candidates</label>
+      <input type="number" id="candidates" min="5" max="200" step="5">
     </div>
-    <div class="step-tag group-tag" data-step="retrieval">Rerank &amp; grade</div>
+    <!-- Applied to the fused scores and before the candidate cut, which is why
+         it is here and not with the two scope knobs above it. -->
+    <div class="field">
+      <label>Summary boost (1 = off)</label>
+      <input type="number" id="summary_boost" min="0.1" max="50" step="0.1">
+    </div>
+    <div class="step-tag group-tag" data-step="retrieval">Rerank</div>
     <div class="field">
       <label>Reranker</label>
       <select id="reranker"></select>
@@ -367,6 +388,12 @@
       <div><label>Rerank depth</label><input type="number" id="rerank_depth" min="5" max="100" step="5"></div>
       <div><label>Half-life (days)</label><input type="number" id="recency_half_life_days" min="7" max="900" step="7"></div>
     </div>
+    <div class="step-tag group-tag" data-step="retrieval">Diversify &amp; select</div>
+    <div class="field-row">
+      <div><label>MMR λ (1 = off)</label><input type="number" id="mmr_lambda" min="0.1" max="1" step="0.05"></div>
+      <div><label>k (contexts)</label><input type="number" id="k" min="1" max="40"></div>
+    </div>
+    <div class="step-tag group-tag" data-step="retrieval">Grade</div>
     <div class="field">
       <label>Relevance gate (enables abstention)</label>
       <select id="grader"></select>
@@ -374,18 +401,6 @@
     <div class="field">
       <label>Grade threshold</label>
       <input type="number" id="grade_threshold" min="0" max="1" step="0.05">
-    </div>
-    <!-- Live only when the index above holds summaries — what retrieval may do
-         with them is decided by whether the build wrote any. Outside the index
-         fingerprint, so all four scopes sweep free against a single build. -->
-    <div class="step-tag group-tag" data-step="retrieval">Summaries</div>
-    <div class="field">
-      <label>Summary scope</label>
-      <select id="summary_scope"></select>
-    </div>
-    <div class="field-row">
-      <div><label>Summary boost (1 = off)</label><input type="number" id="summary_boost" min="0.1" max="50" step="0.1"></div>
-      <div><label>Levels <span class="muted">· blank = all</span></label><input type="text" id="summary_levels" placeholder="1 2"></div>
     </div>
     <!-- Retrieval on its own, over the questions the experiment beside it has
          selected. No answering and no judging, so it is the step you can afford
@@ -404,13 +419,16 @@
     <!-- Two acts and the run's own name: answering the questions, grading the
          answers, and what to call the row that comes out. -->
     <div class="step-tag group-tag lead" data-step="generation">Answering</div>
-    <div class="field">
-      <label>Answerer</label>
-      <select id="answerer"></select>
-    </div>
+    <!-- The sample first, because that is the order `run_eval` works in: the
+         questions are selected before the index is even asked, and only then
+         does the answerer see a context. -->
     <div class="field">
       <label>Questions (0 = all)</label>
       <input type="number" id="limit" min="0" max="200" value="0">
+    </div>
+    <div class="field">
+      <label>Answerer</label>
+      <select id="answerer"></select>
     </div>
     <div class="step-tag group-tag" data-step="generation">Judging</div>
     <div class="switches">

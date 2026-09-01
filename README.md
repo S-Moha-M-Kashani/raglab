@@ -1,28 +1,33 @@
 # RAG lab
 
-## The project
+![Tests](https://github.com/S-Moha-M-Kashani/raglab/actions/workflows/tests.yml/badge.svg)
+![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)
+![License: Proprietary](https://img.shields.io/badge/license-proprietary-lightgrey)
 
-This project presents and refines a flexible RAG laboratory for users who want
-to evaluate RAG approaches against their own corpus and ground-truth dataset,
-with metrics and tables for each step, while leaving the decision to launch a
-new experiment with the user. The laboratory accepts these datasets, runs the
-selected approach, retrieves answers for comparison with the ground truth,
-reports poor results thoroughly, and provides a helper assistant with
-conversation memory, cost tracking, safety guards, and LangSmith tracing. The
-helper responds only when asked, selects tools for the question, and,
-depending on each result, chains another lookup, answers with insights, or
-asks for clarification so the user can decide what to try next. It calls
-OpenRouter and tools for experiment data, per-experiment and long-term memory,
-and the stored RAG skills in `fixtures/skills/`, while reading the corpus,
-ground-truth data, experiment results, metrics, and tables.
+**A retrieval workbench where RAG architecture choices are made by
+measurement, never by taste.**
 
-**Why it is useful.** Chunk size, retriever, reranker, and embedder choices are
-usually made by taste; here they are made by measurement, and the helper turns
-a table of numbers into a next step without ever making that step for you.
+Point it at any corpus with known answers and it will build, run, and score
+whatever pipeline you configure — then show you the evidence and leave the
+decision to you.
 
-**Target users.** Engineers and students building a RAG system over their own
-documents who need evidence for a design decision, and reviewers who want to
-audit how an answer was produced.
+- **Every stage is a knob** — chunker, embedder, summary hierarchy,
+  retriever, fusion, reranker, grader, and generator are all config fields,
+  scored against ground truth by four judged metrics.
+- **Honest rankings** — runs are compared only inside comparability groups
+  (same dataset, question set, and judge), and a winner is never named when
+  the lead is inside the combined error.
+- **Bring your own data** — seven bundled corpus/ground-truth pairs, plus a
+  validated import path for yours.
+- **A helper that never decides for you** — an agentic assistant with
+  conversation memory, token accounting, safety guards, and LangSmith
+  tracing turns a table of numbers into a next step, and reads the stored
+  RAG skills in `fixtures/skills/`; the experiment itself stays yours to
+  launch.
+
+**Who it is for.** Engineers and students building a RAG system over their
+own documents who need evidence for a design decision, and reviewers who
+want to audit how an answer was produced.
 
 ## Overview
 
@@ -33,9 +38,35 @@ preference.
 
 The repository includes seven datasets: `diary-en`, `diary-fa`, `support-en`,
 `meetings-de`, `research-multihop`, `smoke-mini`, and `nosrat-fa`. Each is a
-corpus together with the ground-truth questions a run is scored against. The
-fresh panel default is `diary-en`; `diary-fa` remains the legacy identity for
-older fingerprints.
+corpus together with the ground-truth questions a run is scored against; the
+panel default is `diary-en`.
+
+## Repository layout
+
+```
+src/raglab/
+├── configuration/    the experiment's knob surface: config dataclasses,
+│                     vocabularies, dependencies, and per-knob help text
+├── llm_backends/     the only place a chat client is built; the CLI drivers
+│                     and the model-role catalogue
+├── corpora/          dataset loading, the import contract, and the
+│                     fingerprint-addressed corpus store
+├── rag_components/   the measured pipeline: indexing/, retrieval/, and the
+│                     question-to-answer pipeline
+├── evaluation/       deterministic and RAGAS-judged metrics, the run
+│                     harness, the leaderboard, and the experiment ledger
+├── dashboard/        the served frontend: panel, Inspector, leaderboard,
+│                     and the CLI launchers
+└── agents/           the widget (the panel's helper) and the extra CLI
+                      tools: sweep, judge screening, export
+fixtures/             model-facing prompts, the seven corpus/ground-truth
+                      pairs, and the RAG skills corpus
+scripts/              the release script and the git hooks that enforce the
+                      branch discipline
+```
+
+Tests are colocated — each section's `tests/` folder holds its own — and
+`src/raglab/tests/test_conventions.py` holds every repo-wide guard.
 
 ## Quick start
 
@@ -242,7 +273,7 @@ Two footnotes a reviewer should have:
 
 ## Why not Next.js or Streamlit
 
-The brief's usual stacks were both considered. The stack was chosen the same
+The two obvious alternative stacks were both considered. The stack was chosen the same
 way a chunker is chosen in this lab: by what the change costs in **evidence**,
 not by preference.
 
@@ -273,70 +304,43 @@ cost, and it was weighed rather than dismissed.
 
 ## Limitations and reflection
 
-### Optional tasks implemented
+### Helper capabilities at a glance
 
-**The count: 7 optional tasks fully implemented and 4 more in part — 2 easy,
-3 medium and 2 hard in full, plus 1 easy, 2 medium and 1 hard partially.**
-The bonus criterion asks for two medium and one hard; three medium and two
-hard are here in full. A task is only called *implemented* below if it works
-end to end; anything short of that is marked *partial* and says what is
-missing.
-
-| Difficulty | Fully implemented | Partial | Not built | Offered in total |
-|---|---|---|---|---|
-| Easy | 2 | 1 | 2 | 5 |
-| Medium | 3 | 2 | 3 | 8 |
-| Hard | 2 | 1 | 2 | 5 |
-| **All** | **7** | **4** | **7** | **18** |
-
-**Easy — 2 of 5 in full, 1 partial**
-
-- *Choose from a list of LLMs* — the helper's ⚙ menu offers four models, and
-  the lab's own backend is chosen with `RAGLAB_LLM`.
-- *Interactive help / chatbot guide* — the Ask helper rides all three
-  surfaces, and every knob carries its own help text
+- **Ten function tools** — the project knowledge base, an AST-whitelist
+  calculator, a two-layer skills search and reader, a bilingual embedding
+  probe, long-term memory, conversation recall, and the experiment tools —
+  each described by a reviewed fixture in `fixtures/prompts/`, never by a
+  string buried in code.
+- **Two kinds of memory** — short term is the LangGraph SQLite checkpoint
+  per thread; long term is `dataset_memory`, `global_memory` and
+  `memory_updates`, written only after a policy step accepts the turn.
+- **Multi-model** — OpenRouter, Ollama, the Claude CLI, the Codex CLI, and
+  a `fake` backend that keeps the entire test suite offline.
+- **A deliberate voice** — brief, evidence-bound, refusing to state a number
+  a tool did not return; every knob carries its own help text
   (`knob_help_text.py`, gated by `explain.missing() == []`).
-- *Personality* — **partial.** The helper has one deliberate voice: brief,
-  evidence-bound, refusing to state a number a tool did not return. It is not
-  reader-selectable.
-- *Temperature and max-token sliders* — **not built, on purpose.** A
-  generation setting that changes an answer belongs on the row that records
-  the answer, and the helper writes no row.
+- **Security posture** — a request cap and topic guard, the in-memory-only
+  API key, and a developer trace page that genuinely 404s unless
+  `RAGLAB_DEV_KEY` is set.
+- **Token accounting** — every turn reports its token account and stores it
+  in `widget_turn_log`; it is a bill, never a metric, and no ranking ever
+  reads it.
+- **Agentic retrieval** — the helper retrieves over the skills corpus in two
+  layers: a cheap catalogue search, then full bodies capped at three per
+  call.
+- **Observability** — LangSmith tracing for widget turns only, allowed
+  precisely because the helper sits outside the measured seam.
 
-**Medium — 3 of 8 in full, 2 partial**
-
-- *Token usage and cost* — **partial.** Every turn reports its token account
-  in the widget and stores it in `widget_turn_log`; it is counted in tokens,
-  never converted to money.
-- *Long-term and short-term memory* — both. Short term is the LangGraph
-  SQLite checkpoint per thread; long term is `dataset_memory`, `global_memory`
-  and `memory_updates`, written only after a policy step accepts the turn.
-- *Five or more function tools* — ten. **The UI toggle for enabling and
-  disabling them is not built.**
-- *Multi-model support* — OpenRouter (two models), Ollama, the Claude CLI, the
-  Codex CLI, and a `fake` backend for the offline suite.
-- *A security guard, with developer settings kept apart from the reader's
-  experience* — the request cap and topic guard, the AST-whitelist calculator,
-  the in-memory-only API key, and `/dev/trace` behind `RAGLAB_DEV_KEY`.
-- **Not built:** a tool that calls an external API, user authentication, and a
-  response-rating feedback loop.
-
-**Hard — 2 of 5 in full, 1 partial**
-
-- *Agentic RAG* — the helper retrieves over the skills corpus in two layers:
-  a cheap catalogue search, then full bodies capped at three per call.
-- *LLM observability* — LangSmith tracing for widget turns only, which is
-  allowed precisely because the helper is outside the measured seam.
-- *An evaluation report using RAGAS* — **partial.** RAGAS grades the lab's own
-  pipeline on four judged metrics; it has never been pointed at the helper's
-  answers.
-- **Not built:** an agent that learns from user feedback, and integration with
-  an external data source.
+Deliberate omissions are design decisions, not gaps: no temperature or
+max-token sliders (a generation setting that changes an answer belongs on
+the row that records the answer, and the helper writes no row), and RAGAS
+grades the lab's own pipeline, not the helper's replies — the helper is a
+guide, not a candidate.
 
 ### Known limitations
 
 - **No rating, so no feedback loop and no learning agent.** This is the
-  largest gap against the optional list. The storage for it already exists:
+  largest known gap. The storage for it already exists:
   `widget_turn_log` has one row per question and `memory_updates` records why
   each summary was kept, so a verdict column and a route are the missing
   pieces, not a redesign.
@@ -419,7 +423,8 @@ cd src/raglab/dashboard/tests
 node --test panel_open.test.js board_reveal.test.js
 ```
 
-Branch from `development`; `master` is the squash-merged release branch.
+Development happens on a private `development` branch; `master` carries one
+squash-merged release point per landing.
 
 ## Docker
 
@@ -436,3 +441,9 @@ docker compose down
 
 The container uses host Ollama through `host.docker.internal:11434` by
 default. Embedding data is kept in the named `hf-cache` volume.
+
+## License
+
+Copyright (c) 2026 Moha Kashani. All rights reserved. This repository is
+published for portfolio and demonstration purposes only; see [LICENSE](LICENSE)
+for the full terms and the contact address for permission requests.

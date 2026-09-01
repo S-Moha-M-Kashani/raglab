@@ -259,7 +259,8 @@ def create_inspector_app() -> FastAPI:
     @app.get('/api/explain')
     def explain_metrics():
         """What every score on the Generation tab means — the same text `/api/options` on :9002 serves."""
-        return {'metrics': explain.measures(), 'help': explain.topics()}
+        return {'metrics': explain.measures(), 'help': explain.topics(),
+                'brief': explain.briefs()}
 
     @app.get('/api/groundtruth')
     def groundtruth(dataset: str = ''):

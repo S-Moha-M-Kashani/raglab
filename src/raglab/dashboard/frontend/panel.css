@@ -605,6 +605,10 @@ details summary { cursor: pointer; color: var(--ink-soft); font-size: var(--t-xs
 .prose code { font: var(--t-xs) var(--mono); }
 #indexInfo, #retrieveInfo { margin-top: var(--s-2); font-size: var(--t-xs); color: var(--ink-soft); }
 #datasetInfo, #importInfo { margin-top: var(--s-1); font-size: var(--t-xs); line-height: 1.45; }
+/* The picker's line is empty on every corpus that is actually installed,
+   which is nearly all of them: no margin under the select for a box with
+   nothing in it. */
+#datasetInfo:empty { display: none; }
 /* Inside the corpus pill's own dropdown now, under the census it opens out:
    a block of its own, because the census above it is one inline run of text. */
 #dataset-detail-open { display: block; margin-top: var(--s-2); }

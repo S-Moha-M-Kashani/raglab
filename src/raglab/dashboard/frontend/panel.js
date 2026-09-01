@@ -204,7 +204,7 @@ const datasetOf = (id) => (OPTIONS.datasets || []).find(
 // model extracted it, and the confidence rater that scores it, if any. Read
 // straight off the loaded files, never hardcoded, so a sparse corpus just
 // shows fewer rows rather than a placeholder for a label it lacks.
-function renderDatasetLabels(found, target = 'datasetLabels') {
+function renderDatasetLabels(found, target) {
   const rows = (found.label_declarations || []).map((row) => [row, 'corpus'])
     .concat((found.question_label_declarations || [])
       .map((row) => [row, 'question']));
@@ -265,11 +265,14 @@ function describeDataset() {
     `${found.documents} documents · ${found.parts} parts · ${period}`
     + `${found.questions} questions`
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
-  $('datasetInfo').textContent = found.description;
+  // Cleared, not written: the description and the declaration table live in
+  // the summary the pill opens, and this line's only job now is the view-only
+  // warning `setArchiveViewOnly` puts here. Clearing it is what stops that
+  // warning outliving a switch to a corpus that *is* installed.
+  $('datasetInfo').textContent = '';
   $('dataset-detail-title').textContent = found.name || found.id || 'Dataset';
   $('dataset-detail-census').textContent = $('corpus').textContent;
   $('dataset-detail-description').textContent = found.description;
-  renderDatasetLabels(found);
   renderDatasetLabels(found, 'dataset-detail-labels');
   QUESTION_SELECTION = { labels: {}, balance: '' };
 }

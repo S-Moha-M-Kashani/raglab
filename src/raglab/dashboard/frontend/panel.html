@@ -132,6 +132,12 @@
     </div>
     <p id="dataset-detail-description" class="prose"></p>
     <p id="dataset-detail-census" class="dataset-detail-census"></p>
+    <!-- The declaration table (D4): every label this dataset's corpus and
+         ground truth declare, read straight off the loaded files — never
+         hardcoded, so a sparse corpus just shows fewer rows. Rebuilt on every
+         dataset switch and again on a successful import, from the one reading
+         (`/api/options` -> datasets[].label_declarations) both paths share.
+         The only copy of it: the Index card used to hold a second one. -->
     <div id="dataset-detail-labels"></div>
   </div>
 </div>
@@ -262,19 +268,22 @@
     <!-- Which corpus decides what every knob below it operates on. Served
          (/api/options -> datasets), so the panel can't offer one the service
          can't load. Bringing a corpus *in* is the setup panel's job; choosing
-         among the ones already here is a knob, so it stays. -->
+         among the ones already here is a knob, so it stays.
+
+         And that is all that stays: the description and the declaration table
+         used to be printed here as well as in the summary the corpus pill
+         opens, which made this a place to read about a corpus rather than a
+         place to choose one. One reading, in one place.
+
+         The line under the select is not that reading coming back. It is
+         empty unless something is wrong with the corpus itself — the one
+         thing it says is that an archived corpus is not installed here, so
+         its evidence is view-only. -->
     <div class="field">
       <label>Dataset</label>
       <select id="dataset"></select>
       <div id="datasetInfo" class="muted"></div>
     </div>
-    <!-- The declaration table: every label this dataset's corpus and ground
-         truth declare, read straight off the loaded files (D4) — never
-         hardcoded, so a sparse corpus just shows fewer rows. Rebuilt on every
-         dataset switch and again on a successful import, from the one
-         reading (`/api/options` -> datasets[].label_declarations) both paths
-         share. -->
-    <div id="datasetLabels"></div>
     <div class="step-tag group-tag" data-step="index">Chunking</div>
     <div class="field">
       <label>Chunking strategy</label>

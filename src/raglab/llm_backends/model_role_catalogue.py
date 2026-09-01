@@ -153,11 +153,11 @@ ROLES = (
               'lexical gate had no threshold that could do both.',
               'Gate = llm'),
     ModelRole('answer', 'Answer', 'generation.model',
-              'Writes the answer from the retrieved context, cites session ids, '
-              'and is the stage that must refuse when the corpus is silent. On '
-              'the bundled diary generation is the bottleneck — faithfulness '
-              '0.743 against fact coverage 0.261 — so this is the '
-              'interesting dropdown.',
+              'Writes the answer from the retrieved context, cites the document '
+              'ids it drew from, and is the stage that must refuse when the '
+              'corpus is silent. On the bundled diary generation is the '
+              'bottleneck — faithfulness 0.743 against fact coverage 0.261 — so '
+              'this is the interesting dropdown.',
               'Answerer = llm'),
     ModelRole('judge', 'Fact judge', 'generation.judge_model',
               'Checks an answer against the ground truth\'s atomic derived_facts. '

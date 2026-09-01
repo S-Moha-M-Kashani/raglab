@@ -422,6 +422,45 @@ cd src/raglab/dashboard/tests
 node --test panel_open.test.js board_reveal.test.js
 ```
 
+### The browser suite
+
+The journeys above assert the served markup without a browser. A second suite
+drives a real headless Chromium through the same surfaces, and it is opt-in:
+its tests carry the `browser` marker, which the default command deselects, so
+`uv run pytest src/raglab` behaves exactly the same whether or not any of this
+is installed.
+
+Install it once — the browser binary lands outside the repo, and nothing here
+grows a `node_modules`:
+
+```sh
+uv sync --extra local-embeddings --extra browser-tests
+uv run playwright install chromium
+```
+
+(name the extras you already use alongside it — `uv sync` installs exactly
+what the command lists and removes the rest).
+
+Then run it on purpose:
+
+```sh
+uv run pytest src/raglab -m browser -q
+```
+
+It covers the reader's journeys on all three surfaces: the panel's knobs, its
+dependency grey-outs and its build-and-evaluate run on the smoke corpus; the
+two themes and the machine preference a reader outranks; the board's tables,
+sorting, filtering and its open handoff into the panel; the Inspector's
+record mode, tabs and added questions; the dataset and experiment-archive
+imports; and the Ask widget on every surface.
+
+The suite starts its own lab: a child process on a port the operating system
+hands out, the `fake` backend, and the four durable paths pointing into a
+temporary directory. It never talks to a lab on :9002, never reaches a model,
+and a guard fails the run if the developer's own databases or `.runs/` changed
+while it worked. In CI it is a separate job that runs on pull requests and on
+demand, so the offline suite stays the fast gate.
+
 Development happens on a private `development` branch; `master` carries one
 squash-merged release point per landing.
 

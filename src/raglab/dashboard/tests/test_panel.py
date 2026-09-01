@@ -2025,7 +2025,10 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
     sidebar = sidebar[:sidebar.index('</aside>')]
     for hook in ('id="dataset-corpus-file"', 'id="dataset-groundtruth-file"',
                  'id="dataset-import"', 'id="importInfo"',
-                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"',
+                 'id="mode"', 'id="embedder"', 'id="embed_model"',
+                 'id="modelRoles-index"', 'id="modelRoles-retrieval"',
+                 'id="modelRoles-generation"', 'id="modelRoles"'):
         assert hook in sidebar, (
             f'{hook} must live in the setup panel — the bench is the pipeline '
             'and nothing else now')
@@ -2034,10 +2037,20 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
     assert 'id="dataset"' in bench, (
         'the dataset selector stays on the bench: it is the knob every other '
         'knob is read against')
-    for gone in ('id="dataset-import"', 'id="archive-export"'):
+    for gone in ('id="dataset-import"', 'id="archive-export"', 'id="mode"',
+                 'id="embedder"', 'id="modelRoles-index"'):
         assert gone not in bench, (
             f'{gone} moved to the setup panel and must not have been left '
             'behind on the bench as well')
+    # The bench is three numbered steps and nothing else. Counted, because
+    # 'the models card is not here' passes just as well when a fourth card
+    # nobody meant to add is.
+    assert bench.count('<section class="card"') == 3, (
+        'the bench holds 1 Index, 2 Retrieval and 3 Generation — a fourth '
+        'card on it is either a pipeline step nobody documented or something '
+        'that belongs in the setup panel')
+    for step in ('id="card-index"', 'id="card-retrieval"', 'id="card-generation"'):
+        assert step in bench, f'{step} is a pipeline step and stays on the bench'
 
 
 def test_the_archive_status_stays_a_page_level_banner(panel_texts):

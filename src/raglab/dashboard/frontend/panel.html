@@ -177,6 +177,44 @@
         </div>
       </div>
     </section>
+    <!-- One model per task, never one for everything: a gate runs k times a
+         question and wants cheap, a judge runs once and wants strong. Every
+         model lives in this one place, embedder included, each group wearing
+         the ink of the step it drives — the tags name the stage a model runs
+         for, which is the only step colour this panel is allowed. -->
+    <section class="card side-card rag-models" id="modelCard">
+      <div class="card-head"><span class="num">M</span><h2>Models</h2></div>
+      <p class="card-note">One per task. The dropdowns list what has actually run
+        here; a model this installation cannot load says NA.</p>
+      <!-- Where the LLM stages run. A mode is a served preset (/api/options →
+           modes): picking one applies the lab's own patch and stamps the run's
+           provider, so this panel cannot invent a pairing the lab never served. -->
+      <div class="field">
+        <label>Backend</label>
+        <select id="mode"></select>
+      </div>
+      <div class="step" data-step="index">
+        <span class="step-tag">Index</span>
+        <div class="field">
+          <label>Embedder</label>
+          <select id="embedder"></select>
+        </div>
+        <div class="field">
+          <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
+          <select id="embed_model"></select>
+        </div>
+        <div id="modelRoles-index"></div>
+      </div>
+      <div class="step" data-step="retrieval">
+        <span class="step-tag">Retrieval</span>
+        <div id="modelRoles-retrieval"></div>
+      </div>
+      <div class="step" data-step="generation">
+        <span class="step-tag">Generation</span>
+        <div id="modelRoles-generation"></div>
+      </div>
+      <div id="modelRoles"></div>
+    </section>
   </div>
 </aside>
 <!-- Only ever drawn over a narrow viewport, where the panel is a drawer
@@ -358,44 +396,6 @@
       <button class="ghost" id="stopPoll">Refresh</button>
     </div>
     <div id="jobBox"></div>
-  </section>
-
-  <!-- One model per task, never one for everything: a gate runs k times a
-       question and wants cheap, a judge runs once and wants strong. Every
-       model lives in this one column, embedder included, each group wearing
-       the ink of the step it drives. -->
-  <section class="card rag-models" id="modelCard">
-    <div class="card-head"><span class="num">M</span><h2>Models</h2></div>
-    <p class="card-note">One per task. The dropdowns list what has actually run
-      here; a model this installation cannot load says NA.</p>
-    <!-- Where the LLM stages run. A mode is a served preset (/api/options →
-         modes): picking one applies the lab's own patch and stamps the run's
-         provider, so this panel cannot invent a pairing the lab never served. -->
-    <div class="field">
-      <label>Backend</label>
-      <select id="mode"></select>
-    </div>
-    <div class="step" data-step="index">
-      <span class="step-tag">Index</span>
-      <div class="field">
-        <label>Embedder</label>
-        <select id="embedder"></select>
-      </div>
-      <div class="field">
-        <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
-        <select id="embed_model"></select>
-      </div>
-      <div id="modelRoles-index"></div>
-    </div>
-    <div class="step" data-step="retrieval">
-      <span class="step-tag">Retrieval</span>
-      <div id="modelRoles-retrieval"></div>
-    </div>
-    <div class="step" data-step="generation">
-      <span class="step-tag">Generation</span>
-      <div id="modelRoles-generation"></div>
-    </div>
-    <div id="modelRoles"></div>
   </section>
 </div>
 

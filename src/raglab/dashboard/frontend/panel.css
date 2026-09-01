@@ -234,14 +234,14 @@ body {
    the only saturated colour inside it is the step tags in Models, which name
    the stage a model runs rather than claiming the panel is one.
 
-   Sticky, because a model is a knob you reach for while reading a result
-   further down the page, and scrolling back to the top to change one is the
-   friction this column exists to remove. */
+   It scrolls with the page rather than holding still inside its own bounded,
+   scrollable box. Sticky was tried and is wrong here for one measurable
+   reason: the Models card is taller than a laptop viewport, and a sticky
+   column tall enough to clip has to grow a second scrollbar beside the
+   page's — two scroll regions, one of which hides the last model role until
+   you find the right one to drag. */
 .sidebar {
-  position: sticky; top: calc(var(--bar-h) + var(--s-3));
-  max-height: calc(100dvh - var(--bar-h) - var(--rail-h) - var(--s-5));
-  min-width: 0; overflow: hidden auto;
-  display: grid; gap: var(--s-3); align-content: start;
+  min-width: 0; display: grid; gap: var(--s-3); align-content: start;
 }
 .sidebar-head {
   display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-6);
@@ -270,7 +270,6 @@ body {
    keyboard trap, not a hidden control. */
 :root[data-sidebar="collapsed"] .sidebar-body,
 :root[data-sidebar="collapsed"] .sidebar-title { display: none; }
-:root[data-sidebar="collapsed"] .sidebar { overflow: visible; }
 :root[data-sidebar="collapsed"] .sidebar-head { justify-content: center; }
 :root[data-sidebar="collapsed"] .sidebar-chevron { transform: rotate(180deg); }
 /* The panel's own cards. Bench cards lift off the plate because each one is a
@@ -297,7 +296,6 @@ body {
 @media (max-width: 1024px) {
   .page { grid-template-columns: minmax(0, 1fr); gap: var(--s-4); }
   :root[data-sidebar="collapsed"] .page { grid-template-columns: minmax(0, 1fr); }
-  .sidebar { position: static; max-height: none; overflow: visible; }
   .sidebar-head {
     padding: var(--s-2) var(--s-3); background: var(--card);
     border: 1px solid var(--rule); border-radius: var(--radius-md);

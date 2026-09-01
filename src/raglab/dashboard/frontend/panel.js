@@ -114,10 +114,10 @@ function fillModels() {
   // nearest div, and with the whole group in one box a single inactive model
   // greyed out every other model of that step beside it.
   const row = (role) =>
-    `<div class="field"><label>${escapeHtml(role.label)} `
-    + `<span class="muted">· ${escapeHtml(role.only_when)}</span>`
-    + `<button type="button" class="why" data-topic="model.${role.key}" `
-    + `aria-label="What is ${escapeHtml(role.label)}?">!</button></label>`
+    `<div class="field"><label>`
+    + `<button type="button" class="why-term" data-topic="model.${role.key}">`
+    + `${escapeHtml(role.label)}</button> `
+    + `<span class="muted">· ${escapeHtml(role.only_when)}</span></label>`
     + `<select class="rag-model" data-role="${role.key}" data-field="${role.field}">`
     + `${options}</select></div>`;
   const groups = {};
@@ -368,11 +368,45 @@ function titleSteps() {
 // Every knob explains itself. The text comes from the service (config.HELP and
 // models.ROLES), so a knob added there is explained here without editing this
 // file — and the id of each control is the field it sets.
+// The knob's own name becomes the trigger, marked by a dotted underline: the
+// name was already on screen, so the affordance costs no ink — which is the
+// whole reason the surface no longer carries a mark per knob.
+//
+// Only the label's own first run of words, never the whole label: `Embedding
+// model · fastembed or sentence-transformers` is a name and an aside, and
+// underlining the aside would offer to explain a qualifier.
+function markTerm(label, topic) {
+  for (const node of label.childNodes) {
+    if (node.nodeType !== 3 || !node.textContent.trim()) continue;
+    const words = node.textContent;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'why-term';
+    button.dataset.topic = topic;
+    button.textContent = words.trim();
+    label.replaceChild(button, node);
+    // The whitespace the text node carried is put back, or the aside beside
+    // the name collides with it.
+    if (/\s$/.test(words)) {
+      label.insertBefore(document.createTextNode(' '), button.nextSibling);
+    }
+    return button;
+  }
+  return null;
+}
+
+
 function decorateExplainers() {
   const byField = {};
   for (const [topic, text] of Object.entries(OPTIONS.help || {})) {
     byField[topic.split('.').pop()] = { topic, text };
   }
+  // The two lengths every explainer is read in: the brief on hover, the whole
+  // note on a click. lab.js owns the hover and asks these two for the text, so
+  // the resolver is registered here, beside the pass that builds the triggers.
+  LabHelp.brief = (topic) => (OPTIONS.brief || {})[topic] || '';
+  LabHelp.full = (topic) => (OPTIONS.help || {})[topic] || '';
+
   // Scoped to `.page`, which is both columns — the bench and the setup panel.
   // It used to read `main`, which was the whole knob surface until the models
   // and the two imports moved into the panel beside it; left as it was, every
@@ -384,13 +418,26 @@ function decorateExplainers() {
     // checkbox's explainer on the previous checkbox's label.
     const label = control.type === 'checkbox' ? control.closest('label')
       : control.previousElementSibling;
-    if (!found || !label || label.tagName !== 'LABEL' || label.querySelector('.why')) continue;
-    label.insertAdjacentHTML('beforeend',
-      ` <button type="button" class="why" data-topic="${found.topic}" `
-      + `aria-label="What is this?">!</button>`);
+    if (!found || !label || label.tagName !== 'LABEL'
+        || label.querySelector('.why, .why-term')) continue;
+    // While we are here with a label and the control it names in one hand: the
+    // markup pairs them by adjacency only, so the control had no accessible
+    // name at all. One assignment fixes forty of them.
+    if (!label.htmlFor && control.id && control.type !== 'checkbox') {
+      label.htmlFor = control.id;
+    }
+    // A checkbox keeps a mark. Its own words are already a click target — they
+    // toggle it — so they cannot also be the trigger for a sentence.
+    if (control.type === 'checkbox') {
+      label.insertAdjacentHTML('beforeend',
+        ` <button type="button" class="why" data-topic="${found.topic}" `
+        + `aria-label="What is this?">?</button>`);
+      continue;
+    }
+    markTerm(label, found.topic);
   }
   document.addEventListener('click', (event) => {
-    const btn = event.target.closest('.why');
+    const btn = event.target.closest('.why, .why-term');
     if (!btn) return;
     const open = btn.parentElement.nextElementSibling;
     if (open && open.classList.contains('explain')) { open.remove(); return; }
@@ -1208,7 +1255,7 @@ const measureWhy = (key, catalogue = measures()) => {
   const topic = `metric.${key}`;
   return `<button type="button" class="why" data-topic="${escapeHtml(topic)}" `
     + `data-help="${escapeHtml(metric.help || '')}" `
-    + `aria-label="What is ${escapeHtml(metric.label)}?">!</button>`;
+    + `aria-label="What is ${escapeHtml(metric.label)}?">?</button>`;
 };
 
 // --- portable experiment exchange -----------------------------------------

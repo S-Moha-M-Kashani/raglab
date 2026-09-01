@@ -144,7 +144,7 @@ function cell(row, key) {
       : row.error
         ? `<span class="failed"><b>${escapeHtml(row.state || '?')}</b>`
           + `<button type="button" class="why" data-help="${escapeHtml(row.error)}"`
-          + ` aria-label="Why did this ${escapeHtml(row.state || 'fail')}?">!</button></span>`
+          + ` aria-label="Why did this ${escapeHtml(row.state || 'fail')}?">?</button></span>`
         : `<b>${escapeHtml(row.state || '—')}</b>`;
     case 'seconds': return Math.round(row.seconds || 0);
     // Two halves of one cell: the `href` the browser follows to the Laboratory,
@@ -578,9 +578,14 @@ document.addEventListener('focusout', (event) => {
 document.addEventListener('scroll', syncReveal, true);
 
 // Why a row is not `done` is the reason that row is degraded, so it goes through
-// the same '!' the lab page uses rather than a `title` — a reason published to a
-// mouse and to nothing else is a reason half the readers never get. Delegated at
-// the document because the whole board is rebuilt on every pick.
+// the same mark the lab page uses rather than a `title` — a reason published to
+// a mouse and to nothing else is a reason half the readers never get. Delegated
+// at the document because the whole board is rebuilt on every pick.
+//
+// The mark carries the reason itself in `data-help`, so lab.js's hover has no
+// topic to resolve and takes the reason's first sentence as the brief. That is
+// the right brief for an error: the first line of a traceback or a refusal is
+// the part that names what went wrong.
 document.addEventListener('click', (event) => {
   const mark = event.target && event.target.closest
     ? event.target.closest('.why') : null;

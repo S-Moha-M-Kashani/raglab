@@ -276,8 +276,12 @@ def _model_catalogues(live) -> dict:
 
 def _metric_help() -> dict:
     # Label, step, formula and library per metric, so a name cannot
-    # drift from its definition.
-    return {'metrics': explain.measures(), 'help': explain.topics()}
+    # drift from its definition. Two lengths of every explainer, from one
+    # source: `brief` is the opening sentence of `help`, taken by
+    # `explain.briefs()` rather than written a second time, so a hover box and
+    # the text it opens out into cannot come to say different things.
+    return {'metrics': explain.measures(), 'help': explain.topics(),
+            'brief': explain.briefs()}
 
 
 def _corpus_summary(diary: dict, ground_truth: dict) -> dict:

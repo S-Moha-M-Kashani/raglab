@@ -1570,6 +1570,12 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
 
     assert body['metrics'] == explain.measures()
     assert body['help'] == explain.topics()
+    # Both lengths, because the marks beside these metrics are the same
+    # affordance the Laboratory's knobs carry: a sentence on hover, the whole
+    # note on a click. Same keys, and the brief comes from the note rather than
+    # from a second text.
+    assert body['brief'] == explain.briefs()
+    assert set(body['brief']) == set(body['help'])
     # the generation half specifically, since that is what the new tab grades
     generation = {m['key'] for m in body['metrics'] if m['step'] == 'generation'}
     assert {'answer_similarity', 'fact_coverage', 'faithfulness',

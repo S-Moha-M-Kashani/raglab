@@ -343,7 +343,11 @@ function decorateExplainers() {
   for (const [topic, text] of Object.entries(OPTIONS.help || {})) {
     byField[topic.split('.').pop()] = { topic, text };
   }
-  for (const control of document.querySelectorAll('main [id]')) {
+  // Scoped to `.page`, which is both columns — the bench and the setup panel.
+  // It used to read `main`, which was the whole knob surface until the models
+  // and the two imports moved into the panel beside it; left as it was, every
+  // model knob would have quietly lost the one sentence explaining it.
+  for (const control of document.querySelectorAll('.page [id]')) {
     const found = byField[control.id];
     // A checkbox lives *inside* its own label, so it explains itself there; every
     // other control is preceded by one. Walking up blindly would hang a
@@ -794,12 +798,25 @@ async function boot() {
     document.addEventListener(event, () => remember(SAVED_CONFIG, readConfig()));
   }
   if (!ARCHIVE_EVENTS_BOUND) {
-    const experimentControls = document.querySelector('main');
+    // `.page` again, and for a sharper reason than the explainers: a model is
+    // an experiment knob, so changing one while a recorded experiment is on
+    // screen must make the readings stale. Scoped to `main`, the move into the
+    // setup panel would have let a reader swap the answerer and still export
+    // the previous run's numbers as if this configuration had produced them.
+    //
+    // The three file inputs are not knobs: two of them choose a dataset to
+    // import and the third chooses an archive to open, and a file picker
+    // firing `change` is the reader starting one of those acts, not editing
+    // the experiment on screen. `archive-file` joins the list because it lives
+    // in the panel now — it used to sit in the header, outside this listener
+    // altogether.
+    const experimentControls = document.querySelector('.page');
     for (const event of ['change', 'input']) {
       experimentControls.addEventListener(event, (change) => {
         if (!CURRENT_ARCHIVE || !change.target.matches('input, select, textarea')
             || change.target.id === 'dataset-corpus-file'
-            || change.target.id === 'dataset-groundtruth-file') return;
+            || change.target.id === 'dataset-groundtruth-file'
+            || change.target.id === 'archive-file') return;
         CURRENT_ARCHIVE = null;
         setArchiveStatus(
           'Readings belong to the previous settings; export will contain settings only.',

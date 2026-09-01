@@ -2053,6 +2053,39 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
         assert step in bench, f'{step} is a pipeline step and stays on the bench'
 
 
+def test_the_panel_reaches_a_knob_wherever_the_layout_put_it(panel_texts):
+    # this is a convention test
+    """Two of panel.js's whole-surface queries were scoped to `main`, which was
+    the entire knob surface right up until the models and the two imports moved
+    into the panel beside it. Both had to follow the move to `.page`, the band
+    holding both columns, and each for its own reason.
+
+    The explainer pass is the milder one: scoped to `main` it would have left
+    every model knob without the one sentence that explains it, silently.
+
+    The archive listener is the sharper one. Changing a knob while a recorded
+    experiment is on screen is what marks its readings stale — so scoped to
+    `main`, a reader could swap the answerer in the panel and then export the
+    previous run's numbers as though this configuration had produced them.
+    That is a row lying about what produced it, which is the one thing this
+    project does not permit."""
+    js = panel_texts['panel.js']
+    assert "querySelectorAll('main [id]')" not in js, (
+        'the explainer pass must not stop at the bench — the setup panel holds '
+        'knobs too')
+    assert "querySelectorAll('.page [id]')" in js
+    assert "querySelector('main')" not in js, (
+        'the stale-readings listener must not stop at the bench either')
+    assert "querySelector('.page')" in js
+    # And the file pickers stay excluded from it: `archive-file` is new to the
+    # list, because it moved from the header into the panel and so came inside
+    # the listener's reach for the first time.
+    for picker in ('dataset-corpus-file', 'dataset-groundtruth-file', 'archive-file'):
+        assert f"change.target.id === '{picker}'" in js, (
+            f'choosing a file with {picker} is the start of an import, not an '
+            'edit to the experiment on screen')
+
+
 def test_the_archive_status_stays_a_page_level_banner(panel_texts):
     # this is a convention test
     """The exchange moved into the setup panel; its status did not follow it

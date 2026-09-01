@@ -1243,7 +1243,7 @@ $('cancel').onclick = async () => {
 
 $('stopPoll').onclick = () => { boot(); };
 
-// The labels, the step each score grades and the text behind its '!' all come
+// The labels, the step each score grades and the text behind its mark all come
 // from the service (metrics.MEASURES and ragas_eval.RAGAS_MEASURES). Nothing
 // about a metric is written twice, so no number on this page can end up with a
 // name its definition does not carry.

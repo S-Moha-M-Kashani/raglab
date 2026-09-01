@@ -177,7 +177,16 @@
       <p class="card-note">Nothing here is measured. A dataset is two JSON
         files; an experiment archive is one.</p>
       <div class="field">
-        <label>Import a dataset <span class="muted">· two JSON files, paired by id (D1)</span></label>
+        <!-- The one trigger written by hand rather than built from a control.
+             `run.dataset-file` explains an *act* — what a pair of files has to
+             look like — and the two pickers under it are the corpus and the
+             ground truth, so neither of them is the thing the note is about.
+             Its id used to be `dataset-file`, which is how the pass that
+             matches a topic to a control by id found it; the import became two
+             files, the id became two ids, and the explainer detached silently.
+             A test now fails when a served topic has no trigger at all. -->
+        <label><button type="button" class="why-term" data-topic="run.dataset-file">Import
+          a dataset</button> <span class="muted">· two JSON files, paired by id (D1)</span></label>
         <!-- Two file pickers a browser draws identically, and picking the
              wrong way round is a refusal with a puzzling reason. So each says
              which file it wants, in a quieter voice than the label above them

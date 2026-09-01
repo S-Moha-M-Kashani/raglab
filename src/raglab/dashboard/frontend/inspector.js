@@ -131,7 +131,7 @@ function formatConfig(cfg) {
   return `showing: ${parts.join(' · ')}`;
 }
 
-// --- What every score means: the '!' marks, reading the lab's own text -------
+// --- What every score means: the marks beside the scores, reading the lab's own text ---
 // Fetched from /api/explain rather than written here, so this page and the
 // panel on :9002 cannot end up explaining the same metric differently.
 let EXPLAIN = { metrics: [], help: {}, brief: {} };
@@ -146,7 +146,7 @@ function measureOf(key) {
   return EXPLAIN.metrics.find(m => m.key === key) || { key, label: key };
 }
 
-// The sentence the '!' opens: a metric's own note and formula when it has them,
+// The sentence the mark opens: a metric's own note and formula when it has them,
 // falling back to the help topic the lab writes for the same key.
 function whyText(key) {
   const m = measureOf(key);

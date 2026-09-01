@@ -885,7 +885,7 @@ def test_the_inspector_remembers_the_followed_experiment_across_navigation(
     only when the reader explicitly returns to live mode; otherwise persisted
     added-question rows are invisible after navigation."""
     js = inspector_texts['inspector.js']
-    assert 'lodestar:raglab-inspector-experiment' in js
+    assert 'raglab:inspector-experiment' in js
     assert 'localStorage.setItem' in js
     assert 'localStorage.getItem' in js
     assert 'localStorage.removeItem' in js

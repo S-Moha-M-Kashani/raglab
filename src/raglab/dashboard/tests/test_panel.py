@@ -841,6 +841,44 @@ def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
         'is the left one')
 
 
+def test_an_inert_knob_shows_no_value_and_still_holds_one(panel_texts):
+    # this is a convention test
+    """A knob the pipeline would ignore shows nothing in its box. A greyed `8`
+    beside `kNN neighbours` on an index with no graph is a number a reader has
+    to work out is not a number.
+
+    And the two halves of that have to stay apart, because getting it wrong
+    puts a lie in a run file: the value is *hidden*, never cleared. It is still
+    on the control, so `readConfig()` still reads it, an export still carries
+    exactly what it always carried, and re-enabling the knob brings the number
+    straight back. That is why this is a stylesheet rule and why
+    `applyDependencies` — the one function that knows a knob is inert — must
+    never touch `.value`.
+
+    A checkbox is exempt: it has no number to hide, and an unchecked-looking
+    box that is actually checked would be the lie the rule exists to avoid."""
+    css = panel_texts['panel.css']
+    block = css[css.index('.rag-field-off > label'):css.index('\n/* The \'!\' mark itself')]
+    assert 'color: transparent' in block, (
+        'an inert value is not shown at all')
+    assert '-webkit-text-fill-color: transparent' in block, (
+        'a disabled input takes its text colour from `-webkit-text-fill-color` '
+        'first, so `color` alone leaves the number on screen in the browsers '
+        'this lab is actually opened in')
+    assert '::placeholder { color: transparent' in block, (
+        "or `summary_levels` goes on showing its example while it is inert")
+    assert 'input[type=checkbox]' in block, (
+        'the checkbox exemption has to be written down, not left to whoever '
+        'reads the rule next')
+
+    js = panel_texts['panel.js']
+    inert = _function_body(js, 'applyDependencies')
+    assert '.value' not in inert, (
+        'applyDependencies must not write a control it only means to grey: '
+        'clearing the value would make readConfig() read a blank and put a '
+        'number in a run file that no knob ever held')
+
+
 def test_a_disabled_knob_still_says_why_it_is_disabled(panel_texts):
     # this is a convention test
     """A knob this pipeline would ignore is dimmed and locked, and it still owes

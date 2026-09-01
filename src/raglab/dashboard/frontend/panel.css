@@ -11,10 +11,10 @@
   --alert-wash: #fdf4f2;
   --good: oklch(0.49 0.11 168);
   /* The ink of a knob this pipeline would ignore: recessed from --ink-soft,
-     still legible. It exists because the alternative — group `opacity` on the
-     field — takes the field's own explanation down with it, and a child
-     cannot climb back out of an ancestor's opacity. Page-local: the Inspector
-     has no knobs to disable. */
+     still legible. It reads on the name of such a knob and on the trigger that
+     explains it — the knob's *value* is not dimmed but hidden, since a number
+     nothing reads is not a number. Page-local: the Inspector has no knobs to
+     disable. */
   --ink-off: #8b98a6;
   /* The setup panel's two widths. Page-local: the Inspector and the board
      have no such column. 17.5rem is what the Models card asked for at 300px
@@ -436,21 +436,39 @@ button.step-action { background: var(--step); border-color: var(--step); }
 button.step-action:hover { filter: brightness(1.12); border-color: var(--step); }
 button:disabled { opacity: .4; cursor: default; }
 
-/* A knob the current pipeline would ignore: dimmed and locked, but its reason
-   stays at full contrast, because that sentence is the only part still worth
-   reading. The control keeps its box so nothing below it shifts when a dropdown
-   changes.
+/* A knob the current pipeline would ignore: locked, dimmed, and showing no
+   value at all. The control keeps its box so nothing below it shifts when a
+   dropdown changes, and the box is empty — because a greyed `8` beside `kNN
+   neighbours` on an index with no graph is a number a reader has to work out
+   is not a number. Nothing in play, nothing shown.
+
+   Shown, not held: the value is still on the control and still in the config
+   this panel reads, so an export carries exactly what it always carried and
+   re-enabling the knob brings its number straight back. What changes is the
+   ink, which is the only honest place to change it — clearing `.value` would
+   make `readConfig()` read a blank and put a lie in a run file. So the text is
+   transparent rather than absent, `-webkit-text-fill-color` beside `color`
+   because a disabled input takes its text colour from that property first, and
+   the placeholder with them, or the one field that has one (`summary_levels`)
+   would go on showing its example.
+
+   A checkbox keeps its state visible: it has no number to hide, and an
+   unchecked-looking box that is actually checked would be the lie this rule
+   exists to avoid.
 
    The dimming is colour on the fields, not `opacity` on the group. It used to
    be group opacity with `opacity: 1` on the note — which does nothing: opacity
-   composites the whole subtree, so a child cannot climb back out of it. The one
-   sentence explaining *why* the knob is locked rendered at half of an already
-   soft ink, about 2:1 against the card, exactly contradicting the comment
-   above it. */
+   composites the whole subtree, so a child cannot climb back out of it. */
 .rag-field-off > label, .rag-field-off > label .muted { color: var(--ink-off); }
 .rag-field-off input, .rag-field-off select, .rag-field-off textarea {
-  color: var(--ink-off); background: var(--plate);
+  color: transparent; -webkit-text-fill-color: transparent;
+  background: var(--plate);
   border-color: var(--rule-soft); cursor: not-allowed;
+}
+.rag-field-off input::placeholder { color: transparent; }
+/* The exception: a checkbox is its own value. */
+.rag-field-off input[type=checkbox] {
+  -webkit-text-fill-color: var(--ink-off); accent-color: var(--ink-off);
 }
 .rag-field-off button.why, .rag-field-off .why-term {
   color: var(--ink-off); border-bottom-color: var(--rule-soft);

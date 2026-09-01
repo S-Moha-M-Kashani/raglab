@@ -2097,34 +2097,46 @@ def test_the_settings_popover_gathers_every_installation_level_control(panel_tex
     # this is a convention test
     """Three unrelated controls used to sit loose in the top bar — Settings,
     Import JSON, Export experiment — competing for the same corner as the
-    surface switcher. They became one disc, and then the split got finer: the
-    disc keeps what configures the *app* — which theme to draw, which
-    OpenRouter key to hold — and the archive exchange left it for the setup
-    panel, because bringing an experiment in and taking one out is about
-    content, the same act as importing a dataset. So this pins both halves:
-    the two groups that stayed, and the trio that must no longer be here.
-    The ids are unchanged on purpose: panel.js and archive_io.js reach for
-    them by id, and a move that renames its hooks is a rewrite, not a move."""
+    surface switcher. They have one thing in common: none of them is about the
+    experiment on screen, they are about this installation. So they are three
+    groups behind one disc, and this pins that the archive pair is actually
+    inside the popover rather than merely surviving somewhere on the page.
+
+    The pair spent a while in the setup panel, on the argument that bringing an
+    experiment in is the same kind of act as importing a dataset. It is not
+    quite: a dataset is the corpus every knob is measured against, while an
+    archive is one recorded experiment carried between installations — which is
+    a fact about the installation, and this is where those live. So they came
+    back, and the ids never moved either way: panel.js and archive_io.js reach
+    for them by id, and a move that renames its hooks is a rewrite, not a
+    move."""
     html = panel_texts['index.html']
     popover = html[html.index('id="app-settings-panel"'):]
     popover = popover[:popover.index('</header>')]
-    for hook in ('id="theme-control"', 'id="openrouter_key"'):
+    for hook in ('id="theme-control"', 'id="openrouter_key"',
+                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
         assert hook in popover, (
             f'{hook} must live inside the Settings popover — a control left '
             'loose in the bar is the crowding this replaces')
-    for moved in ('id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
-        assert moved not in popover, (
-            f'{moved} belongs to the setup panel now — two homes for one '
-            'control is how a reader learns to look in both')
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    for gone in ('id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+        assert gone not in sidebar, (
+            f'{gone} is the disc\'s again — two homes for one control is how a '
+            'reader learns to look in both')
 
 
 def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_texts):
     # this is a convention test
     """The split the left panel exists to draw: selecting is a knob, ingesting
     is not. The bench keeps the dataset *selector*, because which corpus is
-    loaded decides what every knob under it means; bringing a corpus in, and
-    the archive exchange that does the same for a whole recorded experiment,
-    are acts on this installation and live in the panel.
+    loaded decides what every knob under it means; bringing a corpus in is an
+    act on this installation and lives in the panel, with every model setting.
+
+    The experiment archive's import and export are not here: they are behind
+    the settings disc, with the other things that describe the installation
+    rather than the corpus. `test_the_settings_popover_gathers_every_installation_level_control`
+    holds that half.
 
     Read off the served markup by slicing the `<aside>` and the bench apart,
     because 'the control is somewhere on the page' is exactly the assertion
@@ -2134,7 +2146,6 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
     sidebar = sidebar[:sidebar.index('</aside>')]
     for hook in ('id="dataset-corpus-file"', 'id="dataset-groundtruth-file"',
                  'id="dataset-import"', 'id="importInfo"',
-                 'id="archive-import"', 'id="archive-export"', 'id="archive-file"',
                  'id="mode"', 'id="embedder"', 'id="embed_model"',
                  'id="modelRoles-index"', 'id="modelRoles-retrieval"',
                  'id="modelRoles-generation"', 'id="modelRoles"'):
@@ -2146,7 +2157,7 @@ def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_t
     assert 'id="dataset"' in bench, (
         'the dataset selector stays on the bench: it is the knob every other '
         'knob is read against')
-    for gone in ('id="dataset-import"', 'id="archive-export"', 'id="mode"',
+    for gone in ('id="dataset-import"', 'id="mode"',
                  'id="embedder"', 'id="modelRoles-index"'):
         assert gone not in bench, (
             f'{gone} moved to the setup panel and must not have been left '

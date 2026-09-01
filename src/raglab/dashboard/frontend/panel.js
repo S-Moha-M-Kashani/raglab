@@ -113,13 +113,20 @@ function fillModels() {
   // Each role in its own .field wrapper: `applyDependencies` dims the control's
   // nearest div, and with the whole group in one box a single inactive model
   // greyed out every other model of that step beside it.
-  const row = (role) =>
-    `<div class="field"><label>`
-    + `<button type="button" class="why-term" data-topic="model.${role.key}">`
-    + `${escapeHtml(role.label)}</button> `
-    + `<span class="muted">· ${escapeHtml(role.only_when)}</span></label>`
-    + `<select class="rag-model" data-role="${role.key}" data-field="${role.field}">`
-    + `${options}</select></div>`;
+  // The `only_when` beside each label — six of them, each wrapping to a second
+  // line in a 280px column — is recorded rather than printed, and the role's
+  // own explainer leads with it. It is the same move the inert reason made:
+  // the sentence still reaches every reader, it just stops standing on the
+  // page for ever.
+  const row = (role) => {
+    ROLE_CONDITION[`model.${role.key}`] = role.only_when
+      ? `Used when ${role.only_when}` : '';
+    return `<div class="field"><label>`
+      + `<button type="button" class="why-term" data-topic="model.${role.key}">`
+      + `${escapeHtml(role.label)}</button></label>`
+      + `<select class="rag-model" data-role="${role.key}" data-field="${role.field}">`
+      + `${options}</select></div>`;
+  };
   const groups = {};
   for (const role of OPTIONS.model_roles || []) {
     const step = role.step || role.field.split('.')[0];
@@ -407,8 +414,12 @@ function decorateExplainers() {
   // An inert knob leads with why it is inert, in both lengths: that is the
   // thing a reader wants first from a control they cannot use, and the
   // definition follows it rather than being replaced by it.
+  // An inert knob leads with why it is inert; a live model role leads with the
+  // one case it is called in. Never both: a reason like "only the llm reranker
+  // calls a model" already says the condition, and saying it twice is worse
+  // than saying it once.
   const withReason = (topic, text) => {
-    const reason = INERT_REASON[topic];
+    const reason = INERT_REASON[topic] || ROLE_CONDITION[topic];
     if (!reason) return text || '';
     // The served reasons are lowercase fragments with no full stop, written to
     // sit under a control rather than to open a sentence. Given the first line
@@ -453,10 +464,14 @@ function decorateExplainers() {
   document.addEventListener('click', (event) => {
     const btn = event.target.closest('.why, .why-term');
     if (!btn) return;
-    const open = btn.parentElement.nextElementSibling;
+    // After the whole card head where the trigger is a card's name, after the
+    // label everywhere else. `.card-head` is a flex row: a paragraph inserted
+    // inside it becomes a third item beside the number and the title.
+    const host = btn.closest('.card-head') || btn.parentElement;
+    const open = host.nextElementSibling;
     if (open && open.classList.contains('explain')) { open.remove(); return; }
     const text = btn.dataset.help || LabHelp.full(btn.dataset.topic) || '';
-    btn.parentElement.insertAdjacentHTML('afterend',
+    host.insertAdjacentHTML('afterend',
       `<p class="explain">${escapeHtml(text)}</p>`);
   });
 }
@@ -601,10 +616,21 @@ function dependencyState(rules, cfg) {
   return state;
 }
 
-// Why each inert knob is inert, by config path, kept as long as it is inert.
-// Read by the explainer resolvers below, which is the whole of how a reader
-// gets at it.
+// Why each inert knob is inert, kept as long as it is inert, and the one case
+// each model role is called in. Both are read by the explainer resolvers,
+// which is the whole of how a reader gets at either — neither is printed on
+// the page any more.
 const INERT_REASON = {};
+const ROLE_CONDITION = {};
+
+// A model role's control is found by its config path (`retrieval.rerank_model`)
+// and its explainer is keyed by its role (`model.rerank`). The dependency rules
+// speak the first language and the trigger speaks the second, so a reason is
+// recorded under both or a greyed-out model says nothing about why.
+function roleTopic(path) {
+  const role = (OPTIONS.model_roles || []).find((r) => r.field === path);
+  return role ? `model.${role.key}` : '';
+}
 
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
@@ -637,8 +663,10 @@ function applyDependencies() {
     // stops doing is standing on the page for ever: the lab boots with no
     // hierarchy, which makes six knobs inert at once, and six near-identical
     // sentences about a graph nothing is building was most of the Index card.
-    if (!enabled) INERT_REASON[path] = reason;
-    else delete INERT_REASON[path];
+    for (const key of [path, roleTopic(path)].filter(Boolean)) {
+      if (!enabled) INERT_REASON[key] = reason;
+      else delete INERT_REASON[key];
+    }
   }
 }
 

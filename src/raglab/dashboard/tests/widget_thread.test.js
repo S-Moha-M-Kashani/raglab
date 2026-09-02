@@ -129,6 +129,37 @@ test('a stream that ends on a status event has no final and is refused', async (
     /stopped before the lab said what it holds/);
 });
 
+// A stage event is the same kind of fact one step out: which step of the run
+// is happening, rather than which tool it reached for. It is transient by the
+// same contract — no history holds one — so the reader has to route it like a
+// status and refuse it as a reply, at both edges: the ordinary stream, where
+// the terminal reply is still the only final event, and the stream that dies
+// on a stage, where the honest reading is the "stopped before" refusal rather
+// than progress text handed back as the answer the lab holds.
+test('a stage event is routed to onStage and never becomes the reply', async () => {
+  const sse = 'data: {"stage": "retrieving"}\n\n'
+            + 'data: {"status": "search_notes"}\n\n'
+            + 'data: {"stage": "answering"}\n\n'
+            + 'data: {"delta": "hello"}\n\n'
+            + 'data: {"reply": "hello"}\n\n';
+  const stages = [];
+  const statuses = [];
+  const final = await loadStream(sse).widgetStream('/api/widget/stream', {},
+    () => {}, (status) => statuses.push(status), () => {},
+    (stage) => stages.push(stage));
+  assert.deepEqual(stages, ['retrieving', 'answering']);
+  assert.deepEqual(statuses, ['search_notes']);
+  assert.equal(final.reply, 'hello');
+  assert.equal(final.stage, undefined);
+  // The same stream with no stage callback at all — what a caller that does
+  // not care about progress passes — is still refused rather than crashing on
+  // the missing callback.
+  await assert.rejects(
+    loadStream('data: {"stage": "retrieving"}\n\n')
+      .widgetStream('/api/widget/stream', {}, () => {}, () => {}),
+    /stopped before the lab said what it holds/);
+});
+
 // The renderer, one function wide. `widgetSay` is the single door every line in
 // the log comes through, and what it decides — which class a kind is allowed to
 // write, and whether an unknown one may write anything at all — is a decision
@@ -396,4 +427,30 @@ test('a status event retitles the indicator only while the log still holds it', 
   assert.ok(!ask.includes("widgetSay('thinking'") && !ask.includes('widgetSay(\'meta\', `calling'),
     'no status text goes through widgetSay: it is not a turn and must never '
     + 'look like one');
+});
+
+// The stage label lands in the one wait line the status swap already writes to
+// — retitled, not joined by a second line or a second bubble — under the same
+// rule: only a line the log still holds is this turn's to retitle, a wiped one
+// stays gone, and the label is text because it arrived over the stream. The
+// line is a live region so a screen reader hears the step change, and it is
+// still ephemeral: `widgetThinkingOver` in the catch and the finally is what
+// clears it on the reply, an error, a disconnect and a reload alike, which the
+// lifecycle test above pins.
+test('a stage event retitles the same wait line, and that line is announced', () => {
+  const ask = source.slice(source.indexOf('async function widgetAsk'),
+                           source.indexOf('async function widgetLoadOptions'));
+  const opens = ask.indexOf('(stage) =>');
+  const stage = ask.slice(opens, ask.indexOf('const fate', opens));
+  assert.ok(stage.includes('contains(thinking)'),
+    'the retitle must check the wait line is still on screen');
+  assert.ok(stage.includes('thinking.textContent = stage'),
+    'the label is untrusted stream data assigned as text onto the existing '
+    + 'line — never markup, and never a second line');
+  assert.ok(!stage.includes('widgetThinking()') && !stage.includes('widgetSay('),
+    'a wiped line is never recreated and no stage text becomes a turn');
+  const born = source.slice(source.indexOf('function widgetThinking()'),
+                            source.indexOf('function widgetThinkingOver'));
+  assert.match(born, /role', 'status'/);
+  assert.match(born, /aria-live', 'polite'/);
 });

@@ -283,7 +283,9 @@ def final(limit: int | None, workers: int, label: str,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog='Example: uv run raglab-sweep --only A F --limit 10 --workers 3')
     parser.add_argument('--limit', type=int, default=SWEEP_LIMIT,
                         help='questions per candidate (default %(default)s, '
                              'balanced across the difficulty bands)')

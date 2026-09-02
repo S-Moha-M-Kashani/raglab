@@ -35,6 +35,9 @@ from playwright.sync_api import expect  # noqa: E402  (after the skip guard)
 from raglab.configuration.knob_dependencies import DEPENDENCIES  # noqa: E402
 
 
+EXPLAIN_TIMEOUT = 20_000
+
+
 #: Every knob in the three step cards, in the order the page lays them out:
 #: the card it belongs to, its id, and what kind of control it is. The list is
 #: the coverage claim — a knob added to a card and not added here is a knob
@@ -426,33 +429,45 @@ def test_a_knob_explains_itself_at_two_lengths_one_per_step(panel, knob):
     _booted(panel)
     trigger = _explainer_trigger(panel, knob)
 
+    # A browser context may preserve the pointer position across navigations.
+    # Move away first so this hover always emits the mouseover that starts the
+    # brief's deliberately delayed opening.
+    panel.mouse.move(0, 0)
     trigger.hover()
     brief = panel.locator('#help-brief')
-    expect(brief).to_be_visible()
-    expect(brief).to_have_attribute('data-more', 'true')
-    expect(trigger).to_have_attribute('aria-describedby', 'help-brief')
+    expect(brief).to_be_visible(timeout=EXPLAIN_TIMEOUT)
+    expect(brief).to_have_attribute(
+        'data-more', 'true', timeout=EXPLAIN_TIMEOUT)
+    expect(trigger).to_have_attribute(
+        'aria-describedby', 'help-brief', timeout=EXPLAIN_TIMEOUT)
     sentence = brief.text_content().strip()
     assert sentence, f'{knob} offered no brief'
 
     trigger.click()
 
-    expect(brief).to_be_hidden()
+    expect(brief).to_be_hidden(timeout=EXPLAIN_TIMEOUT)
     explain = panel.locator('p.explain')
-    expect(explain).to_have_count(1)
+    expect(explain).to_have_count(1, timeout=EXPLAIN_TIMEOUT)
     whole = explain.text_content().strip()
     assert whole and whole != sentence, (
         f'{knob}: the click said exactly what the hover already said')
 
 
 def test_clicking_a_knobs_name_twice_puts_its_explainer_away(panel):
+    # This claim is about the two clicks, not Playwright auto-scrolling between
+    # locating the trigger and pressing it. Keep the whole bench stationary,
+    # as the two-length explainer regression above does.
+    panel.set_viewport_size({'width': 1440, 'height': 2200})
     _booted(panel)
     trigger = _explainer_trigger(panel, 'k')
 
     trigger.click()
-    expect(panel.locator('p.explain')).to_have_count(1)
+    expect(panel.locator('p.explain')).to_have_count(
+        1, timeout=EXPLAIN_TIMEOUT)
 
     trigger.click()
-    expect(panel.locator('p.explain')).to_have_count(0)
+    expect(panel.locator('p.explain')).to_have_count(
+        0, timeout=EXPLAIN_TIMEOUT)
 
 
 def test_a_reload_brings_back_the_knobs_the_reader_set(panel):

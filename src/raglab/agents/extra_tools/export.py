@@ -1,9 +1,14 @@
 """Write a finished run out as one readable page per question — what the pipeline retrieved, said, and was graded on, argued in a way the leaderboard's single number cannot.
 This module only reports what the run stored; it never re-runs retrieval or re-derives a judged score, so every number on a page is checkable against the run file it came from.
 """
+import argparse
+import json
+import sys
 from pathlib import Path
 
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import deterministic_metrics as metrics
+from raglab.evaluation import experiment_archive as archive
 
 # In the order a reader wants them. `metrics.MEASURES` supplies each one's
 # definition, so this list holds no wording of its own.
@@ -290,3 +295,105 @@ def write_run(run: dict, ground_truth: dict, out_dir) -> list[Path]:
                         encoding='utf-8')
         written.append(path)
     return written
+
+
+# --- the command line -----------------------------------------------------
+
+def resolve(source) -> tuple[dict, dict]:
+    """One input file as the `(run, ground_truth)` pair `write_run` needs.
+
+    Two kinds, told apart by what the file says it is: an exported experiment
+    archive, read through the same codec the panel's import uses
+    (`experiment_archive.validate_archive`) and carrying its own ground truth,
+    or a run file from `.runs/`, whose ground truth is the dataset the run
+    names (`dataset_import_contract.load`). `ValueError` for anything else,
+    and for a record too incomplete to report — reporting an empty index
+    would read as an experiment that scored nothing.
+
+    Nothing here builds an index, retrieves, or derives a number: an export
+    is a second reading of a record that already exists.
+    """
+    path = Path(source)
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except OSError as error:
+        raise ValueError(f'cannot read {path}: {error}') from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f'{path} is not valid JSON: {error}') from error
+    if not isinstance(payload, dict):
+        raise ValueError(f'{path}: a JSON object required')
+
+    if payload.get('format') == archive.FORMAT:
+        try:
+            evaluation = archive.validate_archive(payload).get('evaluation')
+        except archive.ArchiveError as error:
+            raise ValueError(
+                f'{path} is not a valid experiment archive: {error}') from error
+        if not evaluation:
+            raise ValueError(
+                f'{path} archives the knob surface only: an archive with no '
+                'completed evaluation has no questions to report')
+        run = evaluation['result']
+        ground_truth = evaluation['inspector']['dataset']['ground_truth']
+    elif 'run_id' in payload:
+        run = payload
+        try:
+            ground_truth = datasets.load(run.get('dataset') or '')[1]
+        except ValueError as error:
+            raise ValueError(f'{path}: {error}') from error
+    else:
+        raise ValueError(
+            f'{path} is neither a run file from .runs/ (no "run_id") nor an '
+            f'exported experiment archive (no "format": "{archive.FORMAT}")')
+
+    asked = {question.get('groundtruth_question_id')
+             for question in ground_truth.get('groundtruth_dataset') or []}
+    if not any(isinstance(row, dict) and row.get('id') in asked
+               for row in run.get('rows') or []):
+        raise ValueError(
+            f'{path}: no question of the ground truth was scored in this run '
+            '— there is nothing to report')
+    return run, ground_truth
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog='raglab-export',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            'Write a finished experiment out as one readable Markdown page per\n'
+            'question, plus a README.md index — only from what the record\n'
+            'stored. Nothing is re-retrieved and no score is re-derived.'),
+        epilog=(
+            'example:\n'
+            '  raglab-export .runs/20260101-010101-abc123.json '
+            '--out-dir export/20260101-010101-abc123\n\n'
+            'stdout is the output directory and nothing else, so a script can '
+            'read it;\nprogress and refusals go to stderr, and a refusal '
+            'writes no file at all.'))
+    parser.add_argument(
+        'input', metavar='INPUT',
+        help='the experiment to report: a run JSON file from .runs/, or an '
+             'exported experiment archive JSON (the file the panel\'s export '
+             'button writes). A run file is joined against the ground truth '
+             'of the dataset it names; an archive carries its own.')
+    parser.add_argument(
+        '--out-dir', required=True, metavar='DIR',
+        help='directory for the pages, created if needed; existing files of '
+             'the same names are overwritten')
+    args = parser.parse_args(argv)
+
+    try:
+        run, ground_truth = resolve(args.input)
+    except ValueError as error:
+        print(f'{parser.prog}: {error}', file=sys.stderr)
+        raise SystemExit(1) from error
+
+    written = write_run(run, ground_truth, args.out_dir)
+    print(f"{parser.prog}: wrote {len(written)} pages for run "
+          f"{run['run_id']}", file=sys.stderr)
+    print(args.out_dir)
+
+
+if __name__ == '__main__':
+    main()

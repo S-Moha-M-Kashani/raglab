@@ -1,5 +1,7 @@
 """Exporting a run for reading — one Markdown page per question plus an
 index, built only from what a finished run stored."""
+import json
+
 from raglab.agents.extra_tools import export
 
 
@@ -138,3 +140,99 @@ def test_the_export_writes_one_file_per_question_plus_an_index(tmp_path):
     # happened to create at the right name.
     page = (tmp_path / '3.md').read_text(encoding='utf-8')
     assert 'chunk text is not stored' in page.lower()
+
+
+# --- the command line -----------------------------------------------------
+# `raglab-export` only resolves an input to a (run, ground truth) pair and
+# hands both to `write_run` — the same renderer the tests above pin. Two
+# input kinds: a run file from `.runs/`, whose ground truth is the dataset it
+# names, and an exported experiment archive, which carries its own. Neither
+# path may re-run retrieval or derive a number, so the risk worth testing is
+# the resolution and the refusal, not the pages.
+
+def _cli(capsys, *argv) -> tuple[int, str, str]:
+    """Run the command in-process and return `(exit code, stdout, stderr)`."""
+    try:
+        export.main(list(argv))
+        code = 0
+    except SystemExit as stop:
+        code = 1 if stop.code is None else stop.code
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
+def test_the_command_explains_its_inputs_outputs_and_an_invocation(capsys):
+    # this is a unit test
+    code, out, err = _cli(capsys, '--help')
+    assert code == 0
+    assert '--out-dir' in out
+    assert '.runs/' in out and 'archive' in out
+    assert 'raglab-export' in out            # a copy-pasteable invocation
+
+
+def test_the_command_exports_a_run_file_against_the_dataset_it_names(
+        tmp_path, capsys):
+    # this is an integration test
+    """A run file stores no ground truth, only the dataset id — so the pages
+    are joined against the corpus the run itself names, through the same
+    loader an evaluation used."""
+    run = dict(RUN_FIXTURE, dataset='smoke-mini')
+    source = tmp_path / f"{run['run_id']}.json"
+    source.write_text(json.dumps(run), encoding='utf-8')
+    out_dir = tmp_path / 'pages'
+    code, out, err = _cli(capsys, str(source), '--out-dir', str(out_dir))
+    assert code == 0
+    # Machine-readable: the folder it wrote, one line, nothing else on stdout.
+    assert out.strip() == str(out_dir)
+    assert sorted(path.name for path in out_dir.glob('*.md')) == [
+        '1.md', '2.md', '3.md', 'README.md']
+    assert run['run_id'] in (out_dir / 'README.md').read_text(encoding='utf-8')
+
+
+def test_the_command_exports_an_archive_from_the_ground_truth_it_carries(
+        tmp_path, capsys):
+    # this is an integration test
+    """An exported archive is self-contained, and it is read through the very
+    codec the panel's import uses — so a file this installation's dataset
+    folder knows nothing about still exports."""
+    from raglab.evaluation.tests import archive_examples
+
+    source = tmp_path / 'archive.json'
+    source.write_text(json.dumps(archive_examples.completed_archive()),
+                      encoding='utf-8')
+    out_dir = tmp_path / 'pages'
+    code, out, err = _cli(capsys, str(source), '--out-dir', str(out_dir))
+    assert code == 0
+    assert sorted(path.name for path in out_dir.glob('*.md')) == [
+        '1.md', 'README.md']
+    assert 'imported-run-001' in (out_dir / '1.md').read_text(encoding='utf-8')
+
+
+def test_the_command_refuses_rather_than_writing_half_a_report(tmp_path, capsys):
+    # this is an integration test
+    """Every refusal is non-zero, says why on stderr, keeps stdout empty and
+    leaves the output folder uncreated — a half-written report would be read
+    as a whole one."""
+    out_dir = tmp_path / 'pages'
+
+    # No input at all: argparse's own usage error, before anything is read.
+    code, out, err = _cli(capsys, '--out-dir', str(out_dir))
+    assert code == 2 and 'usage:' in err and out == ''
+
+    # A file that is neither a run nor an archive.
+    stranger = tmp_path / 'notes.json'
+    stranger.write_text('{"hello": "world"}', encoding='utf-8')
+    code, out, err = _cli(capsys, str(stranger), '--out-dir', str(out_dir))
+    assert code != 0 and out == ''
+    assert 'run file' in err and 'archive' in err
+
+    # A run whose rows the dataset's questions do not include: there is
+    # nothing to report, and reporting an empty index would claim otherwise.
+    empty = tmp_path / 'empty.json'
+    empty.write_text(json.dumps(
+        dict(RUN_FIXTURE, dataset='smoke-mini', rows=[])), encoding='utf-8')
+    code, out, err = _cli(capsys, str(empty), '--out-dir', str(out_dir))
+    assert code != 0 and out == ''
+    assert 'no question' in err
+
+    assert not out_dir.exists()

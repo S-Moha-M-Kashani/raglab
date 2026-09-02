@@ -186,13 +186,61 @@ Its OpenRouter key, when entered in the panel, stays in process memory only.
 ```sh
 uv run raglab                         # serve the application on :9002
 uv run raglab-lab --test-only         # run the offline preflight suite
-uv run raglab-sweep                   # run one-knob-at-a-time candidates
-uv run raglab-judgescreen --models MODEL
+uv run raglab-judgescreen --models qwen3.5:2b gemma4:e2b
+uv run raglab-sweep --only A F --limit 10 --workers 3
+uv run raglab-export .runs/20260101-010101-abc123.json --out-dir export/20260101-010101-abc123
 uv run raglab-leaderboard             # print recorded experiments
 ```
 
-`raglab-sweep`, `raglab-judgescreen` and `raglab-leaderboard` live in
-`agents/extra_tools/`; they import the lab and no frontend route reaches them.
+The four experiment commands are used in that order, and the order is part of
+the method rather than a convenience. `raglab-judgescreen` comes first: it
+gives each model you name a held-out task whose answers are already known and
+reports how often the model graded it correctly, so that a judge is chosen on
+its own measured reliability. `--models` is required and takes one or more
+model ids; `--pairs` sets how many supported/unsupported claim pairs each model
+is given, six by default, which is twelve calls per model. The report — the
+items, and every prompt and reply verbatim — is written as one JSON file in a
+folder of its own, which the command's `--help` names and which is never
+`.runs/`, because a screen is not an experiment and must never appear on the
+board. Screening after the sweep would mean picking the judge that produced the
+leaderboard you liked best, which is judge-shopping and is why the screen has
+its own command and its own record.
+
+`raglab-sweep` then runs the candidate architectures, each one changing exactly
+one knob against the baseline while the models stay fixed, so that a win can be
+attributed to the knob that moved. Every flag is optional: `--limit` sets the
+questions per candidate (30 by default, balanced across the difficulty bands),
+`--balance` names the question label to equalise or takes `""` to stride the
+question set as it is, `--workers` sets how many questions are scored in
+parallel — drop it to two or three for a local model, which serves far fewer
+concurrent requests than a remote API — `--only` restricts the run to the
+candidate letters you list, and `--final` re-runs a single candidate over the
+full question set. The sweep writes into the same `.runs/` directory the panel
+writes to, one JSON result per evaluation, so its results and the panel's are
+the same kind of record.
+
+`raglab-export` turns one finished experiment into something a person can read:
+one Markdown page per question plus a `README.md` index, built only from what
+the record already stored, with nothing re-retrieved and no score re-derived.
+Its positional argument is the experiment to report — either a run JSON file
+from `.runs/` or an exported experiment archive JSON, the file the panel's
+export button writes — and `--out-dir` is required and names the directory the
+pages are written into, created if it does not exist and overwritten where
+names collide. Standard output is that directory path and nothing else, so a
+script can read it; progress and refusals go to standard error, and a refusal
+writes no file at all.
+
+`raglab-leaderboard` prints the board to standard output: every experiment that
+touched one corpus in one table per dataset, read from the ledger and from
+`.runs/` and joined on the experiment id. `--limit` caps how many ledger rows
+and run files are read, newest first; `--write PATH` writes the Markdown to a
+file instead of printing it; `--json` dumps the boards instead of the Markdown.
+Nothing here recomputes a score, and the board names no winner, because rows
+graded by different judges over different question sets share it.
+
+`raglab-sweep`, `raglab-judgescreen` and `raglab-export` live in
+`agents/extra_tools/` and `raglab-leaderboard` in `evaluation/`; they import
+the lab and no frontend route reaches them.
 
 ## Examples
 

@@ -360,8 +360,18 @@ async function fetchGroundTruth(dataset) {
   return body;
 }
 
+// Which live load is the current one. Two can be in flight at once — a failed
+// pin asks for the corpus the page knew, and the poll asks for the one the lab
+// turns out to be following — and without this the answer that happened to
+// land second was the one that stayed, whichever corpus it was for.
+let groundTruthGeneration = 0;
+
 async function loadGroundTruth(dataset) {
+  const generation = ++groundTruthGeneration;
   const body = await fetchGroundTruth(dataset);
+  // A later ask outranks this one: it was made with more knowledge of which
+  // corpus the page is meant to be showing.
+  if (generation !== groundTruthGeneration) return;
   // A live fetch that began before a read-only mode must not land afterwards
   // and replace what is pinned with a different corpus — either mode, since an
   // imported archive and a recorded experiment both put one on screen.

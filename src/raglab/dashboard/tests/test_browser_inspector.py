@@ -399,16 +399,14 @@ def test_a_record_the_lab_cannot_read_leaves_the_page_live_and_dismissible(
     assert 'experiment=' not in inspector.url
 
 
-@pytest.mark.xfail(reason='a failed pin re-fetches the built-in corpus, and that '
-                          'answer can land after the followed one and stay')
 def test_a_failed_pin_leaves_the_page_on_the_corpus_the_lab_follows(
         a_recorded_experiment, lab_server, inspector):
     """Saying one experiment could not be read must not change the corpus.
 
     The failure branch asks for the ground truth again so the tab is not left
     empty, and asks under the corpus the page knew at boot — which is not yet
-    the one the lab is following. Whichever answer lands second is the one that
-    stays, and nothing asks again.
+    the one the lab is following. Two live loads are therefore in flight, and
+    the later one wins whichever order they land in.
     """
     inspector.goto(f'{lab_server}/inspector?experiment=no-such-experiment')
     expect(inspector.locator('#archive-state')).to_contain_text('showing live instead')

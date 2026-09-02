@@ -425,13 +425,14 @@ node --test panel_open.test.js board_reveal.test.js
 ### The browser suite
 
 The journeys above assert the served markup without a browser. A second suite
-drives a real headless Chromium through the same surfaces, and it is opt-in:
-its tests carry the `browser` marker, which the default command deselects, so
-`uv run pytest src/raglab` behaves exactly the same whether or not any of this
-is installed.
+drives a real headless Chromium through the same surfaces with
+[Playwright](https://playwright.dev/python/) (`pytest-playwright`, the
+`browser-tests` extra), and it is opt-in: its tests carry the `browser`
+marker, which the default command deselects, so `uv run pytest src/raglab`
+behaves exactly the same whether or not any of this is installed.
 
-Install it once — the browser binary lands outside the repo, and nothing here
-grows a `node_modules`:
+Install it once — Playwright's browser binary lands outside the repo, and
+nothing here grows a `node_modules`:
 
 ```sh
 uv sync --extra local-embeddings --extra browser-tests
@@ -441,11 +442,19 @@ uv run playwright install chromium
 (name the extras you already use alongside it — `uv sync` installs exactly
 what the command lists and removes the rest).
 
-Then run it on purpose:
+Then run it on purpose — `-m browser` is required every time, including when
+naming a single file, because the default marker filter would otherwise
+deselect it:
 
 ```sh
-uv run pytest src/raglab -m browser -q
+uv run pytest src/raglab -m browser -q                        # all of it, ~1 min
+uv run pytest src/raglab/dashboard/tests/test_browser_board.py -m browser -v
+uv run pytest src/raglab -m browser --headed --slowmo 300     # watch it happen
 ```
+
+The last two flags are `pytest-playwright`'s: `--headed` shows the browser
+window instead of hiding it, and `--slowmo` pauses between actions so a
+journey is readable.
 
 It covers the reader's journeys on all three surfaces: the panel's knobs, its
 dependency grey-outs and its build-and-evaluate run on the smoke corpus; the

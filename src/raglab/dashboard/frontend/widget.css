@@ -9,7 +9,14 @@
   position: fixed; right: var(--gutter); bottom: calc(var(--rail-h) + var(--s-2)); z-index: 40;
   background: var(--chassis); color: var(--chassis-ink);
   border: 1px solid var(--rule); border-radius: var(--radius-pill);
-  padding: var(--s-2) var(--s-3); font: inherit; cursor: pointer;
+  padding: var(--s-2) var(--s-3); cursor: pointer;
+  /* The widget's own type, not the page's — see .widget-window below. The
+     launcher is a sibling of the window rather than a child of it, so it has
+     to say the same thing a second time. It used to inherit instead, which is
+     what made it a step larger on the Inspector than on the other two
+     surfaces; test_panel.py now pins that no rule in this sheet inherits a
+     font at all, so the word is gone from the comment too. */
+  font: var(--t-base)/1.55 var(--sans);
   box-shadow: var(--shadow);
 }
 .widget-launch:hover { background: var(--chassis-soft); }
@@ -24,6 +31,15 @@
   display: flex; flex-direction: column;
   background: var(--plate); border: 1px solid var(--rule);
   border-radius: var(--radius-md); box-shadow: var(--shadow);
+  /* The one thing that makes this the same widget on all three surfaces: it
+     states its own type instead of inheriting each page's. The Laboratory and
+     the Leaderboard set body to --t-base (14px); the Inspector sets --t-md
+     (16px) — so every part of the widget that inherited grew by a step there
+     while every part written in rem tokens did not, and the window read as two
+     type scales stacked. This is the panel's own declaration, so two of the
+     three surfaces are unchanged and the Inspector's widget comes down to
+     match them. test_panel.py pins it, the way the two themes are pinned. */
+  font: var(--t-base)/1.55 var(--sans);
 }
 .widget-window[hidden] { display: none; }
 .widget-head {
@@ -34,7 +50,10 @@
 }
 .widget-close {
   background: none; border: none; color: var(--chassis-ink);
-  font-size: var(--t-md); cursor: pointer;
+  /* --t-md for the glyph, which needs the room; the family and the weight are
+     stated with it so the × is one × and not panel.css's 600 on two surfaces
+     and the chassis's 400 on the third. */
+  font: 600 var(--t-md)/1 var(--sans); cursor: pointer;
   /* A real 24×24, not a pseudo-element one: there is room in the head bar, so
      these take the size outright. They were about 14×19 — two controls side by
      side in the corner of a floating window, which makes them the two on this
@@ -60,9 +79,12 @@
 .widget-config {
   display: flex; align-items: center; gap: var(--s-2);
   padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--rule);
-  /* 0.85em, relative to body's font-size (var(--t-base), 14px computed —
-     .widget-window is a direct child of body and sets none of its own): the
-     11.9px product's nearest scale step is --t-xs (12px). */
+  /* One step under the conversation: the model row is a setting about the
+     thread, not part of it. --t-xs is read off the ramp and not off the
+     window, which is what the old note here assumed — it read the 12px as
+     0.85em of a body that "sets none of its own" font, an inheritance the
+     chassis rule above has now ended. Every step in this sheet is a rem
+     token, so the number is the same on all three surfaces. */
   font-size: var(--t-xs);
 }
 /* `display: flex` above beats the browser's own [hidden] rule, so the gear's
@@ -137,6 +159,33 @@
   border-inline-start: 3px solid var(--ink-soft);
   border-start-start-radius: 0; border-end-start-radius: 0;
 }
+/* A tool the model called on the way to an answer. Quieter than every other
+   line in the log on purpose: it is not part of the conversation, it is the
+   footnote saying which real records the reply above it stands on, and a reader
+   scanning a thread should be able to skip the whole column of them without
+   effort and come back to one when they want to know.
+   So: no bubble, the faint ink the account already uses, and one line — the
+   text is `called <tool>` and nothing else, because the arguments and what came
+   back are /dev/trace's business and not a reader's.
+   Distinct from .note by more than a shade. A note is the lab's own voice about
+   its own state, so it takes the full width and a rule down its edge; this
+   takes neither, sits with the model's side of the log, and is a step smaller.
+   And no step ink: the widget is a helper, not a pipeline stage — which is also
+   why --ink-soft rather than a colour, the one quiet ink legible on the plate
+   in both themes, so this needs no dark block of its own. */
+.widget-msg.tool {
+  align-self: flex-start; background: none; color: var(--ink-soft);
+  padding-block: 0;
+  /* Mono, and that is the one thing here that is not just "quiet". The account
+     line under a reply is already faint --ink-soft at --t-sm with no bubble, so
+     a tool row dressed only quietly would be a second kind wearing the first
+     one's clothes — the same blur this change refuses between `tool` and
+     `note`, one shade further down. What separates them is what the text is: a
+     tool row is mostly an identifier, and this sheet's neighbours already name
+     an id in mono (--layer-badge on the Inspector says so out loud). It reads
+     as a name rather than as a sentence, which is exactly what it is. */
+  font: var(--t-xs)/1.5 var(--mono);
+}
 /* An answer still being written. The caret is a marker on the bubble rather
    than a character in it, so nothing is ever appended to the reply the lab
    holds; it takes currentColor, which is already the bot bubble's own ink on
@@ -163,13 +212,13 @@
 /* the token account under a reply: a faint aside, never a bubble */
 .widget-msg.meta { align-self: flex-start; background: none; color: var(--ink-soft);
                    font-size: var(--t-sm); padding-top: 0; margin-top: calc(var(--s-1) * -1); }
-/* The wait between Send and the first piece, named — "Thinking…", or the tool
-   being called. The page talking, not either party, so it takes the meta
-   line's own dress (the faint ink, no bubble) plus an italic to keep it from
-   reading as a reply that arrived. The pulse is what says "still waiting"
-   without a spinner: opacity only, in --ink-soft, which both themes already
-   define — so no dark block, and no step ink either, the widget being a
-   helper and not a stage. `prefers-reduced-motion` holds the line steady
+/* The wait between Send and the first piece, named — "Working…", or the step
+   of the run, or the tool being called. The page talking, not either party,
+   so it takes the meta line's own dress (the faint ink, no bubble) plus an
+   italic to keep it from reading as a reply that arrived. The pulse is what
+   says "still waiting" without a spinner: opacity only, in --ink-soft, which
+   both themes already define — so no dark block, and no step ink either, the
+   widget being a helper and not a stage. `prefers-reduced-motion` holds the line steady
    rather than removing it, the same choice the streaming caret makes: a
    reader who asked for less movement still needs to know nothing has come
    back yet. */
@@ -182,6 +231,18 @@
 @media (prefers-reduced-motion: reduce) {
   .widget-msg.thinking { animation: none; }
 }
+/* Form controls inherit no type from their container — a select or an input
+   starts from the browser's own font unless a sheet says otherwise — and which
+   sheet says otherwise is exactly what differs by surface: the Laboratory and
+   the Leaderboard load panel.css, whose button/select/input rules are on the
+   ramp, while the Inspector hands a button and a select the body's own font
+   and says nothing at all about an input. So the widget states its controls
+   here, on its
+   own sheet, for the same reason it now states its chassis. The values are
+   panel.css's, so nothing moves on the two surfaces that already had them. */
+.widget-config select,
+.widget-form input { font: var(--t-base)/1.4 var(--sans); }
+.widget-form button { font: 600 var(--t-sm)/1.4 var(--sans); }
 .widget-form { display: flex; gap: var(--s-2); padding: var(--s-2); border-top: 1px solid var(--rule); }
 .widget-form input { flex: 1; min-width: 0; }
 .widget-form button {

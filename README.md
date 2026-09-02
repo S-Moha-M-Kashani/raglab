@@ -186,13 +186,61 @@ Its OpenRouter key, when entered in the panel, stays in process memory only.
 ```sh
 uv run raglab                         # serve the application on :9002
 uv run raglab-lab --test-only         # run the offline preflight suite
-uv run raglab-sweep                   # run one-knob-at-a-time candidates
-uv run raglab-judgescreen --models MODEL
+uv run raglab-judgescreen --models qwen3.5:2b gemma4:e2b
+uv run raglab-sweep --only A F --limit 10 --workers 3
+uv run raglab-export .runs/20260101-010101-abc123.json --out-dir export/20260101-010101-abc123
 uv run raglab-leaderboard             # print recorded experiments
 ```
 
-`raglab-sweep`, `raglab-judgescreen` and `raglab-leaderboard` live in
-`agents/extra_tools/`; they import the lab and no frontend route reaches them.
+The four experiment commands are used in that order, and the order is part of
+the method rather than a convenience. `raglab-judgescreen` comes first: it
+gives each model you name a held-out task whose answers are already known and
+reports how often the model graded it correctly, so that a judge is chosen on
+its own measured reliability. `--models` is required and takes one or more
+model ids; `--pairs` sets how many supported/unsupported claim pairs each model
+is given, six by default, which is twelve calls per model. The report — the
+items, and every prompt and reply verbatim — is written as one JSON file in a
+folder of its own, which the command's `--help` names and which is never
+`.runs/`, because a screen is not an experiment and must never appear on the
+board. Screening after the sweep would mean picking the judge that produced the
+leaderboard you liked best, which is judge-shopping and is why the screen has
+its own command and its own record.
+
+`raglab-sweep` then runs the candidate architectures, each one changing exactly
+one knob against the baseline while the models stay fixed, so that a win can be
+attributed to the knob that moved. Every flag is optional: `--limit` sets the
+questions per candidate (30 by default, balanced across the difficulty bands),
+`--balance` names the question label to equalise or takes `""` to stride the
+question set as it is, `--workers` sets how many questions are scored in
+parallel — drop it to two or three for a local model, which serves far fewer
+concurrent requests than a remote API — `--only` restricts the run to the
+candidate letters you list, and `--final` re-runs a single candidate over the
+full question set. The sweep writes into the same `.runs/` directory the panel
+writes to, one JSON result per evaluation, so its results and the panel's are
+the same kind of record.
+
+`raglab-export` turns one finished experiment into something a person can read:
+one Markdown page per question plus a `README.md` index, built only from what
+the record already stored, with nothing re-retrieved and no score re-derived.
+Its positional argument is the experiment to report — either a run JSON file
+from `.runs/` or an exported experiment archive JSON, the file the panel's
+export button writes — and `--out-dir` is required and names the directory the
+pages are written into, created if it does not exist and overwritten where
+names collide. Standard output is that directory path and nothing else, so a
+script can read it; progress and refusals go to standard error, and a refusal
+writes no file at all.
+
+`raglab-leaderboard` prints the board to standard output: every experiment that
+touched one corpus in one table per dataset, read from the ledger and from
+`.runs/` and joined on the experiment id. `--limit` caps how many ledger rows
+and run files are read, newest first; `--write PATH` writes the Markdown to a
+file instead of printing it; `--json` dumps the boards instead of the Markdown.
+Nothing here recomputes a score, and the board names no winner, because rows
+graded by different judges over different question sets share it.
+
+`raglab-sweep`, `raglab-judgescreen` and `raglab-export` live in
+`agents/extra_tools/` and `raglab-leaderboard` in `evaluation/`; they import
+the lab and no frontend route reaches them.
 
 ## Examples
 
@@ -421,6 +469,54 @@ Browser contracts can be run directly from their directory:
 cd src/raglab/dashboard/tests
 node --test panel_open.test.js board_reveal.test.js
 ```
+
+### The browser suite
+
+The journeys above assert the served markup without a browser. A second suite
+drives a real headless Chromium through the same surfaces with
+[Playwright](https://playwright.dev/python/) (`pytest-playwright`, the
+`browser-tests` extra), and it is opt-in: its tests carry the `browser`
+marker, which the default command deselects, so `uv run pytest src/raglab`
+behaves exactly the same whether or not any of this is installed.
+
+Install it once — Playwright's browser binary lands outside the repo, and
+nothing here grows a `node_modules`:
+
+```sh
+uv sync --extra local-embeddings --extra browser-tests
+uv run playwright install chromium
+```
+
+(name the extras you already use alongside it — `uv sync` installs exactly
+what the command lists and removes the rest).
+
+Then run it on purpose — `-m browser` is required every time, including when
+naming a single file, because the default marker filter would otherwise
+deselect it:
+
+```sh
+uv run pytest src/raglab -m browser -q                        # all of it, ~1 min
+uv run pytest src/raglab/dashboard/tests/test_browser_board.py -m browser -v
+uv run pytest src/raglab -m browser --headed --slowmo 300     # watch it happen
+```
+
+The last two flags are `pytest-playwright`'s: `--headed` shows the browser
+window instead of hiding it, and `--slowmo` pauses between actions so a
+journey is readable.
+
+It covers the reader's journeys on all three surfaces: the panel's knobs, its
+dependency grey-outs and its build-and-evaluate run on the smoke corpus; the
+two themes and the machine preference a reader outranks; the board's tables,
+sorting, filtering and its open handoff into the panel; the Inspector's
+record mode, tabs and added questions; the dataset and experiment-archive
+imports; and the Ask widget on every surface.
+
+The suite starts its own lab: a child process on a port the operating system
+hands out, the `fake` backend, and the four durable paths pointing into a
+temporary directory. It never talks to a lab on :9002, never reaches a model,
+and a guard fails the run if the developer's own databases or `.runs/` changed
+while it worked. In CI it is a separate job that runs on pull requests and on
+demand, so the offline suite stays the fast gate.
 
 Development happens on a private `development` branch; `master` carries one
 squash-merged release point per landing.

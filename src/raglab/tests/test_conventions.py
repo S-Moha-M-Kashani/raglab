@@ -440,7 +440,8 @@ def test_every_entry_point_resolves_to_something_callable():
     with tomllib and each target actually imported and resolved, not just
     pattern-matched against the text."""
     assert set(_SCRIPTS) == {'raglab', 'raglab-lab', 'raglab-sweep',
-                             'raglab-judgescreen', 'raglab-leaderboard'}
+                             'raglab-judgescreen', 'raglab-export',
+                             'raglab-leaderboard'}
     for command, target in _SCRIPTS.items():
         module, _, function = target.partition(':')
         assert callable(getattr(importlib.import_module(module), function)), (
@@ -572,12 +573,22 @@ def test_every_live_probe_gates_itself_and_the_secrets_guard_stands_down():
         'the secrets guard must stand down for a run that names a live file')
 
 
-@pytest.mark.parametrize('gate', ['missing', 'missing_metrics'])
+@pytest.mark.parametrize('gate', ['missing', 'missing_metrics', 'missing_briefs'])
 def test_nothing_ships_without_an_explainer(gate):
     # this is a convention test
-    """The two gates that stop a knob or a metric shipping as a bare word or
-    a bare number: a config field with no help text, and a key a run can
-    report with nothing defining it."""
+    """The three gates that stop a knob or a metric shipping as a bare word or
+    a bare number: a config field with no help text, a key a run can report
+    with nothing defining it, and — since the panel reads every explainer in
+    two lengths — a topic whose one-sentence version is unusable.
+
+    `missing_briefs` is the newest and the one worth explaining, because it can
+    fail on text nobody thought they were breaking. A brief is the opening
+    sentence of the help itself, taken in one place rather than written twice,
+    so rewriting a help text rewrites its brief — and a rewrite that opens with
+    a 400-character sentence, or with the shared dataset-specific caveat, or
+    with nothing but the knob's own name, fails here. The fix is never to widen
+    the limit: either the sentence stands on its own, or the topic declares a
+    brief in `explain.BRIEF`."""
     assert getattr(explain, gate)() == []
 
 

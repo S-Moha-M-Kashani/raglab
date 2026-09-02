@@ -113,13 +113,20 @@ function fillModels() {
   // Each role in its own .field wrapper: `applyDependencies` dims the control's
   // nearest div, and with the whole group in one box a single inactive model
   // greyed out every other model of that step beside it.
-  const row = (role) =>
-    `<div class="field"><label>${escapeHtml(role.label)} `
-    + `<span class="muted">· ${escapeHtml(role.only_when)}</span>`
-    + `<button type="button" class="why" data-topic="model.${role.key}" `
-    + `aria-label="What is ${escapeHtml(role.label)}?">!</button></label>`
-    + `<select class="rag-model" data-role="${role.key}" data-field="${role.field}">`
-    + `${options}</select></div>`;
+  // The `only_when` beside each label — six of them, each wrapping to a second
+  // line in a 280px column — is recorded rather than printed, and the role's
+  // own explainer leads with it. It is the same move the inert reason made:
+  // the sentence still reaches every reader, it just stops standing on the
+  // page for ever.
+  const row = (role) => {
+    ROLE_CONDITION[`model.${role.key}`] = role.only_when
+      ? `Used when ${role.only_when}` : '';
+    return `<div class="field"><label>`
+      + `<button type="button" class="why-term" data-topic="model.${role.key}">`
+      + `${escapeHtml(role.label)}</button></label>`
+      + `<select class="rag-model" data-role="${role.key}" data-field="${role.field}">`
+      + `${options}</select></div>`;
+  };
   const groups = {};
   for (const role of OPTIONS.model_roles || []) {
     const step = role.step || role.field.split('.')[0];
@@ -156,13 +163,40 @@ function fillModels() {
 const datasetValue = (d) => (d.id === ArchiveIO.BUILTIN_DATASET ? '' : d.id);
 const datasetValues = () => (OPTIONS.datasets || []).map(datasetValue);
 
+// What one option has to do is let a reader tell this corpus from the other
+// eight: the name first, because that is what a reader recognises, then the
+// id, because a name is not unique — `smoke-mini` and an imported copy of it
+// carry the same name, and the id is the only thing that separates them (and
+// the only name the board, a fingerprint and a run file ever use). The census
+// follows, shortened: a picker is for choosing, and the full count of parts
+// and the period are one click away under "View full dataset summary".
+const datasetOptionLabel = (d) =>
+  `${d.name} — ${d.id} · ${d.language || '?'} · ${d.documents} docs`
+  + ` · ${d.questions} questions`;
+
+// Grouped by where the corpus came from, which is the one distinction worth a
+// divider in the list: what shipped with the lab, and what a reader imported
+// into this installation. That grouping also replaced a trailing '· imported'
+// tag at the end of a long line nobody could see past the width of the select.
+const DATASET_GROUPS = [['bundled', 'Bundled'], ['imported', 'Imported']];
+
 function fillDatasets() {
   const found = OPTIONS.datasets || [];
-  $('dataset').innerHTML = found.map((d) =>
-    `<option value="${escapeHtml(datasetValue(d))}">`
-    + `${escapeHtml(d.name)} — ${escapeHtml(d.language || '?')} · ${d.documents} `
-    + `documents · ${d.questions} questions`
-    + `${d.source === 'imported' ? ' · imported' : ''}</option>`).join('');
+  const option = (d) => `<option value="${escapeHtml(datasetValue(d))}">`
+    + `${escapeHtml(datasetOptionLabel(d))}</option>`;
+  const grouped = new Set();
+  let html = '';
+  for (const [source, label] of DATASET_GROUPS) {
+    const rows = found.filter((d) => d.source === source);
+    for (const d of rows) grouped.add(d);
+    if (!rows.length) continue;
+    html += `<optgroup label="${label}">${rows.map(option).join('')}</optgroup>`;
+  }
+  // A `source` neither group names is still offered, ungrouped, rather than
+  // filtered out: a corpus the service serves and the picker hides is a corpus
+  // nobody can measure against, and this page does not get to decide that.
+  html += found.filter((d) => !grouped.has(d)).map(option).join('');
+  $('dataset').innerHTML = html;
   $('dataset').onchange = () => {
     describeDataset();
     syncArchiveViewOnlyFromDataset();
@@ -177,7 +211,7 @@ const datasetOf = (id) => (OPTIONS.datasets || []).find(
 // model extracted it, and the confidence rater that scores it, if any. Read
 // straight off the loaded files, never hardcoded, so a sparse corpus just
 // shows fewer rows rather than a placeholder for a label it lacks.
-function renderDatasetLabels(found, target = 'datasetLabels') {
+function renderDatasetLabels(found, target) {
   const rows = (found.label_declarations || []).map((row) => [row, 'corpus'])
     .concat((found.question_label_declarations || [])
       .map((row) => [row, 'question']));
@@ -238,11 +272,14 @@ function describeDataset() {
     `${found.documents} documents · ${found.parts} parts · ${period}`
     + `${found.questions} questions`
     + `${found.query_date ? ' · asked as of ' + found.query_date : ''}`;
-  $('datasetInfo').textContent = found.description;
+  // Cleared, not written: the description and the declaration table live in
+  // the summary the pill opens, and this line's only job now is the view-only
+  // warning `setArchiveViewOnly` puts here. Clearing it is what stops that
+  // warning outliving a switch to a corpus that *is* installed.
+  $('datasetInfo').textContent = '';
   $('dataset-detail-title').textContent = found.name || found.id || 'Dataset';
   $('dataset-detail-census').textContent = $('corpus').textContent;
   $('dataset-detail-description').textContent = found.description;
-  renderDatasetLabels(found);
   renderDatasetLabels(found, 'dataset-detail-labels');
   QUESTION_SELECTION = { labels: {}, balance: '' };
 }
@@ -338,30 +375,103 @@ function titleSteps() {
 // Every knob explains itself. The text comes from the service (config.HELP and
 // models.ROLES), so a knob added there is explained here without editing this
 // file — and the id of each control is the field it sets.
+// The knob's own name becomes the trigger, marked by a dotted underline: the
+// name was already on screen, so the affordance costs no ink — which is the
+// whole reason the surface no longer carries a mark per knob.
+//
+// Only the label's own first run of words, never the whole label: `Embedding
+// model · fastembed or sentence-transformers` is a name and an aside, and
+// underlining the aside would offer to explain a qualifier.
+function markTerm(label, topic) {
+  for (const node of label.childNodes) {
+    if (node.nodeType !== 3 || !node.textContent.trim()) continue;
+    const words = node.textContent;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'why-term';
+    button.dataset.topic = topic;
+    button.textContent = words.trim();
+    label.replaceChild(button, node);
+    // The whitespace the text node carried is put back, or the aside beside
+    // the name collides with it.
+    if (/\s$/.test(words)) {
+      label.insertBefore(document.createTextNode(' '), button.nextSibling);
+    }
+    return button;
+  }
+  return null;
+}
+
+
 function decorateExplainers() {
   const byField = {};
   for (const [topic, text] of Object.entries(OPTIONS.help || {})) {
     byField[topic.split('.').pop()] = { topic, text };
   }
-  for (const control of document.querySelectorAll('main [id]')) {
+  // The two lengths every explainer is read in: the brief on hover, the whole
+  // note on a click. lab.js owns the hover and asks these two for the text, so
+  // the resolver is registered here, beside the pass that builds the triggers.
+  // An inert knob leads with why it is inert, in both lengths: that is the
+  // thing a reader wants first from a control they cannot use, and the
+  // definition follows it rather than being replaced by it.
+  // An inert knob leads with why it is inert; a live model role leads with the
+  // one case it is called in. Never both: a reason like "only the llm reranker
+  // calls a model" already says the condition, and saying it twice is worse
+  // than saying it once.
+  const withReason = (topic, text) => {
+    const reason = INERT_REASON[topic] || ROLE_CONDITION[topic];
+    if (!reason) return text || '';
+    // The served reasons are lowercase fragments with no full stop, written to
+    // sit under a control rather than to open a sentence. Given the first line
+    // of an explainer now, they get a capital and a stop — otherwise the box
+    // reads `…build no graph — What an edge between two chunks means.`
+    const said = reason[0].toUpperCase() + reason.slice(1)
+      + (/[.!?]$/.test(reason) ? '' : '.');
+    return text ? `${said} ${text}` : said;
+  };
+  LabHelp.brief = (topic) => withReason(topic, (OPTIONS.brief || {})[topic]);
+  LabHelp.full = (topic) => withReason(topic, (OPTIONS.help || {})[topic]);
+
+  // Scoped to `.page`, which is both columns — the bench and the setup panel.
+  // It used to read `main`, which was the whole knob surface until the models
+  // and the two imports moved into the panel beside it; left as it was, every
+  // model knob would have quietly lost the one sentence explaining it.
+  for (const control of document.querySelectorAll('.page [id]')) {
     const found = byField[control.id];
     // A checkbox lives *inside* its own label, so it explains itself there; every
     // other control is preceded by one. Walking up blindly would hang a
     // checkbox's explainer on the previous checkbox's label.
     const label = control.type === 'checkbox' ? control.closest('label')
       : control.previousElementSibling;
-    if (!found || !label || label.tagName !== 'LABEL' || label.querySelector('.why')) continue;
-    label.insertAdjacentHTML('beforeend',
-      ` <button type="button" class="why" data-topic="${found.topic}" `
-      + `aria-label="What is this?">!</button>`);
+    if (!found || !label || label.tagName !== 'LABEL'
+        || label.querySelector('.why, .why-term')) continue;
+    // While we are here with a label and the control it names in one hand: the
+    // markup pairs them by adjacency only, so the control had no accessible
+    // name at all. One assignment fixes forty of them.
+    if (!label.htmlFor && control.id && control.type !== 'checkbox') {
+      label.htmlFor = control.id;
+    }
+    // A checkbox keeps a mark. Its own words are already a click target — they
+    // toggle it — so they cannot also be the trigger for a sentence.
+    if (control.type === 'checkbox') {
+      label.insertAdjacentHTML('beforeend',
+        ` <button type="button" class="why" data-topic="${found.topic}" `
+        + `aria-label="What is this?">?</button>`);
+      continue;
+    }
+    markTerm(label, found.topic);
   }
   document.addEventListener('click', (event) => {
-    const btn = event.target.closest('.why');
+    const btn = event.target.closest('.why, .why-term');
     if (!btn) return;
-    const open = btn.parentElement.nextElementSibling;
+    // After the whole card head where the trigger is a card's name, after the
+    // label everywhere else. `.card-head` is a flex row: a paragraph inserted
+    // inside it becomes a third item beside the number and the title.
+    const host = btn.closest('.card-head') || btn.parentElement;
+    const open = host.nextElementSibling;
     if (open && open.classList.contains('explain')) { open.remove(); return; }
-    const text = btn.dataset.help || (OPTIONS.help || {})[btn.dataset.topic] || '';
-    btn.parentElement.insertAdjacentHTML('afterend',
+    const text = btn.dataset.help || LabHelp.full(btn.dataset.topic) || '';
+    host.insertAdjacentHTML('afterend',
       `<p class="explain">${escapeHtml(text)}</p>`);
   });
 }
@@ -506,6 +616,22 @@ function dependencyState(rules, cfg) {
   return state;
 }
 
+// Why each inert knob is inert, kept as long as it is inert, and the one case
+// each model role is called in. Both are read by the explainer resolvers,
+// which is the whole of how a reader gets at either — neither is printed on
+// the page any more.
+const INERT_REASON = {};
+const ROLE_CONDITION = {};
+
+// A model role's control is found by its config path (`retrieval.rerank_model`)
+// and its explainer is keyed by its role (`model.rerank`). The dependency rules
+// speak the first language and the trigger speaks the second, so a reason is
+// recorded under both or a greyed-out model says nothing about why.
+function roleTopic(path) {
+  const role = (OPTIONS.model_roles || []).find((r) => r.field === path);
+  return role ? `model.${role.key}` : '';
+}
+
 function applyDependencies() {
   const rules = OPTIONS.dependencies || {};
   const cfg = readConfig();
@@ -525,19 +651,21 @@ function applyDependencies() {
     const holder = el.closest('div') || el.parentElement;
     if (!holder) continue;
     holder.classList.toggle('rag-field-off', !enabled);
-    // No `title` here. The same sentence is written into the visible note
-    // below, so the tooltip was a second copy reachable only by hovering —
-    // and a reason worth giving is worth giving on the page.
-    let note = holder.querySelector('.rag-when-dep');
-    if (!enabled) {
-      if (!note) {
-        note = document.createElement('span');
-        note.className = 'rag-when rag-when-dep';
-        holder.appendChild(note);
-      }
-      note.textContent = reason;
-    } else if (note) {
-      note.remove();
+    // The reason is recorded here and read by the knob's own explainer, which
+    // leads with it while the knob is inert.
+    //
+    // It used to be printed under the control as a permanent italic sentence,
+    // and the comment here argued the case: a `title` was a copy reachable
+    // only by a mouse, and a reason worth giving is worth giving on the page.
+    // That argument was right about the `title` and is answered rather than
+    // abandoned — the explainer is a real focusable trigger now, so the reason
+    // reaches a keyboard and a screen reader as well as a pointer. What it
+    // stops doing is standing on the page for ever: the lab boots with no
+    // hierarchy, which makes six knobs inert at once, and six near-identical
+    // sentences about a graph nothing is building was most of the Index card.
+    for (const key of [path, roleTopic(path)].filter(Boolean)) {
+      if (!enabled) INERT_REASON[key] = reason;
+      else delete INERT_REASON[key];
     }
   }
 }
@@ -585,6 +713,61 @@ function applyDefaults(d) {
     select.value = (d[group] || {})[field] || '';
   }
 }
+
+// --- the setup panel --------------------------------------------------------
+// The left column's one piece of state: open or collapsed. It lives in an
+// attribute on <html> rather than a class on the aside, for the same reason
+// the theme does — the head's inline script has to set it before the first
+// paint, and at that point the aside does not exist yet. CSS reads the
+// attribute; this keeps the key and `aria-expanded` in step with it.
+//
+// The key is a bare string, not JSON: the inline copy in the head reads it
+// too, and a one-line script in a <head> should not have to parse anything.
+// A per-viewer convenience and nothing more — no run, no ledger row, no
+// artifact ever records which way a reader left this panel.
+const SIDEBAR_KEY = 'raglab-sidebar';
+// Same number as the CSS breakpoint below which the panel becomes a drawer.
+// Two copies of one number, which is one too many, but the alternative is
+// `matchMedia` in the head before the stylesheet has arrived.
+const SIDEBAR_WIDE = 1024;
+
+function sidebarState() {
+  const stamped = document.documentElement.dataset.sidebar;
+  if (stamped === 'open' || stamped === 'collapsed') return stamped;
+  // Storage threw for the head's script too, so nothing was stamped: fall
+  // back to the same reading it would have made.
+  return window.innerWidth >= SIDEBAR_WIDE ? 'open' : 'collapsed';
+}
+
+// `remember` is false for the one call that only catches the button up with
+// what the head already stamped: writing there would turn a width the reader
+// happens to be at into a choice they never made, and a wide-screen 'open'
+// stored that way is exactly what the head's narrow rule exists to ignore.
+function applySidebar(state, remember = true) {
+  document.documentElement.dataset.sidebar = state;
+  $('sidebar-toggle').setAttribute('aria-expanded', String(state === 'open'));
+  if (!remember) return;
+  try {
+    localStorage.setItem(SIDEBAR_KEY, state);
+  } catch (e) { /* private browsing: applied for this tab, not remembered */ }
+}
+
+$('sidebar-toggle').onclick = () => {
+  applySidebar(sidebarState() === 'open' ? 'collapsed' : 'open');
+};
+// Only ever visible over a narrow viewport, where the open panel is a drawer
+// covering the bench: a click outside it means "give me the bench back".
+$('sidebar-scrim').onclick = () => applySidebar('collapsed');
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || sidebarState() !== 'open') return;
+  // The wide layout is a column, not an overlay — Escape closing it there
+  // would take a panel nothing is covering away from a reader who was
+  // dismissing a popover.
+  if (window.innerWidth < SIDEBAR_WIDE) applySidebar('collapsed');
+});
+// The attribute is already stamped; this is what makes the button agree with
+// it on the first frame rather than after the first click.
+applySidebar(sidebarState(), false);
 
 // --- what survives a reload -------------------------------------------------
 // The readings card is only ever filled by a finishing job or a leaderboard
@@ -739,12 +922,25 @@ async function boot() {
     document.addEventListener(event, () => remember(SAVED_CONFIG, readConfig()));
   }
   if (!ARCHIVE_EVENTS_BOUND) {
-    const experimentControls = document.querySelector('main');
+    // `.page` again, and for a sharper reason than the explainers: a model is
+    // an experiment knob, so changing one while a recorded experiment is on
+    // screen must make the readings stale. Scoped to `main`, the move into the
+    // setup panel would have let a reader swap the answerer and still export
+    // the previous run's numbers as if this configuration had produced them.
+    //
+    // The three file inputs are not knobs: two of them choose a dataset to
+    // import and the third chooses an archive to open, and a file picker
+    // firing `change` is the reader starting one of those acts, not editing
+    // the experiment on screen. `archive-file` joins the list because it lives
+    // in the panel now — it used to sit in the header, outside this listener
+    // altogether.
+    const experimentControls = document.querySelector('.page');
     for (const event of ['change', 'input']) {
       experimentControls.addEventListener(event, (change) => {
         if (!CURRENT_ARCHIVE || !change.target.matches('input, select, textarea')
             || change.target.id === 'dataset-corpus-file'
-            || change.target.id === 'dataset-groundtruth-file') return;
+            || change.target.id === 'dataset-groundtruth-file'
+            || change.target.id === 'archive-file') return;
         CURRENT_ARCHIVE = null;
         setArchiveStatus(
           'Readings belong to the previous settings; export will contain settings only.',
@@ -1094,7 +1290,7 @@ $('cancel').onclick = async () => {
 
 $('stopPoll').onclick = () => { boot(); };
 
-// The labels, the step each score grades and the text behind its '!' all come
+// The labels, the step each score grades and the text behind its mark all come
 // from the service (metrics.MEASURES and ragas_eval.RAGAS_MEASURES). Nothing
 // about a metric is written twice, so no number on this page can end up with a
 // name its definition does not carry.
@@ -1106,7 +1302,7 @@ const measureWhy = (key, catalogue = measures()) => {
   const topic = `metric.${key}`;
   return `<button type="button" class="why" data-topic="${escapeHtml(topic)}" `
     + `data-help="${escapeHtml(metric.help || '')}" `
-    + `aria-label="What is ${escapeHtml(metric.label)}?">!</button>`;
+    + `aria-label="What is ${escapeHtml(metric.label)}?">?</button>`;
 };
 
 // --- portable experiment exchange -----------------------------------------

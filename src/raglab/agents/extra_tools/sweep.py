@@ -254,11 +254,16 @@ def final(limit: int | None, workers: int, label: str,
           balance: str = SWEEP_BALANCE) -> None:
     """Re-run one candidate over the whole question set: the winner is decided
     on a subset for cost, but a per-type breakdown over two questions isn't one."""
+    # Looked up before the backend check and the corpus load: a letter no
+    # candidate carries is an argument error, not work worth a build.
+    cfg = next((c for c in candidates() if c.label.split()[0] == label), None)
+    if cfg is None:
+        sys.exit(f'no candidate {label!r}: --final takes one candidate letter, '
+                 'one of ' + ' '.join(c.label.split()[0] for c in candidates()))
+    cfg = replace(cfg, label=f'WINNER {cfg.label} · full set')
     settings = judged_settings()
     diary, ground_truth = datasets.load()
     registry = IndexRegistry(settings, diary)
-    cfg = next(c for c in candidates() if c.label.split()[0] == label)
-    cfg = replace(cfg, label=f'WINNER {cfg.label} · full set')
     workers = capped_workers(workers, settings)
     n = limit or len(ground_truth['groundtruth_dataset'])
     started = time.time()
@@ -278,7 +283,9 @@ def final(limit: int | None, workers: int, label: str,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog='Example: uv run raglab-sweep --only A F --limit 10 --workers 3')
     parser.add_argument('--limit', type=int, default=SWEEP_LIMIT,
                         help='questions per candidate (default %(default)s, '
                              'balanced across the difficulty bands)')

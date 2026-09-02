@@ -7,6 +7,7 @@ import re
 import pytest
 from html import unescape as html_unescape
 
+from raglab.configuration import explainer_assembly as explain
 from raglab.configuration import lab_config as config
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import run_evaluation as evaluate
@@ -198,7 +199,11 @@ CONVENTIONS = [
     ('panel_server.py', 'api/dataset-templates/groundtruth', None,
      'the panel must serve the ground-truth template on the same terms as '
      'the corpus template beside it'),
-    ('index.html', 'start from the templates', None,
+    # The line reads `templates: corpus · ground truth` now — two words rather
+    # than two filenames, because `download` names each file on disk and the
+    # note above states both names in full. The claim is unchanged: the import
+    # section points at the templates and not only at the schema help.
+    ('index.html', 'class="muted template-links">templates:', None,
      'the import section must guide an author to the templates, not only to '
      'the schema help text — the templates are the readable path'),
     ('index.html', 'href="/api/dataset-templates/corpus"', None,
@@ -338,6 +343,34 @@ CONVENTIONS = [
      'they answer, so an undecided turn is the ordinary case — the only case, '
      'on a keyed install — and a reader shown no memory line at all reads it '
      'as the lab finding nothing worth keeping, a verdict no model gave'),
+    # The widget's own type. Every surface renders the same widget, and until
+    # 2026-09-01 it inherited each page's body font instead of stating one —
+    # 14px on the Laboratory and the Leaderboard, 16px on the Inspector, while
+    # the parts written in rem tokens stayed put either way, so the window read
+    # as two scales stacked. Pinned the way the two themes are: the chassis, the
+    # launcher beside it (a sibling, so it needs its own), and the three form
+    # controls, which inherit no type from a container at all.
+    ('widget.css', 'font: var(--t-base)/1.55 var(--sans);', None,
+     "the widget must declare its own family and base size, or it is whatever "
+     'type the page underneath it happens to set — the Inspector sets --t-md '
+     'and the other two --t-base, so the same thread read at two sizes'),
+    ('widget.css', None, 'font: inherit',
+     'and no part of the widget may go back to taking the page\'s font: '
+     '`font: inherit` on the launcher is exactly how the surfaces came to '
+     'disagree, and it is invisible until someone opens two of them'),
+    ('widget.css', '.widget-form input { font: var(--t-base)/1.4 var(--sans); }',
+     None,
+     'a control inherits no type from its container, so the widget states its '
+     "own: the Inspector loads no panel.css and says nothing at all about an "
+     'input, which left the question box at the browser default font there'),
+    ('panel.css', None, '.widget-',
+     'no surface may dress the widget from its own sheet — it is one '
+     'component on three pages, and a page reaching into it is how one '
+     'declaration becomes three that drift. The Laboratory and the '
+     "Leaderboard share this sheet; the Inspector's own is pinned the same "
+     'way in test_inspector.py'),
+    ('chrome.css', None, '.widget-',
+     'and the same for the shared chassis sheet'),
     ('widget.css', 'position: fixed', None,
      'the launcher and its window must be pinned to the viewport, or a '
      'widget that scrolls with the page is a fourth card, not a widget — '
@@ -356,6 +389,23 @@ CONVENTIONS = [
      "the window's real anchor values, distinct from the launcher's own — "
      'same collision this guards against as the launcher row above. The '
      "2.6rem is the launcher's own box, which has no ramp step"),
+    # The tool row: the log's record of which real records an answer stands on.
+    # It has to be its own kind on both sides — the sheet and the script — and
+    # it has to be told apart from the two lines it sits nearest. `note` is the
+    # lab's own voice about its own state, and `meta` is the bill under a reply;
+    # a tool row wearing either one's dress is the same blur, one shade down.
+    ('widget.css', '.widget-msg.tool', None,
+     'a tool call must be drawn as its own kind, or the log has a sixth kind '
+     'the sheet renders as an unstyled bubble'),
+    ('widget.css', 'font: var(--t-xs)/1.5 var(--mono);', None,
+     'and it must not be told apart from the account line by shade alone — '
+     'both are faint and bubbleless, so what separates them is that a tool '
+     'row is mostly an identifier and is set as one'),
+    ('widget.js', "const WIDGET_KINDS = ['you', 'bot', 'tool', 'meta', 'note', 'err']",
+     None,
+     'the kinds the log can hold are one list, and `tool` is on it — the class '
+     'is written straight into the markup, so a kind the page does not know '
+     'must write none at all'),
     ('widget.css', None, '--step-',
      'the widget is a helper, not a pipeline stage, and must wear no step ink'),
     ('widget.css', 'background: var(--card)', None,
@@ -647,6 +697,12 @@ CONVENTIONS = [
 ]
 
 
+# Topics whose brief is written rather than taken from the note's opening
+# sentence, read from the one place that declares them — so this file holds no
+# second copy of the list and a topic added there needs no edit here.
+_DECLARED_BRIEFS = set(explain.BRIEF)
+
+
 def test_the_panel_spells_the_built_in_corpus_one_way(panel_texts):
     # this is a convention test
     """`IndexConfig.fingerprint()` drops `dataset=''` from its payload, so the
@@ -789,20 +845,70 @@ def test_a_table_can_freeze_a_column_at_either_edge(panel_texts):
         'is the left one')
 
 
-def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
+def test_an_inert_knob_shows_no_value_and_still_holds_one(panel_texts):
     # this is a convention test
-    """A knob this pipeline would ignore is dimmed, and the one sentence saying
-    why is the only part of it still worth reading — so the dimming is colour on
-    the fields, never `opacity` on the group. Opacity composites the whole
-    subtree: a child cannot climb back out of an ancestor's, which is why the
-    `opacity: 1` this block used to carry on the note did nothing at all and the
-    sentence rendered at half of an already soft ink."""
+    """A knob the pipeline would ignore shows nothing in its box. A greyed `8`
+    beside `kNN neighbours` on an index with no graph is a number a reader has
+    to work out is not a number.
+
+    And the two halves of that have to stay apart, because getting it wrong
+    puts a lie in a run file: the value is *hidden*, never cleared. It is still
+    on the control, so `readConfig()` still reads it, an export still carries
+    exactly what it always carried, and re-enabling the knob brings the number
+    straight back. That is why this is a stylesheet rule and why
+    `applyDependencies` — the one function that knows a knob is inert — must
+    never touch `.value`.
+
+    A checkbox is exempt: it has no number to hide, and an unchecked-looking
+    box that is actually checked would be the lie the rule exists to avoid."""
     css = panel_texts['panel.css']
-    # The end anchor is the next rule after the block. It used to be
-    # `\nbutton.why {` — the *bare* selector, because `.rag-field-off
-    # button.why {` is inside this block and would have cut the slice in half.
-    # That rule now lives in chrome.css, shared with the Inspector, so the
-    # anchor is the explainer paragraph that follows instead.
+    block = css[css.index('.rag-field-off > label'):css.index('\n/* The \'!\' mark itself')]
+    assert 'color: transparent' in block, (
+        'an inert value is not shown at all')
+    assert '-webkit-text-fill-color: transparent' in block, (
+        'a disabled input takes its text colour from `-webkit-text-fill-color` '
+        'first, so `color` alone leaves the number on screen in the browsers '
+        'this lab is actually opened in')
+    assert '::placeholder { color: transparent' in block, (
+        "or `summary_levels` goes on showing its example while it is inert")
+    assert 'input[type=checkbox]' in block, (
+        'the checkbox exemption has to be written down, not left to whoever '
+        'reads the rule next')
+
+    js = panel_texts['panel.js']
+    inert = _function_body(js, 'applyDependencies')
+    assert '.value' not in inert, (
+        'applyDependencies must not write a control it only means to grey: '
+        'clearing the value would make readConfig() read a blank and put a '
+        'number in a run file that no knob ever held')
+
+
+def test_a_disabled_knob_still_says_why_it_is_disabled(panel_texts):
+    # this is a convention test
+    """A knob this pipeline would ignore is dimmed and locked, and it still owes
+    the reader one sentence saying why. Two claims, and the second one changed.
+
+    The dimming is colour on the fields, never `opacity` on the group. Opacity
+    composites the whole subtree: a child cannot climb back out of an
+    ancestor's, which is why an `opacity: 1` this block once carried on the
+    reason did nothing at all.
+
+    The reason itself used to be a permanent italic sentence under the control,
+    and the argument for that was sound as far as it went: a `title` is a copy
+    reachable only by a mouse, and a reason worth giving is worth giving on the
+    page. What changed is not the argument but the alternative. The explainer is
+    a real focusable trigger now, with the sentence announced through
+    `aria-describedby`, so the reason reaches a keyboard and a screen reader as
+    well as a pointer — and it no longer occupies the card for ever, which
+    mattered because the lab boots with no hierarchy and six knobs inert at
+    once, printing six near-identical sentences about a graph nothing is
+    building.
+
+    So this pins where the reason went: recorded per knob, read back by both
+    lengths of that knob's explainer, leading the definition rather than
+    replacing it — and never as a `title`, which is the one option the original
+    comment ruled out and which stays ruled out."""
+    css = panel_texts['panel.css']
     block = css[css.index('/* A knob the current pipeline would ignore'):
                 css.index('\np.explain {')]
     # Comments out: this block's own comment explains the bug by naming it, and
@@ -814,9 +920,19 @@ def test_a_disabled_knob_keeps_its_reason_at_full_contrast(panel_texts):
     assert 'var(--ink-off)' in block, (
         'the dimming is a named ink, so the one value that means "this knob is '
         'out of play" is decided once')
-    assert 'color: var(--ink-soft)' in block, (
-        'the reason itself stays at the page\'s ordinary soft ink, which is '
-        'what full contrast means here')
+
+    js = panel_texts['panel.js']
+    assert 'INERT_REASON[key] = reason' in js, (
+        'the reason has to be recorded somewhere a reader can still get at it')
+    assert 'const reason = INERT_REASON[topic]' in js and '${said} ${text}' in js, (
+        'and both lengths of the explainer have to lead with it: a definition '
+        'is not what a reader wants first from a control they cannot use')
+    assert 'rag-when-dep' not in js and 'rag-when-dep' not in css, (
+        'the permanent note is gone, in the script and in the sheet — a class '
+        'nothing writes is a rule nobody deletes')
+    assert '.setAttribute(\'title\'' not in js, (
+        'not a `title`: that is the mouse-only copy the original note was '
+        'written to replace, and nothing here brings it back')
 
 
 def test_the_smallest_controls_clear_the_target_floor(panel_texts):
@@ -876,13 +992,21 @@ def test_the_run_chip_names_the_run_on_screen_or_is_nothing(panel_texts):
 
 def test_the_panel_centres_every_band_on_the_one_measure(panel_texts):
     # this is a convention test
-    """Six page-level bands set their own max-width: the banner, the status
-    rail, the capability chips and main in panel.css, the top bar and the
-    context scope in chrome.css. They are one band at six widths and must read
-    from one token, or the next one added drifts. Counted per sheet, each
-    against its own number: a count over both sheets together passes with one
-    band gone and another added, which is the failure this pins."""
-    bands = {'panel.css': 4, 'chrome.css': 2}
+    """Seven page-level bands set their own max-width: the banner, the status
+    rail, the capability chips, `main` and the two-column page in panel.css,
+    the top bar and the context scope in chrome.css. They are one band at
+    seven widths and must read from one token, or the next one added drifts.
+    Counted per sheet, each against its own number: a count over both sheets
+    together passes with one band gone and another added, which is the failure
+    this pins.
+
+    `.page` is the fifth in panel.css and it is the setup panel's arrival: the
+    Laboratory is two columns now — the panel and the bench — so the band that
+    centres the page is the grid holding both, and `main` is one column of it.
+    The bare `main` rule keeps its own band all the same, because the
+    leaderboard reads this sheet too and its `main` is still the whole page;
+    `.page > main` resets it for this surface only."""
+    bands = {'panel.css': 5, 'chrome.css': 2}
     for sheet, expected in bands.items():
         found = panel_texts[sheet].count('max-width: var(--measure)')
         assert found == expected, (
@@ -1367,7 +1491,13 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
     # this is a convention test
     """The inline dataset description is not enough for the full census and
     declaration table. The selected dataset therefore needs an accessible
-    control and a top-layer detail surface that can be read at viewport size."""
+    control and a top-layer detail surface that can be read at viewport size.
+
+    Where the control lives is pinned too: inside the corpus pill's own
+    dropdown, one step further into the question that pill already asks. The
+    detail box was always anchored to that pill — it just used to be opened
+    from a button four fields down the Index card, which is a control placed
+    away from the thing it belongs to."""
     html = panel_texts['index.html']
     css = panel_texts['panel.css']
     assert 'dataset-detail' in html
@@ -1375,6 +1505,38 @@ def test_the_selected_dataset_summary_has_a_fullscreen_detail_control(
     assert 'popover' in html[html.index('id="dataset-detail"'):]
     assert 'dataset-detail' in css
     assert '100vw' in css or '100dvw' in css
+    dropdown = html[html.index('id="corpus-detail"'):]
+    dropdown = dropdown[:dropdown.index('</div>')]
+    assert 'id="dataset-detail-open"' in dropdown, (
+        'the way to the full summary opens from the corpus dropdown, not from '
+        'the middle of the Index card')
+    bench = html[html.index('<div class="bench">'):]
+    bench = bench[:bench.index('<div class="stack">')]
+    assert 'id="dataset-detail-open"' not in bench, (
+        'and only from there — two buttons opening one box is two places to '
+        'look for one answer')
+    # And the summary is read in one place too. The Index card used to print
+    # the description and the whole declaration table as well, which is the
+    # same facts twice and a table tall enough to push the chunking knobs off
+    # the screen. The card is a place to choose a corpus; the summary is where
+    # you read about one.
+    assert 'id="datasetLabels"' not in html, (
+        'the second declaration table is gone — one reading of '
+        'datasets[].label_declarations, in the summary')
+    js = panel_texts['panel.js']
+    assert "renderDatasetLabels(found, 'dataset-detail-labels')" in js
+    assert 'renderDatasetLabels(found)' not in js, (
+        'a call with no target is the old in-card copy asking to come back'
+    )
+    assert "renderDatasetLabels(found, target)" in js, (
+        'the target has no default any more, so the one host is named at the '
+        'one call site rather than assumed')
+    # The line under the picker survives, empty, because one thing still
+    # speaks there: an archived corpus this installation does not have.
+    assert 'id="datasetInfo"' in bench
+    assert "$('datasetInfo').textContent = ''" in js, (
+        "describeDataset must clear that line, or the view-only warning "
+        'outlives a switch to a corpus that is installed')
 
 
 def test_the_board_is_one_table_with_both_edges_frozen(panel_texts):
@@ -1936,11 +2098,18 @@ def test_the_settings_popover_gathers_every_installation_level_control(panel_tex
     """Three unrelated controls used to sit loose in the top bar — Settings,
     Import JSON, Export experiment — competing for the same corner as the
     surface switcher. They have one thing in common: none of them is about the
-    experiment on screen, they are about this installation. So they are one
-    button now, and this pins that the archive pair actually moved inside the
-    popover rather than merely surviving somewhere on the page. The ids are
-    unchanged on purpose: panel.js and archive_io.js reach for them by id, and
-    a move that renames its hooks is a rewrite, not a move."""
+    experiment on screen, they are about this installation. So they are three
+    groups behind one disc, and this pins that the archive pair is actually
+    inside the popover rather than merely surviving somewhere on the page.
+
+    The pair spent a while in the setup panel, on the argument that bringing an
+    experiment in is the same kind of act as importing a dataset. It is not
+    quite: a dataset is the corpus every knob is measured against, while an
+    archive is one recorded experiment carried between installations — which is
+    a fact about the installation, and this is where those live. So they came
+    back, and the ids never moved either way: panel.js and archive_io.js reach
+    for them by id, and a move that renames its hooks is a rewrite, not a
+    move."""
     html = panel_texts['index.html']
     popover = html[html.index('id="app-settings-panel"'):]
     popover = popover[:popover.index('</header>')]
@@ -1949,6 +2118,299 @@ def test_the_settings_popover_gathers_every_installation_level_control(panel_tex
         assert hook in popover, (
             f'{hook} must live inside the Settings popover — a control left '
             'loose in the bar is the crowding this replaces')
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    for gone in ('id="archive-import"', 'id="archive-export"', 'id="archive-file"'):
+        assert gone not in sidebar, (
+            f'{gone} is the disc\'s again — two homes for one control is how a '
+            'reader learns to look in both')
+
+
+def test_the_setup_panel_holds_everything_that_is_not_an_experiment_knob(panel_texts):
+    # this is a convention test
+    """The split the left panel exists to draw: selecting is a knob, ingesting
+    is not. The bench keeps the dataset *selector*, because which corpus is
+    loaded decides what every knob under it means; bringing a corpus in is an
+    act on this installation and lives in the panel, with every model setting.
+
+    The experiment archive's import and export are not here: they are behind
+    the settings disc, with the other things that describe the installation
+    rather than the corpus. `test_the_settings_popover_gathers_every_installation_level_control`
+    holds that half.
+
+    Read off the served markup by slicing the `<aside>` and the bench apart,
+    because 'the control is somewhere on the page' is exactly the assertion
+    that would keep passing through a move that put it back."""
+    html = panel_texts['index.html']
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    for hook in ('id="dataset-corpus-file"', 'id="dataset-groundtruth-file"',
+                 'id="dataset-import"', 'id="importInfo"',
+                 'id="mode"', 'id="embedder"', 'id="embed_model"',
+                 'id="modelRoles-index"', 'id="modelRoles-retrieval"',
+                 'id="modelRoles-generation"', 'id="modelRoles"'):
+        assert hook in sidebar, (
+            f'{hook} must live in the setup panel — the bench is the pipeline '
+            'and nothing else now')
+    bench = html[html.index('<div class="bench">'):]
+    bench = bench[:bench.index('<div class="stack">')]
+    assert 'id="dataset"' in bench, (
+        'the dataset selector stays on the bench: it is the knob every other '
+        'knob is read against')
+    for gone in ('id="dataset-import"', 'id="mode"',
+                 'id="embedder"', 'id="modelRoles-index"'):
+        assert gone not in bench, (
+            f'{gone} moved to the setup panel and must not have been left '
+            'behind on the bench as well')
+    # The bench is three numbered steps and nothing else. Counted, because
+    # 'the models card is not here' passes just as well when a fourth card
+    # nobody meant to add is.
+    assert bench.count('<section class="card"') == 3, (
+        'the bench holds 1 Index, 2 Retrieval and 3 Generation — a fourth '
+        'card on it is either a pipeline step nobody documented or something '
+        'that belongs in the setup panel')
+    for step in ('id="card-index"', 'id="card-retrieval"', 'id="card-generation"'):
+        assert step in bench, f'{step} is a pipeline step and stays on the bench'
+
+
+def test_the_retrieval_card_is_ordered_by_the_pipeline_it_drives(panel_texts):
+    # this is a convention test
+    """The knobs are laid out in the order the code runs them, and this reads
+    that order out of the code rather than trusting a list written here.
+
+    `retrieve()` times five stages by name — understand, retrieve, rerank,
+    diversify, grade — and the card's labelled groups are those stages. So the
+    test extracts the stage order from `question_to_answer_pipeline.py` and
+    asserts the card's groups never run backwards against it. Move a stage in
+    the pipeline and this fails: the page is then claiming an order the code
+    does not have."""
+    source = (RAGLAB_DIR / 'rag_components'
+              / 'question_to_answer_pipeline.py').read_text(encoding='utf-8')
+    stages = []
+    for stage in re.findall(r"timings\['(\w+)_ms'\]", source):
+        if stage not in stages:
+            stages.append(stage)
+    assert stages == ['understand', 'retrieve', 'rerank', 'diversify', 'grade',
+                      'answer'], (
+        f'the pipeline times these stages, in this order: {stages} — the map '
+        'below names them, so it has to be told when they change. `answer` is '
+        "the Generation card's, and it is last here for the same reason it is "
+        'last there')
+
+    # Which stage each group belongs to. Two groups share `understand` because
+    # the code's own understand block does both jobs: it rewrites the question
+    # and it decides which layers are eligible, in one pass.
+    group_stage = {
+        'Understand the question': 'understand',
+        'What the search may see': 'understand',
+        'Retrieve &amp; fuse': 'retrieve',
+        'Rerank': 'rerank',
+        'Diversify &amp; select': 'diversify',
+        'Grade': 'grade',
+    }
+    html = panel_texts['index.html']
+    card = html[html.index('id="card-retrieval"'):]
+    card = card[:card.index('</section>')]
+    shown = re.findall(r'group-tag[^>]*>([^<]+)</div>', card)
+    assert shown == list(group_stage), (
+        f'the card names these groups, in this order: {shown} — every one of '
+        'them is a stage the pipeline runs, so the page and the map must agree')
+    order = [stages.index(group_stage[name]) for name in shown]
+    assert order == sorted(order), (
+        'the groups run backwards against the pipeline: the page would be '
+        'telling a reader that one stage happens before a stage it follows')
+
+    # The three knobs the reorder actually moved, each pinned to the stage that
+    # reads it — the rest of the card would pass this test unchanged.
+    def group_of(knob):
+        before = card[:card.index(f'id="{knob}"')]
+        return re.findall(r'group-tag[^>]*>([^<]+)</div>', before)[-1]
+    assert group_of('hyde') == 'Understand the question'
+    assert group_of('summary_boost') == 'Retrieve &amp; fuse', (
+        'the boost multiplies the fused scores before the candidate cut, so it '
+        'belongs to fusion and not to the two scope knobs it used to sit with')
+    assert group_of('k') == 'Diversify &amp; select', (
+        'k is the size of the set MMR selects, which is where the pipeline '
+        'fixes it')
+
+
+def test_the_generation_card_selects_before_it_answers(panel_texts):
+    # this is a convention test
+    """`run_eval` chooses the sample before the index is even asked, so the
+    question count stands above the answerer that will see the contexts."""
+    html = panel_texts['index.html']
+    card = html[html.index('id="card-generation"'):]
+    card = card[:card.index('</section>')]
+    assert card.index('id="limit"') < card.index('id="answerer"'), (
+        'the sample is chosen first — a reader reading down the card is '
+        'reading the order the run happens in')
+
+
+def test_every_explainer_is_read_in_two_lengths(panel_texts, client):
+    # this is a convention test
+    """The `!` beside every knob is gone, and what replaced it is two lengths of
+    one text: hover a knob's own name for a sentence, click it for the whole
+    note. Four claims, because each one on its own is satisfiable while the
+    feature is broken.
+
+    The service serves both lengths under the same keys, from one text
+    (`explain.briefs()` takes the opening sentence of `explain.topics()`), so a
+    brief cannot drift from the note it opens.
+
+    The trigger is the knob's own name, underlined — no mark. A checkbox is the
+    exception and keeps one, because its words are already a click target that
+    toggles it and they cannot also open a sentence.
+
+    The hover lives in `lab.js`, once, for all three surfaces; and it obeys the
+    two rules a hover reveal has to obey to be usable at all — a delay for a
+    pointer crossing the page, none for a reader who tabbed here on purpose."""
+    served = client.get('/api/options').json()
+    assert set(served['brief']) == set(served['help']), (
+        'both lengths, same keys, on the one payload the panel boots from — a '
+        'topic with a note and no brief has nothing to show on hover')
+    for topic, brief in served['brief'].items():
+        assert served['help'][topic].startswith(brief) or topic in _DECLARED_BRIEFS, (
+            f'{topic}: a brief that is not the note\'s own opening sentence '
+            'has to be declared in explain.BRIEF, or it is a second copy '
+            'nobody will keep in step')
+    # The Inspector's half of this claim — its own route, its own marks — is in
+    # test_inspector.py, where an Inspector client exists.
+
+    js = panel_texts['panel.js']
+    assert '>!</button>' not in js, (
+        'the exclamation mark is retired on every trigger this page builds'
+    )
+    assert 'class="why-term"' in js and 'markTerm(label, found.topic)' in js, (
+        "a knob's own name is the trigger now")
+    assert "control.type === 'checkbox'" in js and '>?</button>' in js, (
+        'a checkbox keeps a mark, because underlining words that already '
+        'toggle a box would give one phrase two jobs')
+    assert 'LabHelp.brief = (topic)' in js and 'LabHelp.full = (topic)' in js, (
+        'the page resolves both lengths for the shared hover engine')
+
+    lab = panel_texts['lab.js']
+    assert 'HELP_HOVER_MS' in lab and 'showHelpBrief(trigger)' in lab
+    assert "document.addEventListener('focusin'" in lab, (
+        'a hover-only reveal is a reveal half the readers never get')
+    focus = lab[lab.index("document.addEventListener('focusin'"):]
+    focus = focus[:focus.index('});')]
+    assert 'setTimeout' not in focus, (
+        'no delay on focus: a reader who tabbed to a trigger has already asked')
+    assert "trigger.setAttribute('aria-describedby', 'help-brief')" in lab, (
+        'the sentence has to reach a screen reader, not only an eye')
+    assert "box.dataset.more = String(helpHasMore(trigger, text))" in lab, (
+        'the box offers "more" only when there is more — a brief that is '
+        'already the whole note must not promise a second half')
+
+
+def test_every_step_card_groups_its_knobs_under_labels(panel_texts):
+    # this is a convention test
+    """A step card used to be a flat run of controls — eleven of them on the
+    Index card — under one heading. Each card now names its sub-stages, so a
+    reader scans by topic instead of reading the whole column to find one knob.
+
+    Two claims, because either alone is satisfiable by accident: every card has
+    at least two labelled groups, and the first one in each carries `lead`,
+    the variant with no rule above it — a divider directly under the card's own
+    heading separates the heading from the card it heads."""
+    html = panel_texts['index.html']
+    for card in ('card-index', 'card-retrieval', 'card-generation'):
+        section = html[html.index(f'id="{card}"'):]
+        section = section[:section.index('</section>')]
+        tags = re.findall(r'class="step-tag group-tag( lead)?"', section)
+        assert len(tags) >= 2, (
+            f'{card} names {len(tags)} groups — a card with one label is the '
+            'flat list this replaces wearing a heading')
+        assert tags[0] == ' lead', (
+            f"{card}'s first group must be the `lead` variant, or the card "
+            'opens with a rule between its heading and its first knob')
+    css = panel_texts['panel.css']
+    assert '.group-tag.lead {' in css, (
+        'the variant has to exist in the sheet the markup names, or `lead` is '
+        'a class that does nothing')
+
+
+def test_the_dataset_picker_stays_readable_as_corpora_arrive(panel_texts):
+    # this is a convention test
+    """Nine corpora are installed here and two of them are called `Smoke set —
+    five sessions`: the bundled one and an imported copy. Named alone they are
+    the same option twice, so the id is in the label — and the id is what the
+    board, a fingerprint and a run file call a corpus anyway, so it is the name
+    a reader can carry between surfaces.
+
+    The list is also divided by where a corpus came from, which retired a
+    trailing '· imported' tag at the end of a line longer than the select is
+    wide. And a corpus whose `source` neither group names is still offered,
+    ungrouped: a corpus the service serves and the picker hides is one nobody
+    can measure against."""
+    js = panel_texts['panel.js']
+    label = js[js.index('const datasetOptionLabel'):]
+    label = label[:label.index(';')]
+    assert '${d.id}' in label, (
+        'the option has to name the id, or two corpora sharing a name are one '
+        'option twice')
+    assert '${d.name}' in label and label.index('${d.name}') < label.index('${d.id}'), (
+        'and the name leads, because that is what a reader recognises — the id '
+        'is what disambiguates it')
+    fill = js[js.index('function fillDatasets'):]
+    fill = fill[:fill.index('\n}')]
+    assert '<optgroup' in fill, 'the list is grouped by where a corpus came from'
+    assert '!grouped.has(d)' in fill, (
+        'a served corpus in neither group must still be offered — filtering it '
+        'out would hide a corpus this installation can actually measure '
+        'against')
+
+
+def test_the_panel_reaches_a_knob_wherever_the_layout_put_it(panel_texts):
+    # this is a convention test
+    """Two of panel.js's whole-surface queries were scoped to `main`, which was
+    the entire knob surface right up until the models and the two imports moved
+    into the panel beside it. Both had to follow the move to `.page`, the band
+    holding both columns, and each for its own reason.
+
+    The explainer pass is the milder one: scoped to `main` it would have left
+    every model knob without the one sentence that explains it, silently.
+
+    The archive listener is the sharper one. Changing a knob while a recorded
+    experiment is on screen is what marks its readings stale — so scoped to
+    `main`, a reader could swap the answerer in the panel and then export the
+    previous run's numbers as though this configuration had produced them.
+    That is a row lying about what produced it, which is the one thing this
+    project does not permit."""
+    js = panel_texts['panel.js']
+    assert "querySelectorAll('main [id]')" not in js, (
+        'the explainer pass must not stop at the bench — the setup panel holds '
+        'knobs too')
+    assert "querySelectorAll('.page [id]')" in js
+    assert "querySelector('main')" not in js, (
+        'the stale-readings listener must not stop at the bench either')
+    assert "querySelector('.page')" in js
+    # And the file pickers stay excluded from it: `archive-file` is new to the
+    # list, because it moved from the header into the panel and so came inside
+    # the listener's reach for the first time.
+    for picker in ('dataset-corpus-file', 'dataset-groundtruth-file', 'archive-file'):
+        assert f"change.target.id === '{picker}'" in js, (
+            f'choosing a file with {picker} is the start of an import, not an '
+            'edit to the experiment on screen')
+
+
+def test_the_archive_status_stays_a_page_level_banner(panel_texts):
+    # this is a convention test
+    """The exchange moved into the setup panel; its status did not follow it
+    there. A collapsed panel is `display: none` for everything inside it, and
+    an archive opened from the leaderboard reports on a page load nobody
+    clicked — so a banner inside the panel would be a report a reader is never
+    shown. It stays under the bar, where it is visible in every state the
+    panel has."""
+    html = panel_texts['index.html']
+    assert 'id="archive-status"' in html
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    assert 'id="archive-status"' not in sidebar[:sidebar.index('</aside>')], (
+        'the banner must not sit inside the panel that can be collapsed over '
+        'it')
+    assert html.index('id="archive-status"') < html.index('<aside class="sidebar"'), (
+        'and it must stay above the two columns, so it reads as the page '
+        'speaking rather than as one column speaking')
 
 
 @pytest.mark.parametrize('surface', SURFACES)
@@ -2045,6 +2507,16 @@ UNSHOWN_KNOBS = frozenset({
     'retrieval.rrf_k', 'retrieval.agentic_weights', 'retrieval.max_context_chars',
 })
 
+# `run.*` topics the panel serves an explainer for and deliberately gives no
+# control: the two question-selection knobs travel in a run's ui block and in
+# the archive codec without a widget to show them (`QUESTION_SELECTION`), and
+# the worker count is a service setting rather than a knob of the experiment.
+# Every other served topic must have a trigger on the page — see
+# test_every_explainer_the_panel_serves_can_be_opened_on_it.
+UNCONTROLLED_RUN_TOPICS = frozenset({
+    'run.labels', 'run.balance', 'run.workers',
+})
+
 
 def _config_knobs():
     """Every knob the lab has, as `group.field`, from the definition itself."""
@@ -2112,6 +2584,67 @@ def _controlled_knobs(panel_js):
             if group and field != 'label':
                 knobs.add(f'{group}.{field}')
     return knobs | {role.field for role in model_roles.ROLES}
+
+
+def test_every_explainer_the_panel_serves_can_be_opened_on_it(panel_texts, client):
+    # this is a convention test
+    """A sentence nothing on the page can open is a sentence nobody reads.
+
+    This is the gate for a failure that had already happened and was invisible:
+    `run.dataset-file` explains the shape a corpus/ground-truth pair must have,
+    and the pass that hangs an explainer on a control matches a topic's last
+    segment against a control id. The import used to be one file input with
+    `id="dataset-file"`; it became two, the id became two ids, and the note
+    detached — while `index.dataset`'s own text went on telling readers to look
+    for it there.
+
+    Reachable means one of four things, which are the four ways a trigger is
+    made: a control whose id is the topic's last segment (`decorateExplainers`),
+    a trigger written into the markup with the topic on it, a model role
+    (`fillModels` builds one per served role), or a metric (`measureWhy`).
+    Anything else has to be declared above, with the reason it has no control.
+    """
+    served = client.get('/api/options').json()['help']
+    html = panel_texts['index.html']
+    ids = set(re.findall(r'id="([^"]+)"', html))
+    unreachable = []
+    for topic in sorted(served):
+        if topic.startswith(('model.', 'metric.')):
+            continue
+        if topic.split('.')[-1] in ids:
+            continue
+        if f'data-topic="{topic}"' in html:
+            continue
+        if topic in UNSHOWN_KNOBS or topic in UNCONTROLLED_RUN_TOPICS:
+            continue
+        unreachable.append(topic)
+    assert unreachable == [], (
+        'the panel serves an explainer for these and offers no way to open '
+        f'one: {unreachable}. Either the thing they describe needs its trigger '
+        'back, or — if it genuinely has no control — say so in '
+        'UNCONTROLLED_RUN_TOPICS or UNSHOWN_KNOBS with the reason')
+
+
+def test_the_dataset_help_points_at_the_import_that_exists(panel_texts, client):
+    # this is a convention test
+    """The corpus knob's own text tells a reader where to import one, and it had
+    gone stale twice over: it named a `!` no page draws any more, and it said
+    "the button beside it" after the import moved out of the Index card into the
+    setup panel. Text that directs a reader to a place is a claim about the
+    layout, and it has to be checked like one."""
+    served = client.get('/api/options').json()['help']
+    dataset = served['index.dataset']
+    assert 'the ! there' not in dataset, (
+        'no page draws that mark any more — a text naming it sends the reader '
+        'looking for something that is not there')
+    assert 'setup panel' in dataset, (
+        'the import lives in the left panel now, and the sentence that points '
+        'at it has to point there')
+    html = panel_texts['index.html']
+    sidebar = html[html.index('<aside class="sidebar"'):]
+    sidebar = sidebar[:sidebar.index('</aside>')]
+    assert 'data-topic="run.dataset-file"' in sidebar, (
+        'and what it points at is the trigger on the import block itself')
 
 
 def test_every_knob_reaches_the_export_file(panel_texts):

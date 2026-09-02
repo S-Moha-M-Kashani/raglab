@@ -1112,6 +1112,33 @@ def _tool_named(chunk) -> list:
             if piece.get('name')]
 
 
+#: What each of the graph's nodes is called in front of a reader.
+#:
+#: The keys are the node names the compiled graph really has — `model` and
+#: `tools` from `create_agent`, plus one node per `before_agent`/`after_agent`
+#: middleware in `hooks.MIDDLEWARE` (`trim_and_call` and `log_tool_call` wrap
+#: calls rather than standing as nodes, so they name none). They were read off
+#: `agent.get_graph().nodes` rather than guessed, and
+#: `test_every_stage_label_names_a_node_the_real_graph_has` keeps them honest:
+#: a langchain release that renamed a node would otherwise leave every stage
+#: quietly falling back to the generic label.
+#:
+#: The values are the only thing the page may show. A node name is this
+#: package's private vocabulary — `close_the_log.after_agent` says nothing to
+#: a reader and quite a lot about the code — so an unrecognised node arrives
+#: as `STAGE_UNKNOWN` instead of as itself. `model` is labelled for both of
+#: its outcomes: it is the node that decides to call a tool as well as the one
+#: that writes the answer, and a label claiming the answer is being written
+#: would be false on every hop but the last.
+STAGE_LABELS = {
+    'check_request.before_agent': 'Reading the question',
+    'model': 'Working out the answer',
+    'tools': 'Looking things up',
+    'close_the_log.after_agent': 'Wrapping up',
+}
+STAGE_UNKNOWN = 'Working on it'
+
+
 def _stream_cli(cli: str, message: str, thread: str = '', started=None):
     """A CLI streaming: one piece, because one subprocess reports one complete
     reply and there is no partial output to forward. It still travels this path
@@ -1128,15 +1155,18 @@ def _stream_cli(cli: str, message: str, thread: str = '', started=None):
 
 def _stream_agent(agent, message: str, thread: str, model: str,
                   pre: _Preflight, started=None):
-    """The graph streaming: `stream_mode=['messages', 'values']` on the same
-    run `ask` invokes — the same nodes, the same middleware, the same
+    """The graph streaming: `stream_mode=['messages', 'values', 'updates']` on
+    the same run `ask` invokes — the same nodes, the same middleware, the same
     checkpoint write, so a streamed turn is in widget.db exactly as an asked
     one is.
 
-    Two modes and not one, because the pieces and the account answer different
-    questions. `messages` is what the reader watches arrive. `values` is the
-    state the run ended in, and that is where the authoritative reply event
-    comes from: the
+    Three modes and not one, because the pieces, the account and the progress
+    answer different questions. `messages` is what the reader watches arrive.
+    `updates` names each node as it finishes, which is where the ephemeral
+    `{'stage': <label>}` events come from — the graph's own account of where
+    the run is, rather than a second event bus keeping its own guess beside
+    it. `values` is the state the run ended in, and that is where the
+    authoritative reply event comes from: the
     reply is read back out of the log with `_turn_account`, so what the page
     settles on is what the lab now holds for that turn rather than whatever the
     concatenated pieces happened to spell. A run that streamed pieces but ended
@@ -1157,10 +1187,20 @@ def _stream_agent(agent, message: str, thread: str, model: str,
                            memory_state=pre.state, memory_text=pre.context)
     final = None
     try:
-        for mode, event in agent.stream(payload, config=config,
-                                        stream_mode=['messages', 'values']):
+        for mode, event in agent.stream(
+                payload, config=config,
+                stream_mode=['messages', 'values', 'updates']):
             if mode == 'values':
                 final = event
+                continue
+            if mode == 'updates':
+                # One event per node that just ran, in the run's own order, as
+                # the label `STAGE_LABELS` gives it. Ephemeral exactly as a
+                # tool's `{'status': ...}` is: nothing here reaches the log,
+                # the checkpoint or a run file, so a redraw of the thread
+                # shows the turns and no stage among them.
+                for node in event:
+                    yield {'stage': STAGE_LABELS.get(node, STAGE_UNKNOWN)}
                 continue
             for name in _tool_named(event[0]):
                 yield {'status': name}

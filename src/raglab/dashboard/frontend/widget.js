@@ -283,6 +283,24 @@
   // Replies are model output rendered into the page, so they pass through the
   // shared escapeHtml like every other untrusted string.
 
+  // Every kind of line this log can hold, and the whole list of them:
+  //
+  //   you      the reader's question
+  //   bot      the model's reply
+  //   tool     a tool the model called on the way to one — the log's record of
+  //            which real records an answer stands on. Not `note`: the lab
+  //            speaking about itself is a different voice from the model
+  //            reaching for something, and a reader has to be able to tell them
+  //            apart at a glance without reading either.
+  //   meta     the token account under a reply, a bill and never a measurement
+  //   note     the lab saying what it just did
+  //   err      what went wrong
+  //
+  // `thinking` is deliberately absent: it is built by `widgetThinking`, lives
+  // for the length of one wait and is never said. Nothing that passes through
+  // here is ephemeral.
+  const WIDGET_KINDS = ['you', 'bot', 'tool', 'meta', 'note', 'err'];
+
   function widgetSay(kind, text) {
     const log = $('widget-log');
     // The empty state goes on the first thing said, not on the first reply: a
@@ -292,8 +310,16 @@
     // opened — so it lands under the examples instead of clearing them.
     const offer = log.querySelector('.widget-empty');
     if (offer && kind !== 'note') offer.remove();
+    // A kind this page does not know renders as a bare line and nothing else.
+    // The class is written straight into the markup, so an unrecognised one is
+    // both a styling question and — since the log is fed by a route — an
+    // injection one; the answer to both is the same list. Inert rather than
+    // dropped: a lab that grew a seventh kind must not make the reader's own
+    // history disappear on the way to a page that has not been updated yet,
+    // and the text is the part that carries what was said.
+    const known = WIDGET_KINDS.includes(kind) ? ` ${kind}` : '';
     log.insertAdjacentHTML('beforeend',
-      `<div class="widget-msg ${kind}">${escapeHtml(text)}</div>`);
+      `<div class="widget-msg${known}">${escapeHtml(text)}</div>`);
     log.scrollTop = log.scrollHeight;
   }
 
@@ -400,19 +426,31 @@
   // The stretch between Send and the first piece used to be the one part of a
   // turn the log said nothing about: the reader's own bubble, then nothing,
   // whether the lab was composing or off calling a tool. This line names that
-  // wait — "Thinking…", swapped for the tool's name when a status event says
-  // one is running. It is deliberately not a turn: never written through
-  // `widgetSay` (whose empty-state handling is for things said), never part
-  // of any history the lab keeps — a redraw of this thread comes back without
-  // it because it was never in it — and gone the moment the answer starts or
-  // the turn ends, whichever comes first. `textContent`, never markup: the
-  // swap writes a name the stream sent, untrusted like every other string
-  // that arrives over a wire.
+  // wait — "Working…", retitled by whatever the stream last said about the
+  // run: the step it has reached (a `stage` event) or the tool it is calling
+  // (a `status` event). "Working…" and not "Thinking…" because this page can
+  // only claim its own state — a question is out and nothing has come back —
+  // and never that the model is reasoning; no model reasoning is shown here,
+  // only labels the stream sent. It is deliberately not a turn: never written
+  // through `widgetSay` (whose empty-state handling is for things said), never
+  // part of any history the lab keeps — a redraw of this thread comes back
+  // without it because it was never in it — and gone the moment the answer
+  // starts or the turn ends, whichever comes first. `textContent`, never
+  // markup: a retitle writes a label the stream sent, untrusted like every
+  // other string that arrives over a wire.
+  //
+  // The line is a live status region, so a step change is heard and not only
+  // seen. `aria-live` is stated beside the role rather than left implicit in
+  // it: the role's own politeness is not honoured by every screen reader in
+  // use, and this is the only line on the surface that changes under a reader
+  // who is not looking at it.
   function widgetThinking() {
     const log = $('widget-log');
     const el = document.createElement('div');
     el.className = 'widget-msg thinking';
-    el.textContent = 'Thinking…';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.textContent = 'Working…';
     log.append(el);
     log.scrollTop = log.scrollHeight;
     return el;
@@ -430,11 +468,12 @@
 
   // One SSE reader: `data: ` lines carrying one JSON object each, events
   // separated by a blank line. Deltas go to `onDelta` as they land, status
-  // events — the lab naming the tool it is calling — to `onStatus`; the final
+  // events — the lab naming the tool it is calling — to `onStatus`, stage
+  // events — the step of the run it has reached — to `onStage`; the final
   // event is returned. An `error` event is thrown, because that is what it is —
   // the stream's own way of saying the answer never finished, once the status
   // code has been spent on the first piece.
-  async function widgetStream(path, body, onDelta, onStatus, onMemoryStatus) {
+  async function widgetStream(path, body, onDelta, onStatus, onMemoryStatus, onStage) {
     const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -473,6 +512,16 @@
         // would then hand back the chatter as the reply the lab supposedly
         // holds, which is exactly the substitution this file refuses.
         if (event.status != null) { onStatus(event.status); continue; }
+        // A stage event is the same fact one step out: which step of the run
+        // is happening, rather than which tool it reached for. Same
+        // ephemerality, so the same refusal — it may retitle the wait and it
+        // may never fall through to `final = event`, or a stream that died
+        // after one would hand progress text back as the reply the lab
+        // supposedly holds.
+        if (event.stage != null) {
+          if (onStage) onStage(event.stage);
+          continue;
+        }
         if (event.memory != null && event.reply == null) {
           if (onMemoryStatus) onMemoryStatus(event.memory);
           continue;
@@ -764,7 +813,7 @@
     }
     widgetLock(true);
     // The wait is named up front, where the reply's bubble deliberately is
-    // not: "Thinking…" is a claim about this page — a question is out and
+    // not: "Working…" is a claim about this page — a question is out and
     // nothing has come back — which is true from this line on, where an
     // empty bubble would be a claim about an answer the lab has not started
     // making. It lasts exactly as long as the wait does: the first piece
@@ -812,6 +861,17 @@
           if (fate !== 'here') return;
           const copy = widgetMemoryStatus(memoryStatus);
           if (copy) widgetSay('meta', copy);
+        },
+        (stage) => {
+          // The step the run has reached, retitling the one wait line under
+          // exactly the rule the tool swap answers to: only a line the log
+          // still holds is this turn's to retitle, a wiped one stays gone,
+          // and the label is assigned as text because it arrived over the
+          // stream. Whichever of the two arrived last is what the line says
+          // — one line, no second bubble, and nothing durable either way.
+          if ($('widget-log').contains(thinking)) {
+            thinking.textContent = stage;
+          }
         });
       const fate = replyFate(mine, intended, wasPending || drawPending);
       if (fate === 'gone') return;
@@ -827,7 +887,7 @@
       }
     } catch (error) {
       // The wait line goes before the error is said: an error line landing
-      // under a still-pulsing "Thinking…" would read as one more thing
+      // under a still-pulsing "Working…" would read as one more thing
       // being worked on, when the truth is that the work just stopped.
       widgetThinkingOver(thinking);
       // Whatever had arrived stays, marked as stopped rather than dressed up

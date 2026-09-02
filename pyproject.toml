@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.33.0"
+version = "1.0.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 readme = "README.md"
 authors = [{ name = "Moha Kashani", email = "s.moha.m.kashani@gmail.com" }]
@@ -98,6 +98,11 @@ semantic = ["fastembed>=0.7"]
 # HuggingFace checkpoints fastembed does not serve. The default embedder needs
 # this — see README's launch line and tests/test_conventions.py.
 local-embeddings = ["sentence-transformers>=3.0"]
+# The browser suite. Playwright through Python rather than npm: it rides the
+# pytest/uv toolchain this repo already has, so there is no second test runner,
+# no lockfile and no node_modules. The Chromium binary is not a package — it is
+# installed once, outside the repo, with `uv run playwright install chromium`.
+browser-tests = ["pytest-playwright>=0.5"]
 
 [project.urls]
 Repository = "https://github.com/S-Moha-M-Kashani/raglab"
@@ -107,10 +112,16 @@ raglab = "raglab.dashboard.cli.serve:panel"
 raglab-lab = "raglab.dashboard.cli.lab:main"
 raglab-sweep = "raglab.agents.extra_tools.sweep:main"
 raglab-judgescreen = "raglab.agents.extra_tools.judgescreen:main"
+raglab-export = "raglab.agents.extra_tools.export:main"
 raglab-leaderboard = "raglab.evaluation.leaderboard:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+# httpx2 is starlette's own client for `TestClient` since starlette 1.6: with
+# only httpx installed its testclient module still works but warns once per
+# run, and the whole offline suite goes through it. Test-only — the app's
+# runtime dependency above stays `httpx`, which is what the lab itself calls
+# out with.
+dev = ["pytest>=8.0", "httpx2>=2.12"]
 
 [build-system]
 requires = ["hatchling"]
@@ -123,3 +134,12 @@ packages = ["src/raglab"]
 # Tests are colocated with what they test (each section's tests/ folder);
 # repo-wide guards live in src/raglab/tests/. There is no top-level tests/.
 testpaths = ["src/raglab"]
+# The browser suite is opt-in and deselected here, so `uv run pytest src/raglab`
+# behaves identically whether or not the `browser-tests` extra is installed —
+# which matters because CI installs every extra. A command-line `-m` overrides
+# this one, so the suite is run with:
+#   uv run pytest src/raglab -m browser
+addopts = "-m 'not browser'"
+markers = [
+  "browser: end-to-end journey driven through a real headless Chromium; opt-in, deselected by default (see README)",
+]

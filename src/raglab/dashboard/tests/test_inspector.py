@@ -596,6 +596,14 @@ INSPECTOR_CONVENTIONS = [
      'Inspector made ":9002" appear out of nowhere beside two links that had '
      'been bare on the page before it — one switcher worn by three surfaces '
      'cannot label the address on one of them only'),
+    # The widget rides this surface but is not dressed by it: it declares its
+    # own family and base size on its own chassis (widget.css), because this
+    # page's body is --t-md where the other two are --t-base — which is how the
+    # same thread came to be read at two sizes. A rule here would put that
+    # decision back in the page.
+    ('inspector.css', None, '.widget-',
+     'the Inspector must not re-size or restyle the widget from its own '
+     'sheet — one component on three pages, dressed once in widget.css'),
     ('inspector.css', 'font-size: var(--t-sm)', None,
      'one table step for both surfaces: this table read --t-xs where the '
      "lab's read --t-sm, which is what a ramp offering three indiscriminable "
@@ -1562,6 +1570,12 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
 
     assert body['metrics'] == explain.measures()
     assert body['help'] == explain.topics()
+    # Both lengths, because the marks beside these metrics are the same
+    # affordance the Laboratory's knobs carry: a sentence on hover, the whole
+    # note on a click. Same keys, and the brief comes from the note rather than
+    # from a second text.
+    assert body['brief'] == explain.briefs()
+    assert set(body['brief']) == set(body['help'])
     # the generation half specifically, since that is what the new tab grades
     generation = {m['key'] for m in body['metrics'] if m['step'] == 'generation'}
     assert {'answer_similarity', 'fact_coverage', 'faithfulness',

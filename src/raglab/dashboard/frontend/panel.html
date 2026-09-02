@@ -10,6 +10,15 @@
      between the three surfaces. Inline because a separate file is a request,
      and the flash lasts exactly as long as that request. -->
 <script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
+<!-- The setup panel's state, stamped for the same reason and in the same
+     place: panel.js owns the toggle, and this owns only the first frame —
+     read from the foot of the page instead and a reader who collapsed the
+     panel watches it fold away on every load. One key and two values. A wide
+     viewport gets the remembered choice, open by default; a narrow one gets
+     it shut, because there the panel is a drawer over the bench and a drawer
+     that greets you open is a page you have to dismiss before you can read
+     it. -->
+<script>try{var s=localStorage.getItem('raglab-sidebar');document.documentElement.dataset.sidebar=window.innerWidth>=1024?(s==='collapsed'?'collapsed':'open'):'collapsed'}catch(e){}</script>
 <!-- Design tokens shared with the Inspector, now the same origin; before
      panel.css so its overrides still win. -->
 <link rel="stylesheet" href="/tokens.css">
@@ -47,7 +56,8 @@
     </nav>
     <!-- One button. What used to be three loose controls here — Settings,
          Import, Export — are all about this installation rather than about the
-         experiment on screen, so they are three groups behind one disc. -->
+         experiment on screen, so they are three groups behind one disc:
+         Theme, the experiment archive, and the OpenRouter key. -->
     <div class="topbar-actions">
       <button class="settings-button" id="app-settings" type="button"
         popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
@@ -65,6 +75,24 @@
                aria-labelledby="theme-control-label"></div>
         </div>
         <div class="settings-group">
+          <h3>Experiment archive</h3>
+          <!-- Back here after a spell in the setup panel. The panel is where
+               content arrives — a corpus, measured against — and this pair is
+               about carrying one recorded experiment between installations,
+               which is a fact about the installation and not about the corpus.
+               Its status still reports from the banner under the bar, where it
+               is visible whether or not this disc is open. -->
+          <div class="archive-exchange" aria-label="Experiment archive exchange">
+            <div class="archive-actions">
+              <label class="archive-button" id="archive-import" for="archive-file"
+                     role="button" tabindex="0">Import JSON</label>
+              <button class="ghost" id="archive-export" type="button">Export experiment</button>
+              <input id="archive-file" class="hidden" type="file"
+                     accept="application/json,.json">
+            </div>
+          </div>
+        </div>
+        <div class="settings-group">
           <h3>OpenRouter</h3>
           <div class="field" id="keyField">
             <label for="openrouter_key">API key <span class="muted">· held until the lab restarts</span></label>
@@ -75,18 +103,6 @@
               <button class="ghost" id="clear-key" type="button">Clear</button>
             </div>
             <div id="keyState" class="muted"></div>
-          </div>
-        </div>
-        <div class="settings-group">
-          <h3>Experiment archive</h3>
-          <div class="archive-exchange" aria-label="Experiment archive exchange">
-            <div class="archive-actions">
-              <label class="archive-button" id="archive-import" for="archive-file"
-                     role="button" tabindex="0">Import JSON</label>
-              <button class="ghost" id="archive-export" type="button">Export experiment</button>
-              <input id="archive-file" class="hidden" type="file"
-                     accept="application/json,.json">
-            </div>
           </div>
         </div>
       </div>
@@ -116,8 +132,156 @@
   </button>
   <div class="context-detail" id="corpus-detail" popover aria-label="Corpus census">
     <span id="corpus"></span>
+    <!-- The census, then the way to the whole of it. Both answers to one
+         question — which corpus is this — so the second opens from the first
+         rather than from a button four fields down the Index card. The full
+         summary was already anchored to this pill; now its invoker is here
+         too. -->
+    <button class="ghost dataset-detail-open" id="dataset-detail-open"
+            type="button" popovertarget="dataset-detail">
+      View full dataset summary
+    </button>
+  </div>
+  <div class="context-detail dataset-detail" id="dataset-detail" popover
+       aria-labelledby="dataset-detail-title">
+    <div class="card-head">
+      <h2 id="dataset-detail-title">Dataset summary</h2>
+    </div>
+    <p id="dataset-detail-description" class="prose"></p>
+    <p id="dataset-detail-census" class="dataset-detail-census"></p>
+    <!-- The declaration table (D4): every label this dataset's corpus and
+         ground truth declare, read straight off the loaded files — never
+         hardcoded, so a sparse corpus just shows fewer rows. Rebuilt on every
+         dataset switch and again on a successful import, from the one reading
+         (`/api/options` -> datasets[].label_declarations) both paths share.
+         The only copy of it: the Index card used to hold a second one. -->
+    <div id="dataset-detail-labels"></div>
   </div>
 </div>
+
+<!-- Two columns, and the split between them is one question: is this control
+     about the experiment on screen, or about this installation? The bench on
+     the right is the pipeline and nothing else. The panel on the left is
+     everything else — bringing a corpus or a recorded experiment in, taking
+     one out, and choosing which model runs which stage. Selecting a dataset
+     stays a bench knob, because it decides what every knob under it means;
+     bringing one in does not. -->
+<div class="page">
+
+<aside class="sidebar" id="sidebar" aria-labelledby="sidebar-title">
+  <div class="sidebar-head">
+    <h2 class="sidebar-title" id="sidebar-title">Setup</h2>
+    <!-- The whole of the collapse: one button, one attribute on <html>, one
+         key. `aria-expanded` is kept in step by panel.js, which is also where
+         the key is written. -->
+    <button class="sidebar-toggle" id="sidebar-toggle" type="button"
+            aria-controls="sidebar" aria-expanded="true"
+            aria-label="Setup panel">
+      <span class="sidebar-chevron" aria-hidden="true">‹</span>
+    </button>
+  </div>
+  <div class="sidebar-body" id="sidebar-body">
+    <!-- Two ways content arrives and one way it leaves, and none of the three
+         is an experiment knob: a dataset is a corpus and its ground truth, an
+         archive is one whole recorded experiment. The status of an exchange
+         still reports from the banner under the bar rather than from in here,
+         because a panel a reader has collapsed must not be able to swallow a
+         report — an archive opened from the board says what it did on a page
+         load nobody clicked. -->
+    <!-- One act, so one card: bringing a corpus in. The experiment archive's
+         import and export used to sit under this heading too, which is why it
+         read "bring in & take out" — they are back behind the settings disc
+         with the other things that are about this installation rather than
+         about the corpus every knob is measured against. -->
+    <section class="card side-card" id="exchangeCard">
+      <!-- The head is the explainer, the way a knob's name is: hover it for a
+           sentence, click for the whole shape a pair of files must have. The
+           bench keeps its notes on the page, because a paragraph in a 400px
+           card costs three lines and the same paragraph in this 280px column
+           costs six — and this column is the furniture around the experiment
+           rather than the experiment.
+
+           `run.dataset-file` is the one topic whose trigger is written by hand
+           rather than built from a control: it explains an *act*, and the two
+           pickers under it are the corpus and the ground truth, so neither of
+           them is the thing the note is about. Its id used to be
+           `dataset-file`, which is how the pass that matches a topic to a
+           control by id found it; the import became two files, the id became
+           two ids, and the explainer detached silently. A test now fails when
+           a served topic has no trigger at all. -->
+      <div class="card-head"><span class="num" aria-hidden="true">↓</span>
+        <h2><button type="button" class="why-term" data-topic="run.dataset-file">Import
+            a dataset</button></h2></div>
+      <div class="field">
+        <!-- Two file pickers a browser draws identically, and picking the
+             wrong way round is a refusal with a puzzling reason. So each says
+             which file it wants, in a quieter voice than the label above them
+             — that one names the act, these two name the files. -->
+        <label class="file-label" for="dataset-corpus-file">the corpus</label>
+        <input type="file" id="dataset-corpus-file" accept="application/json,.json">
+        <label class="file-label" for="dataset-groundtruth-file">its ground truth</label>
+        <input type="file" id="dataset-groundtruth-file" accept="application/json,.json">
+        <button class="ghost" id="dataset-import" type="button">Import</button>
+        <div id="importInfo" class="muted"></div>
+        <!-- Under the action rather than between it and the two pickers: this
+             is what to read when you have no pair to import yet, and above the
+             button it was holding it four lines from the files it acts on. Two
+             words rather than two filenames, because `download` is what names
+             each file on disk and the note above states both names in full. -->
+        <div class="muted template-links">templates:
+          <a href="/api/dataset-templates/corpus" download="corpus_template.json">corpus</a>
+          &middot;
+          <a href="/api/dataset-templates/groundtruth" download="groundtruth_template.json">ground truth</a>
+        </div>
+      </div>
+    </section>
+    <!-- One model per task, never one for everything: a gate runs k times a
+         question and wants cheap, a judge runs once and wants strong. Every
+         model lives in this one place, embedder included, each group wearing
+         the ink of the step it drives — the tags name the stage a model runs
+         for, which is the only step colour this panel is allowed. -->
+    <section class="card side-card rag-models" id="modelCard">
+      <div class="card-head"><span class="num">M</span>
+        <h2><button type="button" class="why-term"
+              data-brief="One model per task, and every dropdown lists only what has actually run here."
+              data-help="One model per task, and every dropdown lists only what has actually run here — a model this installation cannot load says NA rather than offering itself. Each role is called only in the one case its own explainer names; the rest of the time the lab never reaches for it.">Models</button></h2></div>
+      <!-- Where the LLM stages run. A mode is a served preset (/api/options →
+           modes): picking one applies the lab's own patch and stamps the run's
+           provider, so this panel cannot invent a pairing the lab never served. -->
+      <div class="field">
+        <label>Backend</label>
+        <select id="mode"></select>
+      </div>
+      <div class="step" data-step="index">
+        <span class="step-tag">Index</span>
+        <div class="field">
+          <label>Embedder</label>
+          <select id="embedder"></select>
+        </div>
+        <div class="field">
+          <!-- The aside stays, alone among the panel's asides: a pinned row
+               in test_panel.py claims this label names the two backends that
+               load a model at all, and that claim is worth a line. -->
+          <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
+          <select id="embed_model"></select>
+        </div>
+        <div id="modelRoles-index"></div>
+      </div>
+      <div class="step" data-step="retrieval">
+        <span class="step-tag">Retrieval</span>
+        <div id="modelRoles-retrieval"></div>
+      </div>
+      <div class="step" data-step="generation">
+        <span class="step-tag">Generation</span>
+        <div id="modelRoles-generation"></div>
+      </div>
+      <div id="modelRoles"></div>
+    </section>
+  </div>
+</aside>
+<!-- Only ever drawn over a narrow viewport, where the panel is a drawer
+     rather than a column. Click it and the drawer shuts. -->
+<div class="sidebar-scrim" id="sidebar-scrim"></div>
 
 <main id="main">
 <div class="bench">
@@ -125,46 +289,31 @@
   <section class="card" id="card-index" data-step="index">
     <div class="card-head"><span class="num">1</span><h2 id="head-index">Index</h2></div>
     <p class="card-note" id="note-index"></p>
+    <!-- Three groups, in the order a build actually reads them: which corpus,
+         how it is cut, and what is summarised on top of the pieces. The first
+         tag carries no rule above it — a divider directly under the card's own
+         heading separates the heading from the card. -->
+    <div class="step-tag group-tag lead" data-step="index">Corpus</div>
     <!-- Which corpus decides what every knob below it operates on. Served
          (/api/options -> datasets), so the panel can't offer one the service
-         can't load. -->
+         can't load. Bringing a corpus *in* is the setup panel's job; choosing
+         among the ones already here is a knob, so it stays.
+
+         And that is all that stays: the description and the declaration table
+         used to be printed here as well as in the summary the corpus pill
+         opens, which made this a place to read about a corpus rather than a
+         place to choose one. One reading, in one place.
+
+         The line under the select is not that reading coming back. It is
+         empty unless something is wrong with the corpus itself — the one
+         thing it says is that an archived corpus is not installed here, so
+         its evidence is view-only. -->
     <div class="field">
       <label>Dataset</label>
       <select id="dataset"></select>
       <div id="datasetInfo" class="muted"></div>
-      <button class="ghost dataset-detail-open" id="dataset-detail-open"
-              type="button" popovertarget="dataset-detail">
-        View full dataset summary
-      </button>
     </div>
-    <div class="context-detail dataset-detail" id="dataset-detail" popover
-         aria-labelledby="dataset-detail-title">
-      <div class="card-head">
-        <h2 id="dataset-detail-title">Dataset summary</h2>
-      </div>
-      <p id="dataset-detail-description" class="prose"></p>
-      <p id="dataset-detail-census" class="dataset-detail-census"></p>
-      <div id="dataset-detail-labels"></div>
-    </div>
-    <!-- The declaration table: every label this dataset's corpus and ground
-         truth declare, read straight off the loaded files (D4) — never
-         hardcoded, so a sparse corpus just shows fewer rows. Rebuilt on every
-         dataset switch and again on a successful import, from the one
-         reading (`/api/options` -> datasets[].label_declarations) both paths
-         share. -->
-    <div id="datasetLabels"></div>
-    <div class="field">
-      <label>Import a dataset <span class="muted">· two JSON files, paired by id (D1)</span></label>
-      <input type="file" id="dataset-corpus-file" accept="application/json,.json">
-      <input type="file" id="dataset-groundtruth-file" accept="application/json,.json">
-      <div class="muted template-links">start from the templates:
-        <a href="/api/dataset-templates/corpus" download="corpus_template.json">corpus_template.json</a>
-        &middot;
-        <a href="/api/dataset-templates/groundtruth" download="groundtruth_template.json">groundtruth_template.json</a>
-      </div>
-      <button class="ghost" id="dataset-import" type="button">Import</button>
-      <div id="importInfo" class="muted"></div>
-    </div>
+    <div class="step-tag group-tag" data-step="index">Chunking</div>
     <div class="field">
       <label>Chunking strategy</label>
       <select id="chunker"></select>
@@ -214,14 +363,52 @@
   <section class="card" id="card-retrieval" data-step="retrieval">
     <div class="card-head"><span class="num">2</span><h2 id="head-retrieval">Retrieval</h2></div>
     <p class="card-note" id="note-retrieval"></p>
+    <!-- Six groups, and the order is the order `retrieve()` runs them in
+         (`question_to_answer_pipeline.py`), not the order they were added to
+         the page: understand the question, decide what the search may see,
+         retrieve and fuse, rerank, diversify down to k, grade. The code times
+         five of those stages by name — understand, retrieve, rerank,
+         diversify, grade — and every stage's knobs sit under it, so a reader
+         scanning down the card is reading the pipeline.
+
+         The one knob that acts in two places is `summary_scope`: it filters
+         what is eligible here, before anything is retrieved, and its
+         "drill-down" value acts once more after grading, expanding a kept
+         summary into its members. It is filed where it first takes effect. -->
+    <div class="step-tag group-tag lead" data-step="retrieval">Understand the question</div>
+    <div class="switches">
+      <label><input type="checkbox" id="time_filter"> time-scope filter</label>
+      <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
+      <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
+    </div>
+    <!-- Live only when the index above holds summaries — what retrieval may do
+         with them is decided by whether the build wrote any. Outside the index
+         fingerprint, so all four scopes sweep free against a single build. -->
+    <div class="step-tag group-tag" data-step="retrieval">What the search may see</div>
+    <div class="field">
+      <label>Summary scope</label>
+      <select id="summary_scope"></select>
+    </div>
+    <div class="field">
+      <label>Levels <span class="muted">· blank = all</span></label>
+      <input type="text" id="summary_levels" placeholder="1 2">
+    </div>
+    <div class="step-tag group-tag" data-step="retrieval">Retrieve &amp; fuse</div>
     <div class="field">
       <label>Retriever</label>
       <select id="retriever"></select>
     </div>
-    <div class="field-row">
-      <div><label>k (contexts)</label><input type="number" id="k" min="1" max="40"></div>
-      <div><label>Candidates</label><input type="number" id="candidates" min="5" max="200" step="5"></div>
+    <div class="field">
+      <label>Candidates</label>
+      <input type="number" id="candidates" min="5" max="200" step="5">
     </div>
+    <!-- Applied to the fused scores and before the candidate cut, which is why
+         it is here and not with the two scope knobs above it. -->
+    <div class="field">
+      <label>Summary boost (1 = off)</label>
+      <input type="number" id="summary_boost" min="0.1" max="50" step="0.1">
+    </div>
+    <div class="step-tag group-tag" data-step="retrieval">Rerank</div>
     <div class="field">
       <label>Reranker</label>
       <select id="reranker"></select>
@@ -230,30 +417,19 @@
       <div><label>Rerank depth</label><input type="number" id="rerank_depth" min="5" max="100" step="5"></div>
       <div><label>Half-life (days)</label><input type="number" id="recency_half_life_days" min="7" max="900" step="7"></div>
     </div>
+    <div class="step-tag group-tag" data-step="retrieval">Diversify &amp; select</div>
     <div class="field-row">
       <div><label>MMR λ (1 = off)</label><input type="number" id="mmr_lambda" min="0.1" max="1" step="0.05"></div>
-      <div><label>Grade threshold</label><input type="number" id="grade_threshold" min="0" max="1" step="0.05"></div>
+      <div><label>k (contexts)</label><input type="number" id="k" min="1" max="40"></div>
     </div>
+    <div class="step-tag group-tag" data-step="retrieval">Grade</div>
     <div class="field">
       <label>Relevance gate (enables abstention)</label>
       <select id="grader"></select>
     </div>
-    <!-- Live only when the index above holds summaries — what retrieval may do
-         with them is decided by whether the build wrote any. Outside the index
-         fingerprint, so all four scopes sweep free against a single build. -->
-    <div class="step-tag group-tag" data-step="retrieval">Summaries</div>
     <div class="field">
-      <label>Summary scope</label>
-      <select id="summary_scope"></select>
-    </div>
-    <div class="field-row">
-      <div><label>Summary boost (1 = off)</label><input type="number" id="summary_boost" min="0.1" max="50" step="0.1"></div>
-      <div><label>Levels <span class="muted">· blank = all</span></label><input type="text" id="summary_levels" placeholder="1 2"></div>
-    </div>
-    <div class="switches">
-      <label><input type="checkbox" id="time_filter"> time-scope filter</label>
-      <label><input type="checkbox" id="multi_query"> multi-query expansion</label>
-      <label><input type="checkbox" id="hyde"> HyDE (LLM)</label>
+      <label>Grade threshold</label>
+      <input type="number" id="grade_threshold" min="0" max="1" step="0.05">
     </div>
     <!-- Retrieval on its own, over the questions the experiment beside it has
          selected. No answering and no judging, so it is the step you can afford
@@ -269,10 +445,21 @@
   <section class="card" id="card-generation" data-step="generation">
     <div class="card-head"><span class="num">3</span><h2 id="head-generation">Generation</h2></div>
     <p class="card-note" id="note-generation"></p>
+    <!-- Two acts and the run's own name: answering the questions, grading the
+         answers, and what to call the row that comes out. -->
+    <div class="step-tag group-tag lead" data-step="generation">Answering</div>
+    <!-- The sample first, because that is the order `run_eval` works in: the
+         questions are selected before the index is even asked, and only then
+         does the answerer see a context. -->
+    <div class="field">
+      <label>Questions (0 = all)</label>
+      <input type="number" id="limit" min="0" max="200" value="0">
+    </div>
     <div class="field">
       <label>Answerer</label>
       <select id="answerer"></select>
     </div>
+    <div class="step-tag group-tag" data-step="generation">Judging</div>
     <div class="switches">
       <label><input type="checkbox" id="fact_judge"> LLM fact judge</label>
     </div>
@@ -284,10 +471,11 @@
         <option value="off">off</option>
       </select>
     </div>
-    <div class="field-row">
-      <div><label>Questions (0 = all)</label><input type="number" id="limit" min="0" max="200" value="0"></div>
-      <div><label>RAGAS samples</label><input type="number" id="ragas_limit" min="0" max="200" value="0"></div>
+    <div class="field">
+      <label>RAGAS samples</label>
+      <input type="number" id="ragas_limit" min="0" max="200" value="0">
     </div>
+    <div class="step-tag group-tag" data-step="generation">This run</div>
     <!-- Question-type sampling has no controls on this page: `labels` and
          `balance` still travel in a run's ui block and in the archive codec,
          carried by panel.js the way UNSHOWN carries config fields with no
@@ -306,44 +494,6 @@
       <button class="ghost" id="stopPoll">Refresh</button>
     </div>
     <div id="jobBox"></div>
-  </section>
-
-  <!-- One model per task, never one for everything: a gate runs k times a
-       question and wants cheap, a judge runs once and wants strong. Every
-       model lives in this one column, embedder included, each group wearing
-       the ink of the step it drives. -->
-  <section class="card rag-models" id="modelCard">
-    <div class="card-head"><span class="num">M</span><h2>Models</h2></div>
-    <p class="card-note">One per task. The dropdowns list what has actually run
-      here; a model this installation cannot load says NA.</p>
-    <!-- Where the LLM stages run. A mode is a served preset (/api/options →
-         modes): picking one applies the lab's own patch and stamps the run's
-         provider, so this panel cannot invent a pairing the lab never served. -->
-    <div class="field">
-      <label>Backend</label>
-      <select id="mode"></select>
-    </div>
-    <div class="step" data-step="index">
-      <span class="step-tag">Index</span>
-      <div class="field">
-        <label>Embedder</label>
-        <select id="embedder"></select>
-      </div>
-      <div class="field">
-        <label>Embedding model <span class="muted">· fastembed or sentence-transformers</span></label>
-        <select id="embed_model"></select>
-      </div>
-      <div id="modelRoles-index"></div>
-    </div>
-    <div class="step" data-step="retrieval">
-      <span class="step-tag">Retrieval</span>
-      <div id="modelRoles-retrieval"></div>
-    </div>
-    <div class="step" data-step="generation">
-      <span class="step-tag">Generation</span>
-      <div id="modelRoles-generation"></div>
-    </div>
-    <div id="modelRoles"></div>
   </section>
 </div>
 
@@ -388,6 +538,7 @@
        has finished. -->
 </div>
 </main>
+</div>
 
 <!-- ── the status rail ──────────────────────────────────────────────────────
      What the header used to shout, reporting quietly from the foot of the

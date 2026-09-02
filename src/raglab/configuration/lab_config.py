@@ -74,8 +74,9 @@ class IndexConfig:
     chunk_chars: int = 500
     overlap: int = 100          # fixed-overlap only
     contextual: bool = True     # prepend a situating header to every chunk
-    # Persian-tuned by default, since the corpus is a Farsi diary. '' below
-    # means the backend's recommended model (embedding.BACKEND_DEFAULTS).
+    # The default backend's own recommended model is Persian-tuned, picked for
+    # the bundled Farsi diary; '' below means whatever the chosen backend
+    # recommends (embedding.BACKEND_DEFAULTS), so it follows the corpus.
     embedder: str = 'sentence-transformers'
     embed_model: str = ''       # model-backed kinds only; '' = backend default
     # --- the summary hierarchy, all of it built with no model call ----------
@@ -145,7 +146,8 @@ class RetrievalConfig:
     candidates: int = 40             # depth taken from each retriever
     rrf_k: int = 60
     time_filter: bool = True         # resolve Farsi time words into a date range
-    # On by default: free, no LLM call, and measured positive on this fixture.
+    # On by default: free, no LLM call, and measured positive on the bundled
+    # Farsi diary.
     multi_query: bool = True
     hyde: bool = False               # LLM hypothetical answer as the query
     expansion_model: str = ''        # HyDE only; '' = LabSettings.llm_model

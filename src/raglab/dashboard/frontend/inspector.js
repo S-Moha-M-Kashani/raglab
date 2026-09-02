@@ -131,10 +131,10 @@ function formatConfig(cfg) {
   return `showing: ${parts.join(' · ')}`;
 }
 
-// --- What every score means: the '!' marks, reading the lab's own text -------
+// --- What every score means: the marks beside the scores, reading the lab's own text ---
 // Fetched from /api/explain rather than written here, so this page and the
 // panel on :9002 cannot end up explaining the same metric differently.
-let EXPLAIN = { metrics: [], help: {} };
+let EXPLAIN = { metrics: [], help: {}, brief: {} };
 
 // Which followed job each view is currently drawing. Declared up here because
 // `loadGroundTruth` clears two of these when the fixture lands, and it runs
@@ -146,7 +146,7 @@ function measureOf(key) {
   return EXPLAIN.metrics.find(m => m.key === key) || { key, label: key };
 }
 
-// The sentence the '!' opens: a metric's own note and formula when it has them,
+// The sentence the mark opens: a metric's own note and formula when it has them,
 // falling back to the help topic the lab writes for the same key.
 function whyText(key) {
   const m = measureOf(key);
@@ -156,9 +156,24 @@ function whyText(key) {
 
 function whyMark(key) {
   const label = escapeHtml(measureOf(key).label || key);
+  // `data-topic` as well as `data-why`: the second is this page's own key for
+  // its click handler, the first is what lab.js's hover reads, and they are the
+  // same metric under two names because the shared engine may not learn a
+  // per-page attribute.
   return `<button type="button" class="why" data-why="${escapeHtml(key)}"`
-    + ` aria-label="What is ${label}?">!</button>`;
+    + ` data-topic="metric.${escapeHtml(key)}"`
+    + ` aria-label="What is ${label}?">?</button>`;
 }
+
+// The brief on hover, the whole note on a click — the same two lengths the
+// Laboratory reads, from the same route. The full text here is this page's own
+// assembly (`whyText`), which is the metric's note, formula and source joined
+// to the served help, so the hover's "is there more?" test compares against
+// what the click will actually show.
+LabHelp.brief = (topic) => (EXPLAIN.brief || {})[topic] || '';
+LabHelp.full = (topic) => (topic.startsWith('metric.')
+  ? whyText(topic.slice('metric.'.length))
+  : (EXPLAIN.help || {})[topic] || '');
 
 // One listener for the page: the marks are re-rendered on every poll tick, and
 // a listener per button would leak one per render.
@@ -192,7 +207,7 @@ let FOLLOWED_DATASET = '';
 // --- which direction the corpus reads ---
 // This page used to answer that with a hardcoded rtl written into fourteen template
 // strings and a Persian face pinned into four CSS rules, because the first
-// corpus was a Farsi diary. Four of the five bundled corpora are German or
+// corpus was a Farsi diary. Five of the seven bundled corpora are German or
 // English, and every one of them rendered right-to-left in Vazirmatn with its
 // chunk column against the wrong edge. The dataset has always known its
 // language; `/api/groundtruth` says so now, and this is the page asking.
@@ -302,8 +317,9 @@ function renderGroundTruth(body) {
     const row = document.createElement('div');
     row.className = 'gt-row';
     // Label above its text, never beside it. A label set inline with a
-    // right-aligned Farsi block ends up at the opposite edge of the row from the
-    // thing it labels, with the width of the page in between.
+    // right-aligned block — which is what a right-to-left corpus renders —
+    // ends up at the opposite edge of the row from the thing it labels, with
+    // the width of the page in between.
     const field = (label, text, corpusText) => text
       ? `<div class="gt-field"><div class="qh-label">${label}</div>`
         + `<div${corpusText ? ` dir="${CORPUS_DIR}"` : ''}>${escapeHtml(text)}</div></div>` : '';
@@ -344,8 +360,18 @@ async function fetchGroundTruth(dataset) {
   return body;
 }
 
+// Which live load is the current one. Two can be in flight at once — a failed
+// pin asks for the corpus the page knew, and the poll asks for the one the lab
+// turns out to be following — and without this the answer that happened to
+// land second was the one that stayed, whichever corpus it was for.
+let groundTruthGeneration = 0;
+
 async function loadGroundTruth(dataset) {
+  const generation = ++groundTruthGeneration;
   const body = await fetchGroundTruth(dataset);
+  // A later ask outranks this one: it was made with more knowledge of which
+  // corpus the page is meant to be showing.
+  if (generation !== groundTruthGeneration) return;
   // A live fetch that began before a read-only mode must not land afterwards
   // and replace what is pinned with a different corpus — either mode, since an
   // imported archive and a recorded experiment both put one on screen.
@@ -378,7 +404,8 @@ function renderChunkGroups(container, groups) {
       const line = document.createElement('div');
       line.className = 'chunk-line';
       // The number is a Latin marker on its own line rather than a prefix inside
-      // the Farsi string, where bidi puts it at whichever edge the run ends on.
+      // the corpus's own text, where bidi puts it at whichever edge the run
+      // ends on.
       line.innerHTML = `<div class="chunk-no">chunk ${i + 1}</div>`
         + `<div dir="${CORPUS_DIR}">${escapeHtml(c.text)}</div>`;
       det.appendChild(line);

@@ -214,11 +214,12 @@ def _run(spec: CliSpec, argv: list[str], prompt: str, timeout: int) -> tuple[str
     with tempfile.TemporaryDirectory() as empty:
         try:
             # `encoding='utf-8'` rather than `text=True` (locale-dependent):
-            # under a C/POSIX locale that is ASCII, and this corpus is Farsi, so
-            # a correct answer would fail to decode — or under latin-1 it would
-            # decode as silent mojibake. `errors='strict'` for the same reason
-            # nothing else here falls back: a replaced byte changes the text
-            # that gets scored with no field on the row saying so.
+            # under a C/POSIX locale that is ASCII, and a corpus may be in any
+            # script, so a correct answer would fail to decode — or under
+            # latin-1 it would decode as silent mojibake. `errors='strict'` for
+            # the same reason nothing else here falls back: a replaced byte
+            # changes the text that gets scored with no field on the row saying
+            # so.
             done = subprocess.run(argv, input=prompt, capture_output=True,
                                   encoding='utf-8', errors='strict',
                                   timeout=timeout, cwd=empty, env=_child_env())

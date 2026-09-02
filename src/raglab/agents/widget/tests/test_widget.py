@@ -1227,6 +1227,98 @@ def test_streaming_names_the_tool_being_called():
     assert [e['reply'] for e in said if 'reply' in e] == ['9002 it is']
 
 
+def test_streaming_says_which_stage_the_graph_just_ran():
+    # this is a unit test
+    """The third native stream mode: `updates` names the graph node that just
+    ran, and each one is handed over as an ephemeral `{'stage': <label>}` in
+    its place in the stream — before the deltas that follow it, after the ones
+    that came first, and never instead of the reply.
+
+    Two things it is not. It is not a tool announcement: a stage says which
+    part of the run is working, a `status` names a tool being called, and the
+    page shows them differently. And it never names a node — a node name is
+    this package's private vocabulary, so a node the allowlist does not know
+    arrives as the one fallback label instead of as itself."""
+    from langchain_core.messages import HumanMessage
+    events = [('updates', {'check_request.before_agent': {}})]
+    events += _chunks('the ')
+    events += [('updates', {'model': {}}),
+               ('updates', {'tools': {}}),
+               ('updates', {'a_node_this_allowlist_never_heard_of': {}})]
+    events += _chunks('ports are 9002')
+    stub = _StreamStub(events,
+                       {'messages': [HumanMessage(content='which ports?'),
+                                     AIMessage(content='the ports are 9002')]})
+    model = _streaming(stub)
+    try:
+        said = list(widget.stream('which ports?', model=model, thread='exp-stage'))
+    finally:
+        widget.reset()
+    assert stub.seen['stream_mode'] == ['messages', 'values', 'updates']
+    assert [(key, event[key]) for event in said
+            for key in ('stage', 'delta', 'reply') if key in event] == [
+        ('stage', 'Reading the question'),
+        ('delta', 'the '),
+        ('stage', 'Working out the answer'),
+        ('stage', 'Looking things up'),
+        ('stage', 'Working on it'),
+        ('delta', 'ports are 9002'),
+        ('reply', 'the ports are 9002'),
+    ]
+    assert 'memory' in said[-1]
+    assert 'a_node_this_allowlist_never_heard_of' not in str(said)
+
+
+def test_every_stage_label_names_a_node_the_real_graph_has(monkeypatch):
+    # this is a unit test
+    """The allowlist's keys are langchain's and this package's own node names,
+    read off the compiled graph rather than guessed. A langchain release that
+    renames a node, or a middleware renamed here, would leave every stage
+    falling back to the one generic label and nothing would fail — so the
+    names are checked against the graph that produces them."""
+    monkeypatch.setenv('OPENROUTER_API_KEY', 'test-value')
+    monkeypatch.delenv('LANGSMITH_TRACING', raising=False)
+    graph = widget._build_agent('openai/gpt-5-nano').get_graph()
+    assert set(widget.backends.STAGE_LABELS) <= set(graph.nodes)
+
+
+def test_a_stage_is_never_written_down_and_never_replayed():
+    # this is a unit test
+    """A stage is what the reader watches happening, not what happened. It is
+    gone the moment the turn lands: the operational row does not carry it, and
+    a redraw of the thread shows the turns the conversation holds and no stage
+    among them. The page's live progress is the only place one ever exists."""
+    import json
+
+    from langchain_core.messages import HumanMessage
+
+    from raglab.agents.widget import conversation_memory as memory
+    from raglab.agents.widget import turn_logger
+    from raglab.agents.widget.tests.widget_examples import write_messages
+
+    thread = 'exp-stage-log'
+    memory.forget(thread)
+    write_messages(thread, [HumanMessage(content='which ports?'),
+                            AIMessage(content='the ports are 9002')])
+    events = [('updates', {'tools': {}})] + _chunks('9002 too')
+    stub = _StreamStub(events,
+                       {'messages': [HumanMessage(content='and the board?'),
+                                     AIMessage(content='9002 too')]})
+    model = _streaming(stub)
+    try:
+        said = list(widget.stream('and the board?', model=model, thread=thread))
+    finally:
+        widget.reset()
+    assert [event['stage'] for event in said if 'stage' in event] == [
+        'Looking things up']
+    row = turn_logger.list_turns(thread)[-1]
+    assert row['ai_message'] == '9002 too'
+    assert 'Looking things up' not in json.dumps(row, default=str)
+    assert memory.history(thread)['turns'] == [
+        {'role': 'you', 'text': 'which ports?'},
+        {'role': 'bot', 'text': 'the ports are 9002'}]
+
+
 def test_an_interrupted_row_never_bills_the_turn_before_it():
     # this is a unit test
     """The account of an interrupted turn is read back from the checkpoint,
@@ -1411,7 +1503,11 @@ def test_a_cli_answer_arrives_as_one_piece_because_that_is_what_it_is(monkeypatc
     # this is a unit test
     """A CLI is one process and one complete reply: there is no partial output
     to forward. It still travels the streaming path — one delta, then the
-    account — rather than the page keeping a second way to ask."""
+    account — rather than the page keeping a second way to ask.
+
+    It also says nothing about stages, because it has none to report: a
+    subprocess runs no graph, so a stage event here would be this path
+    inventing progress it never saw."""
     monkeypatch.setattr(
         widget.backends, '_cli_answer',
         lambda cli, message: AIMessage(content='from the cli', usage_metadata={
@@ -1421,6 +1517,7 @@ def test_a_cli_answer_arrives_as_one_piece_because_that_is_what_it_is(monkeypatc
     assert [e['delta'] for e in events[:-1]] == ['from the cli']
     assert events[-1] == {'reply': 'from the cli',
                           'input_tokens': 12, 'output_tokens': 3}
+    assert not [e for e in events if 'stage' in e]
 
 
 def test_an_unknown_model_is_refused_before_a_single_piece_is_yielded():
@@ -1452,16 +1549,21 @@ def _sse(response) -> list[dict]:
 def test_the_stream_route_sends_the_pieces_then_the_account(client, monkeypatch):
     # this is an integration test
     """Server-sent events, one JSON object per line: the deltas as they come,
-    the account last. The route carries them and adds nothing."""
+    the account last. The route carries them and adds nothing — a stage event
+    included, which is why it needs no clause of its own here: the route
+    forwards whatever the turn yields, in the order it was yielded, and holds
+    nothing back until the answer is whole."""
     monkeypatch.setattr(widget, 'stream',
                         lambda message, model='', thread='': iter(
-                            [{'delta': 'he'}, {'delta': 'llo'},
+                            [{'stage': 'Reading the question'},
+                             {'delta': 'he'}, {'delta': 'llo'},
                              {'reply': 'hello', 'input_tokens': 4,
                               'output_tokens': 1}]))
     answer = client.post('/api/widget/stream', json={'message': 'hi'})
     assert answer.status_code == 200
     assert answer.headers['content-type'].startswith('text/event-stream')
-    assert _sse(answer) == [{'delta': 'he'}, {'delta': 'llo'},
+    assert _sse(answer) == [{'stage': 'Reading the question'},
+                            {'delta': 'he'}, {'delta': 'llo'},
                             {'reply': 'hello', 'input_tokens': 4,
                              'output_tokens': 1}]
 
@@ -1569,6 +1671,7 @@ def test_a_failure_halfway_through_arrives_as_an_error_event(client, monkeypatch
     never a truncated reply the page would render as a whole one."""
     def half_then_fail(message, model='', thread=''):
         def events():
+            yield {'stage': 'Working out the answer'}
             yield {'delta': 'the answer beg'}
             raise widget.WidgetUnavailable('the widget could not answer: gone')
         return events()
@@ -1577,7 +1680,8 @@ def test_a_failure_halfway_through_arrives_as_an_error_event(client, monkeypatch
     answer = client.post('/api/widget/stream', json={'message': 'hello'})
     assert answer.status_code == 200
     said = _sse(answer)
-    assert said[0] == {'delta': 'the answer beg'}
+    assert said[0] == {'stage': 'Working out the answer'}
+    assert said[1] == {'delta': 'the answer beg'}
     assert 'could not answer' in said[-1]['error']
     assert not any('reply' in event for event in said)
 

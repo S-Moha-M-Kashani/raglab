@@ -217,21 +217,52 @@
   .topnav { flex-wrap: wrap; }
 }
 
-/* ── the '!' that opens an explainer ───────────────────────────────────────
-   Both surfaces put this mark beside a thing that needs a sentence — a knob,
-   a metric, a failed run's reason — and both used to draw it themselves, as
+/* ── the two triggers that open an explainer ───────────────────────────────
+   Both surfaces put a trigger beside a thing that needs a sentence — a knob, a
+   metric, a failed run's reason — and both used to draw it themselves, as
    `button.why` here and `.inspector-why` there, in different units, under
-   comments on each side claiming they were "the same affordance". They are,
-   so there is one of them now. What stays per-page is only where the opened
+   comments on each side claiming they were "the same affordance". They are, so
+   there is one of them now. What stays per-page is only where the opened
    sentence goes: the lab puts it after the whole field (a <p> placed straight
    after a <td> gets hoisted out of the table by the parser), the Inspector
-   sends it to the end of the metrics row so opening one cannot push the
-   scores beside it out of line. That is a placement decision, not a look. */
+   sends it to the end of the metrics row so opening one cannot push the scores
+   beside it out of line. That is a placement decision, not a look.
+
+   There are two triggers because there are two situations, which is the
+   distinction Carbon draws between a *definition* tooltip and an icon one:
+
+   `.why-term` — the thing's own name is the trigger, marked by a dotted
+   underline. This is what a knob label gets, and it is why the knob surface no
+   longer carries forty punctuation marks: the name was already on screen, so
+   the affordance costs no ink at all.
+
+   `.why` — a mark, for where there is no name to underline: a checkbox, whose
+   words are already a click target that toggles it, and a number in a table
+   cell. It was a bordered `!`; it is a `?` on the same dotted underline now, so
+   both triggers say the same thing in the same language.
+
+   Both open the same two lengths: hover or focus for the sentence (lab.js),
+   click for the whole note (each page's own handler). */
+.why-term {
+  appearance: none; margin: 0; padding: 0; text-align: left;
+  background: transparent; color: inherit;
+  font: inherit; letter-spacing: inherit; text-transform: inherit;
+  border: 0; border-bottom: 1px dotted var(--rule);
+  cursor: help;
+}
+/* `background: transparent` again, on the states as well as the base: the lab's
+   own `button:hover` fill is a class-and-pseudo selector in a sheet that loads
+   after this one, so a trigger that only restates its colour here gets a solid
+   blue chip painted under an eleven-pixel label. */
+.why-term:hover, .why-term:focus-visible {
+  color: var(--ink); background: transparent; border-bottom-color: var(--ink-soft);
+}
 button.why {
-  font: 700 var(--t-2xs)/1 var(--mono); padding: var(--s-px) var(--s-1); margin-left: var(--s-1);
-  background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);
-  border-radius: var(--radius-pill); vertical-align: middle;
-  position: relative; cursor: pointer;
+  font: 700 var(--t-2xs)/1 var(--mono); padding: 0 var(--s-px); margin-left: var(--s-1);
+  background: transparent; color: var(--ink-soft);
+  border: 0; border-bottom: 1px dotted var(--rule);
+  vertical-align: middle;
+  position: relative; cursor: help;
 }
 /* The target is 24×24; the mark stays small. The mark has to: it sits at the
    end of an eleven-pixel uppercase label, and a 24px disc there would set the
@@ -250,8 +281,44 @@ button.why::after {
    both themes while the text is `--card` — so on dark mode the hovered mark was
    a dark fill under dark text. `--ink` inverts with the theme, so both cases
    read at full contrast. */
-button.why:hover { color: var(--card); background: var(--step, var(--ink));
-                   border-color: var(--step, var(--ink)); }
+/* Lit in the step's ink where a step owns the mark, and in the page's own ink
+   where none does. It used to fill: a solid disc under inverted text, which at
+   eleven pixels was the loudest thing on a card full of knobs. Now it does
+   what the term beside it does — the ink comes forward and the underline
+   firms up. */
+button.why:hover, button.why:focus-visible {
+  color: var(--step, var(--ink)); background: transparent;
+  border-bottom-color: var(--step, var(--ink));
+}
+
+/* ── the brief ─────────────────────────────────────────────────────────────
+   One box per page, moved and refilled: hover a trigger and this is the
+   sentence. Deliberately not a popover — it is read-only text that follows the
+   pointer around, and the top layer is for things a reader opened on purpose.
+   `z-index` sits above the bar and the rail and below the widget's own corner,
+   which is the same ladder the setup panel's drawer uses.
+
+   It is a click target as well: the reader is already looking here, so this is
+   where "give me the rest" belongs. The `more` line appears only when there
+   *is* more — a brief that is already the whole note must not promise a second
+   half that does not exist. */
+.help-brief {
+  position: fixed; z-index: 38; max-width: min(30rem, calc(100vw - 2rem));
+  padding: var(--s-2) var(--s-3);
+  color: var(--ink); background: var(--card);
+  /* Chrome ink, and not the step's: the box is appended to the body, so it
+     stands outside every `[data-step]` on the page and a step colour could
+     never reach it anyway. Written plainly rather than as a fallback that
+     always falls back. */
+  border: 1px solid var(--rule); border-left: 2px solid var(--ink-soft);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow);
+  font: var(--t-xs)/1.55 var(--sans); cursor: pointer;
+}
+.help-brief[hidden] { display: none; }
+.help-brief[data-more="true"]::after {
+  content: 'more ›'; display: block; margin-top: var(--s-1);
+  color: var(--ink-soft); font: var(--t-2xs)/1.4 var(--mono);
+}
 
 /* ── data tables ───────────────────────────────────────────────────────────
    A wide table is only usable if you can reach the right-hand side of it, and

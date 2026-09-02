@@ -1,6 +1,7 @@
 """Screen a model before letting it judge, on a held-out task with known answers built by `_mutate_number`: the context is dated and the claim is one sentence.
 Degeneracy and schema adherence are scored separately (`score`'s `degenerate`, and `parsed` since RAGAS retries malformed JSON) because the two are fixed differently.
 The judge must be chosen by its score here **before** looking at the leaderboard it would produce — that is judge-shopping.
+The report — the items, and every prompt and reply verbatim — is written as one JSON file in `.screens/`, never `.runs/`: a screen is not a leaderboard row.
 """
 import argparse
 import json
@@ -317,7 +318,9 @@ def save(report: dict) -> Path:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog='Example: uv run raglab-judgescreen --models gemma4:e2b qwen3.5:2b')
     parser.add_argument('--models', nargs='+', required=True,
                         help='model ids to screen, e.g. qwen3.5:2b gemma4:e2b')
     parser.add_argument('--pairs', type=int, default=6,

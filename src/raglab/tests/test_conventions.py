@@ -440,7 +440,8 @@ def test_every_entry_point_resolves_to_something_callable():
     with tomllib and each target actually imported and resolved, not just
     pattern-matched against the text."""
     assert set(_SCRIPTS) == {'raglab', 'raglab-lab', 'raglab-sweep',
-                             'raglab-judgescreen', 'raglab-leaderboard'}
+                             'raglab-judgescreen', 'raglab-export',
+                             'raglab-leaderboard'}
     for command, target in _SCRIPTS.items():
         module, _, function = target.partition(':')
         assert callable(getattr(importlib.import_module(module), function)), (

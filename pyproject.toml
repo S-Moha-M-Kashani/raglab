@@ -112,6 +112,7 @@ raglab = "raglab.dashboard.cli.serve:panel"
 raglab-lab = "raglab.dashboard.cli.lab:main"
 raglab-sweep = "raglab.agents.extra_tools.sweep:main"
 raglab-judgescreen = "raglab.agents.extra_tools.judgescreen:main"
+raglab-export = "raglab.agents.extra_tools.export:main"
 raglab-leaderboard = "raglab.evaluation.leaderboard:main"
 
 [dependency-groups]

@@ -115,7 +115,12 @@ raglab-judgescreen = "raglab.agents.extra_tools.judgescreen:main"
 raglab-leaderboard = "raglab.evaluation.leaderboard:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+# httpx2 is starlette's own client for `TestClient` since starlette 1.6: with
+# only httpx installed its testclient module still works but warns once per
+# run, and the whole offline suite goes through it. Test-only — the app's
+# runtime dependency above stays `httpx`, which is what the lab itself calls
+# out with.
+dev = ["pytest>=8.0", "httpx2>=2.12"]
 
 [build-system]
 requires = ["hatchling"]

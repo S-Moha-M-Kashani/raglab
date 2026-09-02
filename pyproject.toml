@@ -1,6 +1,6 @@
 [project]
 name = "raglab"
-version = "0.33.0"
+version = "1.0.0"
 description = "RAG lab — a retrieval workbench where choices are decided by measurement"
 readme = "README.md"
 authors = [{ name = "Moha Kashani", email = "s.moha.m.kashani@gmail.com" }]

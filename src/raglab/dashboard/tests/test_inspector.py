@@ -1657,19 +1657,20 @@ def test_the_inspector_constructs_its_job_table_with_no_recorder():
     job, or nothing is, and the Inspector must be the "nothing" case. The
     lab's own `panel_server.py` passes `record=ledger.record` at its own
     construction site (checked against the same source below), so the
-    Inspector's absence of an argument is the whole of the guard."""
+    Inspector's absence of that argument is the whole of the guard — it names
+    only the history ceiling, which every service reads the same way."""
     from raglab.dashboard.panel_server import Jobs
     assert Jobs().record is None, 'Jobs must default to no recorder'
 
     inspector_source = Path(inspector.__file__).read_text(encoding='utf-8')
-    assert 'jobs = Jobs()' in inspector_source, (
+    assert 'jobs = Jobs(max_history=settings.max_job_history)' in inspector_source, (
         'the Inspector must construct its job table with no recorder')
     assert 'record=ledger.record' not in inspector_source, (
         "the Inspector must not adopt the lab's own recording call")
 
     from raglab.dashboard import panel_server as server
     server_source = Path(server.__file__).read_text(encoding='utf-8')
-    assert 'Jobs(record=ledger.record)' in server_source, (
+    assert 'Jobs(record=ledger.record,' in server_source, (
         'the lab, unlike the Inspector, does record — the contrast this '
         'guard depends on')
 

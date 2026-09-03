@@ -225,7 +225,9 @@ class IndexRegistry:
         # fingerprint, which *is* held across the build, so two threads on one
         # cold fingerprint produce one build. Same one-way order as
         # `panel_server.dataset_lock`: take the guard, get the lock, release
-        # the guard, then take the lock.
+        # the guard, then take the lock. A lock here outlives its index on
+        # purpose — one is a few dozen bytes against an index's tens of
+        # megabytes, and a table of them is not the leak this class bounds.
         self._guard = threading.Lock()
         self._builds: dict[str, threading.Lock] = {}
 
@@ -330,7 +332,10 @@ class IndexRegistry:
         return len(stale)
 
     def known(self) -> list[dict]:
-        return [{'fingerprint': key, 'collection': ix.stats.collection,
-                 'chunks': ix.stats.chunks,
-                 'config': dict(ix.cfg.__dict__)}
-                for key, ix in self._indexes.items()]
+        # Under the guard: a panel asking what is resident while a job's build
+        # inserts or evicts must read a whole answer, not a mutating mapping.
+        with self._guard:
+            return [{'fingerprint': key, 'collection': ix.stats.collection,
+                     'chunks': ix.stats.chunks,
+                     'config': dict(ix.cfg.__dict__)}
+                    for key, ix in self._indexes.items()]

@@ -665,8 +665,7 @@ def create_app() -> FastAPI:
     # mid-run and make the next question rebuild what is already resident.
 
     # This service owns the ledger, so this is the one place a recorder is passed.
-    jobs = Jobs(record=ledger.record,
-                max_history=settings.max_job_history)
+    jobs = Jobs(record=ledger.record, max_history=settings.max_job_history)
     archives = ImportedArchiveStore()
     app = FastAPI(title='RAG Lab')
 

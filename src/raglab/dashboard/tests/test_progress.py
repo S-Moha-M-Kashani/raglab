@@ -127,6 +127,49 @@ def test_the_job_carries_the_detail_to_whoever_is_polling():
     assert 'detail' in jobs.jobs[job_id]
 
 
+def _to_terminal(jobs, job_id: str) -> str:
+    """Poll one job in `Jobs`'s own table to a terminal state, no HTTP."""
+    for _ in range(2000):
+        if jobs.jobs[job_id]['state'] not in ('running', 'cancelling'):
+            return job_id
+        time.sleep(0.005)
+    raise AssertionError(f'job {job_id} never finished')
+
+
+def test_the_job_table_keeps_a_bounded_history_and_never_drops_live_work():
+    # this is an integration test
+    """The panel polls the job list, so a table that only grows is a table
+    every poll walks further — for the life of the process. Finished jobs past
+    the ceiling are dropped oldest first, which loses no work: each one has a
+    ledger row and each evaluation a run file. A job still running or
+    cancelling is kept whatever its age, because the live table is the only
+    place it exists yet. Zero is the reader who wants the old unbounded table
+    and says so."""
+    from raglab.dashboard.panel_server import Jobs
+
+    def finished(jobs) -> str:
+        return _to_terminal(jobs, jobs.start('run', lambda report: {'ok': True}))
+
+    jobs = Jobs(max_history=1)
+    first, second, third = (finished(jobs) for _ in range(3))
+    assert list(jobs.jobs) == [second, third], 'the oldest finished job is dropped'
+
+    # What concurrent jobs will make ordinary: an older job still working while
+    # newer ones finish and prune the table around it.
+    jobs.jobs[second]['state'] = 'running'
+    fourth = finished(jobs)
+    fifth = jobs.start('run', lambda report: {'ok': True})
+    assert second in jobs.jobs, 'a running job is never dropped, however old'
+    assert third not in jobs.jobs
+    assert fourth in jobs.jobs and fifth in jobs.jobs
+    assert first not in jobs.jobs
+    _to_terminal(jobs, fifth)
+
+    unbounded = Jobs(max_history=0)
+    kept = [finished(unbounded) for _ in range(3)]
+    assert list(unbounded.jobs) == kept
+
+
 def test_a_running_job_can_be_cancelled_before_its_next_call():
     # this is an integration test
     """Stopping a run must prevent its next unit of work, not just its polling."""

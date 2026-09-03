@@ -57,6 +57,7 @@ from raglab.configuration.lab_config import (
     GenerationConfig,
     IndexConfig,
     LabConfig,
+    LabSettings,
     RetrievalConfig,
     load_lab_settings,
     settings_for_provider)
@@ -455,11 +456,17 @@ def _dataset_options() -> dict:
 
 
 class Jobs:
-    """In-process job table. A lab restart loses running jobs; finished runs are
-    on disk, which is the part that matters."""
+    """In-process job table, bounded. A lab restart loses running jobs;
+    finished runs are on disk, which is the part that matters — and that is
+    also why the table may forget the oldest of them past `max_history`."""
 
-    def __init__(self, record=None):
+    def __init__(self, record=None, max_history: int = LabSettings.max_job_history):
         """`record(job, state)` is called once per finished job, or nothing is.
+
+        `max_history` is how many *finished* jobs the table keeps, defaulting
+        to the ceiling `LabSettings` states; 0 is unbounded. The panel polls
+        this table, so an unbounded one is a poll that walks further every
+        hour the lab stays up.
 
         A hook rather than a direct call to `ledger.record`, because the
         Inspector runs this same class read-only (`inspector_server.py` imports `Jobs`
@@ -468,8 +475,23 @@ class Jobs:
         does not owns nothing to pass."""
         self.lock = threading.Lock()
         self.record = record
+        self.max_history = max_history
         self.jobs: dict[str, dict] = {}
         self.current: str | None = None
+
+    def _prune(self) -> None:
+        """Drop the oldest finished jobs past the ceiling. Called under
+        `self.lock`, on insert. Nothing is lost: every finished job has a
+        ledger row and every evaluation a run file, and the two of them are the
+        record — this table is only the live view of it. A running or
+        cancelling job is never a candidate, whatever its age, because the live
+        view is the only place it exists yet."""
+        if not self.max_history:
+            return
+        terminal = [job_id for job_id, job in self.jobs.items()
+                    if job['state'] not in ('running', 'cancelling')]
+        for job_id in terminal[:-self.max_history]:
+            del self.jobs[job_id]
 
     def start(self, kind: str, target, config: dict | None = None,
               archive=None) -> str:
@@ -502,6 +524,7 @@ class Jobs:
                                  '_cancel': threading.Event(),
                                  '_archive': archive}
             self.current = job_id
+            self._prune()
 
         cancel = self.jobs[job_id]['_cancel']
 
@@ -575,11 +598,17 @@ class Jobs:
                 if not key.startswith('_')}
 
     def list(self) -> list[dict]:
-        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
+        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback.
+
+        Under the lock: the panel polls this while a starting job prunes the
+        oldest finished ones, and walking a dict another thread is deleting
+        from raises rather than answering."""
+        with self.lock:
+            snapshot = list(self.jobs.values())
         return [{'id': job['id'], 'kind': job['kind'], 'state': job['state'],
                  'started_at': job.get('started_at', ''),
                  'config': job.get('config')}
-                for job in reversed(list(self.jobs.values()))]
+                for job in reversed(snapshot)]
 
     def cancel(self, job_id: str) -> dict:
         job = self.jobs.get(job_id)
@@ -634,8 +663,14 @@ def create_app() -> FastAPI:
         with dataset_locks_guard:
             return dataset_locks.setdefault(key, threading.Lock())
 
+    # Every job below opens `with dataset_lock(...), registry.hold(cfg.index):`.
+    # The second half is the memory bound's other side: the registry keeps only
+    # the newest few indexes, and a job says here that the one it is about to
+    # work against is in use — so a build elsewhere can never take it away
+    # mid-run and make the next question rebuild what is already resident.
+
     # This service owns the ledger, so this is the one place a recorder is passed.
-    jobs = Jobs(record=ledger.record)
+    jobs = Jobs(record=ledger.record, max_history=settings.max_job_history)
     archives = ImportedArchiveStore()
     app = FastAPI(title='RAG Lab')
 
@@ -757,7 +792,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 index = registry.get(cfg.index, progress=report, force=force)
                 return {'collection': index.stats.collection,
@@ -798,7 +833,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 # Snapshot and index use share this boundary. A replacement of
                 # the same id cannot put new corpus evidence beside old chunks.
                 check_cancelled()
@@ -880,7 +915,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 return evaluate.run_retrieval(
                     registry, questions_for(cfg), cfg, run_settings,
@@ -1080,7 +1115,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 index = registry.get(cfg.index,
                                      progress=scaled_progress(report, 0.6))
@@ -1172,7 +1207,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 asked = questions_for(cfg)
                 query_date = requested_query_date or (

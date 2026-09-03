@@ -333,6 +333,27 @@ def test_the_reasoning_effort_is_a_setting_rather_than_an_argv_constant():
         == 'high'
 
 
+def test_the_process_memory_ceilings_are_settings_a_sweep_still_fits_under():
+    # this is a unit test
+    """Both tables the process holds for its own lifetime — built indexes and
+    the job table — are bounded by a stated number rather than by the
+    machine. The index default has to be wide enough that a sweep over the
+    widest single index knob reuses every index it builds, or the cache stops
+    being one. Zero means unbounded, and a value nobody can read falls back to
+    the default rather than making the lab unstartable over a cache size."""
+    settings = config.LabSettings()
+    widest = max(len(vocabulary) for vocabulary in
+                 (config.CHUNKERS, config.EMBEDDERS, config.HIERARCHIES,
+                  config.SUMMARIZERS, config.GRAPH_SOURCES))
+    assert settings.max_indexes >= widest
+
+    read = config.load_lab_settings({'RAGLAB_MAX_INDEXES': '0',
+                                     'RAGLAB_MAX_JOB_HISTORY': '5'})
+    assert read.max_indexes == 0 and read.max_job_history == 5
+    assert config.load_lab_settings({'RAGLAB_MAX_INDEXES': 'lots'}).max_indexes \
+        == settings.max_indexes
+
+
 def test_the_local_pairing_is_the_one_that_was_screened():
     # this is a convention test
     """The judge is part of the apparatus, so the default judge has to be a

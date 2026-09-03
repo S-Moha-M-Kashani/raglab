@@ -154,7 +154,7 @@ class HttpLabAccess:
 def _document(found: LabReply) -> dict | None:
     """A lab answer for a caller that reads only the document.
 
-    Three of the Inspector's routes and every `/api/follow` helper treat a
+    Two of the Inspector's routes and every `/api/follow` helper treat a
     refusal and an outage alike — an empty view either way — so they say so
     here rather than through a second transport that quietly drops the
     difference before they can see it."""

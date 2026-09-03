@@ -296,17 +296,18 @@ def create_app() -> FastAPI:
     install_no_store(app)
     routes.assets.register(app, context)
     routes.configuration.register(app, context)
-    routes.credentials.register(app, context)
-    routes.widget.register(app, context)
-    routes.dev_trace.register(app, context)
     # Three of the eight sections own an operation the Inspector reads through,
     # and hand it back by name; the other five register routes and nothing
     # else. The nine together are the whole of what a mounted Inspector can
     # ask of this service — assembled here because this is the only place that
-    # sees every section at once.
-    lab_operations = (routes.pipeline.register(app, context)
-                      | routes.experiments.register(app, context)
-                      | routes.datasets.register(app, context))
+    # sees every section at once. The order of the calls is the order the
+    # routes are matched in, so it is the order it always was.
+    lab_operations = routes.pipeline.register(app, context)
+    lab_operations |= routes.experiments.register(app, context)
+    lab_operations |= routes.datasets.register(app, context)
+    routes.credentials.register(app, context)
+    routes.widget.register(app, context)
+    routes.dev_trace.register(app, context)
     # Read once, by `served_lab.py`, on the way to mounting the Inspector.
     # `app.state` rather than a return value because the composition reaches
     # this service through the module-level app it already imports, and one

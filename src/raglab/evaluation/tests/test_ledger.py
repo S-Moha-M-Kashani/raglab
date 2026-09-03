@@ -18,7 +18,8 @@ from raglab.configuration.lab_config import (
     IndexConfig,
     LabConfig,
     RetrievalConfig)
-from raglab.dashboard.panel_server import Jobs, _with_backend
+from raglab.dashboard.panel_server import Jobs
+from raglab.dashboard.service_route_plumbing import _with_backend
 
 from raglab.conftest import LAB_SETTINGS
 from raglab.evaluation.tests.archive_examples import completed_archive

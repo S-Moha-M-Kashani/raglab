@@ -101,12 +101,21 @@ def screen(cfg, run_settings) -> None:
         raise HTTPException(400, '; '.join(problems))
 
 
-def cancel_checker(cancelled, exc):
-    """A `check_cancelled` closure a job's `work` calls before an expensive step; `exc` is passed in so this module needs no caller's exception type."""
+class JobCancelled(Exception):
+    """A cooperative stop requested from the RAG Lab panel."""
+
+
+def cancel_checker(cancelled):
+    """A `check_cancelled` closure a job's `work` calls before an expensive step; raises the one cancellation signal `Jobs.run` catches."""
     def check_cancelled():
         if cancelled():
-            raise exc()
+            raise JobCancelled()
     return check_cancelled
+
+
+def _with_backend(cfg, run_settings) -> dict:
+    """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
+    return cfg.to_dict() | {'provider': run_settings.provider}
 
 
 def scaled_progress(report, factor: float):

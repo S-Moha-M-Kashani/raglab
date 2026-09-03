@@ -20,3 +20,12 @@ nothing in the lab imports them back.
 - `widget.py` — the helper in the corner, which is outside the measured seam.
 - `dev_trace.py` — the developer's step-by-step checkout of one widget thread.
 """
+# Imported here so the factory can name each section once — `routes.pipeline`
+# rather than a bare `pipeline`, which would collide with the lab modules
+# `panel_server.py` imports under those same words (the widget, the datasets,
+# the credentials, the question pipeline).
+from raglab.dashboard.routes import (  # noqa: E402
+    assets,
+    configuration,
+    datasets,
+    pipeline)

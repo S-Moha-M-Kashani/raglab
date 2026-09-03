@@ -196,7 +196,7 @@ CONVENTIONS = [
      'the retired ask button must not come back'),
     ('index.html', None, 'id="queryOut"',
      'the retired answer box must not come back'),
-    ('panel_server.py', 'api/queries', None,
+    ('routes/pipeline.py', 'api/queries', None,
      "the route itself must stay: the Inspector's followed query view reads "
      'whatever runs through it'),
     ('panel_server.py', 'api/dataset-templates/corpus', None,

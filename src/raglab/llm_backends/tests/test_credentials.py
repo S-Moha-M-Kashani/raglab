@@ -19,7 +19,7 @@ from raglab.configuration.lab_config import (
     IndexConfig,
     LabConfig,
     load_lab_settings)
-from raglab.dashboard.panel_server import _with_backend
+from raglab.dashboard.service_route_plumbing import _with_backend
 
 KEY = 'sk-or-v1-0123456789abcdef0123456789abcdef'
 

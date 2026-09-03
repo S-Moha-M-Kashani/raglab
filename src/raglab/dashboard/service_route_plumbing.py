@@ -2,11 +2,14 @@
 composed as one app on :9002 by `served_lab.py`, the Inspector mounted at /inspector):
 the frontend folder and the one asset route each service installs over its own
 allowlist, the no-store middleware both install, job-acceptance responses,
-config screening, the resolved backend a job records, cancellation, progress.
+config screening, the resolved backend a job records, cancellation, progress,
+and the seam the Inspector reads the lab's records through.
 Nothing here may import either service — the dependency points one way, from
 the services into this module."""
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -71,6 +74,116 @@ def install_assets(app, assets: dict[str, Asset]) -> None:
 
     for public_path in assets:
         app.get(public_path)(asset)
+
+
+# What a lab operation answers with. Three outcomes and not two: the document
+# the lab returned, a refusal it stated (its own status and its own words), or
+# `None` — it could not be reached at all. A reader told the wrong one of the
+# last two is told "this experiment does not exist" about a lab that is merely
+# down, or "the lab is down" about one that answered.
+LabReply = dict | tuple[int, str] | None
+
+
+class LabAccess(Protocol):
+    """The nine things the Inspector asks of the lab, and nothing else.
+
+    The Inspector owns no ledger, no archive store and no job recorder: every
+    record it shows is the lab's own answer, and every write reachable from it
+    is the lab's own write. That rule is about *ownership*, so it is satisfied
+    equally by calling the lab's function and by calling the lab's route —
+    which is what the two implementations of this protocol are.
+
+    Nine named operations rather than the panel's application, which would
+    work and would also put every route the panel has, the writing ones
+    included, one attribute away from a read-only surface. A boundary you can
+    count is a boundary a convention test can pin."""
+
+    def imported_archive(self, archive_id: str) -> LabReply: ...
+    def active_archive(self) -> LabReply: ...
+    def clear_active_archive(self) -> LabReply: ...
+    def experiment(self, experiment_id: str) -> LabReply: ...
+    def experiment_archive(self, experiment_id: str) -> LabReply: ...
+    def experiment_questions(self, experiment_id: str) -> LabReply: ...
+    def add_experiment_question(self, experiment_id: str,
+                                payload: dict) -> LabReply: ...
+    def job(self, job_id: str) -> LabReply: ...
+    def jobs(self) -> LabReply: ...
+
+
+def _stated(handler: Callable, *args) -> LabReply:
+    """One lab handler's answer as a value: its document, or the refusal it raised.
+
+    Two exception types and not one, because the panel states its refusals in
+    two ways. `HTTPException` is the obvious one. `ValueError` is the other:
+    `create_app` registers a handler for it that answers 400 with the message
+    as `detail`, which is how an experiment whose imported dataset was since
+    deleted refuses. Over HTTP both arrive as a status and words; catching only
+    the first would make the second a bare 500 in-process, and the reader's
+    account of what went wrong would depend on how the Inspector was mounted.
+    `ArchiveStoreError` subclasses `ValueError`, so it travels this way too.
+
+    Nothing wider: a genuine bug must stay a 500 on both sides, because a
+    workbench that answers 400 to its own broken code is lying about whose
+    fault it is. Unavailability has no counterpart in-process — a function
+    call either answers or refuses."""
+    try:
+        return handler(*args)
+    except HTTPException as refusal:
+        return refusal.status_code, str(refusal.detail)
+    except ValueError as bad_request:
+        return 400, str(bad_request)
+
+
+class InProcessLabAccess:
+    """The nine operations, answered by calling the lab's own handlers.
+
+    Built by the panel out of the functions its routes are, and handed to a
+    mounted Inspector at mount time. No socket, no port and no host name: the
+    two halves are one process, and a loopback request between them would cost
+    a worker thread on each side of a call the process is making to itself."""
+
+    def __init__(self, *, imported_archive: Callable, active_archive: Callable,
+                 clear_active_archive: Callable, experiment: Callable,
+                 experiment_archive: Callable, experiment_questions: Callable,
+                 add_experiment_question: Callable, job: Callable,
+                 jobs: Callable):
+        self._imported_archive = imported_archive
+        self._active_archive = active_archive
+        self._clear_active_archive = clear_active_archive
+        self._experiment = experiment
+        self._experiment_archive = experiment_archive
+        self._experiment_questions = experiment_questions
+        self._add_experiment_question = add_experiment_question
+        self._job = job
+        self._jobs = jobs
+
+    def imported_archive(self, archive_id: str) -> LabReply:
+        return _stated(self._imported_archive, archive_id)
+
+    def active_archive(self) -> LabReply:
+        return _stated(self._active_archive)
+
+    def clear_active_archive(self) -> LabReply:
+        return _stated(self._clear_active_archive)
+
+    def experiment(self, experiment_id: str) -> LabReply:
+        return _stated(self._experiment, experiment_id)
+
+    def experiment_archive(self, experiment_id: str) -> LabReply:
+        return _stated(self._experiment_archive, experiment_id)
+
+    def experiment_questions(self, experiment_id: str) -> LabReply:
+        return _stated(self._experiment_questions, experiment_id)
+
+    def add_experiment_question(self, experiment_id: str,
+                                payload: dict) -> LabReply:
+        return _stated(self._add_experiment_question, experiment_id, payload)
+
+    def job(self, job_id: str) -> LabReply:
+        return _stated(self._job, job_id)
+
+    def jobs(self) -> LabReply:
+        return _stated(self._jobs)
 
 
 def _accepted(job_id: str) -> JSONResponse:

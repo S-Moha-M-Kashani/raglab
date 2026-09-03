@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -237,174 +238,25 @@ def test_the_inspector_page_asks_the_mounted_paths_for_everything_it_needs():
     assert "const API = '/inspector'" in js
 
 
-def _client(monkeypatch):
+def _client(monkeypatch, lab=None):
     from raglab.dashboard import inspector_server as inspector
     # Pin the offline/fake backend so no test needs a key or a network.
     monkeypatch.setattr(inspector, 'load_lab_settings', lambda: LAB_SETTINGS)
-    return TestClient(inspector.create_inspector_app())
+    return TestClient(inspector.create_inspector_app(lab=lab))
 
 
+# How the Inspector reaches the lab — in-process when mounted, over HTTP when
+# pointed elsewhere — is pinned in `test_lab_access.py`, which runs both modes
+# through one test body. What is left here is what `/api/follow` makes of the
+# answers.
 def test_follow_advertises_only_the_active_archive_id(monkeypatch):
     # this is an integration test
-    calls = []
-
-    def lab_get(path):
-        calls.append(path)
-        if path == '/api/imported-archives/active':
-            return {'archive_id': 'imported-run-001'}
-        return {'jobs': []}
-
-    monkeypatch.setattr(inspector, '_lab_get', lab_get)
-    body = _client(monkeypatch).get('/api/follow').json()
+    lab = SimpleNamespace(
+        active_archive=lambda: {'archive_id': 'imported-run-001'},
+        jobs=lambda: {'jobs': []})
+    body = _client(monkeypatch, lab).get('/api/follow').json()
     assert body['archive_id'] == 'imported-run-001'
     assert 'evaluation' not in body
-
-
-def test_inspector_proxies_one_archive_and_return_to_live(monkeypatch):
-    # this is an integration test
-    full = completed_archive()
-    monkeypatch.setattr(inspector, '_lab_get',
-                        lambda path: full if path.endswith('imported-run-001') else None)
-    deleted = []
-    monkeypatch.setattr(inspector, '_lab_delete', lambda path: deleted.append(path) or {})
-    client = _client(monkeypatch)
-    assert client.get('/api/imported-archives/imported-run-001').json() == full
-    assert client.delete('/api/imported-archives/active').status_code == 200
-    assert deleted == ['/api/imported-archives/active']
-
-
-def test_the_inspector_proxies_one_recorded_experiment(monkeypatch):
-    # this is an integration test
-    """The board's `↗` sends a reader here, so the Inspector needs to fetch a
-    record. It proxies rather than reading raglab.db: this service owns no
-    ledger, and giving it one would be a second writer to a record whose whole
-    value is being written once."""
-    record = {'experiment_id': 'exp-1', 'kind': 'run', 'dataset': 'smoke-mini',
-              'detail': {'config': {}, 'rows': [], 'traces': []}}
-    asked = []
-
-    def lab_get(path):
-        asked.append(path)
-        return record if path == '/api/experiments/exp-1' else None
-
-    monkeypatch.setattr(inspector, '_lab_get', lab_get)
-    client = _client(monkeypatch)
-    found = client.get('/api/experiments/exp-1')
-    assert found.status_code == 200
-    assert found.json()['experiment_id'] == 'exp-1'
-    # Asked of the lab, over HTTP, and not of a database this process opened.
-    assert asked == ['/api/experiments/exp-1']
-
-
-def test_the_inspector_proxies_a_recorded_experiments_archive(monkeypatch):
-    # this is an integration test
-    """The ledger strips chunk text from a job row, but a finished experiment
-    archives itself with that text in it — so the Chunks tab of a pinned record
-    reads the archive, through the same proxy discipline as the record: asked of
-    the lab over HTTP, refusals kept as refusals."""
-    archive = {'format': 'raglab-experiment', 'evaluation': {'inspector': {
-        'chunks_by_session': [{'session_id': 's1', 'chunks': []}]}}}
-    asked = []
-
-    def lab_get(path):
-        asked.append(path)
-        if path == '/api/experiments/exp-1/archive':
-            return archive
-        if path == '/api/experiments/old-1/archive':
-            return 404, 'old-1 has no complete archive'
-        return None
-
-    monkeypatch.setattr(inspector, '_lab_get_response', lab_get)
-    client = _client(monkeypatch)
-    assert client.get('/api/experiments/exp-1/archive').json() == archive
-    refused = client.get('/api/experiments/old-1/archive')
-    assert refused.status_code == 404
-    assert 'no complete archive' in refused.json()['detail']
-    assert client.get('/api/experiments/down/archive').status_code == 503
-    assert asked == ['/api/experiments/exp-1/archive',
-                     '/api/experiments/old-1/archive',
-                     '/api/experiments/down/archive']
-
-
-def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
-        monkeypatch):
-    # this is an integration test
-    """Better a stated 404 than a read-only view pinned to nothing, which reads
-    as an experiment that recorded no evidence."""
-    monkeypatch.setattr(inspector, '_lab_get', lambda path: None)
-    client = _client(monkeypatch)
-    assert client.get('/api/experiments/no-such-id').status_code == 404
-
-
-def test_the_inspector_proxies_recorded_question_additions_and_lab_jobs(monkeypatch):
-    # this is an integration test
-    posted = []
-
-    def lab_post(path, payload):
-        posted.append((path, payload))
-        return {'job_id': 'question-job'}
-
-    def lab_get(path):
-        return ({'questions': [{'experiment_id': 'addition-1'}]}
-                if path == '/api/experiments/exp-1/questions'
-                else {'id': 'question-job', 'state': 'done'})
-
-    monkeypatch.setattr(inspector, '_lab_post', lab_post, raising=False)
-    monkeypatch.setattr(inspector, '_lab_get_response', lab_get)
-    client = _client(monkeypatch)
-
-    created = client.post('/api/experiments/exp-1/questions',
-                          json={'question_id': 'q7'})
-    assert created.status_code == 202
-    assert created.json() == {'job_id': 'question-job'}
-    assert posted == [('/api/experiments/exp-1/questions', {'question_id': 'q7'})]
-    assert client.get('/api/experiments/exp-1/questions').json()['questions'] == [
-        {'experiment_id': 'addition-1'}]
-    assert client.get('/api/lab-jobs/question-job').json()['state'] == 'done'
-
-
-def test_question_proxies_preserve_lab_refusals_and_name_transport_outages(
-        monkeypatch):
-    # this is an integration test
-    client = _client(monkeypatch)
-    monkeypatch.setattr(inspector, '_lab_post',
-                        lambda _path, _payload: (409, 'a question job is already running'),
-                        raising=False)
-    refused = client.post('/api/experiments/exp-1/questions',
-                          json={'question_id': 'q7'})
-    assert refused.status_code == 409
-    assert refused.json()['detail'] == 'a question job is already running'
-
-    monkeypatch.setattr(inspector, '_lab_post', lambda _path, _payload: None,
-                        raising=False)
-    unavailable = client.post('/api/experiments/exp-1/questions',
-                              json={'question_id': 'q7'})
-    assert unavailable.status_code == 503
-    assert 'lab is unavailable' in unavailable.json()['detail']
-
-    monkeypatch.setattr(inspector, '_lab_get_response', lambda _path: None)
-    assert client.get('/api/experiments/exp-1/questions').status_code == 503
-    assert client.get('/api/lab-jobs/question-job').status_code == 503
-
-
-def test_question_get_proxies_preserve_lab_refusals(monkeypatch):
-    # this is an integration test
-    def lab_get_response(path):
-        if path == '/api/experiments/exp-1/questions':
-            return 404, 'unknown experiment: exp-1'
-        return 409, 'question job was cancelled'
-
-    monkeypatch.setattr(inspector, '_lab_get_response', lab_get_response,
-                        raising=False)
-    client = _client(monkeypatch)
-
-    questions = client.get('/api/experiments/exp-1/questions')
-    assert questions.status_code == 404
-    assert questions.json()['detail'] == 'unknown experiment: exp-1'
-
-    job = client.get('/api/lab-jobs/question-job')
-    assert job.status_code == 409
-    assert job.json()['detail'] == 'question job was cancelled'
 
 
 # FastAPI TestClient over the read-only app.
@@ -1298,14 +1150,13 @@ def _index_of(jobs: list[dict]) -> dict:
 
 
 def _canned_lab(jobs: list[dict]):
-    """A monkeypatch stand-in for `inspector._lab_get`: a dict lookup by job
-    id over canned full job bodies, so `_job_view`/`_question_set`/
-    `_newest_chunks` — which each fetch one job's full body once they have
-    picked it from the summary list — need no thread and no socket either."""
+    """A stand-in lab for the follow helpers: a dict lookup by job id over
+    canned full job bodies. `job` is the only operation `_job_view`/
+    `_question_set`/`_newest_chunks` ask of the lab once they have picked an
+    entry from the summary list, so it is the only one this has — no thread and
+    no socket either."""
     by_id = {job['id']: job for job in jobs}
-    def _get(path):
-        return by_id.get(path.rsplit('/', 1)[-1])
-    return _get
+    return SimpleNamespace(job=lambda job_id: by_id.get(job_id))
 
 
 # FastAPI TestClient; the lab is a real thread over a real socket — the one
@@ -1359,17 +1210,15 @@ def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab,
     assert body['generation']['job_id'] == FAKE_RUN_JOB['id']
 
 
-def test_question_set_prefers_the_newest_finished_set_over_an_older_one(monkeypatch):
+def test_question_set_prefers_the_newest_finished_set_over_an_older_one():
     # this is a unit test
     """The retrieval window must show *only* the questions the experiment
     picked, and whichever of the two set-wide kinds finished more recently —
     both feed `_question_set`, which normalises them to one shape so the
     page keeps one renderer. Fed canned job lists directly; no thread, no
     socket."""
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]))
-    view = inspector._question_set(
-        _index_of([FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    ordered = [FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]
+    view = inspector._question_set(_canned_lab(ordered), _index_of(ordered))
     assert view['kind'] == 'retrieve'
     assert view['config']['retrieval']['k'] == 3
     assert [q['question_id'] for q in view['questions']] == ['q-001', 'q-002']
@@ -1378,18 +1227,17 @@ def test_question_set_prefers_the_newest_finished_set_over_an_older_one(monkeypa
 
     # an evaluation that finished later is what the window follows instead, and
     # its traces arrive under a different key on the lab's side
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
-    view = inspector._question_set(
-        _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+    ordered = [FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]
+    view = inspector._question_set(_canned_lab(ordered), _index_of(ordered))
     assert view['kind'] == 'run'
     assert [q['question_id'] for q in view['questions']] == ['q-009']
 
     # no set-wide run at all is a normal state, not an error
-    assert inspector._question_set(_index_of([FAKE_INDEX_JOB])) is None
+    assert inspector._question_set(_canned_lab([FAKE_INDEX_JOB]),
+                                   _index_of([FAKE_INDEX_JOB])) is None
 
 
-def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
+def test_newest_chunks_follows_whichever_job_reported_them():
     # this is a unit test
     """The chunks window must describe the same pipeline the retrieval window
     does: not `kind == 'index'` but "the newest job that reported any chunks
@@ -1398,22 +1246,22 @@ def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
     at all must come back with `summaries == []`, never a missing key."""
     # the exact shape that misled: the run is newer than the index build, and
     # they name different chunkers
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB, FAKE_RETRIEVE_JOB]))
-    index_view = inspector._newest_chunks(_index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    lab = _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB, FAKE_RETRIEVE_JOB])
+    index_view = inspector._newest_chunks(
+        lab, _index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
     assert index_view['config']['index']['chunker'] == 'semantic-drift'
     assert index_view['chunks_by_session'][0]['session_id'] == 'run-s1'
     assert index_view['summaries'] == []
     # and both windows now agree about which index produced what is on screen
     retrieval_view = inspector._question_set(
-        _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+        lab, _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
     assert (index_view['config']['index']['chunker']
             == retrieval_view['config']['index']['chunker'])
 
     # an explicit build afterwards is the newest again, and wins
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_INDEX_JOB, FAKE_RUN_JOB]))
-    index_view = inspector._newest_chunks(_index_of([FAKE_INDEX_JOB, FAKE_RUN_JOB]))
+    newest_build = [FAKE_INDEX_JOB, FAKE_RUN_JOB]
+    index_view = inspector._newest_chunks(_canned_lab(newest_build),
+                                          _index_of(newest_build))
     assert index_view['config']['index']['chunker'] == 'session'
     assert index_view['summaries'] == []
 
@@ -1428,23 +1276,22 @@ def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
                            'group_id': 'h1-000', 'level': 1, 'members': 2,
                            'member_ids': ['s1-0', 's2-0'], 'sessions': 2,
                            'chars': 12}]}}
-    monkeypatch.setattr(inspector, '_lab_get', _canned_lab([with_summaries]))
-    view = inspector._newest_chunks(_index_of([with_summaries]))
+    view = inspector._newest_chunks(_canned_lab([with_summaries]),
+                                    _index_of([with_summaries]))
     assert view['chunks_by_session'][0]['session_id'] == 's1'
     assert len(view['summaries']) == 1
     assert view['summaries'][0]['group_id'] == 'h1-000'
     assert view['summaries'][0]['sessions'] == 2
 
 
-def test_generation_view_only_when_an_evaluation_wrote_rows(monkeypatch):
+def test_generation_view_only_when_an_evaluation_wrote_rows():
     # this is a unit test
     """What the model wrote and how it scored come from the evaluation's own
     rows; only an evaluation has them, so a retrieval-only run leaves
     `_generation_view` returning `None` rather than showing a stale answer
     beside fresh ranks."""
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
-    view = inspector._generation_view(_index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    scored = [FAKE_RUN_JOB, FAKE_INDEX_JOB]
+    view = inspector._generation_view(_canned_lab(scored), _index_of(scored))
     assert view['job_id'] == FAKE_RUN_JOB['id']
     assert view['config']['retrieval']['retriever'] == 'dense'
     row = view['rows'][0]
@@ -1456,18 +1303,17 @@ def test_generation_view_only_when_an_evaluation_wrote_rows(monkeypatch):
     assert view['summary']['n_questions'] == 1
 
     # a retrieval-only run generates nothing, and says so rather than lying
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
-    assert inspector._generation_view(
-        _index_of([FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB])) is None
+    unscored = [FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]
+    assert inspector._generation_view(_canned_lab(unscored),
+                                      _index_of(unscored)) is None
 
 
 def test_followed_dataset_reads_the_newest_jobs_own_config():
     # this is a unit test
     """Which corpus the lab is on is a fact about the whole page, so
     `_followed_dataset` answers it once from the same summary list rather
-    than each window guessing separately — and it needs no `_lab_get` call at
-    all, since the dataset already rides on `/api/jobs`'s own config field."""
+    than each window guessing separately — and it asks the lab nothing at all,
+    since the dataset already rides on `/api/jobs`'s own config field."""
     assert inspector._followed_dataset(
         _index_of([FAKE_OTHER_CORPUS_JOB, FAKE_INDEX_JOB])) == 'meetings-de'
     # the newest job wins, exactly as every other window on this page follows
@@ -1646,37 +1492,6 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     flat = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
         IndexConfig(chunker='session', embedder='ascii-hash'))
     assert present.summary_rows(flat) == []
-
-
-# A direct assert over the Inspector's job table and its own source, rather
-# than a full chunks-job build and a poll for the absence of a database file
-# — the round trip through the job runner is what
-# `test_chunks_job_returns_sessions_and_any_summaries_beside_them` already
-# proves.
-def test_the_inspector_constructs_its_job_table_with_no_recorder():
-    # this is a convention test
-    """`Jobs(record=None)` — the default — is what keeps the Inspector's
-    scratch builds for looking at chunks from becoming a second writer of the
-    lab's experiment ledger: `record(job, state)` is called once per finished
-    job, or nothing is, and the Inspector must be the "nothing" case. The
-    lab's own `panel_server.py` passes `record=ledger.record` at its own
-    construction site (checked against the same source below), so the
-    Inspector's absence of that argument is the whole of the guard — it names
-    only the history ceiling, which every service reads the same way."""
-    from raglab.dashboard.panel_server import Jobs
-    assert Jobs().record is None, 'Jobs must default to no recorder'
-
-    inspector_source = Path(inspector.__file__).read_text(encoding='utf-8')
-    assert 'jobs = Jobs(max_history=settings.max_job_history)' in inspector_source, (
-        'the Inspector must construct its job table with no recorder')
-    assert 'record=ledger.record' not in inspector_source, (
-        "the Inspector must not adopt the lab's own recording call")
-
-    from raglab.dashboard import panel_server as server
-    server_source = Path(server.__file__).read_text(encoding='utf-8')
-    assert 'Jobs(record=ledger.record,' in server_source, (
-        'the lab, unlike the Inspector, does record — the contrast this '
-        'guard depends on')
 
 
 # FastAPI TestClient over the read-only app.

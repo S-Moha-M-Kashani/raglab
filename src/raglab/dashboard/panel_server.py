@@ -30,6 +30,7 @@ from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard import routes
 from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
+    InProcessLabAccess,
     JobCancelled,
     ground_truth_for,
     install_no_store)
@@ -222,7 +223,11 @@ class PanelContext:
 
     A dataclass rather than the app's own `state`, because `app.state` is
     untyped: a route reaching for a name nobody put there would fail at request
-    time, while a missing field here fails when the app is built."""
+    time, while a missing field here fails when the app is built. The one
+    exception is `app.state.lab_access`, which `create_app` stashes and
+    `served_lab.py` reads while composing the two halves — a single build-time
+    handoff between two files, so a name nobody put there still fails when the
+    app is built, which is the property this container exists to keep."""
     settings_now: Callable[[], LabSettings]
     corpus: dict
     ground_truth: dict
@@ -295,12 +300,24 @@ def create_app() -> FastAPI:
     install_no_store(app)
     routes.assets.register(app, context)
     routes.configuration.register(app, context)
-    routes.pipeline.register(app, context)
-    routes.experiments.register(app, context)
-    routes.datasets.register(app, context)
+    # Three of the eight sections own an operation the Inspector reads through,
+    # and hand it back by name; the other five register routes and nothing
+    # else. The nine together are the whole of what a mounted Inspector can
+    # ask of this service — assembled here because this is the only place that
+    # sees every section at once. The order of the calls is the order the
+    # routes are matched in, so it is the order it always was.
+    lab_operations = routes.pipeline.register(app, context)
+    lab_operations |= routes.experiments.register(app, context)
+    lab_operations |= routes.datasets.register(app, context)
     routes.credentials.register(app, context)
     routes.widget.register(app, context)
     routes.dev_trace.register(app, context)
+    # Read once, by `served_lab.py`, on the way to mounting the Inspector.
+    # `app.state` rather than a return value because the composition reaches
+    # this service through the module-level app it already imports, and one
+    # named handoff between two files is not the untyped surface fifty routes
+    # reading state off the app would be.
+    app.state.lab_access = InProcessLabAccess(**lab_operations)
 
     @app.exception_handler(ValueError)
     def value_error(_request, error: ValueError):

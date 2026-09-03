@@ -214,9 +214,11 @@ class IndexRegistry:
         # Ordered least-recently-served first: `get` moves what it serves to
         # the end, and eviction reads from the front.
         self._indexes: OrderedDict[str, LabIndex] = OrderedDict()
-        # Fingerprints this registry dropped, so the rebuild that follows can
-        # say why it is not reuse. Emptied as each is noted.
-        self._evicted: set[str] = set()
+        # Fingerprints this registry dropped -> the dataset each indexed, so
+        # the rebuild that follows can say why it is not reuse, and a
+        # re-import of that dataset can withdraw the claim. Emptied as each is
+        # noted.
+        self._evicted: dict[str, str] = {}
         # Fingerprint -> how many callers are inside `hold`. An entry counted
         # here is skipped by eviction.
         self._held: dict[str, int] = {}
@@ -242,6 +244,14 @@ class IndexRegistry:
         return datasets.load(dataset)[0]
 
     def get(self, cfg: IndexConfig, progress=None, force: bool = False) -> LabIndex:
+        """Serve one fingerprint, building it if this process has not got it.
+
+        `stats.reused` is a field on the shared index rather than on this
+        request, so it only means what it says while one job runs at a time —
+        which is what the panel enforces today (a second concurrent job is
+        refused) and what the Inspector and the sweep do by construction.
+        Making it per-request belongs with concurrent jobs, not here.
+        """
         key = cfg.normalized().fingerprint()
         with self._guard:
             build_lock = self._builds.setdefault(key, threading.Lock())
@@ -253,6 +263,13 @@ class IndexRegistry:
                     # The one form of reuse that still exists: this process
                     # already built it.
                     index.stats.reused = True
+                    # The eviction note belongs to the build it explained, and
+                    # the stats travel with the index rather than with this
+                    # request — so reuse of that same object would otherwise
+                    # carry a line calling itself a rebuild, onto the row and
+                    # into the ledger. Withdraw it here.
+                    index.stats.notes = [note for note in index.stats.notes
+                                         if note != EVICTED_NOTE]
                     return index
             # Outside every registry lock: a build is the most expensive thing
             # this process does, and a request for another fingerprint must not
@@ -264,10 +281,10 @@ class IndexRegistry:
                     # `reused` is already False on a fresh build; the note is
                     # what tells a reader why this build time is an outlier.
                     built.stats.notes.append(EVICTED_NOTE)
-                    self._evicted.discard(key)
+                    self._evicted.pop(key, None)
                 self._indexes[key] = built
                 self._indexes.move_to_end(key)
-                self._evict_to_ceiling()
+                self._evict_to_ceiling(keep=key)
             return built
 
     @contextmanager
@@ -294,20 +311,26 @@ class IndexRegistry:
                 else:
                     self._held.pop(key, None)
 
-    def _evict_to_ceiling(self) -> None:
+    def _evict_to_ceiling(self, keep: str = '') -> None:
         """Drop least-recently-served unheld indexes until the ceiling is met.
         Called under `_guard`, on insert, where the cost of a build is already
         being paid. A ceiling of 0 is unbounded; a registry whose every entry is
         held stays over the ceiling rather than taking an index away from work.
+
+        `keep` is the fingerprint just inserted. It is never a candidate: when
+        every older entry is held it would be the only one, and throwing away
+        the build the caller is still waiting for — then telling the next
+        request it was evicted — is the one outcome worse than staying over
+        the ceiling.
         """
         ceiling = self.settings.max_indexes
         while ceiling and len(self._indexes) > ceiling:
             droppable = next((key for key in self._indexes
-                              if key not in self._held), None)
+                              if key not in self._held and key != keep), None)
             if droppable is None:
                 return
-            self._indexes.pop(droppable)
-            self._evicted.add(droppable)
+            index = self._indexes.pop(droppable)
+            self._evicted[droppable] = index.cfg.dataset
 
     def invalidate_dataset(self, dataset: str) -> int:
         """Forget cached indexes for a replaced dataset id.
@@ -321,6 +344,10 @@ class IndexRegistry:
         Not an eviction in the ceiling's sense, so the rebuild that follows
         carries no eviction note: the corpus changed, which is a different
         reason for a rebuild and not one the note would describe honestly.
+        That holds for a fingerprint the ceiling *had* evicted earlier too —
+        its pending note is dropped here rather than being handed to a rebuild
+        the re-import is the real reason for. Dropping those entries is also
+        what keeps this table from growing for the life of the process.
         """
         with self._guard:
             stale = [key for key, index in self._indexes.items()
@@ -329,6 +356,8 @@ class IndexRegistry:
                 self._indexes = OrderedDict(
                     (key, index) for key, index in self._indexes.items()
                     if key not in stale)
+            self._evicted = {key: owner for key, owner in self._evicted.items()
+                             if owner != dataset}
         return len(stale)
 
     def known(self) -> list[dict]:

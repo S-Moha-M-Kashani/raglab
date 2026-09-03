@@ -460,11 +460,11 @@ class Jobs:
     finished runs are on disk, which is the part that matters — and that is
     also why the table may forget the oldest of them past `max_history`."""
 
-    def __init__(self, record=None, max_history: int | None = None):
+    def __init__(self, record=None, max_history: int = LabSettings.max_job_history):
         """`record(job, state)` is called once per finished job, or nothing is.
 
-        `max_history` is how many *finished* jobs the table keeps; `None` takes
-        the ceiling `LabSettings` states, and 0 is unbounded. The panel polls
+        `max_history` is how many *finished* jobs the table keeps, defaulting
+        to the ceiling `LabSettings` states; 0 is unbounded. The panel polls
         this table, so an unbounded one is a poll that walks further every
         hour the lab stays up.
 
@@ -475,8 +475,7 @@ class Jobs:
         does not owns nothing to pass."""
         self.lock = threading.Lock()
         self.record = record
-        self.max_history = (LabSettings.max_job_history if max_history is None
-                            else max_history)
+        self.max_history = max_history
         self.jobs: dict[str, dict] = {}
         self.current: str | None = None
 
@@ -599,11 +598,17 @@ class Jobs:
                 if not key.startswith('_')}
 
     def list(self) -> list[dict]:
-        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
+        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback.
+
+        Under the lock: the panel polls this while a starting job prunes the
+        oldest finished ones, and walking a dict another thread is deleting
+        from raises rather than answering."""
+        with self.lock:
+            snapshot = list(self.jobs.values())
         return [{'id': job['id'], 'kind': job['kind'], 'state': job['state'],
                  'started_at': job.get('started_at', ''),
                  'config': job.get('config')}
-                for job in reversed(list(self.jobs.values()))]
+                for job in reversed(snapshot)]
 
     def cancel(self, job_id: str) -> dict:
         job = self.jobs.get(job_id)

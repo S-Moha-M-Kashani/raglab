@@ -97,11 +97,14 @@ def _ceiling(value: str | None, default: int) -> int:
     """A memory ceiling read off the environment: 0 means unbounded, and a
     value nobody can read means the default. Lenient on purpose — a typo in a
     cache size decides nothing a row records, and refusing to start the lab
-    over one would cost more than it protects."""
+    over one would cost more than it protects. A negative number is such a
+    typo: clamping it to 0 would read as 'unbounded', the opposite of what
+    someone typing -1 asked for, so it takes the default too."""
     try:
-        return max(0, int(str(value).strip()))
+        ceiling = int(str(value).strip())
     except (TypeError, ValueError):
         return default
+    return default if ceiling < 0 else ceiling
 
 
 def load_lab_settings(env: dict | None = None) -> LabSettings:

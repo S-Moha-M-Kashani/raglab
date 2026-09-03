@@ -204,6 +204,7 @@ def test_the_registry_drops_the_least_recently_used_index_past_its_ceiling():
     rebuilt = reg.get(second)
     assert not rebuilt.stats.reused
     assert any('evicted' in note for note in rebuilt.stats.notes), rebuilt.stats.notes
+    assert not any('evicted' in note for note in reg.get(second).stats.notes)
     fresh = IndexRegistry(LAB_SETTINGS).get(second)
     assert not any('evicted' in note for note in fresh.stats.notes)
 
@@ -219,7 +220,10 @@ def test_a_held_index_outlives_more_builds_than_the_ceiling_allows():
     a reference the registry cannot see, so evicting the entry would free
     nothing and make the next request rebuild something already resident. A
     held fingerprint is therefore skipped by eviction — and becomes an
-    ordinary candidate again the moment its holder is done."""
+    ordinary candidate again the moment its holder is done. When every older
+    entry is held, the index just built is the only unheld one, and the
+    registry stays over the ceiling rather than throwing away the build its
+    caller is still waiting for."""
     reg = IndexRegistry(replace(LAB_SETTINGS, max_indexes=2))
     reading = _smoke_cfg(100)
     held = reg.get(reading)
@@ -231,6 +235,13 @@ def test_a_held_index_outlives_more_builds_than_the_ceiling_allows():
     for n in (700, 800):
         reg.get(_smoke_cfg(n))
     assert reading.fingerprint() not in {row['fingerprint'] for row in reg.known()}
+
+    one, two, fresh = (_smoke_cfg(n) for n in (900, 1000, 1100))
+    reg.get(one)
+    reg.get(two)
+    with reg.hold(one), reg.hold(two):
+        reg.get(fresh)
+    assert fresh.fingerprint() in {row['fingerprint'] for row in reg.known()}
 
 
 def test_one_build_per_cold_fingerprint_and_no_registry_wide_wait(monkeypatch):

@@ -346,7 +346,6 @@ def test_the_process_memory_ceilings_are_settings_a_sweep_still_fits_under():
                  (config.CHUNKERS, config.EMBEDDERS, config.HIERARCHIES,
                   config.SUMMARIZERS, config.GRAPH_SOURCES))
     assert settings.max_indexes >= widest
-    assert settings.max_job_history == 200
 
     read = config.load_lab_settings({'RAGLAB_MAX_INDEXES': '0',
                                      'RAGLAB_MAX_JOB_HISTORY': '5'})

@@ -1494,37 +1494,6 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     assert present.summary_rows(flat) == []
 
 
-# A direct assert over the Inspector's job table and its own source, rather
-# than a full chunks-job build and a poll for the absence of a database file
-# — the round trip through the job runner is what
-# `test_chunks_job_returns_sessions_and_any_summaries_beside_them` already
-# proves.
-def test_the_inspector_constructs_its_job_table_with_no_recorder():
-    # this is a convention test
-    """`Jobs(record=None)` — the default — is what keeps the Inspector's
-    scratch builds for looking at chunks from becoming a second writer of the
-    lab's experiment ledger: `record(job, state)` is called once per finished
-    job, or nothing is, and the Inspector must be the "nothing" case. The
-    lab's own `panel_server.py` passes `record=ledger.record` at its own
-    construction site (checked against the same source below), so the
-    Inspector's absence of that argument is the whole of the guard — it names
-    only the history ceiling, which every service reads the same way."""
-    from raglab.dashboard.panel_server import Jobs
-    assert Jobs().record is None, 'Jobs must default to no recorder'
-
-    inspector_source = Path(inspector.__file__).read_text(encoding='utf-8')
-    assert 'jobs = Jobs(max_history=settings.max_job_history)' in inspector_source, (
-        'the Inspector must construct its job table with no recorder')
-    assert 'record=ledger.record' not in inspector_source, (
-        "the Inspector must not adopt the lab's own recording call")
-
-    from raglab.dashboard import panel_server as server
-    server_source = Path(server.__file__).read_text(encoding='utf-8')
-    assert 'Jobs(record=ledger.record,' in server_source, (
-        'the lab, unlike the Inspector, does record — the contrast this '
-        'guard depends on')
-
-
 # FastAPI TestClient over the read-only app.
 def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeypatch):
     # this is an integration test

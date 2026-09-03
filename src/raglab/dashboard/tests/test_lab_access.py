@@ -22,40 +22,6 @@ from raglab.dashboard import service_route_plumbing as plumbing
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
-# The nine operations, and the panel route each one is the caller's side of.
-# Written out here rather than derived, because a derived list would drift
-# with the code it is supposed to be checking.
-OPERATIONS = {
-    'imported_archive': ('GET', '/api/imported-archives/{archive_id}'),
-    'active_archive': ('GET', '/api/imported-archives/active'),
-    'clear_active_archive': ('DELETE', '/api/imported-archives/active'),
-    'experiment': ('GET', '/api/experiments/{experiment_id}'),
-    'experiment_archive': ('GET', '/api/experiments/{experiment_id}/archive'),
-    'experiment_questions': ('GET', '/api/experiments/{experiment_id}/questions'),
-    'add_experiment_question': ('POST', '/api/experiments/{experiment_id}/questions'),
-    'job': ('GET', '/api/jobs/{job_id}'),
-    'jobs': ('GET', '/api/jobs'),
-}
-
-
-def test_the_seam_names_the_nine_operations_and_nothing_else():
-    # this is a convention test
-    """The Inspector is handed an object that can do exactly nine things.
-
-    Handing it the panel's whole application would work and would also give a
-    read-only surface every route the panel has, including the ones that write
-    a ledger row. Nine names is the boundary written down, and this is what
-    keeps a tenth from arriving unremarked."""
-    named = {name for name in dir(plumbing.LabAccess)
-             if not name.startswith('_')}
-    assert named == set(OPERATIONS), (
-        'the seam must name exactly the operations the Inspector needs')
-    for implementation in (plumbing.InProcessLabAccess, inspector.HttpLabAccess):
-        missing = [name for name in OPERATIONS
-                   if not callable(getattr(implementation, name, None))]
-        assert not missing, f'{implementation.__name__} answers none of {missing}'
-
-
 # --- one canned lab, reachable two ways -------------------------------------
 #
 # The same documents and the same refusals, served once as functions the way

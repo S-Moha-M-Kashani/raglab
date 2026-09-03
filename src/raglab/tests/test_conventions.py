@@ -566,6 +566,73 @@ def test_the_panel_context_holds_and_does_not_decide():
         'every field is passed in at construction; none is decided here')
 
 
+# The nine operations a mounted Inspector reads the lab through, and the panel
+# route each one is the caller's side of. The seam and the route surface are
+# two halves of one promise, and this table is where they are checked against
+# each other.
+_LAB_OPERATIONS = {
+    'imported_archive': ('GET', '/api/imported-archives/{archive_id}'),
+    'active_archive': ('GET', '/api/imported-archives/active'),
+    'clear_active_archive': ('DELETE', '/api/imported-archives/active'),
+    'experiment': ('GET', '/api/experiments/{experiment_id}'),
+    'experiment_archive': ('GET', '/api/experiments/{experiment_id}/archive'),
+    'experiment_questions': ('GET', '/api/experiments/{experiment_id}/questions'),
+    'add_experiment_question': ('POST', '/api/experiments/{experiment_id}/questions'),
+    'job': ('GET', '/api/jobs/{job_id}'),
+    'jobs': ('GET', '/api/jobs'),
+}
+
+
+def test_the_inspector_owns_none_of_the_records_it_shows():
+    # this is a convention test
+    """The Inspector reads the lab; it never opens what the lab owns.
+
+    That is the whole reason its records arrive through a seam rather than off
+    disk: the ledger, the archive store and the corpus store have one writer,
+    and a second reader that opened the files would be a second thing to keep
+    in step with a record whose value is being written once. `Jobs()` with no
+    recorder is the same rule for the scratch builds the Inspector does make —
+    the lab passes `record=ledger.record` at its own construction site, and
+    that contrast is what this guard is built on.
+
+    The seam is the other half: nine operations, each the caller's side of a
+    route the panel actually serves. A tenth that no route backs, or a route
+    renamed underneath one, is drift the reader would only meet as an empty
+    page."""
+    from raglab.dashboard.service_route_plumbing import LabAccess
+
+    inspector = next(path for path in _SRC_FILES
+                     if path.name == 'inspector_server.py')
+    source = inspector.read_text(encoding='utf-8')
+    for owned in ('service_experiment_ledger', 'experiment_archive_store',
+                  'corpus_store'):
+        assert owned not in source, (
+            f'the Inspector must not open {owned} — it asks the lab that owns it')
+    assert 'jobs = Jobs(max_history=settings.max_job_history)' in source, (
+        'the Inspector must construct its job table with no recorder')
+    assert 'record=ledger.record' not in source, (
+        "the Inspector must not adopt the lab's own recording call")
+    panel = next(path for path in _SRC_FILES if path.name == 'panel_server.py')
+    assert 'Jobs(record=ledger.record,' in panel.read_text(encoding='utf-8'), (
+        'the lab, unlike the Inspector, does record — the contrast this guard '
+        'depends on')
+
+    named = {name for name in dir(LabAccess) if not name.startswith('_')}
+    assert named == set(_LAB_OPERATIONS), (
+        'the seam must name exactly the operations the Inspector needs')
+    app = lab_server.create_app()
+    access = app.state.lab_access
+    served = {(method, route.path)
+              for route in app.routes
+              for method in getattr(route, 'methods', ())}
+    for operation, (method, path) in _LAB_OPERATIONS.items():
+        assert callable(getattr(access, operation, None)), (
+            f'the panel answers no {operation}')
+        assert (method, path) in served, (
+            f'{operation} claims to be the caller of {method} {path}, which '
+            'the panel does not serve')
+
+
 def test_only_one_function_in_the_widget_writes_a_system_line():
     # this is a convention test
     """`backends._run` is the only author of the widget's system lines, and two

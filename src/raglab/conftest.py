@@ -18,8 +18,8 @@ RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 
 # A length or percentage in a font-size declaration, e.g. ".72rem", "12.5px",
 # "90%", "1.2vw" or "11pt" — or a computed `calc(...)` value — but not a
-# var() reference and not a bare 0. Shared by test_panel.py and
-# test_inspector.py, both of which check their sheet's type scale against
+# var() reference and not a bare 0. Shared by test_routes_assets.py
+# and test_inspector.py, both of which check their sheet's type scale against
 # the same claim, so the pattern is named once here rather than twice. The
 # unit alternation stays wide on purpose: `rem|px|em` alone missed every
 # other CSS length unit and every percentage, which is exactly the kind of
@@ -45,8 +45,9 @@ def _font_size_literals(css: str) -> list[str]:
 
 
 # A hand-spelled corner radius, longhand or shorthand alike — but not a
-# var() reference. Shared by test_panel.py and test_inspector.py, both of
-# which check their sheet's radius scale against the same claim, so the
+# var() reference. Shared by test_routes_assets.py and
+# test_inspector.py, both of which check their sheet's radius scale against
+# the same claim, so the
 # pattern is named once here rather than twice. `border(?:-[a-z]+)*-radius:`
 # matches the shorthand (`border-radius:`), the four physical corner
 # longhands (`border-top-left-radius:` and siblings) and the logical corner
@@ -380,7 +381,7 @@ def _no_test_reads_the_developers_real_key(request):
     `monkeypatch.setenv` here would still run *after* the first test in each
     module had already called `create_app()` → `load_lab_settings()` with the
     real key sitting in `os.environ`, protecting nothing. Measured: with the
-    pin at function scope, `test_server.py`, `test_panel.py` and
+    pin at function scope, `test_server.py`, the panel route tests and
     `test_raglab.py` each still made a real `httpx.get` to
     `https://openrouter.ai/api/v1/models` carrying the `.env` key, because
     their module-scoped `client` had already baked it into `boot_settings`

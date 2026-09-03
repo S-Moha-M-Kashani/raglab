@@ -21,9 +21,9 @@ decision to you.
   validated import path for yours.
 - **A helper that never decides for you** — an agentic assistant with
   conversation memory, token accounting, safety guards, and LangSmith
-  tracing turns a table of numbers into a next step, and reads the stored
-  RAG skills in `fixtures/skills/`; the experiment itself stays yours to
-  launch.
+  tracing turns a table of numbers into a next step, and reads both the
+  stored RAG skills in `fixtures/skills/` and a page per knob of this lab in
+  `fixtures/knobs/`; the experiment itself stays yours to launch.
 
 **Who it is for.** Engineers and students building a RAG system over their
 own documents who need evidence for a design decision.
@@ -92,7 +92,7 @@ src/raglab/
 └── agents/           the widget (the panel's helper) and the extra CLI
                       tools: sweep, judge screening, export
 fixtures/             model-facing prompts, the seven corpus/ground-truth
-                      pairs, and the RAG skills corpus
+                      pairs, the RAG skills corpus, and a page per knob
 scripts/              the release script and the git hooks that enforce the
                       branch discipline
 ```
@@ -280,9 +280,10 @@ Questions the Ask widget is built for:
   three pages share one token file and one widget bundle, and the browser
   contract is tested with `node --test` without a build step. The case against
   the two usual alternatives is in *Why not Next.js or Streamlit* below.
-- **Prompts, tool descriptions and skills are fixtures, not code**
-  (`fixtures/prompts/*.yaml`, `fixtures/skills/*/SKILL.md`), pinned byte-equal
-  by a test, so a prompt change is a reviewed diff.
+- **Prompts, tool descriptions, skills and knob pages are fixtures, not
+  code** (`fixtures/prompts/*.yaml`, `fixtures/skills/*/SKILL.md`,
+  `fixtures/knobs/*.md`), pinned byte-equal or covered by a test, so a change
+  to what the model reads is a reviewed diff.
 
 ## Agent architecture
 
@@ -372,9 +373,10 @@ cost, and it was weighed rather than dismissed.
 - **Token accounting** — every turn reports its token account and stores it
   in `widget_turn_log`; it is a bill, never a metric, and no ranking ever
   reads it.
-- **Agentic retrieval** — the helper retrieves over the skills corpus in two
-  layers: a cheap catalogue search, then full bodies capped at three per
-  call.
+- **Agentic retrieval** — the helper retrieves over two corpora the same
+  way, in two layers: a cheap catalogue search, then full bodies capped at
+  three per call. The skills are the field's techniques; the knob pages are
+  this lab's own controls, each with the knobs it interacts with.
 - **Observability** — LangSmith tracing for widget turns only, allowed
   precisely because the helper sits outside the measured seam.
 

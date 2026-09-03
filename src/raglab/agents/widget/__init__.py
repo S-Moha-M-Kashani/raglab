@@ -120,10 +120,13 @@ from raglab.agents.widget.experiment_tools import (
     read_experiment_questions,
     set_experiment_reader)
 from raglab.agents.widget.tools import (
+    MAX_KNOB_READS,
     MAX_SKILL_READS,
     TOOLS,
     calculate,
     measure_bilingual_alignment,
+    read_knob,
     read_rag_skill,
+    search_knobs,
     search_knowledge_base,
     search_rag_skills)

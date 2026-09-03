@@ -129,7 +129,7 @@
    only, so no theme block: neither reads a colour that differs by theme. */
 .widget-starter:disabled { opacity: .4; cursor: default; }
 /* The run on the Readings card, phrased as a question about it. Marked apart
-   from the four examples on purpose: a returning reader must not mistake a
+   from the five examples on purpose: a returning reader must not mistake a
    fact about their own last run for a sample of what to type. */
 .widget-starter.widget-starter-run {
   border-style: dashed; border-color: var(--ink-soft); background: var(--plate);

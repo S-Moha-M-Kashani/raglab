@@ -235,7 +235,7 @@ def test_the_input_takes_a_question_and_send_puts_a_reply_in_the_log(panel):
 
 
 def test_a_starter_chip_asks_its_own_question(panel):
-    """The stream route is stubbed; the four chips are the served fixture.
+    """The stream route is stubbed; the five chips are the served fixture.
 
     A chip is not a shortcut into the input box — clicking one sends that exact
     string, which is why the model-facing text lives in `fixtures/prompts/`.
@@ -244,7 +244,7 @@ def test_a_starter_chip_asks_its_own_question(panel):
     open_the_helper(panel)
 
     chips = panel.locator('.widget-starter')
-    expect(chips).to_have_count(4)
+    expect(chips).to_have_count(5)
     first = chips.first.inner_text()
     chips.first.click()
 

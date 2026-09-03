@@ -13,6 +13,8 @@ import uuid
 from urllib.parse import parse_qs
 import inspect
 import sqlite3
+from collections.abc import Callable
+from dataclasses import dataclass
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -685,6 +687,31 @@ class Jobs:
         return self.get(job_id)
 
 
+@dataclass(frozen=True)
+class PanelContext:
+    """The state the panel's routes read, assembled once by `create_app` and
+    handed to each route module's `register`.
+
+    A container, and deliberately not a service layer: it holds and it does not
+    decide. Every field is either data or a callable the factory built, so a
+    route that needs a configuration screened calls the shared plumbing rather
+    than a method here — the moment one of these names starts choosing a
+    backend or shaping a response it has become the layer this project's
+    complexity gate refuses. A convention test pins that.
+
+    A dataclass rather than the app's own `state`, because `app.state` is
+    untyped: a route reaching for a name nobody put there would fail at request
+    time, while a missing field here fails when the app is built."""
+    settings_now: Callable[[], LabSettings]
+    corpus: dict
+    ground_truth: dict
+    questions_for: Callable[[LabConfig], dict]
+    registry: IndexRegistry
+    dataset_lock: Callable[..., threading.Lock]
+    jobs: Jobs
+    archives: ImportedArchiveStore
+
+
 def create_app() -> FastAPI:
     widget.set_openrouter_key_resolver(credentials.active)
     # The widget imports no evaluation module — a convention test pins it as a
@@ -711,7 +738,6 @@ def create_app() -> FastAPI:
         """The ground truth of the corpus this config names — resolved by id, so index and questions match."""
         return ground_truth_for(cfg, ground_truth)
 
-    registry = IndexRegistry(settings, diary)
     # A dataset id names mutable machine-local content. Keep its snapshot,
     # in-memory index use and replacement atomic without making unrelated
     # datasets wait for one another. Lock order is deliberately one-way: the
@@ -731,9 +757,22 @@ def create_app() -> FastAPI:
     # work against is in use — so a build elsewhere can never take it away
     # mid-run and make the next question rebuild what is already resident.
 
-    # This service owns the ledger, so this is the one place a recorder is passed.
-    jobs = Jobs(record=ledger.record, max_history=settings.max_job_history)
-    archives = ImportedArchiveStore()
+    context = PanelContext(
+        settings_now=settings_now,
+        corpus=diary,
+        ground_truth=ground_truth,
+        questions_for=questions_for,
+        registry=IndexRegistry(settings, diary),
+        dataset_lock=dataset_lock,
+        # This service owns the ledger, so this is the one place a recorder is
+        # passed.
+        jobs=Jobs(record=ledger.record, max_history=settings.max_job_history),
+        archives=ImportedArchiveStore())
+    # The routes read that state off the context they were handed. Named here
+    # once, so a body says `jobs` rather than `context.jobs` fifty times — the
+    # same unpacking each route module does at the top of its `register`.
+    registry, jobs, archives = context.registry, context.jobs, context.archives
+
     app = FastAPI(title='RAG Lab')
 
     install_no_store(app)

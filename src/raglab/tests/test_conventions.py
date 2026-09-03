@@ -504,6 +504,35 @@ def test_the_widget_package_is_a_deletable_leaf():
     assert not escapes, f'the widget escaped its unmeasured edges: {escapes}'
 
 
+def test_the_panel_context_holds_and_does_not_decide():
+    # this is a convention test
+    """The panel's routes are handed one container of the state they used to
+    close over. It is allowed to hold data and callables the application
+    factory built, and nothing else: the moment a method on it screens a
+    config, picks a backend or shapes a response, it has become the service
+    layer this project's complexity gate refuses, and fifty routes would then
+    have somewhere to hide logic that belongs in the plumbing they share.
+
+    Compared against a bare frozen dataclass rather than a written-out list of
+    dunders, so the check keeps meaning the same thing when Python adds another
+    generated attribute."""
+    import dataclasses
+
+    @dataclasses.dataclass(frozen=True)
+    class _Reference:
+        only: int
+
+    context = lab_server.PanelContext
+    assert dataclasses.is_dataclass(context)
+    assert context.__dataclass_params__.frozen, 'the context must be frozen'
+    own = sorted(name for name in vars(context) if name not in vars(_Reference))
+    assert not own, f'the context grew {own} — it holds, it does not decide'
+    assert all(field.default is dataclasses.MISSING
+               and field.default_factory is dataclasses.MISSING
+               for field in dataclasses.fields(context)), (
+        'every field is passed in at construction; none is decided here')
+
+
 def test_only_one_function_in_the_widget_writes_a_system_line():
     # this is a convention test
     """`backends._run` is the only author of the widget's system lines, and two

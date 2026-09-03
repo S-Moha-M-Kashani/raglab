@@ -517,6 +517,9 @@ def create_inspector_app(lab: LabAccess | None = None) -> FastAPI:
         active = _document(lab.active_archive())
         archive_id = (active or {}).get('archive_id')
         jobs_index = _document(lab.jobs())
+        # `lab_url` keeps naming the configured URL even in-process, where
+        # nothing is fetched from it: a remote Inspector still reads the field,
+        # and a route's response body is not a thing this change may alter.
         if jobs_index is None:
             return {'lab': 'down', 'lab_url': lab_base_url(), 'dataset': '',
                     'index': None, 'query': None, 'retrieval': None,

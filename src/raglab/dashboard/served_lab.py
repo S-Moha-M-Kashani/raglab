@@ -27,7 +27,15 @@ def inspector_lab() -> LabAccess | None:
     `RAGLAB_INSPECTOR_LAB_URL` is the only way the Inspector's lab is ever a
     lab this process does not contain, and it keeps that meaning: naming one
     leaves the Inspector to build its own HTTP access to the lab named, exactly
-    as a standalone Inspector does."""
+    as a standalone Inspector does.
+
+    *When* the variable is read has changed: the mount below calls this once,
+    as this module is imported, so the environment decides which mode the
+    Inspector is in at start-up and a variable set afterwards changes nothing.
+    The old forwarders read it on every request. That matters to nobody who
+    serves the lab — the process is started with its environment — but it is a
+    real difference, and a test that sets the variable must build the app after
+    setting it."""
     if os.environ.get(inspector_server.LAB_URL_ENV):
         return None
     return panel_server.app.state.lab_access

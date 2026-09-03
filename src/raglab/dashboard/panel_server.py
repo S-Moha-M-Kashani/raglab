@@ -223,7 +223,11 @@ class PanelContext:
 
     A dataclass rather than the app's own `state`, because `app.state` is
     untyped: a route reaching for a name nobody put there would fail at request
-    time, while a missing field here fails when the app is built."""
+    time, while a missing field here fails when the app is built. The one
+    exception is `app.state.lab_access`, which `create_app` stashes and
+    `served_lab.py` reads while composing the two halves — a single build-time
+    handoff between two files, so a name nobody put there still fails when the
+    app is built, which is the property this container exists to keep."""
     settings_now: Callable[[], LabSettings]
     corpus: dict
     ground_truth: dict

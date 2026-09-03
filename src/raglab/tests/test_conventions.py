@@ -610,6 +610,13 @@ def test_the_inspector_owns_none_of_the_records_it_shows():
             f'the Inspector must not open {owned} — it asks the lab that owns it')
     assert 'jobs = Jobs(max_history=settings.max_job_history)' in source, (
         'the Inspector must construct its job table with no recorder')
+    # The grep above reads the construction site; this reads what that site
+    # actually builds. A `record` that defaulted to `ledger.record` would leave
+    # the Inspector's literal call unchanged and make it a second writer of the
+    # ledger anyway — the exact thing the greps are here to prevent.
+    assert lab_server.Jobs().record is None, (
+        'a job table built without a recorder must record nothing — the '
+        'Inspector asks for no recorder and must not be given one by default')
     assert 'record=ledger.record' not in source, (
         "the Inspector must not adopt the lab's own recording call")
     panel = next(path for path in _SRC_FILES if path.name == 'panel_server.py')

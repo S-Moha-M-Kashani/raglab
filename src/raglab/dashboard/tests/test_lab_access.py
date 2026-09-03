@@ -50,6 +50,16 @@ REFUSALS = {
     'GET /api/jobs/no-such-job': (404, 'unknown job'),
 }
 
+# The panel's *other* stated refusal. A handler that raises `ValueError` — the
+# one `questions_for` raises for an experiment whose imported dataset has since
+# been deleted — is answered by `create_app`'s own `ValueError` handler as a
+# 400, so that is what the reader gets over HTTP and what the seam owes them
+# in-process.
+BAD_REQUESTS = {
+    'POST /api/experiments/corpus-deleted/questions':
+        "unknown dataset 'gone' — known: diary-fa",
+}
+
 
 def _handler(method: str, path: str):
     """One canned lab handler, behaving the way a panel handler behaves."""
@@ -57,6 +67,8 @@ def _handler(method: str, path: str):
         wanted = f'{method} {path}'
         if wanted in REFUSALS:
             raise HTTPException(*REFUSALS[wanted])
+        if wanted in BAD_REQUESTS:
+            raise ValueError(BAD_REQUESTS[wanted])
         document = DOCUMENTS[wanted]
         return document if payload is None else document | {'asked': payload}
     return handle
@@ -91,6 +103,9 @@ class _CannedLabHandler(BaseHTTPRequestHandler):
         if wanted in REFUSALS:
             status, detail = REFUSALS[wanted]
             body = {'detail': detail}
+        elif wanted in BAD_REQUESTS:
+            # What `create_app`'s `ValueError` handler puts on the wire.
+            status, body = 400, {'detail': BAD_REQUESTS[wanted]}
         elif wanted in DOCUMENTS:
             status, body = (202 if method == 'POST' else 200), DOCUMENTS[wanted]
             if payload is not None:
@@ -171,7 +186,9 @@ def test_a_refusal_keeps_its_status_and_its_message_in_both_modes(both_modes):
     A 404 that became a 503 would read as "the lab is down" about a lab that
     answered, and a 409 that became a 404 would read as "this experiment does
     not exist" about one that does — this installation has simply lost the
-    corpus it ran on."""
+    corpus it ran on. The 400 is the same claim about the panel's other stated
+    refusal: a `ValueError` is a refusal the panel states in words too, and
+    in-process it must not arrive as the 500 an unhandled exception would be."""
     missing = both_modes.get('/api/experiments/no-such-id/archive')
     assert missing.status_code == 404
     assert missing.json()['detail'] == 'no-such-id has no complete archive'
@@ -193,6 +210,12 @@ def test_a_refusal_keeps_its_status_and_its_message_in_both_modes(both_modes):
     assert job.status_code == 404
     assert job.json()['detail'] == 'unknown job'
 
+    deleted_corpus = both_modes.post(
+        '/api/experiments/corpus-deleted/questions', json={'question_id': 'q7'})
+    assert deleted_corpus.status_code == 400
+    assert deleted_corpus.json()['detail'] == (
+        "unknown dataset 'gone' — known: diary-fa")
+
 
 def test_a_lab_that_cannot_be_reached_is_unavailability_not_a_refusal(monkeypatch):
     # this is an integration test
@@ -206,7 +229,11 @@ def test_a_lab_that_cannot_be_reached_is_unavailability_not_a_refusal(monkeypatc
     client = TestClient(inspector.create_inspector_app(
         lab=inspector.HttpLabAccess('http://127.0.0.1:9')))
 
-    assert client.get('/api/experiments/exp-1/archive').status_code == 503
+    unreachable = client.get('/api/experiments/exp-1/archive')
+    assert unreachable.status_code == 503
+    # The status alone would leave the reader guessing; the words are what say
+    # the lab could not be reached at all, rather than having refused.
+    assert 'lab is unavailable' in unreachable.json()['detail']
     assert client.get('/api/experiments/exp-1/questions').status_code == 503
     assert client.get('/api/lab-jobs/question-job').status_code == 503
     assert client.post('/api/experiments/exp-1/questions',

@@ -113,14 +113,25 @@ class LabAccess(Protocol):
 def _stated(handler: Callable, *args) -> LabReply:
     """One lab handler's answer as a value: its document, or the refusal it raised.
 
-    An `HTTPException` is caught here rather than left to travel, so the
-    Inspector's own error messages are written in one place and read the same
-    whichever mode fetched them. Unavailability has no counterpart in-process:
-    a function call either answers or refuses."""
+    Two exception types and not one, because the panel states its refusals in
+    two ways. `HTTPException` is the obvious one. `ValueError` is the other:
+    `create_app` registers a handler for it that answers 400 with the message
+    as `detail`, which is how an experiment whose imported dataset was since
+    deleted refuses. Over HTTP both arrive as a status and words; catching only
+    the first would make the second a bare 500 in-process, and the reader's
+    account of what went wrong would depend on how the Inspector was mounted.
+    `ArchiveStoreError` subclasses `ValueError`, so it travels this way too.
+
+    Nothing wider: a genuine bug must stay a 500 on both sides, because a
+    workbench that answers 400 to its own broken code is lying about whose
+    fault it is. Unavailability has no counterpart in-process — a function
+    call either answers or refuses."""
     try:
         return handler(*args)
     except HTTPException as refusal:
         return refusal.status_code, str(refusal.detail)
+    except ValueError as bad_request:
+        return 400, str(bad_request)
 
 
 class InProcessLabAccess:

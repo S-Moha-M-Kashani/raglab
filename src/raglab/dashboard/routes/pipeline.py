@@ -28,7 +28,8 @@ from raglab.llm_backends.chat_model_factory import lab_llm
 from raglab.rag_components import question_to_answer_pipeline as pipeline
 
 
-def register(app, context) -> None:
+def register(app, context) -> dict:
+    """Returns the job-table operations the Inspector reads through."""
     settings_now, questions_for = context.settings_now, context.questions_for
     registry, dataset_lock, jobs = (
         context.registry, context.dataset_lock, context.jobs)
@@ -194,3 +195,7 @@ def register(app, context) -> None:
                  str(relevant.get('corpus_document_id', ''))
                  for relevant in q.get('relevant_corpus_documents') or []]}
             for q in asked['groundtruth_dataset'][:limit]]}
+
+    # The job table, as the Inspector reads it: the summary list it follows,
+    # and one job's full body.
+    return {'jobs': list_jobs, 'job': job_status}

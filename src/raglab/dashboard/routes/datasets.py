@@ -92,7 +92,8 @@ def dataset_options() -> dict:
     }
 
 
-def register(app, context) -> None:
+def register(app, context) -> dict:
+    """Returns the imported-archive operations the Inspector reads through."""
     registry, dataset_lock, archives = (
         context.registry, context.dataset_lock, context.archives)
 
@@ -176,3 +177,11 @@ def register(app, context) -> None:
         # The same declaration table a catalogue entry carries, so the panel
         # can show what it just read without a second round trip.
         return found.as_dict() | _dataset_declaration(found.id)
+
+    # The three of these the Inspector reads through, handed back so the panel
+    # can build the seam out of the functions its own routes are. Named for
+    # what they do rather than for the route that carries them, because the
+    # Inspector asks for an operation and never for a path.
+    return {'imported_archive': imported_archive,
+            'active_archive': active_archive,
+            'clear_active_archive': clear_active_archive}

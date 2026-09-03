@@ -6,6 +6,12 @@ dataset routes opens `datasets.py` and finds every one of them and nothing
 else. The modules point inward: they read the lab and the shared plumbing, and
 nothing in the lab imports them back.
 
+Three of them — `pipeline.py`, `experiments.py`, `datasets.py` — also *return*
+the operations a mounted Inspector reads the lab through, named for what they
+do rather than for the route that carries them. The factory assembles those
+nine into the seam it hands the Inspector at mount time; the other five
+registrars return nothing.
+
 - `assets.py` — the frontend files this service makes public, and the
   allowlist that says which those are.
 - `configuration.py` — what the panel needs to render itself, and whether the

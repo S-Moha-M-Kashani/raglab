@@ -142,7 +142,8 @@ def _archive_ui(payload: dict) -> dict:
     }
 
 
-def register(app, context) -> None:
+def register(app, context) -> dict:
+    """Returns the recorded-experiment operations the Inspector reads through."""
     settings_now, questions_for = context.settings_now, context.questions_for
     registry, dataset_lock, jobs = (
         context.registry, context.dataset_lock, context.jobs)
@@ -368,8 +369,7 @@ def register(app, context) -> None:
                 'experiments whose evidence survives in full are archived')
         return found
 
-    @app.post('/api/experiments/{experiment_id}/questions')
-    def add_recorded_question(experiment_id: str, payload: dict):
+    def add_experiment_question(experiment_id: str, payload: dict) -> dict:
         """Run one ground-truth question under an experiment's recorded config.
 
         The parent record is evidence of work already done, so this route only
@@ -441,7 +441,14 @@ def register(app, context) -> None:
                     'rows': [answer_row],
                 }
 
-        return _accepted(jobs.start('question', work, config=job_config))
+        return {'job_id': jobs.start('question', work, config=job_config)}
+
+    @app.post('/api/experiments/{experiment_id}/questions')
+    def add_recorded_question(experiment_id: str, payload: dict):
+        """The route over that operation: the work is a job, so the answer is
+        202 and a job id — the one place the two callers differ, since the
+        Inspector re-states the acceptance in its own reply."""
+        return _accepted(add_experiment_question(experiment_id, payload)['job_id'])
 
     @app.get('/api/experiments/{experiment_id}/questions')
     def recorded_questions(experiment_id: str):
@@ -455,3 +462,9 @@ def register(app, context) -> None:
         if data is None:
             raise HTTPException(404, 'unknown run')
         return data
+
+    # The four recorded-experiment operations the Inspector reads through.
+    return {'experiment': experiment_detail,
+            'experiment_archive': experiment_archive_route,
+            'experiment_questions': recorded_questions,
+            'add_experiment_question': add_experiment_question}

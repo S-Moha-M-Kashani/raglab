@@ -74,7 +74,6 @@ from raglab.dashboard.service_presentation import (
     summary_rows)
 from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard import routes
-from raglab.dashboard.routes.datasets import _dataset_declaration
 from raglab.dashboard.service_route_plumbing import (
     STATIC,
     JobCancelled,
@@ -431,87 +430,7 @@ def create_app() -> FastAPI:
     routes.configuration.register(app, context)
     routes.pipeline.register(app, context)
     routes.experiments.register(app, context)
-
-    @app.post('/api/imported-archives')
-    def import_archive(payload: dict):
-        try:
-            return archives.import_archive(payload)
-        except archive.ArchiveError as error:
-            raise HTTPException(400, str(error)) from error
-        except sqlite3.Error as error:
-            raise HTTPException(500, 'archive database persistence failed') from error
-
-    @app.get('/api/imported-archives/active')
-    def active_archive():
-        return archives.metadata()
-
-    @app.delete('/api/imported-archives/active')
-    def clear_active_archive():
-        archives.clear()
-        return {'archive_id': None}
-
-    @app.get('/api/imported-archives/{archive_id}')
-    def imported_archive(archive_id: str):
-        found = archives.get(archive_id)
-        if found is None:
-            raise HTTPException(404, 'unknown imported archive')
-        return found
-
-    @app.get('/api/dataset-templates/corpus')
-    def dataset_template_corpus():
-        """The corpus template, read from the fixture every time — no copy of
-        it lives in code, so the one author (the fixture file, pinned
-        byte-equal to the schema by its own convention test) is also the one
-        the import section's guidance link hands the browser."""
-        return FileResponse(datasets.BUNDLED_DIR / 'corpus_template.json',
-                            media_type='application/json',
-                            filename='corpus_template.json')
-
-    @app.get('/api/dataset-templates/groundtruth')
-    def dataset_template_groundtruth():
-        """The ground-truth template, on the same terms as the corpus one above."""
-        return FileResponse(datasets.BUNDLED_DIR / 'groundtruth_template.json',
-                            media_type='application/json',
-                            filename='groundtruth_template.json')
-
-    @app.get('/api/datasets')
-    def list_datasets():
-        return {'datasets': [found.as_dict() for found in datasets.catalogue()]}
-
-    @app.post('/api/datasets')
-    def import_dataset(payload: dict):
-        """Take one dataset pair — the corpus file and its ground truth (D1) —
-        check it against the contract, keep it. 400 with every problem at once."""
-        corpus = payload.get('corpus') if isinstance(payload, dict) else None
-        ground_truth = (payload.get('ground_truth')
-                        if isinstance(payload, dict) else None)
-        if not isinstance(corpus, dict) or not isinstance(ground_truth, dict):
-            raise HTTPException(
-                400, "a dataset import needs both files: {'corpus': …, "
-                     "'ground_truth': …}")
-        meta = corpus.get('corpus_dataset_metadata')
-        raw_id = meta.get('dataset') if isinstance(meta, dict) else ''
-        lock_id = raw_id if isinstance(raw_id, str) else ''
-        with dataset_lock(lock_id):
-            try:
-                found = datasets.import_dataset(corpus, ground_truth)
-            except ValueError as error:
-                raise HTTPException(400, str(error))
-            # Import writes the file and clears the loader cache first; eviction
-            # is the final step under the same lock, so no later index lookup
-            # can observe the new file through an old cached index.
-            registry.invalidate_dataset(found.id)
-        # The corpus set this installation knows has just changed, and the
-        # widget caches the board's dataset ids for the life of the process —
-        # it filters every turn's memory context against them and cannot pay
-        # for a board reading per turn. Forgetting them here is what stops an
-        # import needing a restart before the filter can see past it. This
-        # route, not the store: the widget is a sealed leaf and `corpora/` may
-        # not reach into it, while this module is the one that already does.
-        widget.forget_board_dataset_ids()
-        # The same declaration table a catalogue entry carries, so the panel
-        # can show what it just read without a second round trip.
-        return found.as_dict() | _dataset_declaration(found.id)
+    routes.datasets.register(app, context)
 
     @app.post('/api/credentials')
     def set_credentials(payload: dict):

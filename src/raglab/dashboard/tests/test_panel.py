@@ -199,10 +199,10 @@ CONVENTIONS = [
     ('routes/pipeline.py', 'api/queries', None,
      "the route itself must stay: the Inspector's followed query view reads "
      'whatever runs through it'),
-    ('panel_server.py', 'api/dataset-templates/corpus', None,
+    ('routes/datasets.py', 'api/dataset-templates/corpus', None,
      'the panel must serve the corpus template so the import section can '
      'link to it, read from the fixture rather than duplicated into code'),
-    ('panel_server.py', 'api/dataset-templates/groundtruth', None,
+    ('routes/datasets.py', 'api/dataset-templates/groundtruth', None,
      'the panel must serve the ground-truth template on the same terms as '
      'the corpus template beside it'),
     # The line reads `templates: corpus · ground truth` now — two words rather

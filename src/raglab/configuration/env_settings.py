@@ -58,6 +58,17 @@ class LabSettings:
     # Multilingual on purpose: fastembed's default rerankers are English-only
     # and score Farsi pairs as noise. Override with RAGLAB_CROSS_ENCODER.
     cross_encoder_model: str = 'jinaai/jina-reranker-v2-base-multilingual'
+    # How many built indexes the process keeps at once (RAGLAB_MAX_INDEXES).
+    # An index is tens of megabytes, so the registry that caches them needs a
+    # ceiling to stay a cache rather than a leak. Eight covers the widest
+    # single index knob (HIERARCHIES), so the sweep that made the cache worth
+    # having still reuses every index it builds. 0 means unbounded, which is
+    # what a memory-rich single-user machine may honestly want.
+    max_indexes: int = 8
+    # How many finished jobs the live job table keeps (RAGLAB_MAX_JOB_HISTORY).
+    # Dropping one loses no work: every finished job has a ledger row and every
+    # evaluation a run file. 0 means unbounded.
+    max_job_history: int = 200
 
     def __post_init__(self):
         if self.llm_provider not in LLM_PROVIDERS:
@@ -82,6 +93,17 @@ class LabSettings:
         return self.provider in ('openrouter', 'ollama', 'claude', 'codex')
 
 
+def _ceiling(value: str | None, default: int) -> int:
+    """A memory ceiling read off the environment: 0 means unbounded, and a
+    value nobody can read means the default. Lenient on purpose — a typo in a
+    cache size decides nothing a row records, and refusing to start the lab
+    over one would cost more than it protects."""
+    try:
+        return max(0, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return default
+
+
 def load_lab_settings(env: dict | None = None) -> LabSettings:
     load_env_file()
     env = os.environ if env is None else env
@@ -101,6 +123,10 @@ def load_lab_settings(env: dict | None = None) -> LabSettings:
             'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'),
         cross_encoder_model=env.get('RAGLAB_CROSS_ENCODER',
                                     'jinaai/jina-reranker-v2-base-multilingual'),
+        max_indexes=_ceiling(env.get('RAGLAB_MAX_INDEXES'),
+                             LabSettings.max_indexes),
+        max_job_history=_ceiling(env.get('RAGLAB_MAX_JOB_HISTORY'),
+                                 LabSettings.max_job_history),
     )
 
 

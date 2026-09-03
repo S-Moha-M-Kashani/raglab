@@ -8,6 +8,7 @@ same document, and — the part that is easy to lose — the same refusal.
 """
 import json
 import threading
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
@@ -329,3 +330,74 @@ def test_the_panel_answers_its_seam_with_the_document_its_route_serves():
     assert lab.jobs() == panel.get('/api/jobs').json()
     assert lab.active_archive() == panel.get('/api/imported-archives/active').json()
     assert lab.clear_active_archive() == {'archive_id': None}
+
+
+# --- the composed lab -------------------------------------------------------
+
+@pytest.fixture
+def no_lab_socket(monkeypatch):
+    """Fails the test the moment anything opens an HTTP connection.
+
+    The claim a mounted Inspector makes is not "it rarely uses the network" but
+    "there is no network call to make": the lab is one attribute away, and a
+    loopback request would cost a worker thread on each side of a call the
+    process is making to itself. A test that merely never noticed a socket
+    would pass just as happily with one."""
+    def refuse(*_args, **_kwargs):
+        raise AssertionError(
+            'the mounted Inspector opened a connection to the lab — '
+            'it must call the lab, not request it')
+
+    monkeypatch.setattr(urllib.request, 'urlopen', refuse)
+
+
+def test_the_mounted_inspector_reads_the_lab_without_opening_a_socket(
+        no_lab_socket):
+    # this is an end-to-end test
+    """Every lab-backed route of the served lab, with nothing bound to a port.
+
+    A refusal here is a real answer — most of these ids do not exist — so what
+    is being read is the *kind* of answer: never a 503, because unavailability
+    is a state a mounted Inspector cannot be in, and never a socket."""
+    from raglab.dashboard import served_lab
+
+    client = TestClient(served_lab.app)
+    archived = _stored_archive('exp-mounted')
+
+    served = client.get(f'/inspector/api/experiments/{archived}/archive')
+    assert served.status_code == 200
+    assert served.json()['format'] == 'raglab-experiment'
+
+    cleared = client.delete('/inspector/api/imported-archives/active')
+    assert cleared.status_code == 200 and cleared.json() == {'archive_id': None}
+
+    follow = client.get('/inspector/api/follow')
+    assert follow.status_code == 200
+    # In-process the field is answered by the call itself, and the page still
+    # reads it — so it is kept, and it is `up`.
+    assert follow.json()['lab'] == 'up'
+
+    absent = [
+        client.get('/inspector/api/imported-archives/no-such-archive'),
+        client.get('/inspector/api/experiments/no-such-id'),
+        client.get('/inspector/api/experiments/no-such-id/archive'),
+        client.get('/inspector/api/experiments/no-such-id/questions'),
+        client.post('/inspector/api/experiments/no-such-id/questions',
+                    json={'question_id': '1'}),
+        client.get('/inspector/api/lab-jobs/no-such-job'),
+    ]
+    assert [answer.status_code for answer in absent] == [404] * len(absent), (
+        'a mounted Inspector is never unavailable: the lab either answers or '
+        'refuses, and both are answers')
+
+
+def test_a_lab_named_elsewhere_is_still_reached_over_http(monkeypatch):
+    # this is a unit test
+    """The environment variable is the only way the two halves are ever in
+    different processes, and it must keep working: the composition hands the
+    Inspector the in-process seam *because* nothing points it elsewhere."""
+    from raglab.dashboard import served_lab
+
+    assert isinstance(served_lab.inspector_lab(), plumbing.InProcessLabAccess)
+    monkeypatch.setenv(inspector.LAB_URL_ENV, 'http://elsewhere.example:9002')
+    assert served_lab.inspector_lab() is None

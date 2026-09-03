@@ -6,6 +6,11 @@ handed at mount time: mounted, that is `InProcessLabAccess` and the ask is a
 function call; pointed at another machine with `RAGLAB_INSPECTOR_LAB_URL`, it
 is `HttpLabAccess` and the ask is a bounded `urllib` request. A lab that is not
 running comes back as `{'lab': 'down', ...}`, never an exception.
+
+The application is built by whoever mounts or serves it — `served_lab.py`
+composes the one this project ships — rather than held here, because the seam
+it reads the lab through is decided at that moment and an app built before it
+could only ever be the HTTP one.
 """
 import json
 import os
@@ -528,5 +533,3 @@ def create_inspector_app(lab: LabAccess | None = None) -> FastAPI:
 
     return app
 
-
-app = create_inspector_app()

@@ -91,7 +91,6 @@ def panel_texts(client):
         # Python source is never served, so there is no route to prefer over
         # it. One key per module rather than one for the whole service, so a
         # row that claims a route exists names the section it belongs to.
-        'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
     } | {f'routes/{module.name}': module.read_text(encoding='utf-8')
          for module in sorted(
              (RAGLAB_DIR / 'dashboard' / 'routes').glob('*.py'))}
@@ -448,7 +447,7 @@ CONVENTIONS = [
      'whether the window is open must outlive the page: a helper that closed '
      'itself on every navigation is a helper the reader reopens on every '
      'surface, which is the friction this change removes'),
-    ('panel_server.py', "'starters': widget.STARTERS", None,
+    ('routes/widget.py', "'starters': widget.STARTERS", None,
      'the four questions are served from the widget package, whose fixture '
      'they live in — a copy in the page would be text nothing pins'),
 

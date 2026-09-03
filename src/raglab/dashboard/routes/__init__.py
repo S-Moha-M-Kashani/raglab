@@ -27,6 +27,9 @@ nothing in the lab imports them back.
 from raglab.dashboard.routes import (  # noqa: E402
     assets,
     configuration,
+    credentials,
     datasets,
+    dev_trace,
     experiments,
-    pipeline)
+    pipeline,
+    widget)

@@ -27,7 +27,7 @@ from raglab.configuration.lab_config import (
     LabConfig)
 from raglab.configuration import explainer_assembly as explain
 from raglab.corpora import dataset_import_contract as datasets
-from raglab.dashboard.routes.datasets import _dataset_options, _question_vocab
+from raglab.dashboard.routes.datasets import dataset_options, question_vocab
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
 from raglab.evaluation import service_experiment_ledger as ledger
 from raglab.llm_backends import model_role_catalogue as models
@@ -152,10 +152,10 @@ def register(app, context) -> None:
         """Everything the panel needs to render itself, including what is actually installed."""
         live = settings_now()
         return (_catalogue_vocab() | _hierarchy_options()
-                | _question_vocab(ground_truth) | _config_defaults() | _step_list()
+                | question_vocab(ground_truth) | _config_defaults() | _step_list()
                 | _model_catalogues(live) | _metric_help()
                 | _corpus_summary(diary, ground_truth) | _capabilities(live)
-                | _dataset_options() | {'indexes': registry.known()})
+                | dataset_options() | {'indexes': registry.known()})
 
     @app.get('/api/health')
     def health():

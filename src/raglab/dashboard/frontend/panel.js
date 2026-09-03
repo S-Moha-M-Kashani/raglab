@@ -238,7 +238,7 @@ let QUESTION_SELECTION = { labels: {}, balance: '' };
 // archive names one that is not, and is only ever view-only because it
 // carries the completed evidence itself (`datasetDisposition` refuses
 // otherwise) — so its own embedded ground truth is read instead, the same
-// filtering `_question_vocab` applies server-side.
+// filtering `question_vocab` applies server-side.
 function labelVocabFor(config, archive) {
   const found = datasetOf(config.index.dataset);
   if (found) return found.question_labels || {};

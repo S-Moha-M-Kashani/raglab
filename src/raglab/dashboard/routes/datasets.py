@@ -21,7 +21,7 @@ from raglab.corpora import corpus_reading
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import experiment_archive as archive
 
-def _question_vocab(ground_truth: dict) -> dict:
+def question_vocab(ground_truth: dict) -> dict:
     """One switch-group per question label the loaded ground truth declares
     with a closed set of values or a glossary (D7) — data-driven, since the
     labels are the dataset's own, not a vocabulary every corpus must share.
@@ -82,10 +82,10 @@ def _dataset_declaration(dataset_id: str) -> dict:
         # and the agentic importance weight.
         'date_label': corpus_reading.date_label(label_fields),
         'ranks_label': corpus_reading.ranks_label(label_fields),
-    } | _question_vocab(ground_truth)
+    } | question_vocab(ground_truth)
 
 
-def _dataset_options() -> dict:
+def dataset_options() -> dict:
     return {
         'datasets': [found.as_dict() | _dataset_declaration(found.id)
                      for found in datasets.catalogue()],

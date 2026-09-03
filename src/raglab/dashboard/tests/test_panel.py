@@ -1110,6 +1110,61 @@ def test_radius_literals_catches_shorthand_and_ignores_the_named_tokens():
 
 # --- the routes behind the split files --------------------------------------
 
+def test_one_route_serves_every_public_asset(client):
+    # this is a convention test
+    """Seventeen files used to mean seventeen routes, each four lines long and
+    differing only in a filename. They are one route over one allowlist now, so
+    adding a file to the frontend is adding a line rather than writing an
+    eighteenth route. Both halves are pinned: no allowlisted path is served by
+    a route of its own any more, and the shared stylesheet still arrives with
+    its bytes and its content type."""
+    from raglab.dashboard.panel_server import ASSETS, STATIC
+
+    endpoints = {}
+    for route in client.app.routes:
+        if getattr(route, 'path', None) in ASSETS and 'GET' in (
+                getattr(route, 'methods', None) or ()):
+            endpoints.setdefault(route.path, []).append(route.endpoint)
+    assert set(endpoints) == set(ASSETS), 'every allowlisted path is served'
+    served_by = {handler for handlers in endpoints.values()
+                 for handler in handlers}
+    assert len(served_by) == 1, (
+        f'{len(served_by)} asset handlers, not one — a per-file route remains')
+
+    tokens = client.get('/tokens.css')
+    assert tokens.status_code == 200
+    assert tokens.headers['content-type'].startswith('text/css')
+    assert tokens.text == (STATIC / 'tokens.css').read_text(encoding='utf-8')
+
+
+def test_only_allowlisted_paths_are_reachable(client):
+    # this is a convention test
+    """A file in `frontend/` that the allowlist does not name is not public,
+    and no request path may walk out of the folder. The panel's own markup is
+    the case that matters: it is served at `/`, so reaching it by filename
+    would give one page two URLs."""
+    assert client.get('/panel.html').status_code == 404
+    assert client.get('/inspector.html').status_code == 404
+    for walk in ('/../conftest.py', '/..%2fpanel_server.py',
+                 '//etc/passwd', '/frontend/panel.css'):
+        assert client.get(walk).status_code == 404, walk
+
+
+def test_every_asset_entry_says_why_it_is_served(client):
+    # this is a convention test
+    """The reason a file is served where it is used to live in its route's
+    docstring — why the widget's sheet is not panel.css, why the tokens go to
+    both surfaces. It travels on the allowlist entry now, so the reasoning is
+    read beside the sharing it explains rather than deleted with the route."""
+    from raglab.dashboard.panel_server import ASSETS, STATIC
+
+    for path, entry in ASSETS.items():
+        assert (STATIC / entry.file).is_file(), path
+        assert len(entry.why.split()) >= 8, f'{path} says too little'
+    assert 'not the Laboratory' in ASSETS['/widget.css'].why
+    assert 'shared with the Inspector' in ASSETS['/tokens.css'].why
+
+
 def test_the_panels_style_and_script_are_served_as_their_own_files(client):
     # this is a convention test
     """The markup, the style and the script were split into three files —

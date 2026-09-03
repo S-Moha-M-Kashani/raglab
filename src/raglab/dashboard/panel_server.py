@@ -72,14 +72,76 @@ from raglab.dashboard.service_presentation import (
     summary_rows)
 from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
+    STATIC,
+    Asset,
     _accepted,
     cancel_checker,
     _find_question,
     ground_truth_for,
+    install_assets,
+    install_no_store,
     screen,
     scaled_progress)
 
-STATIC = Path(__file__).resolve().parent / 'frontend'
+# Every file this service serves to a browser, and why it is served here. One
+# route reads this table (`install_assets`); a file in `frontend/` that is not
+# named here is a 404, so `panel.html` and `leaderboard.html` keep the single
+# address each is reached at.
+ASSETS = {
+    '/': Asset('panel.html', None,
+               'The Laboratory itself, at the root — the only address it has, '
+               'so its filename is not a second one.'),
+    '/panel.css': Asset(
+        'panel.css', 'text/css',
+        "The panel's style, extracted from panel.html's <style> block."),
+    '/panel.js': Asset(
+        'panel.js', 'application/javascript',
+        "The panel's script, extracted from panel.html's <script> block."),
+    '/leaderboard': Asset(
+        'leaderboard.html', None,
+        'The cross-run surface: what earlier runs said, kept off the lab page '
+        'where the knobs live.'),
+    '/leaderboard.js': Asset(
+        'leaderboard.js', 'application/javascript',
+        "The leaderboard surface's script — it renders what /api/leaderboard "
+        'serves and re-derives no rank of its own.'),
+    '/tokens.css': Asset(
+        'tokens.css', 'text/css',
+        'The design tokens shared with the Inspector, so a colour cannot '
+        'drift apart on either page.'),
+    '/chrome.css': Asset(
+        'chrome.css', 'text/css',
+        'The bar and surface switcher shared with the Inspector, so the top '
+        'of a page means one thing on both ports.'),
+    '/lab.js': Asset(
+        'lab.js', 'application/javascript',
+        'The utilities shared with the Inspector, so a name like escapeHtml '
+        'has one behaviour, not two.'),
+    '/sorttable.js': Asset(
+        'sorttable.js', 'application/javascript',
+        'The column sorter, shared with the Inspector — one of three static '
+        'files served outside the one page.'),
+    '/filtertable.js': Asset(
+        'filtertable.js', 'application/javascript',
+        "The leaderboard's row filter, which reads a cell with the sorter's "
+        'own parser rather than a second one.'),
+    '/widget.css': Asset(
+        'widget.css', 'text/css',
+        "The widget's own rules, served to all three surfaces — the helper is "
+        "not the Laboratory's, so its sheet is not panel.css."),
+    '/widget.js': Asset(
+        'widget.js', 'application/javascript',
+        'The widget itself. One file, three pages: it builds its own markup, '
+        'so a surface gains the helper by loading this and nothing else.'),
+    '/archive_io.js': Asset(
+        'archive_io.js', 'application/javascript',
+        'The versioned archive codec, loaded before the Panel integration.'),
+    '/experiment_handoff.js': Asset(
+        'experiment_handoff.js', 'application/javascript',
+        'The board-to-Laboratory handoff, loaded by both pages: the board '
+        'writes the slot, the panel decides which recorded knobs this '
+        'installation can serve.'),
+}
 
 
 class JobCancelled(Exception):
@@ -674,96 +736,8 @@ def create_app() -> FastAPI:
     archives = ImportedArchiveStore()
     app = FastAPI(title='RAG Lab')
 
-    @app.middleware('http')
-    async def never_serve_yesterdays_page(request, call_next):
-        """The frontend is read from disk on every request, so an edit is live
-        the moment it is saved — but `FileResponse` sends no `Cache-Control`,
-        which leaves a browser free to reuse a page it already has without ever
-        asking. That turns an edited panel into "nothing changed", and the
-        reader has no way to tell that from a broken change. A workbench serves
-        what is on disk or it is lying about what it is running."""
-        response = await call_next(request)
-        response.headers['Cache-Control'] = 'no-store'
-        return response
-
-    @app.get('/')
-    def panel():
-        return FileResponse(STATIC / 'panel.html')
-
-    @app.get('/sorttable.js')
-    def sorttable():
-        """The column sorter, shared with the Inspector — one of three static files served outside the one page."""
-        return FileResponse(STATIC / 'sorttable.js',
-                            media_type='application/javascript')
-
-    @app.get('/filtertable.js')
-    def filtertable():
-        """The leaderboard's row filter, which reads a cell with the sorter's own parser rather than a second one."""
-        return FileResponse(STATIC / 'filtertable.js',
-                            media_type='application/javascript')
-
-    @app.get('/tokens.css')
-    def tokens_css():
-        """The design tokens shared with the Inspector, so a colour cannot drift apart on either page."""
-        return FileResponse(STATIC / 'tokens.css', media_type='text/css')
-
-    @app.get('/chrome.css')
-    def chrome_css():
-        """The bar and surface switcher shared with the Inspector, so the top of a page means one thing on both ports."""
-        return FileResponse(STATIC / 'chrome.css', media_type='text/css')
-
-    @app.get('/lab.js')
-    def lab_js():
-        """The utilities shared with the Inspector, so a name like escapeHtml has one behaviour, not two."""
-        return FileResponse(STATIC / 'lab.js',
-                            media_type='application/javascript')
-
-    @app.get('/widget.css')
-    def widget_css():
-        """The widget's own rules, served to all three surfaces — the helper is
-        not the Laboratory's, so its sheet is not panel.css."""
-        return FileResponse(STATIC / 'widget.css', media_type='text/css')
-
-    @app.get('/widget.js')
-    def widget_js():
-        """The widget itself. One file, three pages: it builds its own markup,
-        so a surface gains the helper by loading this and nothing else."""
-        return FileResponse(STATIC / 'widget.js',
-                            media_type='application/javascript')
-
-    @app.get('/leaderboard')
-    def leaderboard_page():
-        """The cross-run surface: what earlier runs said, kept off the lab page where the knobs live."""
-        return FileResponse(STATIC / 'leaderboard.html')
-
-    @app.get('/leaderboard.js')
-    def leaderboard_js():
-        """The leaderboard surface's script — it renders what /api/leaderboard serves and re-derives no rank of its own."""
-        return FileResponse(STATIC / 'leaderboard.js',
-                            media_type='application/javascript')
-
-    @app.get('/panel.css')
-    def panel_css():
-        """The panel's style, extracted from panel.html's <style> block."""
-        return FileResponse(STATIC / 'panel.css', media_type='text/css')
-
-    @app.get('/panel.js')
-    def panel_js():
-        """The panel's script, extracted from panel.html's <script> block."""
-        return FileResponse(STATIC / 'panel.js',
-                            media_type='application/javascript')
-
-    @app.get('/archive_io.js')
-    def archive_io_js():
-        """The versioned archive codec, loaded before the Panel integration."""
-        return FileResponse(STATIC / 'archive_io.js',
-                            media_type='application/javascript')
-
-    @app.get('/experiment_handoff.js')
-    def experiment_handoff_js():
-        """The board-to-Laboratory handoff, loaded by both pages: the board writes the slot, the panel decides which recorded knobs this installation can serve."""
-        return FileResponse(STATIC / 'experiment_handoff.js',
-                            media_type='application/javascript')
+    install_no_store(app)
+    install_assets(app, ASSETS)
 
     @app.get('/api/options')
     def options():

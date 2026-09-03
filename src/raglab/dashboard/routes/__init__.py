@@ -28,4 +28,5 @@ from raglab.dashboard.routes import (  # noqa: E402
     assets,
     configuration,
     datasets,
+    experiments,
     pipeline)

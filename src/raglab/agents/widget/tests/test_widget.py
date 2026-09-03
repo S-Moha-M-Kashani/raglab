@@ -87,10 +87,19 @@ def test_every_prompt_the_model_reads_is_the_yaml_fixture():
     # model-facing text and belong on this page with the prompts either side
     # of them — not in panel.js, where nothing would pin them.
     assert widget.STARTERS == [line.strip() for line in page['starters']]
-    assert len(widget.STARTERS) == 4, (
-        'four starters: they exist to span what the helper can do, and a list '
+    assert len(widget.STARTERS) == 5, (
+        'five starters: they exist to span what the helper can do, and a list '
         'that grew is a menu the reader now has to read instead of a set of '
         'examples they can take in at a glance')
+    # And the sharper rule the set is chosen by: a starter must be a question
+    # only *this* lab can answer — from the ledger, the run files, the corpus
+    # or its own knob surface. A general RAG question, however good, is one any
+    # chat model answers without the lab, so it wastes the one place a reader
+    # learns what the helper is for. Each of the five names a record here.
+    for starter in widget.STARTERS:
+        assert any(word in starter.lower() for word in
+                   ('run', 'runs', 'experiments', "lab's")), (
+            f'{starter!r} does not reach for anything only this lab holds')
     knowledge_page = yaml.safe_load(
         (widget.PROMPTS_DIR / 'widget_knowledge.yaml').read_text(encoding='utf-8'))
     assert widget.KNOWLEDGE_BASE == {key: text.strip()

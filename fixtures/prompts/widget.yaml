@@ -1,6 +1,14 @@
-# The widget's two system prompts, and the four questions its empty log offers. `system` drives the tool-loop agent;
+# The widget's two system prompts, and the five questions its empty log offers. `system` drives the tool-loop agent;
 # `cli_system` is the tool-less template — `{facts}` takes the knowledge base
 # in full, `{skills_index}` the skills catalogue with the distinctions guide.
+#
+# The rule the starters are chosen by: a starter must be a question only *this*
+# lab can answer — from the experiment ledger, the run files, the corpus, or
+# this installation's own knob surface. A general RAG question is one any chat
+# model answers without the lab, so it wastes the one place a reader learns
+# what the helper is for. The five below span the knob surface, a run's failing
+# questions, a run's grade against its own error, the architecture to try next
+# on this corpus, and whether two experiments may be compared at all.
 system: >-
   You are the RAG lab panel's helper, with two separate sources. For
   questions about this project — its ports, commands, storage, defaults —
@@ -66,7 +74,8 @@ memory_policy: >-
 # action over what has been recorded, and a question about the corpus. Each is
 # phrased as a specific verb-first task rather than as a category name.
 starters:
-  - Which ports do the lab and the Inspector serve on?
-  - What does context recall actually measure, and why does it need ground truth?
-  - Compare the last two runs on the four decision metrics
-  - How many sessions are in diary-fa, and what period do they cover?
+  - Which of this lab's knobs cost an index rebuild, and which sweep free?
+  - Which questions did retrieval miss in my last run, and which knob fixes that?
+  - Is my best run's decision score real, or inside the spread?
+  - Given what my runs measured on this corpus, which architecture should I try next?
+  - Are my last two experiments comparable, or do judge and questions differ?

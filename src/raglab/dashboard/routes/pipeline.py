@@ -14,7 +14,6 @@ from raglab.configuration.lab_config import (
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard.service_presentation import (
     chunks_by_session,
-    gold_available,
     mark_gold,
     summary_rows)
 from raglab.dashboard.service_route_plumbing import (
@@ -23,7 +22,6 @@ from raglab.dashboard.service_route_plumbing import (
     cancel_checker,
     scaled_progress,
     screen)
-from raglab.evaluation import deterministic_metrics as metrics
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.llm_backends import model_role_catalogue as models
 from raglab.llm_backends.chat_model_factory import lab_llm

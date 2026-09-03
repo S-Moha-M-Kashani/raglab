@@ -15,6 +15,8 @@ from raglab.dashboard import dev_trace_page
 
 
 def register(app, context) -> None:
+    """The page is built entirely by `dev_trace_page` off the widget's own
+    conversation log, so nothing off the context is read here."""
 
     def _trace_page(page: str) -> HTMLResponse:
         # A checkout window shows the thread as it is now, never as the

@@ -96,6 +96,8 @@ def _safe_widget_event(event):
 
 
 def register(app, context) -> None:
+    """The widget owns its own memory and models, so nothing off the context is
+    read here: these routes carry a message to it and its answer back."""
 
     @app.get('/api/widget')
     def widget_options():

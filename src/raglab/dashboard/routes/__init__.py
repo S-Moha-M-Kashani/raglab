@@ -24,7 +24,7 @@ nothing in the lab imports them back.
 # rather than a bare `pipeline`, which would collide with the lab modules
 # `panel_server.py` imports under those same words (the widget, the datasets,
 # the credentials, the question pipeline).
-from raglab.dashboard.routes import (  # noqa: E402
+from raglab.dashboard.routes import (  # noqa: F401
     assets,
     configuration,
     credentials,

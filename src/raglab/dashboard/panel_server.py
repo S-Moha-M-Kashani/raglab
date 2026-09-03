@@ -272,7 +272,7 @@ def create_app() -> FastAPI:
         with dataset_locks_guard:
             return dataset_locks.setdefault(key, threading.Lock())
 
-    # Every job below opens `with dataset_lock(...), registry.hold(cfg.index):`.
+    # Every job route opens `with dataset_lock(...), registry.hold(cfg.index):`.
     # The second half is the memory bound's other side: the registry keeps only
     # the newest few indexes, and a job says here that the one it is about to
     # work against is in use — so a build elsewhere can never take it away

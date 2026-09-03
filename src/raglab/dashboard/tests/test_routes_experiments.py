@@ -17,7 +17,8 @@ def test_the_leaderboard_says_how_much_of_the_disk_it_shows(client, monkeypatch,
     """A run can rank differently on a bounded page than over the whole
     directory, with nothing on screen explaining the disagreement — a
     bounded view has to say what it left out. That the panel actually asks
-    for a stated limit is a row in the convention table above; this is the
+    for a stated limit is a row in `test_routes_assets.py`'s convention
+    table; this is the
     behaviour behind it, exercised through the real route. Writes its own run
     files rather than reading whatever the developer's `.runs/` happens to
     hold, the way `test_leaderboard.py` does — a test that passes on an empty

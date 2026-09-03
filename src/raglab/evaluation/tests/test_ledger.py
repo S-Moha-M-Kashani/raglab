@@ -175,6 +175,34 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     assert (tmp_path / 'raglab.db').exists(), 'the ledger is one SQLite file'
 
 
+def test_a_job_dropped_from_the_live_table_is_still_on_the_record(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """The job table is bounded now, so a long-lived lab forgets its oldest
+    finished jobs. That must cost nothing: the ledger is the record and the
+    live table is only the view of it, so the row a dropped job wrote is still
+    there under the same experiment id, with the detail it recorded intact.
+    Read through `ledger.experiment` rather than `/api/experiments/{id}` for
+    the reason the test above gives — the claim is about the ledger, not about
+    the route that serves it."""
+    monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
+    jobs = Jobs(record=ledger.record, max_history=1)
+
+    def build() -> str:
+        job_id = jobs.start('index', lambda report: {'chunks': 5},
+                            config={'index': {'chunker': 'session'}})
+        return _run_to_terminal(jobs, job_id)['id']
+
+    dropped = build()
+    build()
+    build()
+    assert dropped not in jobs.jobs, 'the oldest finished job left the table'
+
+    row = ledger.experiment(dropped)
+    assert row is not None and row['kind'] == 'index'
+    assert row['detail']['chunks'] == 5
+
+
 def test_a_ledger_that_cannot_be_written_reports_on_the_job_and_never_loses_it(
         monkeypatch):
     # this is an integration test

@@ -224,7 +224,7 @@ def create_inspector_app() -> FastAPI:
     registry = IndexRegistry(settings, diary)
     # No recorder: "the Inspector writes nothing" is what makes it safe to
     # point at a lab that is running.
-    jobs = Jobs()
+    jobs = Jobs(max_history=settings.max_job_history)
     app = FastAPI(title='RAG Lab Inspector')
 
     @app.middleware('http')

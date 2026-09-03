@@ -57,6 +57,7 @@ from raglab.configuration.lab_config import (
     GenerationConfig,
     IndexConfig,
     LabConfig,
+    LabSettings,
     RetrievalConfig,
     load_lab_settings,
     settings_for_provider)
@@ -455,11 +456,17 @@ def _dataset_options() -> dict:
 
 
 class Jobs:
-    """In-process job table. A lab restart loses running jobs; finished runs are
-    on disk, which is the part that matters."""
+    """In-process job table, bounded. A lab restart loses running jobs;
+    finished runs are on disk, which is the part that matters — and that is
+    also why the table may forget the oldest of them past `max_history`."""
 
-    def __init__(self, record=None):
+    def __init__(self, record=None, max_history: int | None = None):
         """`record(job, state)` is called once per finished job, or nothing is.
+
+        `max_history` is how many *finished* jobs the table keeps; `None` takes
+        the ceiling `LabSettings` states, and 0 is unbounded. The panel polls
+        this table, so an unbounded one is a poll that walks further every
+        hour the lab stays up.
 
         A hook rather than a direct call to `ledger.record`, because the
         Inspector runs this same class read-only (`inspector_server.py` imports `Jobs`
@@ -468,8 +475,24 @@ class Jobs:
         does not owns nothing to pass."""
         self.lock = threading.Lock()
         self.record = record
+        self.max_history = (LabSettings.max_job_history if max_history is None
+                            else max_history)
         self.jobs: dict[str, dict] = {}
         self.current: str | None = None
+
+    def _prune(self) -> None:
+        """Drop the oldest finished jobs past the ceiling. Called under
+        `self.lock`, on insert. Nothing is lost: every finished job has a
+        ledger row and every evaluation a run file, and the two of them are the
+        record — this table is only the live view of it. A running or
+        cancelling job is never a candidate, whatever its age, because the live
+        view is the only place it exists yet."""
+        if not self.max_history:
+            return
+        terminal = [job_id for job_id, job in self.jobs.items()
+                    if job['state'] not in ('running', 'cancelling')]
+        for job_id in terminal[:-self.max_history]:
+            del self.jobs[job_id]
 
     def start(self, kind: str, target, config: dict | None = None,
               archive=None) -> str:
@@ -502,6 +525,7 @@ class Jobs:
                                  '_cancel': threading.Event(),
                                  '_archive': archive}
             self.current = job_id
+            self._prune()
 
         cancel = self.jobs[job_id]['_cancel']
 
@@ -641,7 +665,8 @@ def create_app() -> FastAPI:
     # mid-run and make the next question rebuild what is already resident.
 
     # This service owns the ledger, so this is the one place a recorder is passed.
-    jobs = Jobs(record=ledger.record)
+    jobs = Jobs(record=ledger.record,
+                max_history=settings.max_job_history)
     archives = ImportedArchiveStore()
     app = FastAPI(title='RAG Lab')
 

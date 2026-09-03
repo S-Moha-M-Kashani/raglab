@@ -23,11 +23,13 @@ def test_the_preset_mirrors_what_the_production_assistant_shipped():
     says "the real system", not "the best one we found". `agentic_weights`
     is served as a **list**, not the dataclass's tuple, since this dict is
     served as JSON — the input here is a tuple, so the equality check below
-    only passes if the conversion really happened."""
+    only passes if the conversion really happened. `delimiters` is pinned
+    empty rather than carried over: the input sets one and the shipped
+    assistant, which split on whitespace alone, must not inherit it."""
     preset = baseline.production_config({
         'index': {'chunker': 'semantic-drift', 'chunk_chars': 900,
-                  'overlap': 0, 'contextual': True, 'embedder': 'hash',
-                  'embed_model': 'x'},
+                  'overlap': 0, 'delimiters': ('\n\n',), 'contextual': True,
+                  'embedder': 'hash', 'embed_model': 'x'},
         'retrieval': {'retriever': 'dense', 'k': 4, 'candidates': 10,
                       'rrf_k': 1, 'time_filter': False, 'multi_query': False,
                       'hyde': True, 'mmr_lambda': 0.5, 'reranker': 'none',
@@ -38,8 +40,8 @@ def test_the_preset_mirrors_what_the_production_assistant_shipped():
     })
     assert preset['index'] == {
         'chunker': 'fixed-overlap', 'chunk_chars': 500, 'overlap': 100,
-        'contextual': False, 'embedder': 'sentence-transformers',
-        'embed_model': ''}
+        'delimiters': [], 'contextual': False,
+        'embedder': 'sentence-transformers', 'embed_model': ''}
     assert preset['retrieval'] == {
         'retriever': 'hybrid-rrf', 'k': 8, 'candidates': 40, 'rrf_k': 60,
         'time_filter': True, 'multi_query': True, 'hyde': False,

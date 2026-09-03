@@ -20,16 +20,42 @@ from raglab.corpora.corpus_reading import (
     date_int, date_label, document_text, part_line, ranks_label)
 
 
-def chunk_text(text: str, max_chars: int = 500) -> list[str]:
-    """Greedy word packing, kept verbatim as the `fixed` baseline so old `.runs/` rows stay comparable."""
+def _split_on_delimiters(text: str, delimiters: tuple[str, ...],
+                         max_chars: int) -> list[str]:
+    """The pieces a character-budget chunker packs, cut at the highest-priority
+    boundary that works. Each delimiter is tried in the order given: a piece
+    that already fits `max_chars` is kept whole, and only a piece still too big
+    is cut again on the next delimiter down. An exhausted list — or an empty
+    one, the default — falls through to `text.split()`, so today's plain word
+    packing is this function's base case rather than a branch beside it, and
+    `delimiters=()` returns exactly the words it always did."""
+    if not delimiters:
+        return text.split()
+    pieces: list[str] = []
+    for piece in text.split(delimiters[0]):
+        piece = piece.strip()
+        if not piece:
+            continue
+        if len(piece) <= max_chars:
+            pieces.append(piece)
+        else:
+            pieces.extend(_split_on_delimiters(piece, delimiters[1:], max_chars))
+    return pieces
+
+
+def chunk_text(text: str, max_chars: int = 500,
+               delimiters: tuple[str, ...] = ()) -> list[str]:
+    """Greedy packing of whatever `_split_on_delimiters` hands back, kept verbatim
+    as the `fixed` baseline so old `.runs/` rows stay comparable — at the default
+    `delimiters=()` those pieces are the words `text.split()` always produced."""
     chunks: list[str] = []
     current = ''
-    for word in text.split():
-        if current and len(current) + 1 + len(word) > max_chars:
+    for piece in _split_on_delimiters(text, delimiters, max_chars):
+        if current and len(current) + 1 + len(piece) > max_chars:
             chunks.append(current)
-            current = word
+            current = piece
         else:
-            current = f'{current} {word}' if current else word
+            current = f'{current} {piece}' if current else piece
     if current:
         chunks.append(current)
     return chunks
@@ -257,12 +283,18 @@ def _base(document: dict, label_fields: dict) -> dict:
 
 # --- leaf strategies -------------------------------------------------------
 
-def _windows(text: str, size: int, overlap: int) -> list[str]:
-    """Sliding character windows snapped to word boundaries."""
+def _windows(text: str, size: int, overlap: int,
+             delimiters: tuple[str, ...] = ()) -> list[str]:
+    """Sliding character windows snapped to the boundaries `_split_on_delimiters`
+    found — word boundaries at the default `delimiters=()`. The window loop
+    below admits a piece only while `len(window) + len(piece) + 1 <= size`, so
+    the largest piece it can hold on its own is `size - 1` characters; splitting
+    to that budget is what keeps a piece exactly `size` long from being packed
+    into nothing."""
     if overlap >= size:
         overlap = size // 2
     step = max(1, size - overlap)
-    words = text.split()
+    words = _split_on_delimiters(text, delimiters, size - 1)
     out, i = [], 0
     while i < len(words):
         window, j = '', i
@@ -354,9 +386,10 @@ def chunk_document(document: dict, cfg, embedder, label_fields: dict | None = No
                  i, segment[0], segment[-1])
     elif cfg.chunker == 'fixed-overlap':
         for i, piece in enumerate(_windows(document_text(document), cfg.chunk_chars,
-                                           cfg.overlap)):
+                                           cfg.overlap, cfg.delimiters)):
             emit(piece, i, -1, -1)
     else:   # 'fixed' — the production baseline, called rather than reimplemented
-        for i, piece in enumerate(chunk_text(document_text(document), cfg.chunk_chars)):
+        for i, piece in enumerate(chunk_text(document_text(document), cfg.chunk_chars,
+                                            cfg.delimiters)):
             emit(piece, i, -1, -1)
     return out

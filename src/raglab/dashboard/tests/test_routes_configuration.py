@@ -88,3 +88,25 @@ def test_every_explainer_is_read_in_two_lengths(panel_texts, client):
     assert "box.dataset.more = String(helpHasMore(trigger, text))" in lab, (
         'the box offers "more" only when there is more — a brief that is '
         'already the whole note must not promise a second half')
+
+
+def test_the_panels_delimiter_list_crosses_as_a_list_and_lands_as_a_tuple(client):
+    # this is an integration test
+    """The one knob the panel carries as a JSON array rather than a scalar.
+
+    Both ends of that crossing, because each is satisfiable while the other is
+    broken. Outward, the served defaults have to hand `writeDelimiters` a
+    list — a bare `()` reaching the browser as anything else is a field that
+    boots showing the wrong thing. Inward, the panel's array has to become the
+    ordered tuple `fingerprint()` hashes, in the order it was typed — what
+    that tuple then costs is pinned beside the fingerprint itself.
+
+    An untouched field is `[]` and not `['']`, which is what keeps the default
+    free: `fingerprint()` drops an empty list, so a reader who never opened
+    this knob rebuilds nothing.
+    """
+    served = client.get('/api/options').json()['defaults']['index']
+    assert served['delimiters'] == []
+
+    cfg = config.LabConfig.from_dict({'index': {'delimiters': ['\n\n', '. ']}})
+    assert cfg.index.delimiters == ('\n\n', '. ')

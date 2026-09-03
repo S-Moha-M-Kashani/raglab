@@ -1,6 +1,6 @@
 # `knobs/` — one page per knob of this lab
 
-Fifty Markdown pages, one per control the panel offers: what the knob does,
+Fifty-one Markdown pages, one per control the panel offers: what the knob does,
 what it means scientifically, why RAG architectures have such a knob at all,
 which scenarios it is useful in, and which other knobs it interacts with.
 They exist to be read by a person and retrieved by the panel's widget through
@@ -42,14 +42,15 @@ a knob the lab no longer has, both fail the suite.
 | When it is inert | `configuration/knob_dependencies.py` | which knobs another knob's value greys out, and why |
 | The model roles | `llm_backends/model_role_catalogue.py` | `ROLES` — the six `*_model` knobs, each with the `only_when` that says when its stage is consulted |
 
-## The fifty, by step
+## The fifty-one, by step
 
 **Index** — runs once per corpus; every one of these is inside the index
 fingerprint, so a change rebuilds: `index.dataset`, `index.chunker`,
-`index.chunk_chars`, `index.overlap`, `index.contextual`, `index.embedder`,
-`index.embed_model`, `index.hierarchy`, `index.graph_source`,
-`index.graph_knn`, `index.granularity`, `index.hierarchy_levels`,
-`index.min_group`, `index.summarizer`.
+`index.chunk_chars`, `index.overlap`, `index.delimiters`,
+`index.contextual`, `index.embedder`, `index.embed_model`,
+`index.hierarchy`, `index.graph_source`, `index.graph_knn`,
+`index.granularity`, `index.hierarchy_levels`, `index.min_group`,
+`index.summarizer`.
 
 **Retrieval** — runs per question against a build that already exists, so
 these sweep free against one index: `retrieval.retriever`, `retrieval.k`,

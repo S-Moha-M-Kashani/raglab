@@ -78,6 +78,18 @@ def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index()
             == IndexConfig().fingerprint())
 
 
+def test_the_delimiter_list_is_free_at_its_default_and_paid_for_when_set():
+    # this is a unit test
+    """`delimiters=()` means the two character-budget chunkers split exactly as
+    they did before the knob existed, so it must not rename a single index
+    already recorded in `.runs/` — the same bargain `dataset` and `hierarchy`
+    struck. A list that is actually set changes what is stored, so it costs a
+    rebuild like any other index knob."""
+    assert IndexConfig(delimiters=()).fingerprint() == IndexConfig().fingerprint()
+    assert (IndexConfig(delimiters=('\n\n', ' ')).fingerprint()
+            != IndexConfig().fingerprint())
+
+
 def test_a_knob_the_chosen_grouping_never_reads_does_not_cost_a_rebuild():
     # this is a unit test
     """The same argument one level down: k-means builds no graph, so the number

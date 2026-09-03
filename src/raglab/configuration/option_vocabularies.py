@@ -10,6 +10,11 @@ CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap', 'message', 'turn-pair',
 # rest emit one piece per part, pair or document and ignore both numbers.
 CHAR_SIZED_CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap')
 OVERLAP_CHUNKERS = ('fixed-overlap',)
+# Chunkers that read `delimiters`. Deliberately its own tuple rather than a
+# filter of CHAR_SIZED_CHUNKERS: "reads a character budget" and "prefers a
+# structural boundary" happen to coincide for these two today and are
+# independent facts — semantic-drift already cuts on structure of its own.
+DELIMITER_CHUNKERS = ('fixed', 'fixed-overlap')
 # fastembed (its own ONNX list) and sentence-transformers (any HuggingFace
 # checkpoint) load a named model; the hash embedders load none.
 EMBEDDERS = ('sentence-transformers', 'fastembed',

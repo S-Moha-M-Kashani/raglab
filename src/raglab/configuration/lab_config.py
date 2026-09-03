@@ -23,6 +23,7 @@ from .env_settings import (ROOT, RUNS_DIR, LLM_PROVIDERS, PROVIDER_MODELS,  # no
 # Every one of the nineteen existing importers still reaches them as
 # `config.CHUNKERS` etc.
 from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKERS,  # noqa: F401
+                      DELIMITER_CHUNKERS,
                       EMBEDDERS, MODEL_EMBEDDERS, HIERARCHIES,
                       GRAPH_HIERARCHIES, CLUSTER_HIERARCHIES,
                       LEVELLED_HIERARCHIES, TUNED_HIERARCHIES, GRAPH_SOURCES,
@@ -73,6 +74,11 @@ class IndexConfig:
     chunker: str = 'semantic-drift'
     chunk_chars: int = 500
     overlap: int = 100          # fixed-overlap only
+    # Boundaries the two character-budget chunkers prefer over an arbitrary
+    # word cut, coarsest first (e.g. ('\n\n', '\n', '. ')). Empty is "no
+    # preference" — plain whitespace packing, exactly as before this field
+    # existed, and fingerprinted as if it were not here (see fingerprint()).
+    delimiters: tuple[str, ...] = ()
     contextual: bool = True     # prepend a situating header to every chunk
     # The default backend's own recommended model is Persian-tuned, picked for
     # the bundled Farsi diary; '' below means whatever the chosen backend
@@ -102,10 +108,13 @@ class IndexConfig:
 
     def normalized(self) -> 'IndexConfig':
         # A model that is not consulted is blanked, so it cannot invalidate the
-        # fingerprint and cost a rebuild nobody asked for.
+        # fingerprint and cost a rebuild nobody asked for; the delimiter list
+        # arrives from the panel's JSON as a list and is retupled, so the
+        # fingerprint payload cannot depend on how a config was carried here.
         return replace(self, embed_model=(self.embed_model
                                           if self.embedder in MODEL_EMBEDDERS
-                                          else ''))
+                                          else ''),
+                       delimiters=tuple(self.delimiters))
 
     def fingerprint(self) -> str:
         fields = asdict(self.normalized())
@@ -113,6 +122,10 @@ class IndexConfig:
         # collection name already recorded in `.runs/`.
         if not fields.get('dataset'):
             fields.pop('dataset', None)
+        # Same rule: an empty delimiter list is the splitting this lab did
+        # before the knob existed, so it may not rename an existing index.
+        if not fields.get('delimiters'):
+            fields.pop('delimiters', None)
         # Same rule, seven fields at once: `hierarchy=''` means none of them
         # ran, so a stale graph_knn left in a browser must not name a second
         # index holding byte-identical rows.

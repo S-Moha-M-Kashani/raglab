@@ -3,6 +3,7 @@
 from raglab.configuration.option_vocabularies import (
     CHAR_SIZED_CHUNKERS,
     OVERLAP_CHUNKERS,
+    DELIMITER_CHUNKERS,
     MODEL_EMBEDDERS,
     GRAPH_HIERARCHIES,
     KNN_SOURCES,
@@ -24,6 +25,11 @@ DEPENDENCIES = {
     'index.overlap': {
         'field': 'index.chunker', 'on': list(OVERLAP_CHUNKERS),
         'reason': 'only the fixed-overlap chunker slides a window'},
+    'index.delimiters': {
+        'field': 'index.chunker', 'on': list(DELIMITER_CHUNKERS),
+        'reason': 'the message, turn-pair and session chunkers cut on structure, '
+                  'not on length, and semantic-drift already cuts on a boundary '
+                  'signal of its own'},
     'index.embed_model': {
         'field': 'index.embedder', 'on': list(MODEL_EMBEDDERS),
         'reason': 'the hash embedders load no model'},

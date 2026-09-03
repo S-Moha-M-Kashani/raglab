@@ -529,13 +529,47 @@ function keepUnshown(applied) {
   }
 }
 
+// The delimiter list is the one knob whose value is whitespace. It is typed as
+// one comma-separated line, coarsest boundary first, and carried in the config
+// as an ordered list of strings — so the field needs a written convention for
+// the characters a text box cannot show.
+//
+// There was none here to reuse (`summary_levels` is digits, and the label
+// commas elsewhere never carry whitespace), so this is it: `\n` a line break,
+// `\t` a tab, `\s` a space, and nothing else. A space earns one because the
+// entries are trimmed — a delimiter is typed beside a comma, and `". "` would
+// otherwise arrive as `"."` — which is also what makes the knob's own worked
+// example (`\n\n`, `\n`, `.\s`, `\s`) typeable at all. A backslash and a comma
+// get none: no corpus splits on either, and two more sequences to say so would
+// cost the reader more than they buy.
+const DELIMITER_ESCAPES = [['\\n', '\n'], ['\\t', '\t'], ['\\s', ' ']];
+
+// Blank is `[]`, never `['']`: `()` is the default that costs no rebuild, so a
+// field nobody touched has to fingerprint as a field that is not there.
+function readDelimiters(line) {
+  return line.split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => DELIMITER_ESCAPES.reduce(
+      (text, [typed, real]) => text.split(typed).join(real), entry));
+}
+
+function writeDelimiters(list) {
+  $('delimiters').value = (list || [])
+    .map((entry) => DELIMITER_ESCAPES.reduce(
+      (text, [typed, real]) => text.split(real).join(typed), entry))
+    .join(', ');
+}
+
 function readShownConfig() {
   const cfg = {
     label: $('label').value,
     index: {
       dataset: $('dataset').value,
       chunker: $('chunker').value, chunk_chars: +$('chunk_chars').value,
-      overlap: +$('overlap').value, contextual: $('contextual').checked,
+      overlap: +$('overlap').value,
+      delimiters: readDelimiters($('delimiters').value),
+      contextual: $('contextual').checked,
       embedder: $('embedder').value, embed_model: $('embed_model').value,
       hierarchy: $('hierarchy').value, graph_source: $('graph_source').value,
       graph_knn: +$('graph_knn').value, granularity: +$('granularity').value,
@@ -682,7 +716,8 @@ function applyDefaults(d) {
   $('label').value = d.label || '';
   $('dataset').value = d.index.dataset || '';
   $('chunker').value = d.index.chunker; $('chunk_chars').value = d.index.chunk_chars;
-  $('overlap').value = d.index.overlap; $('contextual').checked = d.index.contextual;
+  $('overlap').value = d.index.overlap; writeDelimiters(d.index.delimiters);
+  $('contextual').checked = d.index.contextual;
   $('embedder').value = d.index.embedder;
   $('embed_model').value = d.index.embed_model || '';
   $('hierarchy').value = d.index.hierarchy || '';

@@ -2203,11 +2203,15 @@ def _archive_template_knobs(archive_js):
 def _controlled_knobs(panel_js):
     """Knobs the panel reads back off a real control.
 
-    Two kinds. Most name their element inline (`chunker: $('chunker').value`);
-    the model roles are rendered from the served catalogue and read through
-    `data-field` in a loop, so their names live in `model_role_catalogue` and
-    not in this file — which is what keeps a role added there from having to
-    be added here too.
+    Two kinds. Most name their element inline (`chunker: $('chunker').value`),
+    whether they take it as it comes, coerce it to a number, or hand it to a
+    parser (`delimiters: readDelimiters($('delimiters').value)`, the one knob
+    whose control holds a list rather than a scalar) — what makes a knob
+    controlled is that the element it reads is named on its own line here.
+    The model roles are the second kind: rendered from the served catalogue
+    and read through `data-field` in a loop, so their names live in
+    `model_role_catalogue` and not in this file — which is what keeps a role
+    added there from having to be added here too.
     """
     body = _function_body(panel_js, 'readShownConfig')
     knobs, group = set(), None
@@ -2215,7 +2219,7 @@ def _controlled_knobs(panel_js):
         opened = re.match(r'\s*(index|retrieval|generation):\s*\{', line)
         if opened:
             group = opened.group(1)
-        for field in re.findall(r'(\w+):\s*\+?\$\(', line):
+        for field in re.findall(r'(\w+):\s*(?:\w+\()?\+?\$\(', line):
             if group and field != 'label':
                 knobs.add(f'{group}.{field}')
     return knobs | {role.field for role in model_roles.ROLES}

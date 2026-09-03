@@ -429,7 +429,7 @@ def test_cli_irrelevance_refuses_before_cli_invocation_or_memory(monkeypatch):
     assert 'RAG lab' in result['reply']
     # The refusal is its own decision: nothing ran, so nothing was filed.
     # Read off the two fields a reader of this API actually has
-    # (`panel_server._safe_widget_event` turns them into `irrelevant`) rather
+    # (`routes.widget._safe_widget_event` turns them into `irrelevant`) rather
     # than off a `blocked` flag that no code left reads.
     assert result['memory']['relevant'] is False
     assert result['memory']['saved'] is False

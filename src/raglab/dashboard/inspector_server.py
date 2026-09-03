@@ -11,10 +11,9 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from raglab.evaluation import run_evaluation as evaluate
 from raglab.configuration import explainer_assembly as explain
@@ -36,13 +35,31 @@ from raglab.dashboard.service_presentation import (
     summary_rows)
 from raglab.dashboard.panel_server import Jobs
 from raglab.dashboard.service_route_plumbing import (
+    Asset,
     _accepted,
     _find_question,
     ground_truth_for,
+    install_assets,
+    install_no_store,
     scaled_progress,
     screen)
 
-STATIC = Path(__file__).resolve().parent / 'frontend'
+# The Inspector's own two files and the page they dress. The four both surfaces
+# share are served by the panel at the root, and this app is mounted underneath
+# it, so they are deliberately absent here rather than served twice.
+ASSETS = {
+    '/': Asset('inspector.html', None,
+               'The read-only window onto the evidence a run left, at the '
+               'root of the mount — its only address.'),
+    '/inspector.css': Asset(
+        'inspector.css', 'text/css',
+        "The Inspector's own style, on top of the tokens and chrome the panel "
+        'serves to both surfaces.'),
+    '/inspector.js': Asset(
+        'inspector.js', 'application/javascript',
+        "The Inspector's own script; the utilities it shares with the panel "
+        'come from the lab.js the panel serves.'),
+}
 
 LAB_URL_ENV = 'RAGLAB_INSPECTOR_LAB_URL'
 DEFAULT_LAB_URL = 'http://localhost:9002'
@@ -227,30 +244,8 @@ def create_inspector_app() -> FastAPI:
     jobs = Jobs(max_history=settings.max_job_history)
     app = FastAPI(title='RAG Lab Inspector')
 
-    @app.middleware('http')
-    async def never_serve_yesterdays_page(request, call_next):
-        """Same reason as the panel's: the frontend is read from disk per
-        request, so a browser reusing a page without asking turns an edit into
-        "nothing changed" — and a read-only window onto evidence must never show
-        yesterday's evidence."""
-        response = await call_next(request)
-        response.headers['Cache-Control'] = 'no-store'
-        return response
-
-    @app.get('/')
-    def page():
-        return FileResponse(STATIC / 'inspector.html')
-
-    # Only the Inspector's own two: the four files both surfaces share are
-    # served by the panel at the root, and this app is mounted underneath it.
-    @app.get('/inspector.css')
-    def css():
-        return FileResponse(STATIC / 'inspector.css', media_type='text/css')
-
-    @app.get('/inspector.js')
-    def js():
-        return FileResponse(STATIC / 'inspector.js',
-                            media_type='application/javascript')
+    install_no_store(app)
+    install_assets(app, ASSETS)
 
     @app.get('/api/health')
     def health():

@@ -1,11 +1,13 @@
-"""Plumbing for the browser suite: a lab of its own, on a port of its own.
+"""Plumbing the dashboard's tests share: the served texts the route tests read,
+and a lab of its own on a port of its own for the browser suite.
 
-Only the `browser`-marked journeys ask for these fixtures, and pytest builds a
-fixture only when a test requests it, so this file costs the rest of the
-dashboard suite nothing and imports no Playwright of its own — the browser
-tests skip themselves at import when the extra is absent.
+Only the `browser`-marked journeys ask for the lab fixtures, and pytest builds
+a fixture only when a test requests it, so they cost the rest of the dashboard
+suite nothing and import no Playwright of their own — the browser tests skip
+themselves at import when the extra is absent.
 """
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -14,6 +16,84 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+from raglab.conftest import RAGLAB_DIR
+
+# --- the served panel's conventions, as one table ---------------------------
+
+@pytest.fixture(scope='module')
+def panel_texts(client):
+    """Every named text the convention table below checks, fetched the one
+    way a browser actually reaches it (`client.get`) — a second disk read of
+    the same file would be a claim about a copy nobody is served. Several
+    entries are carved out of the full page, css and script, because their
+    claim is *where* the text sits rather than merely that it exists
+    somewhere on the page — the same regions the retired pin tests scoped
+    their own reads to. The panel's route modules are the entries read from
+    disk: the lab's Python source is never served, so there is no route to
+    prefer over it."""
+    html = client.get('/').text
+    css = client.get('/panel.css').text
+    js = client.get('/panel.js').text
+    tokens = client.get('/tokens.css').text
+
+    embed_label = re.search(r'<label>Embedding model.*?</label>', html, re.S)
+    model_card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)
+    assert embed_label and model_card, 'the panel dropped a section this table reads'
+
+    return {
+        'index.html': html,
+        # The shared scale, fetched over its own route because both pages link
+        # it before their own sheet — a disk read would be a claim about a copy
+        # nobody is served.
+        'tokens.css': tokens,
+        # The shared chrome sheet, over its own route for the same reason as
+        # tokens.css. It now holds the table component every table on either
+        # surface is built against, so its contract is checked here beside the
+        # markup that depends on it.
+        'chrome.css': client.get('/chrome.css').text,
+        # The leaderboard surface, served by this same lab: the ranking moved
+        # off the lab page, so the rows that guard what a ranking must say
+        # follow it here rather than being deleted with the old board.
+        'leaderboard.html': client.get('/leaderboard').text,
+        'leaderboard.js': client.get('/leaderboard.js').text,
+        # The row filter, over its own route: it is the leaderboard's, but it
+        # reads a cell with the shared sorter's parser, so what it can be asked
+        # is a claim about that pair of files rather than about this page.
+        'filtertable.js': client.get('/filtertable.js').text,
+        # The script all three pages load before their own, over its own route
+        # for the same reason as tokens.css. What both surfaces turned out to
+        # need identically lives in it, so a claim about "one implementation"
+        # is a claim about this file.
+        'lab.js': client.get('/lab.js').text,
+        'panel.css': css,
+        'panel.js': js,
+        'index.html (embedding-model label)': embed_label.group(0),
+        'index.html (modelCard section)': model_card.group(0),
+        # The widget's own stylesheet and script — whole files, served from
+        # the root to all three surfaces, so what the rows below claim about
+        # the helper is a claim about these two files and nothing else. They
+        # were once slices carved out of panel.css/panel.js and kept those
+        # names for a while after they stopped being slices, which sent a
+        # maintainer chasing a widget failure into the Laboratory's own
+        # script; one key per file is what stops that.
+        # The codec, over its own route: what the two knob-coverage tests at
+        # the foot of this file claim about the export template is a claim
+        # about the file a browser is actually handed.
+        'archive_io.js': client.get('/archive_io.js').text,
+        # The handoff, over its own route for the same reason: it reads the
+        # codec's own `BUILTIN_DATASET` rather than keeping a second copy of
+        # that id, which is a claim about this served file.
+        'experiment_handoff.js': client.get('/experiment_handoff.js').text,
+        'widget.css': client.get('/widget.css').text,
+        'widget.js': client.get('/widget.js').text,
+        # The panel's route modules, one entry each, read from disk: the lab's
+        # Python source is never served, so there is no route to prefer over
+        # it. One key per module rather than one for the whole service, so a
+        # row that claims a route exists names the section it belongs to.
+    } | {f'routes/{module.name}': module.read_text(encoding='utf-8')
+         for module in sorted(
+             (RAGLAB_DIR / 'dashboard' / 'routes').glob('*.py'))}
 
 #: How long the child process gets to bind its port and answer once, and how
 #: long a browser step may take before it is called a failure. Generous

@@ -10,6 +10,7 @@ from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard import inspector_server as inspector
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.dashboard import service_presentation as present
+from raglab.dashboard import service_route_plumbing as plumbing
 from raglab.evaluation.tests.archive_examples import completed_archive
 from raglab.configuration.lab_config import (
     IndexConfig,
@@ -21,8 +22,8 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.conftest import _finished, _font_size_literals, _radius_literals
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
-INSPECTOR_JS = inspector.STATIC / 'inspector.js'
-INSPECTOR_HTML = inspector.STATIC / 'inspector.html'
+INSPECTOR_JS = plumbing.STATIC / 'inspector.js'
+INSPECTOR_HTML = plumbing.STATIC / 'inspector.html'
 
 
 def test_evidence_spans_and_mark_gold_agree_on_the_same_quote_either_direction():
@@ -554,7 +555,7 @@ def test_trace_job_marks_gold(monkeypatch):
 # The six page-pin tests that used to live here (three-views, generation tab
 # and evidence reveal, question picker, chunks/summaries toggle, JS keeps no
 # config literal, the corpus-follow fixture wiring), plus the Inspector's own
-# half of two tests that used to live in test_panel.py (the shared column
+# half of two tests that live in test_routes_assets.py (the shared column
 # sorter, the shared token sheet and script) are rows below.
 
 @pytest.fixture(scope='module')
@@ -592,7 +593,8 @@ def inspector_texts():
 INSPECTOR_CONVENTIONS = [
     ('inspector.html', None, 'class="port"',
      'the switcher names surfaces, not ports. Both panel pages dropped theirs '
-     '(pinned in test_panel.py) and this page kept two, so every walk to the '
+     '(pinned in test_routes_assets.py) and this page kept two, so every walk '
+     'to the '
      'Inspector made ":9002" appear out of nowhere beside two links that had '
      'been bare on the page before it — one switcher worn by three surfaces '
      'cannot label the address on one of them only'),
@@ -839,7 +841,8 @@ INSPECTOR_CONVENTIONS = [
 def test_the_served_inspector_page_keeps_its_conventions(
         inspector_texts, file, must_contain, must_not_contain, reason):
     # this is a convention test
-    """Six page-pin tests plus two halves moved over from test_panel.py,
+    """Six page-pin tests plus two halves moved over from the panel's own
+    served-frontend table,
     folded into one table. Each row is a claim the served Inspector shell
     makes about itself, and the reason string is what a failure prints
     instead of a bare `assert 'x' in text`."""
@@ -1071,7 +1074,8 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     the page's own overrides instead of feeding them. Built over
     `served_lab.app`, not the bare Inspector app: the shared files are the
     panel's routes now, unreachable from the Inspector app alone once it
-    became a mount. The panel's half of this claim lives in test_panel.py."""
+    became a mount. The panel's half of this claim lives in
+    test_routes_assets.py."""
     from fastapi.testclient import TestClient
     from raglab.dashboard import served_lab
 
@@ -1079,7 +1083,7 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     shared_css = ('tokens.css', 'chrome.css')
     shared_js = ('lab.js', 'sorttable.js')
     for name in shared_css + shared_js:
-        assert (inspector.STATIC / name).exists(), name
+        assert (plumbing.STATIC / name).exists(), name
 
     html = client.get('/inspector/').text
     for name in shared_css:
@@ -1103,7 +1107,7 @@ def test_the_inspector_draws_its_scale_from_the_shared_sheet(inspector_texts):
     """The Inspector carried 16 hand-set type sizes and its own radii, and
     agreed with the panel on none of them. Both surfaces read one scale or the
     shared sheet is decoration. The panel's half of this claim lives in
-    test_panel.py."""
+    test_routes_assets.py."""
     css = inspector_texts['inspector.css']
     assert _font_size_literals(css) == []
     assert _radius_literals(css) == []
@@ -1721,7 +1725,8 @@ def test_the_inspector_stamps_the_stored_theme_before_it_paints(inspector_texts)
 
 def test_no_dark_block_on_the_inspector_outranks_an_explicit_choice(inspector_texts):
     # this is a convention test
-    """The lab's half of this rule lives in test_panel.py over tokens.css and
+    """The lab's half of this rule lives in test_routes_assets.py over
+    tokens.css and
     panel.css; this is the Inspector's own sheet, which carries four page-local
     tokens of its own (the ground-truth row, and the three that draw the
     evidence highlighter). An unguarded block here would leave a reader who

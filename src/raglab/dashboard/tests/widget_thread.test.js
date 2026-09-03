@@ -41,7 +41,7 @@ function load(stored) {
     window: {}, fetch: async () => ({ ok: true, json: async () => ({}) }),
   };
   context.window = context;
-  // Only the thread half is under test; the DOM half is exercised by test_panel.
+  // Only the thread half is under test; the DOM half is exercised by test_routes_widget.
   const half = source.slice(source.indexOf('// --- which conversation'),
                             source.indexOf('// --- end of the thread half'));
   runInNewContext(half, context);

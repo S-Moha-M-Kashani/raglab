@@ -19,7 +19,7 @@ from raglab.configuration.lab_config import (
     IndexConfig,
     LabConfig,
     load_lab_settings)
-from raglab.dashboard.panel_server import _with_backend
+from raglab.dashboard.service_route_plumbing import _with_backend
 
 KEY = 'sk-or-v1-0123456789abcdef0123456789abcdef'
 
@@ -373,7 +373,7 @@ def test_the_panel_offers_the_key_field_and_never_stores_it_in_the_browser():
     # this is a convention test
     """The panel remembers the *config* on every keystroke; this field must
     stay out of that and out of localStorage."""
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
     html = (STATIC / 'panel.html').read_text(encoding='utf-8')
     header = html[html.index('<header'):html.index('</header>')]
     model_card = html[html.index('id="modelCard"'):]
@@ -401,7 +401,7 @@ def test_the_settings_popover_overrides_ghost_button_chassis_colours():
     """The popover is physically under `.chassis`; its action buttons must
     explicitly return to the light plate's ink in both ordinary and hover
     states rather than inheriting the masthead's light-on-dark treatment."""
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
     css = (STATIC / 'panel.css').read_text(encoding='utf-8')
     normal = re.search(r'\.settings-popover\s+button\.ghost\s*\{([^}]*)\}',
                        css, re.DOTALL)

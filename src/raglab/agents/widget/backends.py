@@ -652,7 +652,7 @@ def _refused(reason: str) -> dict:
     policy on 2026-08-28, leaving a field written on every refusal and read by
     a test assertion and nothing else. A key nobody reads is not documentation,
     so it is gone and `relevant`/`saved` say the same thing to the one reader
-    there is (`panel_server._safe_widget_event`).
+    there is (`routes.widget._safe_widget_event`).
     """
     return {'relevant': False, 'should_save': False, 'dataset_id': '',
             'subtopic': '', 'reason': reason, 'saved': False}
@@ -957,7 +957,7 @@ def _defer_memory(question: str, answer: str, model: str, thread: str,
     What comes back is a status and not a verdict, because the verdict is not
     made yet: the policy runs on the thread this starts. `saved: False` is the
     honest reading of that moment — nothing has been filed — and `pending` is
-    what the panel shows for it (`panel_server._safe_widget_event`), because a
+    what the panel shows for it (`routes.widget._safe_widget_event`), because a
     turn whose memory line is simply missing reads as a turn nobody wanted to
     keep.
 

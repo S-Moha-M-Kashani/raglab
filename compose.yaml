@@ -62,6 +62,23 @@ services:
       # Embedding checkpoints, ~1 GB. A named volume, so `down` does not throw
       # them away and the next `up` does not re-download them.
       - hf-cache:/root/.cache/huggingface
+      # ── the CLI backends' credentials ──────────────────────────────────────
+      # Uncomment together with `--build-arg INSTALL_CLI=true` (see Dockerfile).
+      # Left commented because a bind mount whose source is missing is created
+      # by the engine as an empty directory — which would hand `codex` a folder
+      # where it expects its token file, and it would fail with something less
+      # legible than "not installed".
+      #
+      # codex keeps its login in one file, so one file is all that crosses.
+      # Read-only: the container may spend the token, never rewrite yours. A
+      # token that expires is re-earned by `codex login` on the Mac, not here.
+      #- ${HOME}/.codex/auth.json:/root/.codex/auth.json:ro
+      #
+      # claude keeps its login in the macOS Keychain, which has no equivalent
+      # here, so there is no file to mount — this volume is where a login made
+      # *inside* the container lives, so it survives `down`. Once, after `up`:
+      #     docker compose exec panel claude    # then /login
+      #- claude-home:/root/.claude
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request as r; r.urlopen('http://127.0.0.1:9002/')"]
@@ -72,3 +89,5 @@ services:
 
 volumes:
   hf-cache:
+  # Declared so the commented mount above needs no second edit to work.
+  claude-home:

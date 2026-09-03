@@ -1,10 +1,11 @@
 """The RAG Lab Inspector — a read-only view over the same fixtures and pipeline as the lab, mounted at :9002/inspector.
 
-Builds its own in-memory index and writes nothing. `GET /api/follow` reads the
-lab's newest finished jobs over plain `urllib` at `lab_base_url()`, which after
-the mount is this same process; `RAGLAB_INSPECTOR_LAB_URL` still points it at a
-lab somewhere else. A lab that is not running comes back as
-`{'lab': 'down', ...}`, never an exception.
+Builds its own in-memory index and writes nothing. Everything it shows of the
+lab's own records it asks the lab for, through the `LabAccess` seam it is
+handed at mount time: mounted, that is `InProcessLabAccess` and the ask is a
+function call; pointed at another machine with `RAGLAB_INSPECTOR_LAB_URL`, it
+is `HttpLabAccess` and the ask is a bounded `urllib` request. A lab that is not
+running comes back as `{'lab': 'down', ...}`, never an exception.
 """
 import json
 import os
@@ -36,6 +37,8 @@ from raglab.dashboard.service_presentation import (
 from raglab.dashboard.panel_server import Jobs
 from raglab.dashboard.service_route_plumbing import (
     Asset,
+    LabAccess,
+    LabReply,
     _accepted,
     _find_question,
     ground_truth_for,
@@ -72,59 +75,97 @@ def lab_base_url() -> str:
     return os.environ.get(LAB_URL_ENV, DEFAULT_LAB_URL).rstrip('/')
 
 
-def _lab_get_response(path: str) -> dict | tuple[int, str] | None:
-    """GET one lab path, retaining explicit HTTP refusals for proxy routes."""
-    url = f'{lab_base_url()}{path}'
-    try:
-        with urllib.request.urlopen(url, timeout=LAB_TIMEOUT) as response:
-            if response.status != 200:
-                return None
-            return json.loads(response.read().decode('utf-8'))
-    except urllib.error.HTTPError as error:
+def _id(value: str) -> str:
+    """One path segment, so an id with a slash in it cannot become two."""
+    return urllib.parse.quote(value, safe='')
+
+
+class HttpLabAccess:
+    """The nine lab operations over HTTP, for a lab in another process.
+
+    One request helper and not one per verb: the four this replaces differed
+    only in the method they sent and in how much of a refusal they bothered to
+    keep, and the one that kept least is how a stated 409 used to arrive at the
+    reader as "the lab is unavailable". Every verb now keeps the lab's status
+    and the lab's words, and reports only transport failure as unavailability.
+    """
+
+    def __init__(self, base_url: str | None = None):
+        self.base_url = (base_url or lab_base_url()).rstrip('/')
+
+    def _request(self, method: str, path: str,
+                 payload: dict | None = None) -> LabReply:
+        body = None if payload is None else json.dumps(payload).encode('utf-8')
+        request = urllib.request.Request(
+            f'{self.base_url}{path}', data=body, method=method,
+            headers={'content-type': 'application/json'} if body else {})
         try:
-            detail = json.loads(error.read().decode('utf-8')).get('detail', '')
-        except (ValueError, OSError):
-            detail = ''
-        return error.code, detail or f'lab refused request ({error.code})'
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
-        return None
+            with urllib.request.urlopen(request, timeout=LAB_TIMEOUT) as response:
+                # 202 as readily as 200: starting a job is an answer too.
+                if not 200 <= response.status < 300:
+                    return None
+                return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as error:
+            try:
+                detail = json.loads(error.read().decode('utf-8')).get('detail', '')
+            except (ValueError, OSError):
+                detail = ''
+            return error.code, detail or f'lab refused request ({error.code})'
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+            return None
+
+    def imported_archive(self, archive_id: str) -> LabReply:
+        return self._request('GET', f'/api/imported-archives/{_id(archive_id)}')
+
+    def active_archive(self) -> LabReply:
+        return self._request('GET', '/api/imported-archives/active')
+
+    def clear_active_archive(self) -> LabReply:
+        return self._request('DELETE', '/api/imported-archives/active')
+
+    def experiment(self, experiment_id: str) -> LabReply:
+        return self._request('GET', f'/api/experiments/{_id(experiment_id)}')
+
+    def experiment_archive(self, experiment_id: str) -> LabReply:
+        return self._request(
+            'GET', f'/api/experiments/{_id(experiment_id)}/archive')
+
+    def experiment_questions(self, experiment_id: str) -> LabReply:
+        return self._request(
+            'GET', f'/api/experiments/{_id(experiment_id)}/questions')
+
+    def add_experiment_question(self, experiment_id: str,
+                                payload: dict) -> LabReply:
+        return self._request(
+            'POST', f'/api/experiments/{_id(experiment_id)}/questions', payload)
+
+    def job(self, job_id: str) -> LabReply:
+        return self._request('GET', f'/api/jobs/{_id(job_id)}')
+
+    def jobs(self) -> LabReply:
+        return self._request('GET', '/api/jobs')
 
 
-def _lab_get(path: str) -> dict | None:
-    """GET one path from the lab for legacy callers that treat every failure alike."""
-    found = _lab_get_response(path)
+def _document(found: LabReply) -> dict | None:
+    """A lab answer for a caller that reads only the document.
+
+    Three of the Inspector's routes and every `/api/follow` helper treat a
+    refusal and an outage alike — an empty view either way — so they say so
+    here rather than through a second transport that quietly drops the
+    difference before they can see it."""
     return found if isinstance(found, dict) else None
 
 
-def _lab_post(path: str, payload: dict) -> dict | tuple[int, str] | None:
-    """POST to the lab, preserving its refusal but bounding transport failure."""
-    body = json.dumps(payload).encode('utf-8')
-    request = urllib.request.Request(
-        f'{lab_base_url()}{path}', data=body, method='POST',
-        headers={'content-type': 'application/json'})
-    try:
-        with urllib.request.urlopen(request, timeout=LAB_TIMEOUT) as response:
-            return json.loads(response.read().decode('utf-8'))
-    except urllib.error.HTTPError as error:
-        try:
-            detail = json.loads(error.read().decode('utf-8')).get('detail', '')
-        except (ValueError, OSError):
-            detail = ''
-        return error.code, detail or f'lab refused request ({error.code})'
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
-        return None
+def _answered(found: LabReply, outage: str) -> dict:
+    """The document, or the same refusal the reader would have got from the lab.
 
-
-def _lab_delete(path: str) -> dict | None:
-    """DELETE one lab path with the same bounded, failure-as-None policy as GET."""
-    request = urllib.request.Request(f'{lab_base_url()}{path}', method='DELETE')
-    try:
-        with urllib.request.urlopen(request, timeout=LAB_TIMEOUT) as response:
-            if response.status != 200:
-                return None
-            return json.loads(response.read().decode('utf-8'))
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
-        return None
+    `outage` is what a lab that could not be reached at all is called; a lab
+    that answered keeps its own status and its own words."""
+    if found is None:
+        raise HTTPException(503, outage)
+    if isinstance(found, tuple):
+        raise HTTPException(found[0], found[1])
+    return found
 
 # Candidate F — the chosen architecture — as the Inspector's default config:
 # the sweep baseline plus the LLM relevance gate. One source for the endpoint
@@ -151,11 +192,12 @@ def _newest_done(jobs_index: dict, kind: str) -> dict | None:
     return None
 
 
-def _job_view(jobs_index: dict, kind: str, fields: tuple[str, ...]) -> dict | None:
+def _job_view(lab: LabAccess, jobs_index: dict, kind: str,
+              fields: tuple[str, ...]) -> dict | None:
     entry = _newest_done(jobs_index, kind)
     if entry is None:
         return None
-    full = _lab_get(f"/api/jobs/{entry['id']}")
+    full = _document(lab.job(entry['id']))
     if full is None or full.get('result') is None:
         return None
     result = full['result']
@@ -164,7 +206,7 @@ def _job_view(jobs_index: dict, kind: str, fields: tuple[str, ...]) -> dict | No
     return out
 
 
-def _question_set(jobs_index: dict) -> dict | None:
+def _question_set(lab: LabAccess, jobs_index: dict) -> dict | None:
     """The newest finished run over a *set* of questions, normalised from either lab route to one shape."""
     for entry in jobs_index.get('jobs', []):
         kind, key = entry.get('kind'), None
@@ -174,7 +216,7 @@ def _question_set(jobs_index: dict) -> dict | None:
             key = 'traces'
         if key is None or entry.get('state') != 'done':
             continue
-        full = _lab_get(f"/api/jobs/{entry['id']}")
+        full = _document(lab.job(entry['id']))
         result = (full or {}).get('result') or {}
         rows = result.get(key)
         if not rows:
@@ -186,7 +228,7 @@ def _question_set(jobs_index: dict) -> dict | None:
     return None
 
 
-def _newest_chunks(jobs_index: dict) -> dict | None:
+def _newest_chunks(lab: LabAccess, jobs_index: dict) -> dict | None:
     """The chunks the lab's newest finished job actually used, whatever kind of job it was.
 
     Not `kind == 'index'`: a run builds its index implicitly and creates
@@ -195,7 +237,7 @@ def _newest_chunks(jobs_index: dict) -> dict | None:
     for entry in jobs_index.get('jobs', []):
         if entry.get('state') != 'done':
             continue
-        full = _lab_get(f"/api/jobs/{entry['id']}")
+        full = _document(lab.job(entry['id']))
         result = (full or {}).get('result') or {}
         groups = result.get('chunks_by_session')
         if not groups:
@@ -209,9 +251,9 @@ def _newest_chunks(jobs_index: dict) -> dict | None:
     return None
 
 
-def _generation_view(jobs_index: dict) -> dict | None:
+def _generation_view(lab: LabAccess, jobs_index: dict) -> dict | None:
     """What the newest *evaluation* wrote and how it scored — only an evaluation generates."""
-    out = _job_view(jobs_index, 'run', ('rows', 'summary', 'ragas'))
+    out = _job_view(lab, jobs_index, 'run', ('rows', 'summary', 'ragas'))
     return out if out and out.get('rows') else None
 
 
@@ -231,7 +273,15 @@ def _followed_dataset(jobs_index: dict) -> str:
     return ''
 
 
-def create_inspector_app() -> FastAPI:
+def create_inspector_app(lab: LabAccess | None = None) -> FastAPI:
+    """The read-only window, reading the lab's records through `lab`.
+
+    Handed the panel's own `InProcessLabAccess` when the two are composed into
+    one application (`served_lab.py`), so a mounted Inspector opens no socket.
+    Omitted, it reaches the lab `RAGLAB_INSPECTOR_LAB_URL` names over HTTP —
+    which is the standalone Inspector, and the only arrangement where the lab
+    can be somewhere this process is not."""
+    lab = lab if lab is not None else HttpLabAccess()
     settings = load_lab_settings()
     diary, ground_truth = datasets.load()
     def truth_for(cfg) -> dict:
@@ -393,8 +443,7 @@ def create_inspector_app() -> FastAPI:
 
     @app.get('/api/imported-archives/{archive_id}')
     def imported_archive(archive_id: str):
-        encoded_id = urllib.parse.quote(archive_id, safe='')
-        found = _lab_get(f'/api/imported-archives/{encoded_id}')
+        found = _document(lab.imported_archive(archive_id))
         if found is None:
             raise HTTPException(
                 404, 'imported archive is unavailable from the lab')
@@ -407,9 +456,8 @@ def create_inspector_app() -> FastAPI:
         Proxied rather than read from `raglab.db` directly: this service owns no
         ledger, and a second reader that opened the file would be a second
         thing to keep in step with a record whose whole value is being written
-        once. The same reason `/api/imported-archives/{id}` proxies."""
-        encoded_id = urllib.parse.quote(experiment_id, safe='')
-        found = _lab_get(f'/api/experiments/{encoded_id}')
+        once. The same reason `/api/imported-archives/{id}` asks the lab."""
+        found = _document(lab.experiment(experiment_id))
         if found is None:
             raise HTTPException(
                 404, 'that experiment is unavailable from the lab')
@@ -425,70 +473,57 @@ def create_inspector_app() -> FastAPI:
         export button writes. Proxied like the record, refusals kept: a 404 is
         an experiment from before archiving, a 409 a corpus this installation
         no longer holds — both are the lab's own words, not this service's."""
-        encoded_id = urllib.parse.quote(experiment_id, safe='')
-        found = _lab_get_response(f'/api/experiments/{encoded_id}/archive')
-        if found is None:
-            raise HTTPException(503, 'lab is unavailable; the archive cannot load')
-        if isinstance(found, tuple):
-            raise HTTPException(found[0], found[1])
-        return found
+        return _answered(lab.experiment_archive(experiment_id),
+                         'lab is unavailable; the archive cannot load')
 
     @app.post('/api/experiments/{experiment_id}/questions')
     def add_recorded_question(experiment_id: str, payload: dict):
-        encoded_id = urllib.parse.quote(experiment_id, safe='')
-        found = _lab_post(f'/api/experiments/{encoded_id}/questions', payload)
-        if found is None:
-            raise HTTPException(503, 'lab is unavailable; question was not added')
-        if isinstance(found, tuple):
-            raise HTTPException(found[0], found[1])
-        return JSONResponse(found, status_code=202)
+        started = _answered(lab.add_experiment_question(experiment_id, payload),
+                            'lab is unavailable; question was not added')
+        return JSONResponse(started, status_code=202)
 
     @app.get('/api/experiments/{experiment_id}/questions')
     def recorded_questions(experiment_id: str):
-        encoded_id = urllib.parse.quote(experiment_id, safe='')
-        found = _lab_get_response(f'/api/experiments/{encoded_id}/questions')
-        if found is None:
-            raise HTTPException(503, 'lab is unavailable; recorded questions cannot load')
-        if isinstance(found, tuple):
-            raise HTTPException(found[0], found[1])
-        return found
+        return _answered(
+            lab.experiment_questions(experiment_id),
+            'lab is unavailable; recorded questions cannot load')
 
     @app.get('/api/lab-jobs/{job_id}')
     def lab_job_status(job_id: str):
-        encoded_id = urllib.parse.quote(job_id, safe='')
-        found = _lab_get_response(f'/api/jobs/{encoded_id}')
-        if found is None:
-            raise HTTPException(503, 'lab is unavailable; job status cannot load')
-        if isinstance(found, tuple):
-            raise HTTPException(found[0], found[1])
-        return found
+        return _answered(lab.job(job_id),
+                         'lab is unavailable; job status cannot load')
 
     @app.delete('/api/imported-archives/active')
     def clear_imported_archive():
-        cleared = _lab_delete('/api/imported-archives/active')
-        if cleared is None:
-            raise HTTPException(
-                503, 'lab is unavailable; archive preview was not cleared')
-        return cleared
+        return _answered(
+            lab.clear_active_archive(),
+            'lab is unavailable; archive preview was not cleared')
 
     @app.get('/api/follow')
     def follow():
-        """The lab's newest *finished* jobs in one call, or 'down' when :9002 cannot be reached — HTTP 200 either way."""
-        active = _lab_get('/api/imported-archives/active')
+        """The lab's newest *finished* jobs in one call, or 'down' when the lab cannot be reached — HTTP 200 either way.
+
+        `lab` is kept, and kept honest, in both modes: it means "could I reach
+        the lab", which mounted is answered by the call itself and is therefore
+        always `up`. The field stays rather than disappearing in-process
+        because the page reads it and a remote Inspector still needs it — a
+        reader is owed one bit either way, not a key that exists on some
+        installations."""
+        active = _document(lab.active_archive())
         archive_id = (active or {}).get('archive_id')
-        jobs_index = _lab_get('/api/jobs')
+        jobs_index = _document(lab.jobs())
         if jobs_index is None:
             return {'lab': 'down', 'lab_url': lab_base_url(), 'dataset': '',
                     'index': None, 'query': None, 'retrieval': None,
                     'generation': None, 'archive_id': archive_id}
 
-        query_view = _job_view(jobs_index, 'query',
+        query_view = _job_view(lab, jobs_index, 'query',
                                ('trace', 'question', 'question_id', 'answer'))
         return {'lab': 'up', 'lab_url': lab_base_url(),
                 'dataset': _followed_dataset(jobs_index),
-                'index': _newest_chunks(jobs_index), 'query': query_view,
-                'retrieval': _question_set(jobs_index),
-                'generation': _generation_view(jobs_index),
+                'index': _newest_chunks(lab, jobs_index), 'query': query_view,
+                'retrieval': _question_set(lab, jobs_index),
+                'generation': _generation_view(lab, jobs_index),
                 'archive_id': archive_id}
 
     return app

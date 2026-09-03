@@ -35,7 +35,6 @@ from raglab.dashboard.service_presentation import (
     summary_rows)
 from raglab.dashboard.panel_server import Jobs
 from raglab.dashboard.service_route_plumbing import (
-    STATIC,
     Asset,
     _accepted,
     _find_question,

@@ -1124,7 +1124,7 @@ def test_one_route_serves_every_public_asset(client):
     a route of its own any more, and the shared stylesheet still arrives with
     its bytes and its content type."""
     from raglab.dashboard.routes.assets import ASSETS
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
 
     endpoints = {}
     for route in client.app.routes:
@@ -1163,7 +1163,7 @@ def test_every_asset_entry_says_why_it_is_served(client):
     both surfaces. It travels on the allowlist entry now, so the reasoning is
     read beside the sharing it explains rather than deleted with the route."""
     from raglab.dashboard.routes.assets import ASSETS
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
 
     for path, entry in ASSETS.items():
         assert (STATIC / entry.file).is_file(), path
@@ -1425,7 +1425,7 @@ def test_both_lab_pages_share_one_column_sorter(client):
     the panel actually loads it, and whether the hard-coded arrow has come
     back, are rows in the convention table above; the Inspector's half of
     this claim lives in test_inspector.py."""
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
 
     assert (STATIC / 'sorttable.js').exists()
     js = client.get('/panel.js').text
@@ -1443,7 +1443,7 @@ def test_both_lab_pages_share_one_token_sheet_and_one_script(client):
     the tokens to the page's own overrides instead of feeding them. The
     Inspector's half of this claim moved to test_inspector.py, since :9003
     is not this test's subject."""
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
 
     assert (STATIC / 'tokens.css').exists()
     assert (STATIC / 'lab.js').exists()

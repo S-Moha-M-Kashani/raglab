@@ -720,7 +720,7 @@ def test_the_panel_resolves_a_dependency_chain_the_way_the_service_does():
     grouping that builds no graph at all, because it only asked whether the
     edge *source* builds kNN edges rather than resolving transitively."""
     from pathlib import Path
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
     panel = (STATIC / 'panel.js').read_text(encoding='utf-8')
     assert 'function dependencyState(' in panel, (
         'the panel must resolve chains, not just single rules')

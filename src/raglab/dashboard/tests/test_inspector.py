@@ -10,6 +10,7 @@ from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard import inspector_server as inspector
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.dashboard import service_presentation as present
+from raglab.dashboard import service_route_plumbing as plumbing
 from raglab.evaluation.tests.archive_examples import completed_archive
 from raglab.configuration.lab_config import (
     IndexConfig,
@@ -21,8 +22,8 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.conftest import _finished, _font_size_literals, _radius_literals
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
-INSPECTOR_JS = inspector.STATIC / 'inspector.js'
-INSPECTOR_HTML = inspector.STATIC / 'inspector.html'
+INSPECTOR_JS = plumbing.STATIC / 'inspector.js'
+INSPECTOR_HTML = plumbing.STATIC / 'inspector.html'
 
 
 def test_evidence_spans_and_mark_gold_agree_on_the_same_quote_either_direction():
@@ -1079,7 +1080,7 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     shared_css = ('tokens.css', 'chrome.css')
     shared_js = ('lab.js', 'sorttable.js')
     for name in shared_css + shared_js:
-        assert (inspector.STATIC / name).exists(), name
+        assert (plumbing.STATIC / name).exists(), name
 
     html = client.get('/inspector/').text
     for name in shared_css:

@@ -4,89 +4,41 @@ Depends on no other service, so no route probes anything before creating a
 job. Runs are jobs, not requests — creating one answers 202 with a job id and a
 Location, and the panel polls that — one at a time, since concurrent runs
 would fight over the same index.
+
+The routes themselves live in `routes/`, one module per section. This file is
+the job table they run work on, the context they read state off, and the
+factory that builds both and calls each section's registrar.
 """
-import json
+import inspect
 import threading
 import time
 import traceback
 import uuid
-from urllib.parse import parse_qs
-import inspect
-import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, StreamingResponse)
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 
-from raglab.llm_backends import openrouter_key_memory as credentials
-from raglab.corpora import dataset_import_contract as datasets
-from raglab.corpora import corpus_reading
-from raglab.rag_components.indexing import embedding_backends as embedding
-from raglab.evaluation import run_evaluation as evaluate
-from raglab.evaluation import experiment_archive as archive
-from raglab.configuration import explainer_assembly as explain
-from raglab.evaluation import service_experiment_ledger as ledger
-from raglab.evaluation import experiment_archive_store as archive_store
-from raglab.evaluation import leaderboard
-from raglab.evaluation import deterministic_metrics as metrics
-from raglab.llm_backends import model_role_catalogue as models
-from raglab.rag_components import question_to_answer_pipeline as pipeline
-from raglab.evaluation import ragas_judged_metrics as ragas_eval
-from raglab.rag_components.retrieval import (
-    retrieve_fuse_rerank_grade as retrieval)
 from raglab.agents import widget
-from raglab.dashboard import dev_trace_page
 from raglab.configuration.lab_config import (
-    ANSWERERS,
-    CHUNKERS,
-    DEPENDENCIES,
-    EMBEDDERS,
-    GRADERS,
-    GRAPH_SOURCES,
-    HIERARCHIES,
-    LLM_PROVIDERS,
-    RERANKERS,
-    RETRIEVERS,
-    ROOT,
-    RUNS_DIR,
-    STEPS,
-    SUMMARIZERS,
-    SUMMARY_SCOPES,
-    GenerationConfig,
-    IndexConfig,
     LabConfig,
     LabSettings,
-    RetrievalConfig,
-    load_lab_settings,
-    settings_for_provider)
-from raglab.rag_components.indexing import (
-    summary_hierarchy_builder as hierarchy)
-from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
-from raglab.llm_backends.chat_model_factory import lab_llm
-from raglab.dashboard.service_presentation import (
-    chunks_by_session,
-    gold_available,
-    mark_gold,
-    summary_rows)
-from raglab.dashboard.imported_archive_store import ImportedArchiveStore
+    load_lab_settings)
+from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard import routes
+from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
-    STATIC,
     JobCancelled,
-    _accepted,
-    _find_question,
-    _with_backend,
-    cancel_checker,
     ground_truth_for,
-    install_no_store,
-    screen,
-    scaled_progress)
-class JobCancelled(Exception):
-    """A cooperative stop requested from the RAG Lab panel."""
+    install_no_store)
+from raglab.evaluation import leaderboard
+from raglab.evaluation import run_evaluation as evaluate
+from raglab.evaluation import service_experiment_ledger as ledger
+from raglab.llm_backends import openrouter_key_memory as credentials
+from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
+
 
 class Jobs:
     """In-process job table, bounded. A lab restart loses running jobs;
@@ -337,10 +289,6 @@ def create_app() -> FastAPI:
         # passed.
         jobs=Jobs(record=ledger.record, max_history=settings.max_job_history),
         archives=ImportedArchiveStore())
-    # The routes read that state off the context they were handed. Named here
-    # once, so a body says `jobs` rather than `context.jobs` fifty times — the
-    # same unpacking each route module does at the top of its `register`.
-    registry, jobs, archives = context.registry, context.jobs, context.archives
 
     app = FastAPI(title='RAG Lab')
 

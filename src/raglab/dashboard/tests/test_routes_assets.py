@@ -1045,7 +1045,7 @@ def test_one_route_serves_every_public_asset(client):
     adding a file to the frontend is adding a line rather than writing an
     eighteenth route. Both halves are pinned: no allowlisted path is served by
     a route of its own any more, and the shared stylesheet still arrives with
-    its bytes and its content type."""
+    its bytes, its content type and the shared installer's no-store header."""
     from raglab.dashboard.routes.assets import ASSETS
     from raglab.dashboard.service_route_plumbing import STATIC
 
@@ -1064,6 +1064,7 @@ def test_one_route_serves_every_public_asset(client):
     assert tokens.status_code == 200
     assert tokens.headers['content-type'].startswith('text/css')
     assert tokens.text == (STATIC / 'tokens.css').read_text(encoding='utf-8')
+    assert tokens.headers['cache-control'] == 'no-store'
 
 
 def test_only_allowlisted_paths_are_reachable(client):

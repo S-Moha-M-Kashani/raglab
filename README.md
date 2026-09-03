@@ -537,6 +537,55 @@ docker compose down
 The container uses host Ollama through `host.docker.internal:11434` by
 default. Embedding data is kept in the named `hf-cache` volume.
 
+### The CLI backends in a container
+
+`RAGLAB_LLM=claude` and `RAGLAB_LLM=codex` run a command-line tool once per
+call, so the lab offers their models only when that command is on `PATH`
+**inside the container**. The stock image carries neither, and reports every
+Claude and Codex model as NA rather than pretending otherwise. The host
+binaries cannot be copied in: they are macOS executables and this image is
+Linux.
+
+Two things have to arrive — the command, and a login.
+
+**The command.** Both tools publish npm packages, which do run on Linux. They
+are off by default, because Node is weight the Ollama and OpenRouter backends
+never need:
+
+```sh
+docker compose build --build-arg INSTALL_CLI=true
+docker compose up -d
+```
+
+**The login.** Here the two differ, and only one of them is simple.
+
+Codex keeps its login in a single file. Uncomment the first credential line in
+`compose.yaml` and it crosses read-only, so the container may spend the token
+but never rewrite yours. Check it arrived:
+
+```sh
+docker compose exec panel codex --version
+```
+
+Claude on macOS keeps its login in the Keychain, which a Linux container cannot
+reach, and there is no file to mount. Uncomment the `claude-home` volume in
+`compose.yaml` and log in once inside the container; the volume is what makes
+that login outlive `docker compose down`:
+
+```sh
+docker compose exec panel claude    # then /login
+```
+
+On a Linux host Claude's credential is an ordinary file and can be mounted the
+same way Codex's is.
+
+If you would rather keep credentials out of a container, run the lab on the
+machine itself, where both tools are already logged in:
+
+```sh
+uv run --extra local-embeddings --extra semantic raglab
+```
+
 ## License
 
 Copyright (c) 2026 Moha Kashani. All rights reserved. This repository is

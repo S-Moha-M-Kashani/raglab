@@ -26,11 +26,37 @@ WORKDIR /app
 # Dependencies before source, so editing a Python file does not re-resolve or
 # re-download roughly a gigabyte of torch. `--frozen` holds uv.lock to its word:
 # a build that would need to change the lock fails instead of drifting.
+#
+# Both embedding extras, not just the default embedder's. `semantic` carries
+# fastembed, and the cross-encoder reranker imports its class from inside it
+# (retrieve_fuse_rerank_grade.cross_encoder_available), so an image without
+# that extra reports two capabilities unavailable rather than one.
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-install-project --extra local-embeddings
+RUN uv sync --frozen --no-install-project --extra local-embeddings --extra semantic
+
+# ── the two CLI backends, off by default ─────────────────────────────────────
+# `RAGLAB_LLM=claude` and `RAGLAB_LLM=codex` shell out to a command
+# (llm_backends/cli_subprocess_chat.py), and the lab offers a CLI model only
+# when that command is on PATH *in here* — a host binary is Mach-O and cannot
+# run on this image, so copying one in is not an option. The CLIs publish npm
+# packages, which can. Off by default because Node is weight the Ollama and
+# OpenRouter backends never need:
+#
+#     docker compose build --build-arg INSTALL_CLI=true
+#
+# Installing the command is half the job — a logged-in credential still has to
+# arrive from outside. compose.yaml carries the mounts, commented, and
+# .env.example says what each backend needs.
+ARG INSTALL_CLI=false
+RUN if [ "$INSTALL_CLI" = "true" ]; then \
+      apt-get update \
+      && apt-get install -y --no-install-recommends nodejs npm \
+      && rm -rf /var/lib/apt/lists/* \
+      && npm install -g @openai/codex @anthropic-ai/claude-code; \
+    fi
 
 COPY . .
-RUN uv sync --frozen --extra local-embeddings
+RUN uv sync --frozen --extra local-embeddings --extra semantic
 
 # The mount points, created here so they exist and are writable even when a run
 # starts without the volumes attached.

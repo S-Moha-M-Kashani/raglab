@@ -634,6 +634,12 @@ def create_app() -> FastAPI:
         with dataset_locks_guard:
             return dataset_locks.setdefault(key, threading.Lock())
 
+    # Every job below opens `with dataset_lock(...), registry.hold(cfg.index):`.
+    # The second half is the memory bound's other side: the registry keeps only
+    # the newest few indexes, and a job says here that the one it is about to
+    # work against is in use — so a build elsewhere can never take it away
+    # mid-run and make the next question rebuild what is already resident.
+
     # This service owns the ledger, so this is the one place a recorder is passed.
     jobs = Jobs(record=ledger.record)
     archives = ImportedArchiveStore()
@@ -757,7 +763,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 index = registry.get(cfg.index, progress=report, force=force)
                 return {'collection': index.stats.collection,
@@ -798,7 +804,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 # Snapshot and index use share this boundary. A replacement of
                 # the same id cannot put new corpus evidence beside old chunks.
                 check_cancelled()
@@ -880,7 +886,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 return evaluate.run_retrieval(
                     registry, questions_for(cfg), cfg, run_settings,
@@ -1080,7 +1086,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 index = registry.get(cfg.index,
                                      progress=scaled_progress(report, 0.6))
@@ -1172,7 +1178,7 @@ def create_app() -> FastAPI:
         def work(report, cancelled):
             check_cancelled = cancel_checker(cancelled, JobCancelled)
             check_cancelled()
-            with dataset_lock(cfg.index.dataset):
+            with dataset_lock(cfg.index.dataset), registry.hold(cfg.index):
                 check_cancelled()
                 asked = questions_for(cfg)
                 query_date = requested_query_date or (

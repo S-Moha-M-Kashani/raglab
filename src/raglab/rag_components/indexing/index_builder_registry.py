@@ -3,7 +3,10 @@
 A LabIndex pairs a vector store with a chunk table, both keyed by deterministic
 chunk ids and held only in process memory — nothing here survives a restart.
 """
+import threading
 import time
+from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -192,16 +195,39 @@ class LabIndex:
         self.store.drop()
 
 
+EVICTED_NOTE = ('a previous build of this fingerprint was evicted to stay '
+                'under the index ceiling, so this one is a rebuild rather '
+                'than reuse')
+
+
 class IndexRegistry:
-    """Process-lifetime cache of built indexes, keyed by fingerprint; every
-    index it built dies with the process."""
+    """Bounded process-lifetime cache of built indexes, keyed by fingerprint;
+    every index it built dies with the process, and it lets go of the least
+    recently used one — never one a caller is holding — past
+    `LabSettings.max_indexes` (0 = unbounded)."""
 
     def __init__(self, settings: LabSettings, corpus: dict | None = None):
         self.settings = settings
         # A caller that already holds the corpus (the suite, a booted service)
         # passes it; anything else is loaded per dataset below.
         self.corpus = corpus
-        self._indexes: dict[str, LabIndex] = {}
+        # Ordered least-recently-served first: `get` moves what it serves to
+        # the end, and eviction reads from the front.
+        self._indexes: OrderedDict[str, LabIndex] = OrderedDict()
+        # Fingerprints this registry dropped, so the rebuild that follows can
+        # say why it is not reuse. Emptied as each is noted.
+        self._evicted: set[str] = set()
+        # Fingerprint -> how many callers are inside `hold`. An entry counted
+        # here is skipped by eviction.
+        self._held: dict[str, int] = {}
+        # `_guard` protects the three tables above and nothing else — it is
+        # never held while a build runs. `_builds` hands out one lock per
+        # fingerprint, which *is* held across the build, so two threads on one
+        # cold fingerprint produce one build. Same one-way order as
+        # `panel_server.dataset_lock`: take the guard, get the lock, release
+        # the guard, then take the lock.
+        self._guard = threading.Lock()
+        self._builds: dict[str, threading.Lock] = {}
 
     def corpus_for(self, dataset: str = '') -> dict:
         """The corpus one config indexes. Resolved per call, since dataset is
@@ -215,14 +241,71 @@ class IndexRegistry:
 
     def get(self, cfg: IndexConfig, progress=None, force: bool = False) -> LabIndex:
         key = cfg.normalized().fingerprint()
-        if force or key not in self._indexes:
-            self._indexes[key] = LabIndex.build(cfg, self.corpus_for(cfg.dataset),
-                                                self.settings, progress=progress,
-                                                )
-        else:
-            # The one form of reuse that still exists: this process already built it.
-            self._indexes[key].stats.reused = True
-        return self._indexes[key]
+        with self._guard:
+            build_lock = self._builds.setdefault(key, threading.Lock())
+        with build_lock:
+            with self._guard:
+                index = None if force else self._indexes.get(key)
+                if index is not None:
+                    self._indexes.move_to_end(key)
+                    # The one form of reuse that still exists: this process
+                    # already built it.
+                    index.stats.reused = True
+                    return index
+            # Outside every registry lock: a build is the most expensive thing
+            # this process does, and a request for another fingerprint must not
+            # queue behind it.
+            built = LabIndex.build(cfg, self.corpus_for(cfg.dataset),
+                                   self.settings, progress=progress)
+            with self._guard:
+                if key in self._evicted:
+                    # `reused` is already False on a fresh build; the note is
+                    # what tells a reader why this build time is an outlier.
+                    built.stats.notes.append(EVICTED_NOTE)
+                    self._evicted.discard(key)
+                self._indexes[key] = built
+                self._indexes.move_to_end(key)
+                self._evict_to_ceiling()
+            return built
+
+    @contextmanager
+    def hold(self, cfg: IndexConfig):
+        """Pin one fingerprint for the duration of a caller's work.
+
+        Recency is not safety: a job answering questions against an index holds
+        a reference the registry cannot see, so dropping the entry would free
+        nothing and make the next request rebuild something already resident.
+        Pinning is deliberately separate from building — a caller states what it
+        is about to work on, then builds inside the pin, which is why every job
+        route can say it on the `with` line it already has.
+        """
+        key = cfg.normalized().fingerprint()
+        with self._guard:
+            self._held[key] = self._held.get(key, 0) + 1
+        try:
+            yield
+        finally:
+            with self._guard:
+                remaining = self._held.get(key, 0) - 1
+                if remaining > 0:
+                    self._held[key] = remaining
+                else:
+                    self._held.pop(key, None)
+
+    def _evict_to_ceiling(self) -> None:
+        """Drop least-recently-served unheld indexes until the ceiling is met.
+        Called under `_guard`, on insert, where the cost of a build is already
+        being paid. A ceiling of 0 is unbounded; a registry whose every entry is
+        held stays over the ceiling rather than taking an index away from work.
+        """
+        ceiling = self.settings.max_indexes
+        while ceiling and len(self._indexes) > ceiling:
+            droppable = next((key for key in self._indexes
+                              if key not in self._held), None)
+            if droppable is None:
+                return
+            self._indexes.pop(droppable)
+            self._evicted.add(droppable)
 
     def invalidate_dataset(self, dataset: str) -> int:
         """Forget cached indexes for a replaced dataset id.
@@ -232,12 +315,18 @@ class IndexRegistry:
         that must evict matching process-memory indexes explicitly. Replacing
         the mapping rather than dropping each index leaves any already-running
         job's private reference intact while every later request rebuilds.
+
+        Not an eviction in the ceiling's sense, so the rebuild that follows
+        carries no eviction note: the corpus changed, which is a different
+        reason for a rebuild and not one the note would describe honestly.
         """
-        stale = [key for key, index in self._indexes.items()
-                 if index.cfg.dataset == dataset]
-        if stale:
-            self._indexes = {key: index for key, index in self._indexes.items()
-                             if key not in stale}
+        with self._guard:
+            stale = [key for key, index in self._indexes.items()
+                     if index.cfg.dataset == dataset]
+            if stale:
+                self._indexes = OrderedDict(
+                    (key, index) for key, index in self._indexes.items()
+                    if key not in stale)
         return len(stale)
 
     def known(self) -> list[dict]:

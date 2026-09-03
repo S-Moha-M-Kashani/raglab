@@ -2,6 +2,8 @@
 registry / pipeline built on top of it (integration tests: an index build or
 a full retrieval crosses modules)."""
 import socket
+import threading
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -15,6 +17,7 @@ from raglab.configuration.lab_config import (
     GenerationConfig,
     IndexConfig,
     RetrievalConfig)
+from raglab.rag_components.indexing import index_builder_registry as registry_mod
 from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
 from raglab.conftest import LAB_SETTINGS, SMOKE_INDEX
@@ -169,6 +172,104 @@ def test_registry_reuses_within_a_process_and_rebuilds_across_one(diary):
     assert not fresh.stats.reused
     assert fresh.stats.chunks == first.stats.chunks
     assert fresh.store.count() == fresh.stats.chunks
+
+
+def _smoke_cfg(chunk_chars: int) -> IndexConfig:
+    """One cheap distinct index. `session` ignores `chunk_chars`, but the
+    fingerprint does not, so a number is all it takes to name another build of
+    the same five sessions — the cheapest way to fill a cache with real
+    indexes."""
+    return IndexConfig(**SMOKE_INDEX, chunk_chars=chunk_chars)
+
+
+def test_the_registry_drops_the_least_recently_used_index_past_its_ceiling():
+    # this is an integration test
+    """The cache is a cache, not a table that only grows: past the ceiling the
+    least recently used index is dropped, and *used* means served, not built —
+    touching the oldest entry moves it out of the firing line. A rebuild after
+    an eviction is not reuse and says why on its own row, while a first build
+    of a fingerprint nobody evicted carries no such note. Zero is the reader
+    who wants the old unbounded behaviour and says so."""
+    reg = IndexRegistry(replace(LAB_SETTINGS, max_indexes=3))
+    first, second, third = (_smoke_cfg(n) for n in (100, 200, 300))
+    for cfg in (first, second, third):
+        reg.get(cfg)
+    # Serving `first` again makes `second` the least recently used.
+    assert reg.get(first).stats.reused
+    reg.get(_smoke_cfg(400))
+    resident = {row['fingerprint'] for row in reg.known()}
+    assert second.fingerprint() not in resident
+    assert first.fingerprint() in resident and third.fingerprint() in resident
+
+    rebuilt = reg.get(second)
+    assert not rebuilt.stats.reused
+    assert any('evicted' in note for note in rebuilt.stats.notes), rebuilt.stats.notes
+    fresh = IndexRegistry(LAB_SETTINGS).get(second)
+    assert not any('evicted' in note for note in fresh.stats.notes)
+
+    unbounded = IndexRegistry(replace(LAB_SETTINGS, max_indexes=0))
+    for n in (100, 200, 300, 400):
+        unbounded.get(_smoke_cfg(n))
+    assert len(unbounded.known()) == 4
+
+
+def test_a_held_index_outlives_more_builds_than_the_ceiling_allows():
+    # this is an integration test
+    """Recency is not safety: a job answering questions against an index holds
+    a reference the registry cannot see, so evicting the entry would free
+    nothing and make the next request rebuild something already resident. A
+    held fingerprint is therefore skipped by eviction — and becomes an
+    ordinary candidate again the moment its holder is done."""
+    reg = IndexRegistry(replace(LAB_SETTINGS, max_indexes=2))
+    reading = _smoke_cfg(100)
+    held = reg.get(reading)
+    with reg.hold(reading):
+        for n in (200, 300, 400, 500, 600):
+            reg.get(_smoke_cfg(n))
+        served = reg.get(reading)
+        assert served is held and served.stats.reused
+    for n in (700, 800):
+        reg.get(_smoke_cfg(n))
+    assert reading.fingerprint() not in {row['fingerprint'] for row in reg.known()}
+
+
+def test_one_build_per_cold_fingerprint_and_no_registry_wide_wait(monkeypatch):
+    # this is an integration test
+    """An index build is the most expensive thing this process does, so two
+    threads arriving on one cold fingerprint must produce one build and one
+    object — and the guard that arranges that must not be a registry-wide lock
+    held across the build, or every other fingerprint would queue behind it."""
+    real_build = registry_mod.LabIndex.build
+    built: list[int] = []
+    inside = threading.Event()
+    release = threading.Event()
+
+    def build(cfg, corpus, settings, progress=None):
+        built.append(cfg.chunk_chars)
+        if cfg.chunk_chars == 100:
+            inside.set()
+            assert release.wait(timeout=5)
+        return real_build(cfg, corpus, settings, progress=progress)
+
+    monkeypatch.setattr(registry_mod.LabIndex, 'build', build)
+    reg = IndexRegistry(LAB_SETTINGS)
+    got: dict[str, object] = {}
+
+    def ask(name: str) -> None:
+        got[name] = reg.get(_smoke_cfg(100))
+
+    threads = [threading.Thread(target=ask, args=(name,))
+               for name in ('first', 'second')]
+    for thread in threads:
+        thread.start()
+    assert inside.wait(timeout=5)
+    # The build above is still in flight; an unrelated fingerprint sails past it.
+    assert reg.get(_smoke_cfg(200)).stats.chunks == 5
+    release.set()
+    for thread in threads:
+        thread.join(timeout=10)
+    assert got['first'] is got['second']
+    assert built == [100, 200], 'the cold fingerprint was built exactly once'
 
 
 def test_different_configs_get_different_collections():

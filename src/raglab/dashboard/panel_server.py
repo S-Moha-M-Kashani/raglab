@@ -73,7 +73,8 @@ from raglab.dashboard.service_presentation import (
     mark_gold,
     summary_rows)
 from raglab.dashboard.imported_archive_store import ImportedArchiveStore
-from raglab.dashboard.routes import assets
+from raglab.dashboard.routes import assets, configuration
+from raglab.dashboard.routes.datasets import _dataset_declaration
 from raglab.dashboard.service_route_plumbing import (
     STATIC,
     _accepted,
@@ -85,15 +86,6 @@ from raglab.dashboard.service_route_plumbing import (
     scaled_progress)
 class JobCancelled(Exception):
     """A cooperative stop requested from the RAG Lab panel."""
-
-
-def _relative(path: Path) -> str:
-    """Repo-relative path for the panel, or absolute when it's outside the repo (`relative_to` raises)."""
-    try:
-        return str(path.relative_to(ROOT))
-    except ValueError:
-        return str(path)
-
 
 def _with_backend(cfg: LabConfig, run_settings) -> dict:
     """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
@@ -205,123 +197,6 @@ def _archive_ui(payload: dict) -> dict:
         'balance': payload.get('balance') or '',
     }
 
-
-def _catalogue_vocab() -> dict:
-    """The closed vocabularies for the three pipeline stages: chunker/embedder, retriever/reranker, grader/answerer."""
-    return {
-        'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
-        'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
-        'graders': list(GRADERS), 'answerers': list(ANSWERERS),
-    }
-
-
-def _hierarchy_options() -> dict:
-    """The summary hierarchy: grouping, graph edges, summariser, and what retrieval may do with the rows written."""
-    return {
-        'hierarchies': list(HIERARCHIES),
-        'graph_sources': list(GRAPH_SOURCES),
-        'summarizers': list(SUMMARIZERS),
-        'summary_scopes': list(SUMMARY_SCOPES),
-        # Verified by import, never guessed, so NA keeps meaning one thing:
-        # this installation cannot load it.
-        'hierarchy_support': hierarchy.available(),
-    }
-
-
-def _question_vocab(ground_truth: dict) -> dict:
-    """One switch-group per question label the loaded ground truth declares
-    with a closed set of values or a glossary (D7) — data-driven, since the
-    labels are the dataset's own, not a vocabulary every corpus must share.
-    `balance` may name any of them, or '' for a plain stride."""
-    fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
-             ).get('question_metadata_fields') or {}
-    labels = {name: (declaration.get('values')
-                     or list((declaration.get('glossary') or {})))
-             for name, declaration in fields.items()
-             if declaration.get('values') or declaration.get('glossary')}
-    return {
-        'question_labels': labels,
-        # The sample is part of the measurement: two rows on different
-        # samples are not two results of the same one.
-        'balances': [''] + sorted(labels),
-    }
-
-
-def _config_defaults() -> dict:
-    served = LabConfig().to_dict()
-    # The panel starts on the served DEFAULT corpus, named explicitly. The
-    # dataclass default stays '' — the legacy spelling of BUILTIN that keeps
-    # every recorded fingerprint meaning what it meant.
-    served['index']['dataset'] = datasets.DEFAULT
-    return {
-        # Served rather than duplicated per panel, so both grey out the same
-        # knobs for the same stated reason.
-        'dependencies': DEPENDENCIES,
-        'defaults': served,
-    }
-
-
-def _step_list() -> dict:
-    return {'steps': [{'key': step.key, 'short': step.short, 'label': step.label,
-                       'note': step.note} for step in STEPS]}
-
-
-def _model_catalogues(live) -> dict:
-    return {
-        'embedder_hints': embedding.embedder_hints(live),
-        'embed_models': embedding.embed_model_catalogue(live),
-        'models': models.catalogue(live),
-        'model_roles': [role.as_dict() for role in models.ROLES],
-        'modes': models.mode_catalogue(live),
-    }
-
-
-def _metric_help() -> dict:
-    # Label, step, formula and library per metric, so a name cannot
-    # drift from its definition. Two lengths of every explainer, from one
-    # source: `brief` is the opening sentence of `help`, taken by
-    # `explain.briefs()` rather than written a second time, so a hover box and
-    # the text it opens out into cannot come to say different things.
-    return {'metrics': explain.measures(), 'help': explain.topics(),
-            'brief': explain.briefs()}
-
-
-def _corpus_summary(diary: dict, ground_truth: dict) -> dict:
-    documents = diary.get('corpus_documents') or []
-    return {'corpus': {
-        'documents': len(documents),
-        'parts': sum(len(document.get('document_content') or [])
-                     for document in documents),
-        'questions': len(ground_truth.get('groundtruth_dataset') or []),
-        'query_date': (ground_truth.get('groundtruth_dataset_metadata') or {}
-                       ).get('default_question_asked_at', '')[:10],
-    }}
-
-
-def _capabilities(live) -> dict:
-    return {'capabilities': {
-        'fastembed': embedding.fastembed_available(),
-        'sentence_transformers': embedding.sentence_transformers_available(),
-        'cross_encoder': retrieval.cross_encoder_available(
-            live.cross_encoder_model),
-        'cross_encoder_model': live.cross_encoder_model,
-        'fastembed_model': live.fastembed_model,
-        # 'a real model is reachable', not 'a key exists' — under
-        # RAGLAB_LLM=ollama every stage runs locally with no key.
-        'llm': live.llm_ready,
-        'llm_provider': live.provider,
-        'llm_model': live.llm_model,
-        'ollama_base_url': live.ollama_base_url,
-        'ragas': ragas_eval.availability(live).as_dict(),
-        'openrouter_key': credentials.state(live),
-        # Stated positively, since the index is thrown away with the
-        # process rather than merely "no service named".
-        'storage': {'index': 'memory',
-                    'runs': str(RUNS_DIR.relative_to(ROOT)),
-                    'experiments': _relative(ledger.db_path())},
-    }}
-
-
 def _sent_events(events):
     """One iterator of dicts, encoded as server-sent events: `data: ` and the
     JSON, one object per line, blank line between. The lab's only streaming
@@ -402,59 +277,6 @@ def _safe_widget_event(event):
         # way a malformed one is.
         return {key: value for key, value in event.items() if key != 'memory'}
     return event | {'memory': {'status': status}}
-
-
-def _label_declaration(fields: dict) -> list[dict]:
-    """One row per declared label — name, type, its closed set of levels (a
-    plain `values` list or a `glossary`'s own keys; empty for an open field),
-    whether a model extracted it, and the confidence rater that scores it, if
-    any. Read straight off the file's own `label_fields`/
-    `question_metadata_fields` (D4) — nothing here is guessed or filled in."""
-    return [
-        {'name': name, 'type': declaration.get('type', ''),
-         'levels': declaration.get('values')
-                   or list(declaration.get('glossary') or {}),
-         'extracted': bool(declaration.get('extracted')),
-         'confidence_for': declaration.get('confidence_for', '')}
-        for name, declaration in sorted(fields.items())]
-
-
-def _dataset_declaration(dataset_id: str) -> dict:
-    """Everything the dataset card and the run's label filters read about one
-    dataset, straight off its loaded files (D4) — never hardcoded, so a
-    corpus with no date or ranks label just shows fewer rows and three
-    greyed-out knobs rather than a placeholder for what it lacks. The same
-    reading an import shows on success and a catalogue entry shows on
-    selection, because both are 'this is what the lab read' and must not
-    disagree."""
-    try:
-        corpus, ground_truth = datasets.load(dataset_id)
-    except ValueError:
-        # Listed but unmeasurable (D1): describe the corpus it does have and
-        # declare no question labels, rather than refusing to describe the
-        # catalogue at all. The refusal belongs on the run, not on the card.
-        corpus, ground_truth = datasets.load_corpus(dataset_id), {}
-    label_fields = (corpus.get('corpus_dataset_metadata') or {}
-                    ).get('label_fields') or {}
-    question_fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
-                       ).get('question_metadata_fields') or {}
-    return {
-        'label_declarations': _label_declaration(label_fields),
-        'question_label_declarations': _label_declaration(question_fields),
-        # '' means the corpus declares no such label (D5/D6) — the source
-        # `knob_dependencies.DEPENDENCIES` reads to grey the three time knobs
-        # and the agentic importance weight.
-        'date_label': corpus_reading.date_label(label_fields),
-        'ranks_label': corpus_reading.ranks_label(label_fields),
-    } | _question_vocab(ground_truth)
-
-
-def _dataset_options() -> dict:
-    return {
-        'datasets': [found.as_dict() | _dataset_declaration(found.id)
-                     for found in datasets.catalogue()],
-    }
-
 
 class Jobs:
     """In-process job table, bounded. A lab restart loses running jobs;
@@ -714,16 +536,7 @@ def create_app() -> FastAPI:
 
     install_no_store(app)
     assets.register(app, context)
-
-    @app.get('/api/options')
-    def options():
-        """Everything the panel needs to render itself, including what is actually installed."""
-        live = settings_now()
-        return (_catalogue_vocab() | _hierarchy_options()
-                | _question_vocab(ground_truth) | _config_defaults() | _step_list()
-                | _model_catalogues(live) | _metric_help()
-                | _corpus_summary(diary, ground_truth) | _capabilities(live)
-                | _dataset_options() | {'indexes': registry.known()})
+    configuration.register(app, context)
 
     @app.post('/api/indexes')
     def build_index(payload: dict):
@@ -1430,11 +1243,6 @@ def create_app() -> FastAPI:
         page redraws from the lab rather than assuming what it now holds."""
         widget.forget(thread)
         return widget.history(thread)
-
-    @app.get('/api/health')
-    def health():
-        # No dependency to report: the lab is up or it is not running.
-        return {'ok': True, 'storage': 'memory'}
 
     @app.exception_handler(ValueError)
     def value_error(_request, error: ValueError):

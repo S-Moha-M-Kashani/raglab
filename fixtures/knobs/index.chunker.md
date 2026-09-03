@@ -42,6 +42,8 @@ without the context that makes it interpretable (an unusable hit).
 
 ## Interactions
 Only `semantic-drift`, `fixed` and `fixed-overlap` read `index.chunk_chars`;
-only `fixed-overlap` reads `index.overlap` — the others cut on structure and
-grey both out. Chunk size then sets how many pieces `retrieval.k` and
+only `fixed-overlap` reads `index.overlap`; only `fixed` and `fixed-overlap`
+read `index.delimiters`, the boundaries they may stop a piece at — the others
+cut on structure, or on a drift signal of their own, and grey all three out.
+Chunk size then sets how many pieces `retrieval.k` and
 `retrieval.max_context_chars` can afford.

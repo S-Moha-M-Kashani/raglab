@@ -111,6 +111,18 @@ HELP = {
         'sitting on a boundary is not cut in half. Only "fixed-overlap" slides '
         'a window, so only it reads this; an overlap at or above the piece '
         'size is halved rather than looping forever.'),
+    'index.delimiters': (
+        'An ordered list of split points a piece may stop at, coarsest '
+        'boundary first — a paragraph break before a line break before a '
+        'sentence end. Only "fixed" and "fixed-overlap" read it; the others '
+        'cut on structure or on a boundary signal of their own and grey it '
+        'out. A piece is kept whole while it fits the character budget and is '
+        'split on the next delimiter only when it does not, falling back to '
+        'plain word packing once the list is exhausted. The match is a '
+        'literal string, not a regular expression and not sentence detection: '
+        'a corpus that wants sentences supplies ". " itself. Empty is the '
+        "default — today's plain whitespace packing, and it costs no "
+        'rebuild.'),
     'index.contextual': (
         'Prepend a one-line header to every chunk before embedding it '
         '(Anthropic call this contextual retrieval). A chunk that says "it '

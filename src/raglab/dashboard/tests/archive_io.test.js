@@ -15,7 +15,7 @@ const CONFIG = {
   label: 'imported experiment',
   index: {
     dataset: 'smoke-mini', chunker: 'session', chunk_chars: 500, overlap: 100,
-    contextual: true, embedder: 'token-hash', embed_model: '', hierarchy: '',
+    delimiters: [], contextual: true, embedder: 'token-hash', embed_model: '', hierarchy: '',
     graph_source: 'hybrid', graph_knn: 8, granularity: 1, hierarchy_levels: 1,
     min_group: 3, summarizer: 'centroid',
   },

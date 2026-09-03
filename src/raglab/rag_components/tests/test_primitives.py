@@ -17,7 +17,8 @@ from raglab.rag_components.retrieval import (
     retrieve_fuse_rerank_grade as retrieval)
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
 from raglab.configuration.lab_config import IndexConfig
-from raglab.configuration.option_vocabularies import CHUNKERS
+from raglab.configuration.option_vocabularies import (
+    CHUNKERS, DELIMITER_CHUNKERS)
 
 
 # --- text normalisation ----------------------------------------------------
@@ -168,6 +169,73 @@ def test_fixed_chunker_matches_the_production_packing(document):
     ours = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'))
     theirs = chunk_text(corpus.document_text(document), 500)
     assert [c.text for c in ours] == theirs
+
+
+# Mixed whitespace on purpose — a single newline, a doubled space, a tab, a
+# blank line and a trailing newline — since the claim below is that the
+# delimiter knob at its default still reduces all of it to plain words.
+MIXED_WHITESPACE = 'Alpha beta.\nGamma  delta.\n\n\tEpsilon zeta eta.\n'
+
+# Three paragraphs, the middle one over any budget the test uses, its
+# sentences under it — the shape the recursive fallback is for.
+DELIMITED = ('Short opening paragraph.\n\n'
+             'A second paragraph too long for the budget. '
+             'It runs on with several sentences. One more here.\n\n'
+             'Tail.')
+
+
+def test_no_delimiters_packs_exactly_as_it_did_before_the_knob_existed():
+    # this is a unit test
+    """`delimiters=()` is the default, and the default has to cost nothing:
+    both character-budget splitters must return the same strings they
+    returned before the knob was added, or every recorded `.runs/` row built
+    on `fixed`/`fixed-overlap` stops being comparable with a new one. The
+    expected lists are the pre-change implementation's own output, frozen
+    here rather than recomputed from the code they are supposed to guard."""
+    assert chunking.chunk_text(MIXED_WHITESPACE, 20, ()) == [
+        'Alpha beta. Gamma', 'delta. Epsilon zeta', 'eta.']
+    assert chunking._windows(MIXED_WHITESPACE, 20, 5, ()) == [
+        'Alpha beta. Gamma', 'Gamma delta. Epsilon', 'Epsilon zeta eta.']
+
+
+def test_delimiters_keep_a_boundary_whole_and_recurse_only_where_it_is_too_big():
+    # this is a unit test
+    """The three things the ordered list promises, on one text. The opening
+    paragraph fits, so it is kept whole and ends its chunk with the budget
+    barely half used — the point of the knob, since the old packing would
+    have run straight on into the next paragraph. The middle paragraph does
+    not fit, so it falls through to the next delimiter and comes back as
+    whole sentences. And a piece that contains none of the delimiters
+    configured (the same middle paragraph, with only the paragraph break
+    listed) falls all the way through to the word split, which is the base
+    case rather than a separate branch."""
+    assert chunking.chunk_text(DELIMITED, 45, ('\n\n', '. ')) == [
+        'Short opening paragraph.',
+        'A second paragraph too long for the budget',
+        'It runs on with several sentences',
+        'One more here. Tail.']
+    paragraph = DELIMITED.split('\n\n')[1]
+    assert (chunking.chunk_text(paragraph, 40, ('\n\n',))
+            == chunking.chunk_text(paragraph, 40))
+
+
+@pytest.mark.parametrize('chunker', [c for c in CHUNKERS
+                                     if c not in DELIMITER_CHUNKERS])
+def test_a_chunker_that_does_not_read_delimiters_is_unmoved_by_them(
+        document, label_fields, language, chunker):
+    # this is a unit test
+    """`message`, `turn-pair`, `session` and `semantic-drift` cut on the
+    corpus's own structure, not on a character budget, so the knob is not
+    theirs to read: setting it must leave their chunks byte-for-byte where
+    they were. Only the two chunkers named in `DELIMITER_CHUNKERS` see it."""
+    embedder = embedding.make_embedder('char-hash')
+    kwargs = dict(chunker=chunker, embedder='char-hash', contextual=False)
+    plain = chunking.chunk_document(document, IndexConfig(**kwargs), embedder,
+                                    label_fields, language)
+    set_anyway = chunking.chunk_document(
+        document, IndexConfig(delimiters=('\n\n', '. '), **kwargs), embedder,
+        label_fields, language)
+    assert [c.text for c in set_anyway] == [c.text for c in plain]
 
 
 def test_contextual_prefix_situates_the_chunk():

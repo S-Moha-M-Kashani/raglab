@@ -8,6 +8,7 @@
         "chunker": "fixed-overlap",
         "chunk_chars": 500,
         "overlap": 100,
+        "delimiters": [],
         "contextual": false,
         "embedder": "sentence-transformers",
         "embed_model": "",

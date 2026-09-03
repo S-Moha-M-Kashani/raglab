@@ -47,6 +47,7 @@ KNOBS = [
     ('card-index', 'chunker', 'select'),
     ('card-index', 'chunk_chars', 'number'),
     ('card-index', 'overlap', 'number'),
+    ('card-index', 'delimiters', 'text'),
     ('card-index', 'contextual', 'checkbox'),
     ('card-index', 'hierarchy', 'select'),
     ('card-index', 'graph_source', 'select'),
@@ -203,6 +204,9 @@ def test_the_index_knobs_take_a_choice_and_the_panel_records_it(panel):
     _set(panel, 'chunker', 'select', 'fixed-overlap')
     _set(panel, 'chunk_chars', 'number', '760')
     _set(panel, 'overlap', 'number', '140')
+    # Typed the way the field documents itself: coarsest first, and the one
+    # boundary whose whitespace a text box cannot show written `\s`.
+    _set(panel, 'delimiters', 'text', '\\n\\n, .\\s')
     _set(panel, 'contextual', 'checkbox', False)
     _set(panel, 'hierarchy', 'select', 'louvain')
     _set(panel, 'graph_source', 'select', 'knn')
@@ -219,7 +223,8 @@ def test_the_index_knobs_take_a_choice_and_the_panel_records_it(panel):
 
     assert _stored_config(panel)['index'] == {
         'dataset': 'smoke-mini', 'chunker': 'fixed-overlap', 'chunk_chars': 760,
-        'overlap': 140, 'contextual': False, 'embedder': 'sentence-transformers',
+        'overlap': 140, 'delimiters': ['\n\n', '. '], 'contextual': False,
+        'embedder': 'sentence-transformers',
         'embed_model': '', 'hierarchy': 'louvain', 'graph_source': 'knn',
         'graph_knn': 12, 'granularity': 1.4, 'hierarchy_levels': 3,
         'min_group': 5, 'summarizer': 'mmr'}
@@ -291,23 +296,28 @@ def test_the_generation_knobs_take_a_choice_and_the_panel_records_it(panel):
     assert kept['generation']['fact_judge'] is True
 
 
-def test_the_chunker_decides_whether_the_two_length_knobs_are_live(panel):
-    """`index.chunker` governs exactly two knobs, and the table says which."""
+def test_the_chunker_decides_which_of_its_own_knobs_are_live(panel):
+    """`index.chunker` governs three knobs, and the table says which."""
     _booted(panel)
-    assert _governed_by('index.chunker') == ['index.chunk_chars', 'index.overlap']
+    assert _governed_by('index.chunker') == [
+        'index.chunk_chars', 'index.delimiters', 'index.overlap']
 
     # The lab boots on semantic-drift: it cuts to a budget, so a chunk length
-    # is read and an overlap is not.
+    # is read, and neither an overlap nor a delimiter list is — it finds its
+    # own boundaries in the corpus rather than in the text.
     expect(panel.locator('#chunk_chars')).to_be_enabled()
     expect(panel.locator('#overlap')).to_be_disabled()
+    expect(panel.locator('#delimiters')).to_be_disabled()
 
     _set(panel, 'chunker', 'select', 'fixed-overlap')
     expect(panel.locator('#chunk_chars')).to_be_enabled()
     expect(panel.locator('#overlap')).to_be_enabled()
+    expect(panel.locator('#delimiters')).to_be_enabled()
 
     _set(panel, 'chunker', 'select', 'session')
     expect(panel.locator('#chunk_chars')).to_be_disabled()
     expect(panel.locator('#overlap')).to_be_disabled()
+    expect(panel.locator('#delimiters')).to_be_disabled()
 
 
 def test_choosing_a_grouping_wakes_every_knob_the_table_says_it_governs(panel):

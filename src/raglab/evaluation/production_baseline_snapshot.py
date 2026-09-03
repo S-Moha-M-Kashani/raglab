@@ -21,6 +21,11 @@ def production_config(defaults: dict) -> dict:
         'chunker': 'fixed-overlap',
         'chunk_chars': 500,          # retrieval.CHUNK_SIZE
         'overlap': 100,              # retrieval.CHUNK_OVERLAP
+        # Pinned empty, not passed through: the shipped assistant packed
+        # words up to the budget and knew nothing of paragraph boundaries.
+        # A list rather than the dataclass's tuple, like `agentic_weights`
+        # below, because this dict is served as JSON.
+        'delimiters': [],
         'contextual': False,
         'embedder': 'sentence-transformers',   # config.Settings.embedder
         'embed_model': ''}

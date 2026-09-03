@@ -255,7 +255,8 @@ SHIFTED_CONFIG = {
     'label': 'every knob moved off its default',
     'index': {
         'dataset': 'smoke-mini', 'chunker': 'fixed-overlap', 'chunk_chars': 384,
-        'overlap': 64, 'contextual': False, 'embedder': 'fastembed',
+        'overlap': 64, 'delimiters': ['\n\n', '. '],
+        'contextual': False, 'embedder': 'fastembed',
         'embed_model': 'shifted-embed-model', 'hierarchy': 'metadata',
         'graph_source': 'knn', 'graph_knn': 5, 'granularity': 1.5,
         'hierarchy_levels': 2, 'min_group': 4, 'summarizer': 'lead-idf',

@@ -451,19 +451,42 @@ def test_every_entry_point_resolves_to_something_callable():
 def test_the_widget_package_is_a_deletable_leaf():
     # this is a convention test
     """The widget is a helper outside the measured seam, and removable:
-    deleting src/raglab/agents/widget/ plus its one route must strand
-    nothing. Pinned in both directions with real import parsing rather than
-    a regex, so a parenthesised import list cannot slip past: only
-    panel_server.py imports the widget, and the widget package reaches the
-    lab only through its two unmeasured edges — the CLI chat drive and the
-    env settings — never the chat factory, the pipeline, evaluation or the
-    stores. (Its skills corpus loader lives *inside* the package now, so it
-    is no longer an edge at all.)"""
+    deleting src/raglab/agents/widget/ plus the handful of dashboard files
+    listed below must strand nothing. Pinned in both directions with real
+    import parsing rather than a regex, so a parenthesised import list cannot
+    slip past.
+
+    The direction is the claim. The widget package reaches the lab only
+    through its two unmeasured edges — the CLI chat drive and the env
+    settings — never the chat factory, the pipeline, evaluation or the stores
+    (its skills corpus loader lives *inside* the package now, so it is no
+    longer an edge at all). And the lab reaches the widget only from
+    `dashboard/`, from the named files and nowhere else: the factory that
+    wires it, the developer's trace page, its own route module (and the
+    package line that names it), and the two sections that must tell it when
+    what it cached changed underneath — a retyped OpenRouter key, an imported
+    corpus. Nothing in `corpora/`, `evaluation/`, `rag_components/` or
+    `llm_backends/` may reach in, which is what keeps the measured path free
+    of it.
+
+    Adding a name here is a decision, not a formality: it lengthens the list
+    of files that a deletion of the widget has to edit."""
     import ast
     widget_pkg = 'raglab.agents.widget'
     widget_dir = SRC / 'raglab' / 'agents' / 'widget'
     allowed_into_lab = {'raglab.llm_backends.cli_subprocess_chat',
                         'raglab.configuration.env_settings'}
+    # Paths rather than bare file names: `widget.py` alone would name two
+    # different files here.
+    allowed_to_reach_in = {
+        'raglab/dashboard/panel_server.py',      # wires the key resolver and
+                                                 # the experiment reader in
+        'raglab/dashboard/dev_trace_page.py',    # renders one widget thread
+        'raglab/dashboard/routes/__init__.py',   # names the route modules
+        'raglab/dashboard/routes/widget.py',     # the widget's own routes
+        'raglab/dashboard/routes/credentials.py',  # a retyped key: widget.reset()
+        'raglab/dashboard/routes/datasets.py',   # an import: forget_board_dataset_ids()
+    }
 
     def resolved(node, path) -> list[str]:
         """Absolute dotted targets of one import node, raglab ones only."""
@@ -480,14 +503,18 @@ def test_the_widget_package_is_a_deletable_leaf():
             module = node.module or ''
         if not module.startswith('raglab'):
             return []
-        if node.module and node.level == 0 and '.' in module:
-            return [module]
-        # `from <pkg> import x` — x may be a submodule; count the deeper name.
-        return [f'{module}.{a.name}' if module else a.name for a in node.names]
+        # `from <pkg> import x` — the package is imported, and x may itself be
+        # a submodule; count both names, or a nested package would hide behind
+        # its parent (`from raglab.agents import widget` reading as a mere
+        # import of `raglab.agents`).
+        if module:
+            return [module] + [f'{module}.{a.name}' for a in node.names]
+        return [a.name for a in node.names]
 
     reachers, escapes = [], []
     for path in _SRC_FILES:
         tree = ast.parse(path.read_text(encoding='utf-8'))
+        where = path.relative_to(SRC).as_posix()
         inside = path.is_relative_to(widget_dir)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -498,9 +525,11 @@ def test_the_widget_package_is_a_deletable_leaf():
                             and not any(target == edge or target.startswith(edge + '.')
                                         for edge in allowed_into_lab)):
                         escapes.append(f'{path.name} imports {target}')
-                elif 'widget' in target and path.name != 'panel_server.py':
-                    reachers.append(path.name)
-    assert not reachers, f'only panel_server.py may import the widget: {reachers}'
+                elif 'widget' in target and where not in allowed_to_reach_in:
+                    reachers.append(f'{where} imports {target}')
+    assert not reachers, (
+        'only these files may reach the widget — '
+        f'{sorted(allowed_to_reach_in)} — but {reachers}')
     assert not escapes, f'the widget escaped its unmeasured edges: {escapes}'
 
 
@@ -525,6 +554,10 @@ def test_the_panel_context_holds_and_does_not_decide():
     context = lab_server.PanelContext
     assert dataclasses.is_dataclass(context)
     assert context.__dataclass_params__.frozen, 'the context must be frozen'
+    # `vars()` below reads only the class's own dict, so a base class is where
+    # a method could still hide. There is no base.
+    assert context.__mro__[1:] == (object,), (
+        'the context inherits from nothing — logic in a base is still logic')
     own = sorted(name for name in vars(context) if name not in vars(_Reference))
     assert not own, f'the context grew {own} — it holds, it does not decide'
     assert all(field.default is dataclasses.MISSING

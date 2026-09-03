@@ -2,8 +2,9 @@
 composed as one app on :9002 by `served_lab.py`, the Inspector mounted at /inspector):
 the frontend folder and the one asset route each service installs over its own
 allowlist, the no-store middleware both install, job-acceptance responses,
-config screening, cancellation, progress. Nothing here may import
-either service — the dependency points one way, from the services into this module."""
+config screening, the resolved backend a job records, cancellation, progress.
+Nothing here may import either service — the dependency points one way, from
+the services into this module."""
 from dataclasses import dataclass
 from pathlib import Path
 

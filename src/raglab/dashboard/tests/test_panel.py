@@ -29,9 +29,9 @@ def panel_texts(client):
     entries are carved out of the full page, css and script, because their
     claim is *where* the text sits rather than merely that it exists
     somewhere on the page — the same regions the retired pin tests scoped
-    their own reads to. `panel_server.py` is the one entry read from disk: the
-    lab's Python source is never served, so there is no route to prefer over
-    it."""
+    their own reads to. The panel's route modules are the entries read from
+    disk: the lab's Python source is never served, so there is no route to
+    prefer over it."""
     html = client.get('/').text
     css = client.get('/panel.css').text
     js = client.get('/panel.js').text
@@ -87,8 +87,14 @@ def panel_texts(client):
         'experiment_handoff.js': client.get('/experiment_handoff.js').text,
         'widget.css': client.get('/widget.css').text,
         'widget.js': client.get('/widget.js').text,
+        # The panel's route modules, one entry each, read from disk: the lab's
+        # Python source is never served, so there is no route to prefer over
+        # it. One key per module rather than one for the whole service, so a
+        # row that claims a route exists names the section it belongs to.
         'panel_server.py': (RAGLAB_DIR / 'dashboard' / 'panel_server.py').read_text(encoding='utf-8'),
-    }
+    } | {f'routes/{module.name}': module.read_text(encoding='utf-8')
+         for module in sorted(
+             (RAGLAB_DIR / 'dashboard' / 'routes').glob('*.py'))}
 
 
 # (file, must_contain, must_not_contain, reason) — one row per retired
@@ -523,7 +529,7 @@ CONVENTIONS = [
      'board hands over reaches a page that cannot read it'),
     ('leaderboard.html', '/experiment_handoff.js', None,
      'the board must load the same module it writes the slot with'),
-    ('panel_server.py', "'experiment_handoff.js'", None,
+    ('routes/assets.py', "'experiment_handoff.js'", None,
      'a script both pages link must have a route serving it'),
     ('panel.js', 'ExperimentHandoff.taken', None,
      'the Laboratory must take what the board handed over'),
@@ -1118,7 +1124,8 @@ def test_one_route_serves_every_public_asset(client):
     eighteenth route. Both halves are pinned: no allowlisted path is served by
     a route of its own any more, and the shared stylesheet still arrives with
     its bytes and its content type."""
-    from raglab.dashboard.panel_server import ASSETS, STATIC
+    from raglab.dashboard.routes.assets import ASSETS
+    from raglab.dashboard.panel_server import STATIC
 
     endpoints = {}
     for route in client.app.routes:
@@ -1156,7 +1163,8 @@ def test_every_asset_entry_says_why_it_is_served(client):
     docstring — why the widget's sheet is not panel.css, why the tokens go to
     both surfaces. It travels on the allowlist entry now, so the reasoning is
     read beside the sharing it explains rather than deleted with the route."""
-    from raglab.dashboard.panel_server import ASSETS, STATIC
+    from raglab.dashboard.routes.assets import ASSETS
+    from raglab.dashboard.panel_server import STATIC
 
     for path, entry in ASSETS.items():
         assert (STATIC / entry.file).is_file(), path

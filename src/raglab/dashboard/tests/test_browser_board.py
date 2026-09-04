@@ -67,7 +67,7 @@ def a_failed_experiment(lab_server) -> str:
     non-empty `error`.
     """
     started = httpx.post(f'{lab_server}/api/retrievals', json={
-        'index': {'dataset': 'no-such-corpus', 'chunker': 'session',
+        'index': {'dataset': 'no-such-corpus', 'split_plan': [{'kind': 'document'}],
                   'embedder': 'token-hash'},
         'retrieval': {'k': 2, 'reranker': 'none', 'grader': 'none'},
         'generation': {'answerer': 'extractive'}}, timeout=30.0)
@@ -445,7 +445,7 @@ def test_the_settings_reveal_publishes_the_knobs_that_produced_the_row(
     expect(reveal).to_be_visible()
     expect(reveal.locator('.reveal-said')).to_contain_text('token-hash')
     expect(reveal.locator('.reveal-step[data-step="index"]')).to_contain_text(
-        'session')
+        'split_plan document')
     expect(reveal.locator('.reveal-step[data-step="generation"]')).to_contain_text(
         'extractive')
     # A knob the build never read reads `none`, never the value that sat
@@ -519,7 +519,7 @@ def test_the_open_arrow_lands_the_laboratory_on_that_experiment(
     # The knobs are that experiment's: the corpus first, because a config
     # applied against the wrong corpus is not that experiment at all.
     expect(board.locator('#dataset')).to_have_value('smoke-mini')
-    expect(board.locator('#chunker')).to_have_value('session')
+    expect(board.locator('#plan-text')).to_have_text('document')
     expect(board.locator('#embedder')).to_have_value('token-hash')
     expect(board.locator('#k')).to_have_value('2')
     expect(board.locator('#reranker')).to_have_value('none')

@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+from raglab.configuration import split_plan
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.evaluation import experiment_archive as archive
@@ -124,7 +125,7 @@ def question_page(run: dict, question: dict, row: dict) -> str:
         '',
         f"Run `{run['run_id']}` · **{run.get('label', '')}** · "
         f"k={run['config']['retrieval'].get('k')} · "
-        f"chunker `{run['config']['index'].get('chunker')}` · "
+        f"plan `{split_plan.text(run['config']['index'].get('split_plan') or ())}` · "
         f"answerer `{run['config']['generation'].get('answerer')}`",
         '',
         '## Asked',

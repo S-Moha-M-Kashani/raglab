@@ -87,42 +87,79 @@ HELP = {
         'confidently about text it never contained. Every bundled pair in '
         'fixtures/corpus_groundtruth_datasets/ meets it and is the working '
         'reference the templates were copied from.'),
-    'index.chunker': (
-        'How one document is cut into the pieces that get embedded. "fixed" '
-        'packs words up to a character budget; "fixed-overlap" slides a window '
-        'so a sentence on a boundary appears in both neighbours; "message" '
-        'keeps one document part per piece; "turn-pair" keeps a part with the '
-        'one that answers it; "session" stores the whole document as one '
-        'piece. "semantic-drift" cuts where consecutive parts stop resembling '
-        'each other — the bottom third of that document\'s own similarity '
-        'distribution, so no absolute threshold is assumed — and also at a '
-        'size ceiling and at a short list of topic-change phrases, which is '
-        'the only part of it written for one language.'),
+    'index.split_plan': (
+        'Where a document is cut, as an ordered list of stages, each '
+        'subdividing what the one before it produced. The document is always '
+        'the first stage — no chunk ever spans two documents — and the budget '
+        'below closes the plan. A "part" stage keeps one piece per part of the '
+        'document; a label boundary such as role=user opens a new piece at '
+        'every part carrying that label, so a question and its answers stay '
+        'together whatever the other speakers are called; a separator is a '
+        'literal string ("\\n\\n", ". ") that cuts text — by default only a '
+        'piece still over the budget, so a paragraph that fits is left whole; '
+        '"drift" cuts where consecutive parts stop resembling each other, at '
+        'the bottom third of that document\'s own similarity distribution, at '
+        'a ceiling of twice the budget, and at any topic-change markers you '
+        'give it — none are built in. Within one stage atoms combine with '
+        '"or" (cut wherever any matches) or with "and" (cut only where every '
+        'one holds), never both; coarse-to-fine is successive stages. A stage '
+        'that reads parts — drift, a label boundary — cannot follow a '
+        'separator, because once text has been cut inside a part no parts '
+        'remain, and a label the selected corpus never declares is refused '
+        'rather than cutting nothing. Typed as one line in a sweep: '
+        '"document / \\"\\n\\n\\" / \\". \\"".'),
     'index.chunk_chars': (
-        'How large a piece may be, in characters. Only the three length-based '
-        'splitters read it; the rest cut on structure and grey it out. "fixed" '
-        'and "fixed-overlap" treat it as the size of one piece, so it behaves '
-        'as a target; "semantic-drift" treats it as a maximum, cutting a '
-        'segment once adding the next part would take it past twice this '
-        'value. Small pieces retrieve precisely and often lose the sentence '
-        'that answers the question; large ones keep it and dilute precision.'),
+        'How large a piece may be — the budget that closes every plan. After '
+        'the last stage, any piece still larger than this is divided at word '
+        'boundaries to fit, and a stage set to apply only over budget reads '
+        'it to decide whether to cut at all; the drift stage caps a segment at '
+        'twice this value. The unit is the knob beside it. Small pieces '
+        'retrieve precisely and often lose the sentence that answers the '
+        'question; large ones keep it and dilute precision.'),
+    'index.chunk_unit': (
+        'What the budget counts: characters, or the units the embedding model '
+        'reads. Five hundred characters is a different quantity of content in '
+        'every script the lab holds — Farsi, German and English do not spend '
+        'letters at the same rate — so a budget in model units is what makes '
+        'one number mean one amount of content across corpora. Only an '
+        'embedder that loads a real model can count them; the hash embedders '
+        'see characters, and a budget in tokens over one is refused rather '
+        'than quietly counted in characters.'),
     'index.overlap': (
-        'Characters repeated between neighbouring pieces, so a sentence '
-        'sitting on a boundary is not cut in half. Only "fixed-overlap" slides '
-        'a window, so only it reads this; an overlap at or above the piece '
-        'size is halved rather than looping forever.'),
-    'index.delimiters': (
-        'An ordered list of split points a piece may stop at, coarsest '
-        'boundary first — a paragraph break before a line break before a '
-        'sentence end. Only "fixed" and "fixed-overlap" read it; the others '
-        'cut on structure or on a boundary signal of their own and grey it '
-        'out. A piece is kept whole while it fits the character budget and is '
-        'split on the next delimiter only when it does not, falling back to '
-        'plain word packing once the list is exhausted. The match is a '
-        'literal string, not a regular expression and not sentence detection: '
-        'a corpus that wants sentences supplies ". " itself. Empty is the '
-        "default — today's plain whitespace packing, and it costs no "
-        'rebuild.'),
+        'Units repeated between neighbouring pieces where the budget divides '
+        'one, so a sentence on the boundary is not cut in half. Zero, the '
+        'default, divides cleanly; set, each piece the budget makes begins '
+        'with the tail of the one before it. It costs duplication — the same '
+        'text lives in two vectors and competes for the top-k slots — and an '
+        'overlap at or above the budget is halved rather than looping '
+        'forever. A piece no stage or budget divided repeats nothing.'),
+    'index.part_join': (
+        'The string that joins a document\'s parts into its text — a bare '
+        'newline by default. A corpus whose parts are sections rather than '
+        'turns can join them on a blank line, which is what lets a separator '
+        'stage naming a blank line cut between two parts at all; joined on a '
+        'single newline it can never match there. Inert at its default: the '
+        'text an embedder reads is the parts, one per line, exactly as before.'),
+    'index.part_prefix': (
+        'Which declared part-level label, if any, is written in front of each '
+        'part\'s text — none by default. The corpus template asks that a '
+        'part\'s text carry no speaker prefix and no markup, and the lab holds '
+        'itself to the same rule: a part is indexed as the corpus recorded it. '
+        'Naming a label here ("role") writes its value at the start of every '
+        'part ("user: …") for a pipeline that wants the speaker inside the '
+        'vector, and the config records that it did; the label\'s value '
+        'reaches every chunk as a label either way.'),
+    'index.normalizer': (
+        'Which text normaliser the lexical stages tokenise with; the corpus\'s '
+        'declared language picks one unless this names it. "persian" folds '
+        'Arabic letterforms and Persian digits to one spelling and drops a '
+        'short Persian stop list — what the lab applied to every corpus '
+        'before this knob existed; "neutral" normalises Unicode and folds '
+        'nothing. A corpus declaring "fa" gets the first by default and every '
+        'other language the second. BM25, the hash embedders, the '
+        'hierarchy\'s rare-word edges and a drift stage\'s markers all read it; '
+        'whether Persian folding helps a German corpus is a measurable '
+        'question, so either may be named for any corpus.'),
     'index.contextual': (
         'Prepend a one-line header to every chunk before embedding it '
         '(Anthropic call this contextual retrieval). A chunk that says "it '

@@ -400,15 +400,16 @@ test('the dataset dropdown offers the built-in corpus as the empty string '
   assert.equal(page.byId('dataset').innerHTML.includes('value="diary-fa"'), false);
 
   // What a fresh page would actually submit for a build: the served default
-  // (`''`), read back through the control that shows it.
-  assert.equal(REAL_OPTIONS.defaults.index.dataset, '');
-  assert.equal(page.byId('dataset').value, '');
-  assert.equal(page.sandbox.readConfig().index.dataset, '');
+  // — the English diary, named by its own id, never the `''` the built-in
+  // Farsi original keeps — read back through the control that shows it.
+  assert.equal(REAL_OPTIONS.defaults.index.dataset, 'diary-en');
+  assert.equal(page.byId('dataset').value, 'diary-en');
+  assert.equal(page.sandbox.readConfig().index.dataset, 'diary-en');
   // And the corpus card renders, which is the visible half of the same fact:
   // the lookup reads the selected value back to a corpus, and under the dead
   // mapping `''` matched no row at all, so `describeDataset` returned early
   // and the header described nothing.
-  assert.equal(page.byId('corpusName').textContent, 'diary-fa');
+  assert.equal(page.byId('corpusName').textContent, 'diary-en');
   assert.match(page.byId('corpus').textContent, /documents · \d+ parts/);
 });
 
@@ -461,7 +462,7 @@ test('an archive recorded with a dataset this installation does not serve '
   const page = panelPage({ search: `?experiment=${runId}`,
                            archives: { [runId]: archive } });
   await page.settled;
-  assert.equal(page.byId('dataset').value, '',
+  assert.equal(page.byId('dataset').value, 'diary-en',
     "the panel's own starting selection (no prior save in this test) — "
     + 'never the unknown id, and never diary-fa either: an unknown id is '
     + "not '' and gets no free resolution");

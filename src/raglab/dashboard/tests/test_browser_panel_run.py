@@ -26,12 +26,14 @@ pytestmark = pytest.mark.browser
 
 from playwright.sync_api import expect                      # noqa: E402
 
+from raglab.dashboard.tests.conftest import set_plan  # noqa: E402
+
 #: A build is fast here, but a cold first page load and a job's 700 ms poll
 #: are not — every wait below is Playwright's own, never a sleep.
 SETTLE = 20_000
 
 
-def _pick_the_smoke_experiment(page, *, chunker='session', limit='0',
+def _pick_the_smoke_experiment(page, *, plan=(), limit='0',
                                ragas_mode='off', dataset='smoke-mini'):
     """Put the panel on the smoke corpus and a pipeline that needs no model.
 
@@ -40,8 +42,9 @@ def _pick_the_smoke_experiment(page, *, chunker='session', limit='0',
     doing offline work does is put the backend back to the one the lab booted
     with, and every stage that would call a model back to one that does not.
 
-    `chunker` is in the index fingerprint, so a journey that has something to
-    say about building names its own: the lab under test is shared and its
+    `plan` — the stages added after the document — is in the index
+    fingerprint, so a journey that has something to say about building names
+    its own: the lab under test is shared and its
     index registry is process memory, which would otherwise make "was this
     reused?" a question about which test ran first.
 
@@ -53,10 +56,10 @@ def _pick_the_smoke_experiment(page, *, chunker='session', limit='0',
     page.set_viewport_size({'width': 1440, 'height': 1800})
     # Nothing exists at parse time: every select on this page is empty in the
     # markup and filled once `GET /api/options` answers.
-    expect(page.locator('#chunker option').first).to_be_attached(timeout=SETTLE)
+    expect(page.locator('#plan-add option').first).to_be_attached(timeout=SETTLE)
     page.select_option('#mode', '')
     page.select_option('#dataset', dataset)
-    page.select_option('#chunker', chunker)
+    set_plan(page, *plan)
     page.select_option('#embedder', 'token-hash')
     page.uncheck('#hyde')
     page.select_option('#reranker', 'none')
@@ -114,8 +117,8 @@ def test_the_reader_picks_the_smoke_corpus_and_builds_its_index(panel):
 
 def test_building_the_same_index_twice_reuses_it_and_a_forced_rebuild_does_not(
         panel):
-    # Its own chunker, so this journey owns the collection it talks about.
-    _pick_the_smoke_experiment(panel, chunker='turn-pair')
+    # Its own plan, so this journey owns the collection it talks about.
+    _pick_the_smoke_experiment(panel, plan=('drift',))
     first = _build(panel)
     collection = _collection_of(first)
     assert 'reused' not in first, \
@@ -134,17 +137,17 @@ def test_building_the_same_index_twice_reuses_it_and_a_forced_rebuild_does_not(
 
 
 def test_changing_a_knob_and_building_again_builds_a_different_index(panel):
-    _pick_the_smoke_experiment(panel, chunker='message')
-    by_message = _collection_of(_build(panel))
+    _pick_the_smoke_experiment(panel, plan=('part',))
+    by_part = _collection_of(_build(panel))
 
-    # A chunker is inside the index fingerprint, so cutting the same five
+    # The plan is inside the index fingerprint, so cutting the same five
     # sessions a different way is a different index and has to be built.
-    panel.select_option('#chunker', 'fixed')
+    set_plan(panel)
     panel.fill('#chunk_chars', '140')
     rebuilt = _build(panel)
     assert '(reused)' not in rebuilt, \
         'a knob the build reads changed, so nothing could be handed back'
-    assert _collection_of(rebuilt) != by_message, rebuilt
+    assert _collection_of(rebuilt) != by_part, rebuilt
 
 
 def test_retrieving_without_an_evaluation_reports_what_came_back(panel):
@@ -282,4 +285,4 @@ def test_refresh_re_reads_what_the_server_has(panel):
     assert 'avg' not in listing.inner_text(), listing.inner_text()
     # The reader's own choices survive the re-boot.
     expect(panel.locator('#dataset')).to_have_value('smoke-mini')
-    expect(panel.locator('#chunker')).to_have_value('session')
+    expect(panel.locator('#plan-text')).to_have_text('document')

@@ -259,8 +259,8 @@ function settingsReveal(row) {
     .map((step) => `<div class="reveal-step" data-step="${step}">`
       + `<b>${step}</b>`
       + Object.entries(config[step]).map(([k, v]) => {
-        // A knob this config recorded but the build never read (an overlap
-        // under a chunker that never slides a window) is a refusal, not a
+        // A knob this config recorded but the build never read (an embedding
+        // model under a hash embedder that loads none) is a refusal, not a
         // number to trust — so it reads `none`, never the value that sat
         // unused, and the span carries its own class and the reason a reader
         // would otherwise have to guess at. A knob genuinely recorded as the
@@ -268,7 +268,7 @@ function settingsReveal(row) {
         // below, unchanged, so the two are never mistaken for each other.
         const reason = inert[`${step}.${k}`];
         return reason === undefined
-          ? `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(String(v))}</b></span>`
+          ? `<span class="reveal-knob">${escapeHtml(k)} <b>${escapeHtml(k === 'split_plan' ? planText(v) : String(v))}</b></span>`
           : `<span class="reveal-knob-off" title="${escapeHtml(reason)}`
             + ` — recorded value never used">${escapeHtml(k)} <b>none</b></span>`;
       }).join('')

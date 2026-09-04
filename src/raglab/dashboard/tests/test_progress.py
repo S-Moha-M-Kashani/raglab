@@ -22,7 +22,7 @@ from raglab.conftest import LAB_SETTINGS
 # to say where it is. The callback carries a human detail beside the fraction
 # because "0.92" for two hours tells the reader nothing about what is happening.
 
-PROGRESS_CFG = LabConfig(index=IndexConfig(chunker='message', embedder='char-hash'),
+PROGRESS_CFG = LabConfig(index=IndexConfig(split_plan=({'kind': 'document'}, {'kind': 'part'}), embedder='char-hash'),
                          generation=GenerationConfig(answerer='extractive'),
                          label='progress')
 

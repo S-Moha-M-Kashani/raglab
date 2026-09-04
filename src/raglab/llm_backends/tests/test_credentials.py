@@ -331,7 +331,7 @@ def test_no_artefact_a_run_leaves_behind_contains_the_key():
     assert settings.llm_ready and settings.openrouter_api_key == KEY, (
         'the stub below is only a guard if the key really was in force')
 
-    cfg = LabConfig(index=IndexConfig(chunker='session', embedder='token-hash'),
+    cfg = LabConfig(index=IndexConfig(split_plan=({'kind': 'document'},), embedder='token-hash'),
                     generation=GenerationConfig(answerer='llm'), label='key-safety')
     notes = [models.note_for(cfg, settings)]
 

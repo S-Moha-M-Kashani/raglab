@@ -123,7 +123,7 @@ function formatConfig(cfg) {
   // Corpus first when it is not the built-in diary — two corpora are not two
   // configurations of one measurement, and this must not go unstated.
   if (cfg.index && cfg.index.dataset) parts.push(cfg.index.dataset);
-  if (cfg.index) parts.push(`${cfg.index.chunker} · ${cfg.index.embedder}`);
+  if (cfg.index) parts.push(`${planText(cfg.index.split_plan)} · ${cfg.index.embedder}`);
   if (cfg.retrieval) {
     parts.push(`${cfg.retrieval.retriever} k=${cfg.retrieval.k}`,
                cfg.retrieval.reranker, `grader=${cfg.retrieval.grader}`);

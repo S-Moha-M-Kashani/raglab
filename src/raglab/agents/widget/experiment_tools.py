@@ -18,6 +18,7 @@ the experiments" are different sentences.
 from langchain_core.tools import tool
 
 from raglab.agents.widget import long_term_memory
+from raglab.configuration.split_plan import text as plan_text
 
 # The reader, injected. None until a panel wires one in — the `__main__`
 # harness and any test that does not want records both run without one.
@@ -233,6 +234,9 @@ def _knobs(knobs: dict, inert: dict | None = None) -> list[str]:
         for name, value in values.items():
             if f'{step}.{name}' in inert:
                 parts.append(f'{name}=none')
+            elif name == 'split_plan' and value:
+                # the plan in the one line a person reads, not its stored objects
+                parts.append(f'{name}={plan_text(value)}')
             elif value not in ('', None, [], {}):
                 parts.append(f'{name}={value}')
         if parts:

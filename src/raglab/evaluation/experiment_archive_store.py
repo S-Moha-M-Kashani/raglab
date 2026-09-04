@@ -37,6 +37,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from raglab.configuration import split_plan
 from raglab.corpora import corpus_store as corpora
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import experiment_archive as archive
@@ -97,7 +98,7 @@ CREATE TABLE IF NOT EXISTS archives (
   started_at      TEXT NOT NULL DEFAULT '',
   seconds         REAL NOT NULL DEFAULT 0,
   provider        TEXT NOT NULL DEFAULT '',
-  chunker         TEXT NOT NULL DEFAULT '',
+  split_plan      TEXT NOT NULL DEFAULT '',
   embedder        TEXT NOT NULL DEFAULT '',
   retriever       TEXT NOT NULL DEFAULT '',
   reranker        TEXT NOT NULL DEFAULT '',
@@ -261,7 +262,7 @@ def projection(value: dict) -> dict:
         'started_at': result.get('started_at', ''),
         'seconds': float(result.get('seconds') or 0.0),
         'provider': (evaluation.get('execution') or {}).get('provider', ''),
-        'chunker': index.get('chunker', ''),
+        'split_plan': split_plan.text(index.get('split_plan') or ()),
         'embedder': index.get('embedder', ''),
         'retriever': retrieval.get('retriever', ''),
         'reranker': retrieval.get('reranker', ''),
@@ -291,7 +292,8 @@ def _migrate(db: sqlite3.Connection) -> None:
     # corpus row can ever have (`AUTOINCREMENT` starts at 1). Such a row falls
     # back to the fingerprint the archive carries, which is exactly the case
     # the portable half exists for.
-    for name, kind in (('id_corpora', 'INTEGER NOT NULL DEFAULT 0'),):
+    for name, kind in (('id_corpora', 'INTEGER NOT NULL DEFAULT 0'),
+                       ('split_plan', "TEXT NOT NULL DEFAULT ''")):
         if name not in have:
             db.execute(f'ALTER TABLE archives ADD COLUMN {name} {kind}')
             have.add(name)
@@ -309,13 +311,17 @@ def _rekey(db: sqlite3.Connection) -> None:
     one — an id is storage identity, and the storage order is the only thing it
     could honestly mean.
 
-    Nothing is transcribed on the way: every column is carried by name, so a
-    rebuilt row says exactly what it said before, and only its key changed.
+    Nothing is transcribed on the way: every column both tables have is
+    carried by name, so a rebuilt row says exactly what it said before, and
+    only its key changed. A column the old table had and this schema no longer
+    has (`chunker`, a knob that stopped existing) is left behind — the archive
+    itself still carries the whole config.
     """
-    columns = [row['name'] for row in db.execute('PRAGMA table_info(archives)')]
-    names = ', '.join(columns)
+    old = [row['name'] for row in db.execute('PRAGMA table_info(archives)')]
     db.execute('ALTER TABLE archives RENAME TO archives_keyed_by_experiment')
     db.execute(SCHEMA)
+    kept = {row['name'] for row in db.execute('PRAGMA table_info(archives)')}
+    names = ', '.join(name for name in old if name in kept)
     db.execute(f'INSERT INTO archives ({names}) SELECT {names} FROM '
                'archives_keyed_by_experiment ORDER BY rowid')
     db.execute('DROP TABLE archives_keyed_by_experiment')

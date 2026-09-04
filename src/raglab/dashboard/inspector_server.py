@@ -176,7 +176,9 @@ def _answered(found: LabReply, outage: str) -> dict:
 # the sweep baseline plus the LLM relevance gate. One source for the endpoint
 # tests and the frontend so the two cannot drift.
 CHOSEN_CONFIG = {
-    'index': {'chunker': 'semantic-drift', 'embedder': 'sentence-transformers'},
+    'index': {'split_plan': [{'kind': 'document'},
+                             {'kind': 'drift', 'markers': [], 'when': 'always'}],
+              'embedder': 'sentence-transformers'},
     'retrieval': {'retriever': 'hybrid-rrf', 'k': 8, 'reranker': 'lexical',
                   'time_filter': True, 'grader': 'llm', 'grade_threshold': 0.4},
 }
@@ -335,7 +337,6 @@ def create_inspector_app(lab: LabAccess | None = None) -> FastAPI:
     def chosen_config() -> dict:
         return {
             'chosen': CHOSEN_CONFIG,
-            'chunkers': list(lab_config.CHUNKERS),
             'embedders': list(lab_config.EMBEDDERS),
             'retrievers': list(lab_config.RETRIEVERS),
             'rerankers': list(lab_config.RERANKERS),

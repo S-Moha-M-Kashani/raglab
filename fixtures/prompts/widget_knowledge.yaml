@@ -26,7 +26,7 @@ surfaces: >-
 architecture: >-
   The lab prescribes no single RAG architecture: every stage is a config
   knob, and the right pipeline depends on the use case — measurement
-  decides. The measured pipeline has three steps: indexing (chunker,
+  decides. The measured pipeline has three steps: indexing (split plan,
   embedder, optional summary hierarchy, all into the in-memory vector
   store), retrieval (query understanding, retrieve, fuse, rerank, grade)
   and generation. Around it sits an evaluation harness that scores what

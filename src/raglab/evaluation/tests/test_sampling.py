@@ -158,8 +158,7 @@ def test_a_run_saves_the_questions_it_was_measured_on(registry, ground_truth):
     """Neither the config nor the metric means say which questions produced them,
     so the ids travel with the row. Losing them is how two rows get compared
     across two different samples with nothing to reveal it."""
-    cfg = LabConfig(index=IndexConfig(chunker='semantic-drift',
-                                      embedder='char-hash', contextual=True),
+    cfg = LabConfig(index=IndexConfig(embedder='char-hash', contextual=True),
                     generation=GenerationConfig(answerer='none'))
     result = evaluate.run_eval(registry, ground_truth, cfg, LAB_SETTINGS,
                                limit=9, balance='difficulty', ragas_mode='off')

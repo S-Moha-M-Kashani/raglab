@@ -575,8 +575,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
                    display: block; margin-bottom: var(--s-1); }
 .reveal-knob { display: block; color: var(--ink-soft); }
 .reveal-knob > b { color: var(--ink); }
-/* A knob the recorded config held but this build never read (an `overlap`
-   under a chunker that never slides a window): drawn as `none`, and never
+/* A knob the recorded config held but this build never read (an
+   `embed_model` under a hash embedder that loads none): drawn as `none`, and never
    inked as a real value — the `<b>` stays the label's own `--ink-soft`
    instead of stepping up to `--ink` (inherited, not restated), so a scan for
    real settings passes over it without a new colour to learn. This is

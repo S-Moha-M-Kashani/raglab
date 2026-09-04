@@ -53,8 +53,10 @@ const CURRENT = {
     // `''` is that corpus's config identity (`IndexConfig.fingerprint()` drops
     // it), so it is the value the `<option>` carries and therefore the value
     // this control can actually be holding.
-    dataset: '', chunker: 'semantic-drift', chunk_chars: 500,
-    overlap: 100, contextual: true, embedder: 'token-hash', embed_model: '',
+    dataset: '',
+    split_plan: [{ kind: 'document' }, { kind: 'drift', markers: [], when: 'always' }],
+    chunk_chars: 500, chunk_unit: 'characters', overlap: 0, part_join: '\n',
+    part_prefix: '', normalizer: '', contextual: true, embedder: 'token-hash', embed_model: '',
     hierarchy: '', graph_source: 'hybrid', graph_knn: 8, granularity: 1,
     hierarchy_levels: 1, min_group: 3, summarizer: 'centroid',
   },
@@ -79,7 +81,7 @@ const SERVED = {
   // the built-in corpus `''` and every other corpus by its own id.
   datasets: ['', 'smoke-mini'],
   choices: {
-    'index.chunker': ['semantic-drift', 'session', 'fixed'],
+    'index.chunk_unit': ['characters', 'tokens'],
     'index.embedder': ['token-hash', 'sentence-transformers'],
     'index.hierarchy': ['', 'louvain'],
     'index.graph_source': ['hybrid', 'knn'],
@@ -150,24 +152,24 @@ test('an empty or hand-edited slot is nothing to take, not a broken panel', () =
 
 test('a config this lab serves entirely arrives entirely, with nothing to report', () => {
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'session';
+  recorded.index.chunk_unit = 'tokens';
   recorded.retrieval.k = 12;
   recorded.generation.answerer = 'llm';
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
   assert.deepEqual(plain(out.unserved), []);
-  assert.equal(out.config.index.chunker, 'session');
+  assert.equal(out.config.index.chunk_unit, 'tokens');
   assert.equal(out.config.retrieval.k, 12);
   assert.equal(out.config.generation.answerer, 'llm');
 });
 
 test('a knob this lab does not serve stays where it was and is named', () => {
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'turn-pair';
+  recorded.index.chunk_unit = 'bytes';
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
-  assert.equal(out.config.index.chunker, 'semantic-drift',
+  assert.equal(out.config.index.chunk_unit, 'characters',
     'the unserved value must not reach a select that has no such option');
   assert.deepEqual(plain(out.unserved), [{
-    path: 'index.chunker', value: 'turn-pair', reason: 'not served by this lab',
+    path: 'index.chunk_unit', value: 'bytes', reason: 'not served by this lab',
   }]);
 });
 
@@ -301,18 +303,18 @@ test('a ledger-only config sets the knobs it names and no others', () => {
   // An index build, a retrieval, an imported archive or any run whose run file
   // is gone: `leaderboard.ledger_config` can name six knobs and nothing else.
   const recorded = {
-    index: { chunker: 'session', embedder: 'sentence-transformers' },
+    index: { split_plan: [{ kind: 'document' }], embedder: 'sentence-transformers' },
     retrieval: { retriever: 'dense', reranker: 'none', grader: 'lexical' },
     generation: { answerer: 'llm' },
   };
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
   assert.deepEqual(plain(out.unserved), []);
-  assert.equal(out.config.index.chunker, 'session');
+  assert.deepEqual(plain(out.config.index.split_plan), [{ kind: 'document' }]);
   assert.equal(out.config.retrieval.retriever, 'dense');
   assert.equal(out.config.index.chunk_chars, 500,
     'a knob the record never named is the reader’s, left alone');
   assert.deepEqual(plain(out.set).sort(), [
-    'generation.answerer', 'index.chunker', 'index.embedder',
+    'generation.answerer', 'index.embedder', 'index.split_plan',
     'retrieval.grader', 'retrieval.reranker', 'retrieval.retriever',
   ], 'what was set is counted so the notice can say how much of the panel moved');
 });
@@ -326,7 +328,7 @@ test('the label travels with the settings it labelled', () => {
 
 test('reconciling changes neither the record nor what is on screen', () => {
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'turn-pair';
+  recorded.index.chunk_unit = 'bytes';
   const before = { recorded: copy(recorded), current: copy(CURRENT) };
   Handoff.reconcile(recorded, CURRENT, SERVED);
   assert.deepEqual(plain(recorded), before.recorded);
@@ -345,7 +347,7 @@ const RECORD = {
 
 test('the notice names the experiment, its corpus and how much moved', () => {
   const out = Handoff.reconcile(
-    { index: { chunker: 'session' }, retrieval: { k: 12 } }, CURRENT, SERVED);
+    { index: { split_plan: [{ kind: 'document' }] }, retrieval: { k: 12 } }, CURRENT, SERVED);
   const said = Handoff.notice(RECORD, out);
   assert.match(said, /exp-9f3a/);
   assert.match(said, /diary-fa/);
@@ -356,11 +358,11 @@ test('the notice names the experiment, its corpus and how much moved', () => {
 
 test('the notice names every knob it could not set, with its value and why', () => {
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'turn-pair';
+  recorded.index.chunk_unit = 'bytes';
   recorded.generation.model = 'gpt-4o';
   const said = Handoff.notice(RECORD,
     Handoff.reconcile(recorded, CURRENT, SERVED));
-  assert.match(said, /chunker = turn-pair — not served by this lab/);
+  assert.match(said, /chunk_unit = bytes — not served by this lab/);
   assert.match(said, /model = gpt-4o — not served in openrouter mode/);
   assert.match(said, /at their default/,
     'a knob this lab cannot serve is left at the default, not at a value from '
@@ -371,12 +373,12 @@ test('what could not be set is grouped by the stage that would run it', () => {
   // One line the reader can act on, in the order the pipeline runs: a list of
   // dotted paths makes them work out for themselves which stage each belongs to.
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'turn-pair';
+  recorded.index.chunk_unit = 'bytes';
   recorded.retrieval.k = 500;
   recorded.generation.model = 'gpt-4o';
   const said = Handoff.notice(RECORD,
     Handoff.reconcile(recorded, CURRENT, SERVED));
-  assert.match(said, /To set: Index \([^)]*chunker[^)]*\), Retrieve \([^)]*k[^)]*\), Generation \([^)]*model[^)]*\)/);
+  assert.match(said, /To set: Index \([^)]*chunk_unit[^)]*\), Retrieve \([^)]*k[^)]*\), Generation \([^)]*model[^)]*\)/);
 });
 
 test('a stage with nothing to set is left out of the list, not shown empty', () => {
@@ -391,7 +393,7 @@ test('a stage with nothing to set is left out of the list, not shown empty', () 
 
 test('a notice with nothing to report does not manufacture a caveat', () => {
   const said = Handoff.notice(RECORD,
-    Handoff.reconcile({ index: { chunker: 'session' } }, CURRENT, SERVED));
+    Handoff.reconcile({ index: { split_plan: [{ kind: 'document' }] } }, CURRENT, SERVED));
   assert.doesNotMatch(said, /could not/);
   assert.doesNotMatch(said, /unchanged/);
 });
@@ -402,7 +404,7 @@ test('a ledger-only row says the record itself is partial, not this lab', () => 
   // one sentence — an index build has no run file to have recorded more.
   const said = Handoff.notice(
     Object.assign({}, RECORD, { kind: 'index', source: 'ledger' }),
-    Handoff.reconcile({ index: { chunker: 'session', embedder: 'token-hash' } },
+    Handoff.reconcile({ index: { split_plan: [{ kind: 'document' }], embedder: 'token-hash' } },
       CURRENT, SERVED));
   assert.match(said, /no run file/);
   assert.match(said, /every other knob is at its default/);
@@ -418,11 +420,11 @@ test('the notice puts the corpus first among what it could not set', () => {
   // A config applied against the wrong corpus is not that experiment at all,
   // whatever else survived, so the reader must not have to find that line.
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'turn-pair';
+  recorded.index.chunk_unit = 'bytes';
   recorded.index.dataset = 'gone-fa';
   const said = Handoff.notice(RECORD,
     Handoff.reconcile(recorded, CURRENT, SERVED));
-  assert.ok(said.indexOf('dataset') < said.indexOf('chunker'),
+  assert.ok(said.indexOf('dataset') < said.indexOf('chunk_unit'),
     'the corpus is named before the knobs measured against it');
 });
 
@@ -431,12 +433,12 @@ test('every unserved knob is reported, not just the first', () => {
   // what it can, so a reader who is told about one of three unserved knobs is
   // being told the panel is closer to the experiment than it is.
   const recorded = copy(CURRENT);
-  recorded.index.chunker = 'turn-pair';
+  recorded.index.chunk_unit = 'bytes';
   recorded.index.dataset = 'gone-fa';
   recorded.retrieval.k = 500;
   const out = Handoff.reconcile(recorded, CURRENT, SERVED);
   assert.deepEqual(plain(out.unserved).map((row) => row.path).sort(),
-    ['index.chunker', 'index.dataset', 'retrieval.k']);
+    ['index.chunk_unit', 'index.dataset', 'retrieval.k']);
 });
 
 // --- opening a pre-branch archive: a retired key name is not a refusal -----

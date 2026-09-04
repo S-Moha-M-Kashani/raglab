@@ -14,8 +14,9 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
 const CONFIG = {
   label: 'imported experiment',
   index: {
-    dataset: 'smoke-mini', chunker: 'session', chunk_chars: 500, overlap: 100,
-    delimiters: [], contextual: true, embedder: 'token-hash', embed_model: '', hierarchy: '',
+    dataset: 'smoke-mini', split_plan: [{ kind: 'document' }], chunk_chars: 500,
+    chunk_unit: 'characters', overlap: 100, part_join: '\n', part_prefix: '',
+    normalizer: '', contextual: true, embedder: 'token-hash', embed_model: '', hierarchy: '',
     graph_source: 'hybrid', graph_knn: 8, granularity: 1, hierarchy_levels: 1,
     min_group: 3, summarizer: 'centroid',
   },

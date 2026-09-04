@@ -1,13 +1,15 @@
-# index.overlap — characters repeated between neighbouring chunks
+# index.overlap — units repeated between the pieces the budget makes
 
-- **Step:** Index. **Fingerprinted:** yes. **Default:** 100.
-- **Read by:** `fixed-overlap` only — it is the only chunker that slides a
-  window. An overlap at or above the chunk size is halved rather than looping
-  forever.
+- **Step:** Index. **Fingerprinted:** yes. **Default:** 0.
+- **Read by:** the budget's division, whatever the plan. Where
+  `index.chunk_chars` divides a piece, each new piece begins with the tail of
+  the one before it. An overlap at or above the budget is halved rather than
+  looping forever; a piece nothing divided repeats nothing.
 
 ## What the knob does
-Repeats the tail of each chunk at the head of the next, so a sentence sitting
-on a boundary appears whole in at least one chunk.
+Repeats the tail of each piece at the head of the next, so a sentence sitting
+on a boundary appears whole in at least one chunk. `document` alone with a
+budget and an overlap is the sliding window the shipped assistant used.
 
 ## What it means scientifically
 A sliding window with stride `chunk_chars − overlap`. The purpose is to remove
@@ -29,8 +31,8 @@ Overlap is the cheapest insurance against that class of failure.
 - **Useful** on continuous prose with long sentences or claims that span
   sentence boundaries, and whenever `index.chunk_chars` is small relative to
   how much text one fact occupies.
-- **Wasteful** on structurally chunked corpora (`message`, `turn-pair`): the
-  unit is already semantically complete, and the knob is greyed out there.
+- **Wasteful** on a plan whose pieces already fit the budget — `document /
+  part` over short turns — where nothing is divided and the knob is inert.
 - **Counterproductive** when large: index size grows, and duplicate hits crowd
   the top-k. If duplicates are the problem, lower `retrieval.mmr_lambda` to
   diversify rather than removing the overlap that is protecting recall.
@@ -38,6 +40,7 @@ Overlap is the cheapest insurance against that class of failure.
 ## Interactions
 Trades against `retrieval.k` (duplicates consume slots) and
 `retrieval.mmr_lambda` (which can suppress the duplicates overlap creates).
-`index.delimiters` is the cheaper answer to the same boundary problem: cutting
-at a seam the text already has costs no duplication at all, and an overlap
-still worth keeping beside it is one covering claims that span a seam.
+A separator stage in `index.split_plan` is the cheaper answer to the same
+boundary problem: cutting at a seam the text already has costs no duplication
+at all, and an overlap still worth keeping beside it is one covering claims
+that span a seam. `index.chunk_unit` says what this number counts.

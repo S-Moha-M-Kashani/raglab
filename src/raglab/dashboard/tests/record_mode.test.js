@@ -233,13 +233,13 @@ function inspector({ records = {}, groundtruth = {}, search = '', archives = {},
 }
 
 const LIVE_CONFIG = {
-  index: { dataset: 'live-corpus', chunker: 'session', embedder: 'token-hash' },
+  index: { dataset: 'live-corpus', split_plan: [{ kind: 'document' }], embedder: 'token-hash' },
   retrieval: { retriever: 'dense', k: 8, reranker: 'none', grader: 'none' },
   generation: { answerer: 'llm' },
 };
 
 const RECORDED_CONFIG = {
-  index: { dataset: 'smoke-mini', chunker: 'semantic-drift',
+  index: { dataset: 'smoke-mini', split_plan: [{ kind: 'document' }, { kind: 'drift', markers: [], when: 'always' }],
            embedder: 'sentence-transformers' },
   retrieval: { retriever: 'hybrid-rrf', k: 8, reranker: 'llm', grader: 'llm' },
   generation: { answerer: 'extractive' },

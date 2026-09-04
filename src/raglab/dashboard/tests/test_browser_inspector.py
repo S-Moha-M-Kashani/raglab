@@ -235,7 +235,7 @@ def test_a_deep_linked_record_is_read_only_and_shows_its_own_evidence(
     inspector.click('#tab-retrieval')
     questions = inspector.locator('#retrieval-questions details.retrieval-question')
     expect(questions).to_have_count(2)
-    expect(inspector.locator('#retrieval-set-config')).to_contain_text('session')
+    expect(inspector.locator('#retrieval-set-config')).to_contain_text('document')
     questions.first.locator('summary').click()
     expect(questions.first.locator('tbody tr.retrieval-row').first).to_be_visible()
 

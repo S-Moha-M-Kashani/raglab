@@ -97,8 +97,8 @@ function documentsGrid(data, opened) {
         + `>${escapeHtml(id)}</button>` },
       { label: 'parts', title: 'how many parts this document is given as — a '
         + 'document given as one part can only be cut inside its text' },
-      { label: 'chars', title: 'characters of part text — what a '
-        + 'character-budget chunker has to divide' },
+      { label: 'chars', title: 'characters of part text — what the split '
+        + 'plan\'s budget has to divide' },
       ...labelColumns(declared, 'document'),
     ],
     rows: (data.corpus.corpus_documents || []).map((document) => {
@@ -339,8 +339,8 @@ const SAYS = {
     + 'Each is a count you can press to see the rows behind it, and each says '
     + 'zero rather than disappearing — so a clean corpus reads differently '
     + 'from a check that never ran. The last one matters most before a sweep: '
-    + 'a chunker cutting on a blank line can match nothing in a corpus that '
-    + 'has none.',
+    + 'a separator stage cutting on a blank line can match nothing in a '
+    + 'corpus that has none, unless index.part_join puts one between parts.',
   labels: 'Every label this dataset declares, and nothing else. These are the '
     + 'columns the Documents and Questions tables are described by — a corpus '
     + 'that declares speaker where the diary declares role is described by a '
@@ -349,8 +349,8 @@ const SAYS = {
     + 'given a value for it yet.',
   documents: 'Every document in the corpus, with how many parts it is given '
     + 'as and how many characters of text it holds — the two figures a '
-    + 'chunker divides. Press a document number to read the parts it is made '
-    + 'of, which are the units a chunker cuts between.',
+    + 'split plan divides. Press a document number to read the parts it is '
+    + 'made of, which are the units a part or label stage cuts between.',
   questions: 'Every ground-truth question, what it expects a correct pipeline '
     + 'to do with it, and which documents it names as its evidence. Expects '
     + 'is the one field the harness branches on: answer means the corpus '

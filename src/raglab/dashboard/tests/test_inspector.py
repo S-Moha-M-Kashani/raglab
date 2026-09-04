@@ -91,7 +91,7 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     split across chunks and one chunk can carry two quotes."""
     gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
-        IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
+        IndexConfig(split_plan=({'kind': 'document'},), chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
     question = next(q for q in gt['groundtruth_dataset']
                     if metrics.verbatim_quotes(q))
@@ -128,7 +128,7 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
     least one."""
     gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
-        IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
+        IndexConfig(split_plan=({'kind': 'document'},), chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none', grader='none',
                           k=5, rerank_depth=20, time_filter=False,
@@ -161,7 +161,7 @@ def test_retrieve_traced_records_ranks_and_dropped_candidates():
     diary = datasets.load()[0]
     gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, diary).get(
-        IndexConfig(chunker='session', embedder='ascii-hash'))
+        IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash'))
     # rerank_depth(20) > k(3): mmr keeps 3, so at least 17 candidates are dropped.
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none',
                           grader='none', k=3, rerank_depth=20, time_filter=False)
@@ -305,9 +305,9 @@ def test_groundtruth_endpoint_names_the_corpus_language(monkeypatch, dataset,
 # on the five-session smoke corpus, so the toggle's two halves (leaves-only,
 # leaves-plus-summaries) are one test rather than two near-duplicates.
 @pytest.mark.parametrize('index_cfg, expect_summaries', [
-    ({'dataset': 'smoke-mini', 'chunker': 'session', 'embedder': 'token-hash'},
+    ({'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'},
      False),
-    ({'dataset': 'smoke-mini', 'chunker': 'session', 'embedder': 'token-hash',
+    ({'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash',
       'hierarchy': 'kmeans', 'summarizer': 'centroid', 'min_group': 2},
      True),
 ], ids=['flat', 'hierarchy'])
@@ -366,7 +366,7 @@ def test_trace_job_marks_gold(monkeypatch):
     # this is an integration test
     client = _client(monkeypatch)
     gt_q = client.get('/api/groundtruth').json()['questions'][0]
-    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+    payload = {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'},
                'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                              'grader': 'none', 'k': 3, 'rerank_depth': 20,
                              'time_filter': False},
@@ -395,7 +395,7 @@ def test_trace_job_marks_gold(monkeypatch):
     # before accepting a job for reasons CLAUDE.md records as having drifted
     # from this one before (the board's proxy tests, the panel/Inspector split).
     bad = client.post('/api/trace', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+        'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'},
         'retrieval': {'reranker': 'nope'},
         'question_id': gt_q['groundtruth_question_id']})
     assert bad.status_code == 400
@@ -1032,7 +1032,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 FAKE_INDEX_JOB = {
     'id': 'idx-fake-1', 'kind': 'index', 'state': 'done',
-    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash'}},
+    'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'}},
     'result': {'chunks': 1, 'chunks_by_session': [
         {'session_id': 's1', 'date': '2026-01-01',
          'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}]}}
@@ -1066,7 +1066,7 @@ FAKE_RETRIEVE_JOB = {
 # key — the eval path scores as well as retrieves, so its rows live elsewhere.
 FAKE_RUN_JOB = {
     'id': 'run-fake-1', 'kind': 'run', 'state': 'done',
-    'config': {'index': {'chunker': 'semantic-drift',
+    'config': {'index': {'split_plan': [{'kind': 'document'}, {'kind': 'drift', 'markers': [], 'when': 'always'}],
                          'embedder': 'sentence-transformers'},
                'retrieval': {'retriever': 'dense', 'k': 8}},
     'result': {'run_id': '20260804-000000-abcdef',
@@ -1091,7 +1091,7 @@ FAKE_RUN_JOB = {
 # starts, and the Inspector must read that rather than guess the diary.
 FAKE_OTHER_CORPUS_JOB = {
     'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
-    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+    'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash',
                          'dataset': 'meetings-de'}},
     'result': {'chunks': 1, 'chunks_by_session': [
         {'session_id': 'mtg-0113', 'date': '2026-01-13',
@@ -1185,7 +1185,7 @@ def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab,
     client = _client(monkeypatch)
     body = client.get('/api/follow').json()
     assert body['lab'] == 'up'
-    assert body['index']['config']['index']['chunker'] == 'session'
+    assert body['index']['config']['index']['split_plan'] == [{'kind': 'document'}]
     assert body['index']['chunks_by_session'][0]['session_id'] == 's1'
     assert body['query']['config']['retrieval']['retriever'] == 'hybrid-rrf'
     assert body['query']['answer'] == 'یک جواب.'
@@ -1245,30 +1245,30 @@ def test_newest_chunks_follows_whichever_job_reported_them():
     index job of its own. And a job recorded before the lab reported summaries
     at all must come back with `summaries == []`, never a missing key."""
     # the exact shape that misled: the run is newer than the index build, and
-    # they name different chunkers
+    # they name different plans
     lab = _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB, FAKE_RETRIEVE_JOB])
     index_view = inspector._newest_chunks(
         lab, _index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
-    assert index_view['config']['index']['chunker'] == 'semantic-drift'
+    assert index_view['config']['index']['split_plan'][1]['kind'] == 'drift'
     assert index_view['chunks_by_session'][0]['session_id'] == 'run-s1'
     assert index_view['summaries'] == []
     # and both windows now agree about which index produced what is on screen
     retrieval_view = inspector._question_set(
         lab, _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
-    assert (index_view['config']['index']['chunker']
-            == retrieval_view['config']['index']['chunker'])
+    assert (index_view['config']['index']['split_plan']
+            == retrieval_view['config']['index']['split_plan'])
 
     # an explicit build afterwards is the newest again, and wins
     newest_build = [FAKE_INDEX_JOB, FAKE_RUN_JOB]
     index_view = inspector._newest_chunks(_canned_lab(newest_build),
                                           _index_of(newest_build))
-    assert index_view['config']['index']['chunker'] == 'session'
+    assert index_view['config']['index']['split_plan'] == [{'kind': 'document'}]
     assert index_view['summaries'] == []
 
     # a hierarchy actually reports its summaries beside the leaves
     with_summaries = {
         'id': 'idx-fake-3', 'kind': 'index', 'state': 'done',
-        'config': {'index': {'chunker': 'session', 'hierarchy': 'metadata'}},
+        'config': {'index': {'split_plan': [{'kind': 'document'}], 'hierarchy': 'metadata'}},
         'result': {'chunks': 2, 'chunks_by_session': [
             {'session_id': 's1', 'date': '2026-01-01',
              'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}],
@@ -1348,7 +1348,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     gt = datasets.load()[1]
     gt_q = gt['groundtruth_dataset'][0]
     query_date = gt['groundtruth_dataset_metadata']['default_question_asked_at'][:10]
-    config = {'index': {'chunker': 'fixed-overlap', 'chunk_chars': 500,
+    config = {'index': {'split_plan': [{'kind': 'document'}], 'chunk_chars': 500,
                         'overlap': 100, 'contextual': True,
                         'embedder': 'ascii-hash'},
               'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
@@ -1383,7 +1383,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     assert set(result) >= {'config', 'retrieval', 'generation'}
     # and it says which config produced it, because a row measured under other
     # settings than its neighbours is worse than no row
-    assert result['config']['index']['chunker'] == 'fixed-overlap'
+    assert result['config']['index']['split_plan'] == [{'kind': 'document'}]
 
     # the retrieval half, shaped like a followed question
     retrieval = result['retrieval']
@@ -1437,7 +1437,7 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
 
 # --- summaries: the rows a hierarchy adds beside the leaves -----------------
 
-HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
+HIERARCHY_INDEX = IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash',
                               hierarchy='metadata', summarizer='centroid')
 # `metadata` rather than `louvain`: it groups by the storylines the corpus
 # already declares, so it needs no graph, no vectors and no optional wheel, and
@@ -1490,7 +1490,7 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     # omitting the key — "no hierarchy" and "a hierarchy that found nothing" are
     # different facts, and only one of them is worth investigating
     flat = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
-        IndexConfig(chunker='session', embedder='ascii-hash'))
+        IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash'))
     assert present.summary_rows(flat) == []
 
 
@@ -1507,7 +1507,6 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     body = client.get('/api/config').json()
 
     assert body['chosen'] == inspector.CHOSEN_CONFIG
-    assert body['chunkers'] == list(lab_config.CHUNKERS)
     assert body['embedders'] == list(lab_config.EMBEDDERS)
     assert body['retrievers'] == list(lab_config.RETRIEVERS)
     assert body['rerankers'] == list(lab_config.RERANKERS)
@@ -1515,7 +1514,6 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     # A config naming a value its own lists do not offer is the drift this route
     # exists to make impossible, so every field of the chosen config is checked
     # against the list it is chosen from.
-    assert body['chosen']['index']['chunker'] in body['chunkers']
     assert body['chosen']['index']['embedder'] in body['embedders']
     assert body['chosen']['retrieval']['retriever'] in body['retrievers']
     assert body['chosen']['retrieval']['reranker'] in body['rerankers']

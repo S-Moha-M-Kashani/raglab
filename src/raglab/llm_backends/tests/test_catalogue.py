@@ -489,12 +489,12 @@ def test_the_index_builds_with_the_embedding_model_from_its_config(monkeypatch,
     index_builder_registry as index_module)
     seen: list[tuple] = []
 
-    def spy(kind, settings=None, model=''):
+    def spy(kind, settings=None, model='', normalizer=None):
         seen.append((kind, model))
         return embedding.CharHashEmbedder()   # anything that embeds, offline
 
     monkeypatch.setattr(index_module.embedding, 'make_embedder', spy)
-    cfg = IndexConfig(chunker='session', embedder='fastembed',
+    cfg = IndexConfig(split_plan=({'kind': 'document'},), embedder='fastembed',
                       embed_model='BAAI/bge-small-en-v1.5')
     LabIndex.build(cfg, {'corpus_dataset_metadata': diary['corpus_dataset_metadata'],
                         'corpus_documents': diary['corpus_documents'][:2]},
@@ -515,7 +515,7 @@ def test_a_run_records_which_languages_its_embedder_can_represent(
     """A leaderboard row whose embedder could not read the corpus is not a
     result, and three days later nothing on the row says so."""
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path)
-    cfg = LabConfig(index=IndexConfig(chunker='fixed', embedder='ascii-hash',
+    cfg = LabConfig(index=IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash',
                                       contextual=False),
                     retrieval=RetrievalConfig(k=4),
                     generation=GenerationConfig(answerer='none'))

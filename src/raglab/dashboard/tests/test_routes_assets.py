@@ -1631,22 +1631,45 @@ def test_the_board_publishes_its_column_help_where_a_reader_can_read_it(
     its own to say (pinned in `sorttable.test.js`, because which title survives
     is behaviour), but a `title` was never where any of this is *published*: it
     answers a mouse and nothing else, which is the rule these pages already
-    applied twice. So the two sentences a reader actually needs are in the
-    page's own text under the table — that the pipeline cell opens, which is the
-    only announcement the settings reveal exists at all, and that a `fake`
-    backend makes a row a rehearsal rather than a measurement, which was prose
-    on the lab page until the card holding it was deleted."""
+    applied twice.
+
+    The two sentences a reader actually needs — that the pipeline cell opens,
+    which is the only announcement the settings reveal exists at all, and that
+    a `fake` backend makes a row a rehearsal rather than a measurement — spent
+    a while as a paragraph under the table. They are on the heading above it
+    now, at the reader's request, and the rule that rejected `title` is exactly
+    why *how* they are carried is pinned here rather than merely that they
+    exist. A trigger the explainer answers reaches four readers where a `title`
+    reaches one: `lab.js` opens it on hover **and** on `focusin`, this page
+    pins it under the heading on a press for a touch screen that has no hover
+    at all, and the filter's own note stays in the document for a screen
+    reader. Move any of it back to a `title` and this fails."""
     js = panel_texts['leaderboard.js']
-    # Whitespace-normalised: the paragraph is a wrapped template literal in the
-    # source and one flowing sentence on screen, and it is the screen this is a
-    # claim about.
-    hint = ' '.join(js[js.index('class="table-hint"'):
-                       js.index('</p>', js.index('table-hint'))].split())
-    assert 'hover it or give it focus' in hint, (
+    note = js[js.index('const TABLE_NOTE ='):js.index('const FILTER_NOTE =')]
+    assert 'hover it or give it focus' in note, (
         'the reveal has no other announcement on the page')
-    assert 'rehearsal of the pipeline and not a measurement' in hint, (
+    assert 'rehearsal of the pipeline and not a measurement' in note, (
         'the sentence explaining a fake backend has to exist somewhere a '
-        'reader can see it')
+        'reader can reach it')
+    # And carried by the trigger the explainer answers, not by a `title`.
+    # The board's own heading, not the error card's: `loadBoard` writes a
+    # `card-head` for a failed read too, and it explains nothing.
+    named = js.index('shownOption(CURRENT, CATALOGUE).name')
+    heading = js[js.rindex('<h2', 0, named):js.index('</h2>', named)]
+    assert 'class="why-term"' in heading and 'data-brief=' in heading, (
+        'the note must hang off the heading as an explainer trigger — a '
+        '`title` there would publish to a pointer and to nothing else')
+    assert 'title=' not in heading, 'and not as a title attribute'
+    # The press, which is the only way in for a reader with no hover.
+    assert "closest('.why-term[data-brief]')" in js and 'class="explain"' in js, (
+        'a heading that only answers a hover is a heading a touch screen '
+        'cannot read at all — the press that pins the same words has to exist')
+    # The filter's note is longer still, and it is what `aria-describedby` on
+    # the input points at, so it stays in the document rather than becoming a
+    # hover nobody can hear.
+    assert 'id="filter-syntax"' in js and 'visually-hidden' in js, (
+        'the filter box describes itself through aria-describedby, which needs '
+        'a real element to point at')
 
 
 def test_the_board_names_no_winner(panel_texts):

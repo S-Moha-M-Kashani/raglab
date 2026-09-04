@@ -291,6 +291,16 @@ button.why:hover, button.why:focus-visible {
   border-bottom-color: var(--step, var(--ink));
 }
 
+/* Said, but not shown. `aria-describedby` needs a real element to point at, so
+   a note that moved onto a heading's hover still has to exist somewhere in the
+   document — otherwise the reader who cannot hover is also the reader the note
+   was quietly taken away from. Same technique as `.data-table caption`, which
+   is a visible name for a screen reader and nothing for the eye. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; margin: 0; padding: 0;
+}
+
 /* ── the brief ─────────────────────────────────────────────────────────────
    One box per page, moved and refilled: hover a trigger and this is the
    sentence. Deliberately not a popover — it is read-only text that follows the

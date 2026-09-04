@@ -62,6 +62,15 @@ const COLUMNS = [
       + 'knobs, and what this lab cannot serve is named there' },
 ];
 
+// The two notes this page used to print as paragraphs — one above the table
+// and one below it, some 1,600 characters of prose a reader scrolled past on
+// every visit. Same words, moved onto the headings that own them: `lab.js`
+// shows them on hover and on keyboard focus, and the handler at the foot of
+// this file pins one under its heading on a press, so a reader with no
+// pointer is not shut out of what the page has to say.
+const TABLE_NOTE = "Click any column heading to sort by it, again to reverse, a third time for the order it was served in. The pipeline cell is abbreviated and clipped to the column's width — hover it or give it focus and the whole sentence opens beside it, with every recorded knob under that. backend is where the model calls actually went: fake answers and judges without ever failing, so those rows are a rehearsal of the pipeline and not a measurement of it. This table names no winner: rows graded by different judges over different question sets share it, so judge and questions are columns you compare on. The open arrow opens the Laboratory in this tab with the experiment's settings on the knobs, pins the Inspector link above to that same experiment, and names any unserved knob in the lab helper rather than quietly leaving it behind.";
+const FILTER_NOTE = "One term per column, all of which must hold, each written as the column's own heading and what you want of it: questions>30, decision>=0.6, seconds<120, when>2026-08-01, state!=failed, judge~sonnet. A colon is the forgiving spelling of ~ (kind:run); a colon with nothing after it asks whether the column was measured at all (ctx-recall: for the rows that have it, !ctx-recall: for the rows that do not). A bare word searches the whole row, !word excludes it, and quotes hold a value together: label~\"hybrid vs dense\". A term about a column a row never measured does not match it in either direction — a dash is never measured, not a low value.";
+
 const fmt = (value, digits = 3) =>
   value === null || value === undefined ? '—' : Number(value).toFixed(digits);
 
@@ -287,7 +296,8 @@ let REMEASURE = null;      // the scroll rail's, once there is a table to measur
 function renderFilter() {
   return `
     <div class="filter-bar">
-      <label for="row-filter">Filter</label>
+      <label for="row-filter" class="why-term"
+             data-brief="${escapeHtml(FILTER_NOTE)}">Filter</label>
       <input id="row-filter" class="filter-input" type="text" spellcheck="false"
              autocapitalize="off" autocomplete="off" aria-describedby="filter-syntax"
              placeholder="state!=failed questions&gt;30 decision&gt;0.6"
@@ -295,6 +305,7 @@ function renderFilter() {
       <button type="button" class="filter-clear" id="filter-clear">clear</button>
       <span class="filter-count" id="filter-count" role="status"></span>
       <p class="filter-said" id="filter-said" hidden></p>
+      <p class="visually-hidden" id="filter-syntax">${escapeHtml(FILTER_NOTE)}</p>
     </div>`;
 }
 
@@ -423,7 +434,8 @@ async function loadBoard(dataset) {
   box.innerHTML = `
     <section class="card">
       <div class="card-head">
-        <h2>${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
+        <h2 class="why-term" data-brief="${escapeHtml(TABLE_NOTE)}"
+            >${escapeHtml(shownOption(CURRENT, CATALOGUE).name)}</h2>
         <span class="section-meta right">${rows.length} ${ordering === 'newest'
           ? 'visible · newest first · running' : 'recorded · best score first'}</span>
       </div>
@@ -432,33 +444,6 @@ async function loadBoard(dataset) {
         : '<p class="prose">Nothing recorded for '
         + 'this dataset yet. Open the <a href="/">Laboratory</a>, pick it and '
         + 'press <b>Run evaluation</b>.</p>'}
-      <p class="table-hint">Click any column heading to sort by it, again to
-        reverse, a third time for the order it was served in. The
-        <b>pipeline</b> cell is abbreviated and clipped to the column's width —
-        hover it or give it focus and the whole sentence opens beside it, with
-        every recorded knob under that. <b>backend</b> is where the model calls
-        actually went: <code>fake</code> answers and judges without ever
-        failing, so those rows are a rehearsal of the pipeline and not a
-        measurement of it. This table names no winner: rows graded by different
-        judges over different question sets share it, so <b>judge</b> and
-        <b>questions</b> are columns you compare on. The <b>open</b> arrow opens
-        the <a href="/">Laboratory</a> in this tab with the experiment's
-        settings on the knobs, pins the Inspector link above to that same
-        experiment, and names any unserved knob in the lab helper rather than
-        quietly leaving it behind.</p>
-      <p class="table-hint" id="filter-syntax"><b>Filter</b> takes one term per
-        column, all of which must hold, each written as the column's own heading
-        and what you want of it: <code>questions&gt;30</code>,
-        <code>decision&gt;=0.6</code>, <code>seconds&lt;120</code>,
-        <code>when&gt;2026-08-01</code>, <code>state!=failed</code>,
-        <code>judge~sonnet</code>. A colon is the forgiving spelling of
-        <code>~</code> (<code>kind:run</code>); a colon with nothing after it
-        asks whether the column was measured at all (<code>ctx-recall:</code>
-        for the rows that have it, <code>!ctx-recall:</code> for the rows that do
-        not). A bare word searches the whole row, <code>!word</code> excludes it,
-        and quotes hold a value together: <code>label~"hybrid vs dense"</code>.
-        A term about a column a row never measured does not match it in either
-        direction — a dash is <i>never measured</i>, not a low value.</p>
     </section>`;
   const table = box.querySelector('table');
   if (table) {
@@ -622,3 +607,22 @@ document.addEventListener('click', (event) => {
 const ASKED = new URLSearchParams(window.location.search);
 QUERY = ASKED.get('filter') || '';
 loadBoard(ASKED.get('dataset') || EVERY);
+
+// A heading that explains itself answers a hover through `lab.js`; this is the
+// other half of that promise. A reader on a touch screen has no hover at all,
+// so a press pins the same words under the heading, and a second press puts
+// them away. Delegated at the document like every other listener here, because
+// the whole board is rebuilt on each dataset pick.
+document.addEventListener('click', (event) => {
+  const heading = event.target && event.target.closest
+    ? event.target.closest('.why-term[data-brief]') : null;
+  if (!heading) return;
+  const host = heading.closest('.card-head') || heading.parentElement;
+  const already = host.parentElement.querySelector(':scope > .explain');
+  const mine = already && already.dataset.of === heading.dataset.brief;
+  if (already) already.remove();
+  if (mine) return;
+  host.insertAdjacentHTML('afterend',
+    `<p class="explain" data-of="${escapeHtml(heading.dataset.brief)}">`
+    + `${escapeHtml(heading.dataset.brief)}</p>`);
+});

@@ -122,9 +122,18 @@ HOOK_LOG: collections.deque = collections.deque(maxlen=RECURSION_LIMIT * 8)
 #: What the hop guard says instead of an answer. A constant rather than a
 #: literal because two other places have to recognise it as a refusal rather
 #: than read it as prose — see `HOP_GUARD_MARK`.
-HOP_GUARD_REFUSAL = ('I could not complete this lookup safely because the tool '
-                     'calls started repeating. Please ask for the run by its '
-                     'experiment ID.')
+#:
+#: It states the count it stopped at, and a remedy that fits every question
+#: the guard can stop. Until 2026-09-04 it said the calls "started repeating"
+#: and asked for "the run by its experiment ID" — advice from the days when a
+#: run lookup was the only thing that could loop. It fired on a question about
+#: a knob, where an experiment id means nothing, and told the reader to supply
+#: one: a message misdescribing what produced it, which is the same fault as a
+#: row misstating what produced it, told to the reader instead.
+HOP_GUARD_REFUSAL = (
+    f'I stopped after {MAX_TOOL_HOPS} tool calls without reaching an answer — '
+    'the calls were going in circles rather than closing in. Ask again more '
+    'narrowly: name the experiment by its id, or name the one knob you mean.')
 
 #: The flag `trim_and_call` puts on `response_metadata` when it answers with
 #: the refusal above instead of calling the model.

@@ -35,11 +35,17 @@ def test_the_index_covers_every_knob_the_lab_explains_and_no_others():
     served = set(HELP) | {role.field for role in ROLES}
     index = knobs.index()
     assert set(index) == served
+    listing = (ROOT / 'fixtures' / 'knobs' / 'README.md').read_text(encoding='utf-8')
     for key, summary in index.items():
         # the title-line contract: the key names its own file, and the summary
         # is the title's second half — neither the hash nor the key again
         assert (ROOT / 'fixtures' / 'knobs' / f'{key}.md').is_file()
         assert summary and not summary.startswith('#') and key not in summary
+        # and the folder's own README lists it. `index.delimiters` arrived on
+        # 2026-09-04 from another branch and had to be added there by hand;
+        # the list is the reader's map of the corpus, so it rots silently
+        # unless something reads it.
+        assert key in listing, f'{key} is missing from fixtures/knobs/README.md'
 
 
 def test_a_page_is_the_whole_markdown_of_that_knobs_file():
@@ -100,6 +106,51 @@ def test_search_matches_on_keys_summaries_and_bodies_case_insensitively():
     assert 'retrieval.rrf_k' in keys
     assert 'retrieval.summary_boost' in [k for k, _ in knobs.search('summary_boost')]
     assert knobs.search('zeppelin xylophone') == []
+
+
+def test_search_ranks_the_closest_knobs_first_and_bounds_what_it_returns():
+    # this is a unit test
+    """The regression a real turn found on 2026-09-03: asked "which questions
+    did retrieval miss in my last run, and which knob fixes that?", the model
+    called search_knobs eight times in a row and the hop guard stopped the
+    turn. The cause was here, not in the guard — matching any query word
+    anywhere in a 2.6 KB page returns most of the corpus, unranked and
+    alphabetical, so no reply moved the model forward and it kept rewording.
+
+    A search must therefore rank (a key or summary match beats a mention
+    buried in prose) and it must be bounded, so one reply is a shortlist to
+    commit to rather than a wall to narrow."""
+    everything = knobs.search('which knob fixes missed retrieval')
+    assert len(everything) <= knobs.MAX_SEARCH_HITS < len(knobs.index())
+
+    # ranked: the knob whose own key is asked for leads, and a page that only
+    # mentions the word in passing does not outrank it
+    ranked = [key for key, _ in knobs.search('reranker')]
+    assert ranked[0] == 'retrieval.reranker'
+    if 'index.overlap' in ranked:
+        # index.overlap mentions rerankers once, in passing; rerank_depth is
+        # about them
+        assert ranked.index('retrieval.rerank_depth') < ranked.index('index.overlap')
+
+    # a query naming a knob exactly gets that knob, not a page that cites it
+    assert knobs.search('retrieval.summary_levels')[0][0] == 'retrieval.summary_levels'
+
+    # question words score nothing. The first ranking measured put the three
+    # *_model knobs on top of the failing question, because their summaries
+    # open with "which model …" and `which` counted as a summary match.
+    assert knobs.search('which what how does') == []
+    top = [key for key, _ in knobs.search('which knob fixes missed retrieval')][:3]
+    assert not all(key.endswith('_model') for key in top), top
+
+
+def test_search_knobs_says_how_many_more_matched_when_it_caps():
+    # this is a unit test
+    """A shortlist that hid the rest silently would invite the same rewording
+    loop: the model has to know the cap is why it is seeing eight."""
+    reply = widget.search_knobs.invoke(
+        {'query': 'which knob fixes missed retrieval'})
+    assert reply.count('\n') < len(knobs.index())
+    assert 'more' in reply.lower()
 
 
 # --- the two widget tools ------------------------------------------------

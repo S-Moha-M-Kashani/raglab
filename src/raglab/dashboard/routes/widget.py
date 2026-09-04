@@ -101,7 +101,7 @@ def register(app, context) -> None:
 
     @app.get('/api/widget')
     def widget_options():
-        """The widget's own model list and the four questions its empty log
+        """The widget's own model list and the questions its empty log
         offers — served, because neither panel keeps a model list of its own,
         and because the starters are model-facing text, which in this project
         is a fixture rather than a string in a page. They ride the response

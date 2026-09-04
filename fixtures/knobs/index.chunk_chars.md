@@ -43,3 +43,5 @@ point depends on how densely the corpus states facts.
 Sets the effective corpus size in chunks, which changes `index.graph_knn`'s
 connectivity, the cluster count derived from `index.granularity`, and how many
 chunks fit under `retrieval.max_context_chars` at a given `retrieval.k`.
+`index.delimiters` decides *where* inside the budget a piece may stop, so the
+two are read together: this knob is the size, that one the seam.

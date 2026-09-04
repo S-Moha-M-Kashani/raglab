@@ -1,7 +1,9 @@
-"""Chunking strategies for a corpus's documents (fixed, fixed-overlap,
-message, turn-pair, session, semantic-drift), plus the per-chunk metadata
-every chunk carries into the index. `contextual` is orthogonal to all six: a
-short metadata-only header prepended to each chunk before embedding.
+"""Cutting a corpus's documents into the chunks that get embedded, by the
+split plan (`configuration/split_plan.py`): a fold over stages, each mapping
+the pieces the previous stage produced to a longer list, and a budget that
+closes the plan by dividing whatever is still too big. Every chunker the lab
+used to name is one such plan, and `contextual` is orthogonal to all of them:
+a short metadata-only header prepended to each chunk before embedding.
 
 Everything here reads the corpus's own declared vocabulary (D4) — a
 document's `document_metadata`, a part's `labels`, and the dataset's
@@ -15,43 +17,41 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
+from raglab.configuration import split_plan as plan
 from raglab.corpora.corpus_reading import (
-    date_int, date_label, document_text, part_line, ranks_label)
+    date_int, date_label, part_line, ranks_label)
+from raglab.rag_components.indexing import embedding_backends as embedding
+from raglab.rag_components.retrieval import text_normalizers
 
 
-def _split_on_delimiters(text: str, delimiters: tuple[str, ...],
-                         max_chars: int) -> list[str]:
-    """The pieces a character-budget chunker packs, cut at the highest-priority
-    boundary that works. Each delimiter is tried in the order given: a piece
-    that already fits `max_chars` is kept whole, and only a piece still too big
-    is cut again on the next delimiter down. An exhausted list — or an empty
-    one, the default — falls through to `text.split()`, so today's plain word
-    packing is this function's base case rather than a branch beside it, and
-    `delimiters=()` returns exactly the words it always did."""
-    if not delimiters:
-        return text.split()
-    pieces: list[str] = []
-    for piece in text.split(delimiters[0]):
-        piece = piece.strip()
-        if not piece:
-            continue
-        if len(piece) <= max_chars:
-            pieces.append(piece)
-        else:
-            pieces.extend(_split_on_delimiters(piece, delimiters[1:], max_chars))
-    return pieces
+def _chars(text: str) -> int:
+    return len(text)
 
 
-def chunk_text(text: str, max_chars: int = 500,
-               delimiters: tuple[str, ...] = ()) -> list[str]:
-    """Greedy packing of whatever `_split_on_delimiters` hands back, kept verbatim
-    as the `fixed` baseline so old `.runs/` rows stay comparable — at the default
-    `delimiters=()` those pieces are the words `text.split()` always produced."""
+def budget_measure(cfg, embedder):
+    """How the budget measures a text: `len` for characters, or the count of
+    the units the embedder's own model reads, summed over words — a word never
+    straddles a whitespace boundary in any tokeniser the lab loads, so the sum
+    is the count. An embedder that cannot report its units is refused rather
+    than measured in characters under the wrong name."""
+    if cfg.chunk_unit != 'tokens':
+        return _chars
+    count = embedding.token_counter(embedder)
+    if count is None:
+        raise ValueError(
+            f'chunk_unit=tokens: the {cfg.embedder} embedder reports no model '
+            'units, so a budget in tokens cannot be counted — refused rather '
+            'than silently counted in characters')
+    return lambda text: sum(count(word) for word in text.split())
+
+
+def chunk_text(text: str, max_chars: int = 500, measure=_chars) -> list[str]:
+    """Greedy word packing to the budget, kept verbatim as the `fixed`
+    baseline — a plan of the document alone at a budget is exactly this."""
     chunks: list[str] = []
     current = ''
-    for piece in _split_on_delimiters(text, delimiters, max_chars):
-        if current and len(current) + 1 + len(piece) > max_chars:
+    for piece in text.split():
+        if current and measure(f'{current} {piece}') > max_chars:
             chunks.append(current)
             current = piece
         else:
@@ -59,11 +59,6 @@ def chunk_text(text: str, max_chars: int = 500,
     if current:
         chunks.append(current)
     return chunks
-
-# Phrases the diarist actually uses when he abandons one subject for another.
-# A hard cut here is cheap and catches shifts the embedding drift misses.
-SHIFT_MARKERS = ('ولش کن', 'بذریم', 'بگذریم', 'راستی', 'یه چیز دیگه',
-                 'در کل', 'یادم رفت بگم', 'اینا رو ولش', 'حالا اینا')
 
 
 @dataclass
@@ -281,115 +276,230 @@ def _base(document: dict, label_fields: dict) -> dict:
                labels=_document_chunk_labels(document, label_fields))
 
 
-# --- leaf strategies -------------------------------------------------------
+# --- the stages -------------------------------------------------------------
 
-def _windows(text: str, size: int, overlap: int,
-             delimiters: tuple[str, ...] = ()) -> list[str]:
-    """Sliding character windows snapped to the boundaries `_split_on_delimiters`
-    found — word boundaries at the default `delimiters=()`. The window loop
-    below admits a piece only while `len(window) + len(piece) + 1 <= size`, so
-    the largest piece it can hold on its own is `size - 1` characters; splitting
-    to that budget is what keeps a piece exactly `size` long from being packed
-    into nothing."""
+def _windows(text: str, size: int, overlap: int, measure=_chars) -> list[str]:
+    """Sliding windows snapped to word boundaries, each holding as many words
+    as fit the budget and starting roughly `size - overlap` after the last —
+    so a sentence sitting on a boundary appears whole in one of them."""
     if overlap >= size:
         overlap = size // 2
     step = max(1, size - overlap)
-    words = _split_on_delimiters(text, delimiters, size - 1)
+    words = text.split()
     out, i = [], 0
     while i < len(words):
-        window, j = '', i
-        while j < len(words) and len(window) + len(words[j]) + 1 <= size:
-            window = f'{window} {words[j]}' if window else words[j]
+        j = i
+        while j < len(words) and measure(' '.join(words[i:j + 1])) <= size:
             j += 1
-        out.append(window)
+        j = max(j, i + 1)      # a word over the budget on its own still lands
+        out.append(' '.join(words[i:j]))
         if j >= len(words):
             break
-        # advance by roughly `step` characters, never by zero words
-        consumed, k = 0, i
-        while k < j - 1 and consumed + len(words[k]) + 1 < step:
-            consumed += len(words[k]) + 1
+        # advance by roughly `step`, never by zero words
+        k = i
+        while k < j - 1 and measure(' '.join(words[i:k + 1])) + 1 < step:
             k += 1
         i = max(i + 1, k)
     return out
 
 
-def _semantic_segments(document: dict, embedder, max_chars: int) -> list[list[int]]:
-    """Groups consecutive parts into topical segments: cut where similarity
-    drops into the bottom of *this document's own* distribution (a relative
-    threshold, since embedder scales are not comparable), a shift marker
-    fires, or max_chars is exceeded. Reads `document['document_content']`
-    (D4: the file's own key, not a renamed one)."""
-    parts = document.get('document_content') or []
+@dataclass
+class _Piece:
+    """What a stage hands the next one: text, and the parts it spans — `-1`
+    once a separator has cut inside a part and the span is no longer known."""
+    text: str
+    start: int
+    end: int
+
+
+class _Document:
+    """One document as the stages read it: its parts, how a run of them
+    renders as text, and which of them a label boundary selects."""
+
+    def __init__(self, document: dict, cfg, embedder, measure, normalizer):
+        self.parts = document.get('document_content') or []
+        self.join, self.prefix = cfg.part_join, cfg.part_prefix
+        self.budget, self.overlap = cfg.chunk_chars, cfg.overlap
+        self.embedder, self.measure, self.normalizer = embedder, measure, normalizer
+
+    def render(self, start: int, end: int) -> _Piece:
+        return _Piece(self.join.join(part_line(part, self.prefix)
+                                     for part in self.parts[start:end + 1]),
+                      start, end)
+
+    def matches(self, i: int, atoms, join: str) -> bool:
+        labels = self.parts[i].get('labels') or {}
+        holds = [labels.get(atom['label']) == atom['value']
+                 for atom in atoms if plan.is_label(atom)]
+        return (all(holds) if join == 'and' else any(holds)) if holds else False
+
+    def over_budget(self, piece: _Piece) -> bool:
+        return self.measure(piece.text) > self.budget
+
+
+def _runs(doc: _Document, piece: _Piece, opens) -> list[_Piece]:
+    """Pieces from the parts of `piece`, a new one opening at every part
+    `opens` says so for; the first part always opens one."""
+    out, start = [], piece.start
+    for i in range(piece.start + 1, piece.end + 1):
+        if opens(i):
+            out.append(doc.render(start, i - 1))
+            start = i
+    out.append(doc.render(start, piece.end))
+    return out
+
+
+def _by_part(doc: _Document, piece: _Piece, stage: dict) -> list[_Piece]:
+    return [doc.render(i, i) for i in range(piece.start, piece.end + 1)]
+
+
+def _by_label(doc: _Document, piece: _Piece, stage: dict) -> list[_Piece]:
+    """A new piece opens at each part the boundary selects and runs to the
+    part before the next — which is `turn-pair` on `role=user` without ever
+    naming the other speaker, and works however many speakers there are."""
+    return _runs(doc, piece, lambda i: doc.matches(i, stage['atoms'], stage['join']))
+
+
+def _by_drift(doc: _Document, piece: _Piece, stage: dict) -> list[_Piece]:
+    """Consecutive parts grouped into topical segments: cut where similarity
+    drops into the bottom of *this piece's own* distribution (a relative
+    threshold, since embedder scales are not comparable), where one of the
+    configured markers occurs, or at a size ceiling of twice the budget."""
+    parts = doc.parts[piece.start:piece.end + 1]
     if len(parts) <= 2:
-        return [list(range(len(parts)))]
-    vectors = embedder.embed([p.get('text', '') for p in parts])
+        return [piece]
+    texts = [p.get('text', '') for p in parts]
+    vectors = doc.embedder.embed(texts)
     sims = np.array([float(vectors[i] @ vectors[i + 1])
                      for i in range(len(parts) - 1)], dtype=np.float32)
     cut_at = float(np.percentile(sims, 35)) if sims.size else -1.0
-    segments, current, size = [], [0], len(parts[0].get('text', ''))
+    markers = [doc.normalizer.normalize(m) for m in stage['markers']]
+    cuts, size = set(), doc.measure(texts[0])
     for i in range(1, len(parts)):
-        text = parts[i].get('text', '')
-        marker = any(m in textnorm.normalize(text) for m in SHIFT_MARKERS)
-        too_big = size + len(text) > max_chars * 2
+        seen = doc.normalizer.normalize(texts[i])
+        marker = any(m in seen for m in markers)
+        too_big = size + doc.measure(texts[i]) > doc.budget * 2
         drifted = sims[i - 1] <= cut_at
-        if current and (marker or too_big or drifted):
-            segments.append(current)
-            current, size = [i], len(text)
+        if marker or too_big or drifted:
+            cuts.add(piece.start + i)
+            size = doc.measure(texts[i])
         else:
-            current.append(i)
-            size += len(text)
-    if current:
-        segments.append(current)
-    return segments
+            size += doc.measure(texts[i])
+    return _runs(doc, piece, cuts.__contains__)
+
+
+def _offsets(doc: _Document, piece: _Piece) -> list[tuple[int, int, int]]:
+    """Where each part of a rendered piece sits in its text: (part, from, to)."""
+    out, at = [], 0
+    for i in range(piece.start, piece.end + 1):
+        line = part_line(doc.parts[i], doc.prefix)
+        out.append((i, at, at + len(line)))
+        at += len(line) + len(doc.join)
+    return out
+
+
+def _literal_cuts(text: str, literals: list[str], join: str, lo: int, hi: int
+                  ) -> list[tuple[int, int]]:
+    """`(position, length)` of every cut the literals make in `text[lo:hi]`:
+    under `or` wherever any occurs, under `and` only where every one begins
+    at the same position, the longest consumed."""
+    cuts = []
+    for at in range(lo, hi):
+        found = [lit for lit in literals if text.startswith(lit, at) and at + len(lit) <= hi]
+        if not found or (join == 'and' and len(found) < len(literals)):
+            continue
+        cuts.append((at, len(max(found, key=len))))
+    return cuts
+
+
+def _by_separator(doc: _Document, piece: _Piece, stage: dict) -> list[_Piece]:
+    """Cuts text. A literal cuts wherever it occurs (`or`) or where every
+    literal in the stage holds at once (`and`); a label atom beside a literal
+    narrows an `and` to the parts it selects and adds a cut at the boundary of
+    each such part under `or`. The pieces that come out know no part span."""
+    atoms, join = stage['atoms'], stage['join']
+    literals = [a['text'] for a in atoms if plan.is_text(a)]
+    selective = any(plan.is_label(a) for a in atoms)
+    cuts: list[tuple[int, int]] = []
+    if selective and piece.start >= 0:
+        for i, lo, hi in _offsets(doc, piece):
+            selected = doc.matches(i, atoms, join)
+            if join == 'and' and selected:
+                cuts.extend(_literal_cuts(piece.text, literals, join, lo, hi))
+            elif join == 'or':
+                cuts.extend(_literal_cuts(piece.text, literals, join, lo, hi))
+                if selected and i > piece.start:
+                    cuts.append((lo, 0))
+    else:
+        cuts = _literal_cuts(piece.text, literals, join, 0, len(piece.text))
+    out, at = [], 0
+    for position, length in sorted(set(cuts)):
+        if position < at:
+            continue
+        out.append(piece.text[at:position])
+        at = position + length
+    out.append(piece.text[at:])
+    return [_Piece(text.strip(), -1, -1) for text in out if text.strip()]
+
+
+STAGES = {'part': _by_part, 'label': _by_label, 'drift': _by_drift,
+          'separator': _by_separator}
+
+
+def _apply(doc: _Document, stage: dict, pieces: list[_Piece]) -> list[_Piece]:
+    out: list[_Piece] = []
+    for piece in pieces:
+        if stage['when'] == 'over-budget' and not doc.over_budget(piece):
+            out.append(piece)
+        elif plan.needs_parts(stage) and piece.start < 0:
+            out.append(piece)        # validation refuses this plan; never cut blind
+        else:
+            out.extend(STAGES[stage['kind']](doc, piece, stage))
+    return out
+
+
+def _close(doc: _Document, pieces: list[_Piece]) -> list[_Piece]:
+    """The budget: a piece still too big is divided at word boundaries, with
+    the overlap repeated between neighbours when one is set. A division of one
+    part still spans that part; a division of several no longer knows which."""
+    out: list[_Piece] = []
+    for piece in pieces:
+        if not doc.over_budget(piece):
+            out.append(piece)
+            continue
+        divided = (_windows(piece.text, doc.budget, doc.overlap, doc.measure)
+                   if doc.overlap > 0 else
+                   chunk_text(piece.text, doc.budget, doc.measure))
+        start, end = ((piece.start, piece.end) if 0 <= piece.start == piece.end
+                      else (-1, -1))
+        out.extend(_Piece(text, start, end) for text in divided)
+    return out
 
 
 def chunk_document(document: dict, cfg, embedder, label_fields: dict | None = None,
-                   language: str = '') -> list[Chunk]:
-    """One document → chunks, per the configured strategy."""
+                   language: str = '', normalizer=None, measure=None) -> list[Chunk]:
+    """One document → chunks, by the plan: one piece to start, every stage
+    after the document's applied in turn, the budget closing what is left."""
     label_fields = label_fields or {}
     base = _base(document, label_fields)
     prefix = contextual_prefix(document, label_fields, language) if cfg.contextual else ''
-    parts = document.get('document_content') or []
+    doc = _Document(document, cfg, embedder,
+                    measure or budget_measure(cfg, embedder),
+                    normalizer or text_normalizers.resolve(cfg.normalizer, language))
+    pieces = [doc.render(0, len(doc.parts) - 1)]
+    for stage in plan.normalize(cfg.split_plan)[1:]:
+        pieces = _apply(doc, stage, pieces)
+    pieces = _close(doc, pieces)
+
     document_id = base['document_id']
     out: list[Chunk] = []
-
-    def emit(text: str, i: int, start: int, end: int) -> None:
+    for i, piece in enumerate(pieces):
         labels = dict(base['labels'])
-        labels.update(_part_chunk_labels(document, label_fields, start, end))
+        labels.update(_part_chunk_labels(document, label_fields, piece.start, piece.end))
         out.append(Chunk(
-            id=f'{document_id}:c{i}', text=prefix + text, prefix=prefix,
+            id=f'{document_id}:c{i}', text=prefix + piece.text, prefix=prefix,
             document_id=document_id, date=base['date'],
             span_from=base['span_from'], span_to=base['span_to'],
             importance=base['importance'], labels=labels,
-            part_start=start, part_end=end))
-
-    if cfg.chunker == 'session':
-        emit(document_text(document), 0, 0, len(parts) - 1)
-    elif cfg.chunker == 'message':
-        for i, part in enumerate(parts):
-            emit(part_line(part), i, i, i)
-    elif cfg.chunker == 'turn-pair':
-        i = 0
-        while i < len(parts):
-            group = [parts[i]]
-            end = i
-            if ((parts[i].get('labels') or {}).get('role') == 'user' and i + 1 < len(parts)
-                    and (parts[i + 1].get('labels') or {}).get('role') == 'assistant'):
-                group.append(parts[i + 1])
-                end = i + 1
-            emit('\n'.join(part_line(p) for p in group), len(out), i, end)
-            i = end + 1
-    elif cfg.chunker == 'semantic-drift':
-        for i, segment in enumerate(_semantic_segments(document, embedder,
-                                                       cfg.chunk_chars)):
-            emit('\n'.join(part_line(parts[j]) for j in segment),
-                 i, segment[0], segment[-1])
-    elif cfg.chunker == 'fixed-overlap':
-        for i, piece in enumerate(_windows(document_text(document), cfg.chunk_chars,
-                                           cfg.overlap, cfg.delimiters)):
-            emit(piece, i, -1, -1)
-    else:   # 'fixed' — the production baseline, called rather than reimplemented
-        for i, piece in enumerate(chunk_text(document_text(document), cfg.chunk_chars,
-                                            cfg.delimiters)):
-            emit(piece, i, -1, -1)
+            part_start=piece.start, part_end=piece.end))
     return out

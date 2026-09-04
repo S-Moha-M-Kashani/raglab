@@ -15,9 +15,11 @@ from raglab.corpora.corpus_reading import date_label, ranks_label
 from raglab.rag_components.indexing import embedding_backends as embedding
 from raglab.rag_components.indexing.chunking_strategies import (
     Chunk,
+    budget_measure,
     chunk_document)
 from raglab.configuration.lab_config import IndexConfig, LabSettings
 from raglab.rag_components.indexing.in_memory_vector_store import MemoryVectors
+from raglab.rag_components.retrieval import text_normalizers
 
 BATCH = 200
 
@@ -48,9 +50,13 @@ class IndexStats:
 
 class LabIndex:
     def __init__(self, cfg: IndexConfig, embedder, store: MemoryVectors,
-                 chunks: list[Chunk], stats: IndexStats):
+                 chunks: list[Chunk], stats: IndexStats,
+                 normalizer=text_normalizers.NEUTRAL):
         self.cfg = cfg
         self.embedder = embedder
+        # The one normaliser this index was built with; the lexical retriever
+        # and the lexical gate tokenise a query with the same one.
+        self.normalizer = normalizer
         self.store = store
         self.chunks = chunks
         self.stats = stats
@@ -71,13 +77,19 @@ class LabIndex:
         cfg = cfg.normalized()
         stats = IndexStats(collection=cfg.collection())
         note = stats.notes.append
-        embedder = embedding.make_embedder(cfg.embedder, settings, cfg.embed_model)
-        stats.embed_dim = getattr(embedder, 'dim', 0)
-        store = MemoryVectors(cfg.collection())
-
         meta = corpus.get('corpus_dataset_metadata') or {}
         label_fields = meta.get('label_fields') or {}
         language = meta.get('language', '')
+        # Named, or the declared language's default — never the one corpus's
+        # normaliser assumed for every other. Resolved once and handed to every
+        # lexical stage of the build.
+        normalizer = text_normalizers.resolve(cfg.normalizer, language)
+        embedder = embedding.make_embedder(cfg.embedder, settings, cfg.embed_model,
+                                           normalizer)
+        measure = budget_measure(cfg, embedder)
+        stats.embed_dim = getattr(embedder, 'dim', 0)
+        store = MemoryVectors(cfg.collection())
+
         stats.date_label = date_label(label_fields)
         stats.ranks_label = ranks_label(label_fields)
         documents = corpus.get('corpus_documents') or []
@@ -86,7 +98,7 @@ class LabIndex:
         chunks: list[Chunk] = []
         for document in documents:
             chunks.extend(chunk_document(document, cfg, embedder, label_fields,
-                                         language))
+                                         language, normalizer, measure))
 
         lengths = np.array([len(c.text) for c in chunks]) if chunks else np.array([0])
         stats.chunks = stats.leaves = len(chunks)
@@ -107,7 +119,8 @@ class LabIndex:
                 progress('grouping', 0.9)
             hierarchy_stats = hierarchy_mod.HierarchyStats()
             summaries = hierarchy_mod.build(chunks, leaf_vectors, cfg, embedder,
-                                            hierarchy_stats, label_fields)
+                                            hierarchy_stats, label_fields,
+                                            normalizer)
             stats.hierarchy = hierarchy_stats.as_dict()
             for message in hierarchy_stats.notes:
                 note(message)
@@ -120,7 +133,7 @@ class LabIndex:
                 note('the grouping produced no summary — this index is flat')
 
         stats.build_seconds = round(time.time() - started, 2)
-        return cls(cfg, embedder, store, chunks, stats)
+        return cls(cfg, embedder, store, chunks, stats, normalizer)
 
     @staticmethod
     def _embed_into(store, chunks, embedder, note, progress,
@@ -153,7 +166,8 @@ class LabIndex:
     def bm25(self):
         if self._bm25 is None:
             from raglab.rag_components.retrieval.retrieve_fuse_rerank_grade import BM25
-            self._bm25 = BM25([c.text for c in self.chunks])
+            self._bm25 = BM25([c.text for c in self.chunks],
+                              tokenize=self.normalizer.tokens)
         return self._bm25
 
     def dense(self, query_vectors: np.ndarray, k: int,

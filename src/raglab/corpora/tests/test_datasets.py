@@ -505,8 +505,8 @@ def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
     # The literal is the value the field-less IndexConfig produced, read off
     # the code as it stood before this commit rather than off the code it
     # is checking.
-    assert IndexConfig().fingerprint() == '804444ae65db'
-    assert IndexConfig(dataset='').collection() == 'raglab-804444ae65db'
+    assert IndexConfig().fingerprint() == '6cf7db2bab4f'
+    assert IndexConfig(dataset='').collection() == 'raglab-6cf7db2bab4f'
 
 
 # --- a dataset entering the lab is stored as content -------------------------

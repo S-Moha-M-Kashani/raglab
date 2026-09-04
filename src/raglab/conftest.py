@@ -157,7 +157,7 @@ def registry(diary):
 
 @pytest.fixture(scope='module')
 def index(registry):
-    return registry.get(IndexConfig(chunker='semantic-drift', embedder='char-hash',
+    return registry.get(IndexConfig(embedder='char-hash',
                                     contextual=True))
 
 
@@ -182,7 +182,7 @@ def language(diary):
 # which needs no model download —
 # every integration test that needs *an* index rather than specifically the
 # 167-session Farsi diary reaches for this instead of building the big one.
-SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',
+SMOKE_INDEX = {'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}],
                'embedder': 'token-hash'}
 
 

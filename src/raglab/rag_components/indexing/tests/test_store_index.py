@@ -155,7 +155,7 @@ def test_registry_reuses_within_a_process_and_rebuilds_across_one(diary):
     `reused`; a fresh registry never inherits another's index and rebuilds
     from scratch; and the store always holds exactly as many rows as
     `stats.chunks` claims, on both the first build and the second."""
-    cfg = IndexConfig(chunker='turn-pair', embedder='token-hash')
+    cfg = IndexConfig(split_plan=({'kind': 'document'}, {'kind': 'label', 'atoms': ({'label': 'role', 'value': 'user'},)}), embedder='token-hash')
     reg = IndexRegistry(LAB_SETTINGS, diary)
 
     first = reg.get(cfg)
@@ -285,8 +285,8 @@ def test_one_build_per_cold_fingerprint_and_no_registry_wide_wait(monkeypatch):
 
 def test_different_configs_get_different_collections():
     # this is a unit test
-    a = IndexConfig(chunker='fixed').collection()
-    b = IndexConfig(chunker='session').collection()
+    a = IndexConfig(split_plan=({'kind': 'document'}, {'kind': 'part'})).collection()
+    b = IndexConfig(split_plan=({'kind': 'document'},)).collection()
     assert a != b and a.startswith('raglab-')
 
 

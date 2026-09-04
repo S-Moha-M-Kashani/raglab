@@ -20,10 +20,10 @@ from .env_settings import (ROOT, RUNS_DIR, LLM_PROVIDERS, PROVIDER_MODELS,  # no
 # Re-exported: the option tuples live in option_vocabularies.py — the lab's closed
 # vocabularies — because knob_dependencies.py needs a dozen of them and must not
 # import .config to get them (that was the circular import this replaced).
-# Every one of the nineteen existing importers still reaches them as
-# `config.CHUNKERS` etc.
-from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKERS,  # noqa: F401
-                      DELIMITER_CHUNKERS,
+# Every one of the existing importers still reaches them as
+# `config.EMBEDDERS` etc.
+from .option_vocabularies import (STAGE_KINDS, COMBINATORS, STAGE_WHEN,  # noqa: F401
+                      NORMALIZERS, CHUNK_UNITS,
                       EMBEDDERS, MODEL_EMBEDDERS, HIERARCHIES,
                       GRAPH_HIERARCHIES, CLUSTER_HIERARCHIES,
                       LEVELLED_HIERARCHIES, TUNED_HIERARCHIES, GRAPH_SOURCES,
@@ -34,6 +34,7 @@ from .option_vocabularies import (CHUNKERS, CHAR_SIZED_CHUNKERS, OVERLAP_CHUNKER
 # option tuples from option_vocabularies.py rather than from here, so this import carries
 # no ordering requirement of its own — kept in the same spot as before.
 from .knob_dependencies import DEPENDENCIES, dependency_state, inert_knobs  # noqa: F401,E402
+from . import split_plan as plan  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -71,14 +72,26 @@ class IndexConfig:
     # is stored: an index built over one corpus must never be handed a question
     # from another, and the fingerprint is what makes that impossible.
     dataset: str = ''
-    chunker: str = 'semantic-drift'
+    # Where a document is cut: an ordered list of stages, the document always
+    # first, each subdividing what the one before produced — see
+    # split_plan.py for the two forms it is written in. Every chunker the
+    # lab used to name is one such list.
+    split_plan: tuple[dict, ...] = plan.DEFAULT
+    # The budget that closes the plan: a piece still larger than this after
+    # the last stage is divided to fit, and `overlap` is repeated between the
+    # pieces that division makes. `chunk_unit` says what the number counts.
     chunk_chars: int = 500
-    overlap: int = 100          # fixed-overlap only
-    # Boundaries the two character-budget chunkers prefer over an arbitrary
-    # word cut, coarsest first (e.g. ('\n\n', '\n', '. ')). Empty is "no
-    # preference" — plain whitespace packing, exactly as before this field
-    # existed, and fingerprinted as if it were not here (see fingerprint()).
-    delimiters: tuple[str, ...] = ()
+    chunk_unit: str = 'characters'
+    overlap: int = 0
+    # How a document's parts read as one text: joined by `part_join`, each
+    # part's text as the corpus recorded it unless `part_prefix` names a
+    # declared part-level label to write in front of it (`role: …`). Both
+    # default to the corpus template's own rule — a bare newline, no prefix.
+    part_join: str = '\n'
+    part_prefix: str = ''
+    # Which text normaliser the lexical stages tokenise with. '' follows the
+    # corpus's declared language (text_normalizers.BY_LANGUAGE).
+    normalizer: str = ''
     contextual: bool = True     # prepend a situating header to every chunk
     # The default backend's own recommended model is Persian-tuned, picked for
     # the bundled Farsi diary; '' below means whatever the chosen backend
@@ -106,15 +119,19 @@ class IndexConfig:
     HIERARCHY_FIELDS = ('graph_source', 'graph_knn', 'granularity',
                         'hierarchy_levels', 'min_group', 'summarizer')
 
+    def __post_init__(self):
+        # The plan is given its one canonical shape on construction — lists
+        # retupled, a stage's unsaid defaults filled — so a config built in
+        # code and one read off the panel's JSON validate and hash alike.
+        object.__setattr__(self, 'split_plan', plan.normalize(self.split_plan))
+
     def normalized(self) -> 'IndexConfig':
         # A model that is not consulted is blanked, so it cannot invalidate the
-        # fingerprint and cost a rebuild nobody asked for; the delimiter list
-        # arrives from the panel's JSON as a list and is retupled, so the
-        # fingerprint payload cannot depend on how a config was carried here.
+        # fingerprint and cost a rebuild nobody asked for. The plan needs no
+        # step here: `__post_init__` gave it its one canonical shape.
         return replace(self, embed_model=(self.embed_model
                                           if self.embedder in MODEL_EMBEDDERS
-                                          else ''),
-                       delimiters=tuple(self.delimiters))
+                                          else ''))
 
     def fingerprint(self) -> str:
         fields = asdict(self.normalized())
@@ -122,10 +139,12 @@ class IndexConfig:
         # collection name already recorded in `.runs/`.
         if not fields.get('dataset'):
             fields.pop('dataset', None)
-        # Same rule: an empty delimiter list is the splitting this lab did
-        # before the knob existed, so it may not rename an existing index.
-        if not fields.get('delimiters'):
-            fields.pop('delimiters', None)
+        # Same rule for the four corpus-neutral knobs: each is inert at its
+        # default, and an inert knob must not name a second index.
+        for name, default in (('part_join', '\n'), ('part_prefix', ''),
+                              ('normalizer', ''), ('chunk_unit', 'characters')):
+            if fields.get(name) == default:
+                fields.pop(name, None)
         # Same rule, seven fields at once: `hierarchy=''` means none of them
         # ran, so a stale graph_knn left in a browser must not name a second
         # index holding byte-identical rows.
@@ -223,8 +242,9 @@ class LabConfig:
     def validate(self) -> list[str]:
         """Returns every problem found; raises nothing."""
         bad = []
-        checks = ((self.index.chunker, CHUNKERS, 'chunker'),
-                  (self.index.embedder, EMBEDDERS, 'embedder'),
+        checks = ((self.index.embedder, EMBEDDERS, 'embedder'),
+                  (self.index.normalizer, NORMALIZERS, 'normalizer'),
+                  (self.index.chunk_unit, CHUNK_UNITS, 'chunk_unit'),
                   (self.index.hierarchy, HIERARCHIES, 'hierarchy'),
                   (self.index.graph_source, GRAPH_SOURCES, 'graph_source'),
                   (self.index.summarizer, SUMMARIZERS, 'summarizer'),
@@ -239,6 +259,7 @@ class LabConfig:
                            f'{", ".join(allowed)})')
         if self.retrieval.k < 1:
             bad.append('k must be >= 1')
+        bad.extend(self._plan_problems())
         # A grouping whose library is not installed is refused, never silently
         # substituted for another one.
         if self.index.hierarchy:
@@ -267,6 +288,46 @@ class LabConfig:
                            f'{self.index.embedder}: set the embedder to '
                            f'{backend} or pick one of its models')
         return bad
+
+    def _plan_problems(self) -> list[str]:
+        """The plan's own rules, and the two knobs that read the corpus's
+        declared labels — checked against the selected corpus, so a boundary
+        on a label it never declares is refused before a build begins rather
+        than cutting nothing and saying so nowhere."""
+        bad = []
+        if self.index.chunk_chars < 1:
+            bad.append('chunk_chars must be >= 1')
+        if self.index.overlap < 0:
+            bad.append('overlap must be >= 0')
+        # Only a real model has units to count; the hash embedders see
+        # characters, so a budget in tokens over one would be a budget in
+        # characters wearing the wrong name.
+        if (self.index.chunk_unit == 'tokens'
+                and self.index.embedder not in MODEL_EMBEDDERS):
+            bad.append(f'chunk_unit=tokens needs an embedder that loads a '
+                       f'model ({", ".join(MODEL_EMBEDDERS)}); '
+                       f'{self.index.embedder} reports no model units, so the '
+                       'budget is refused rather than counted in characters')
+        label_fields = self._declared_labels()
+        bad.extend(plan.problems(self.index.split_plan, label_fields))
+        prefix = self.index.part_prefix
+        if prefix and label_fields is not None:
+            definition = label_fields.get(prefix)
+            if not definition or 'part' not in (definition.get('applies_to') or []):
+                bad.append(f'part_prefix names no part-level label of the '
+                           f'selected corpus: {prefix!r}')
+        return bad
+
+    def _declared_labels(self) -> dict | None:
+        """The selected corpus's `label_fields`, or None when the corpus
+        cannot be read here — then the plan is checked for shape alone, and
+        the build is where an unknown dataset is refused."""
+        from ..corpora import dataset_import_contract as datasets
+        try:
+            corpus = datasets.load_corpus(self.index.dataset)
+        except (ValueError, OSError):
+            return None
+        return (corpus.get('corpus_dataset_metadata') or {}).get('label_fields') or {}
 
 
 def _production_config() -> dict:

@@ -27,13 +27,17 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
 
 # One session per chunk keeps these fast: the grouping is what is under test,
-# not the chunker, and 167 leaves is enough for every partition to be non-trivial.
-LEAVES = dict(chunker='session', embedder='token-hash', contextual=False)
+# not the plan, and 167 leaves is enough for every partition to be non-trivial.
+# One leaf per document: the budget is set past every session so nothing is
+# divided, which is what `session` used to mean.
+LEAVES = dict(split_plan=({'kind': 'document'},), chunk_chars=100_000,
+              embedder='token-hash', contextual=False)
 
 # The 5-session smoke corpus, for the tests that need *a* built hierarchy
 # rather than specifically the 167-session diary's community structure.
 # `token-hash` needs no model download, matching `LEAVES` above.
-SMOKE_LEAVES = dict(dataset='smoke-mini', chunker='session',
+SMOKE_LEAVES = dict(dataset='smoke-mini', split_plan=({'kind': 'document'},),
+                    chunk_chars=100_000,
                     embedder='token-hash', contextual=False)
 
 
@@ -60,12 +64,13 @@ def smoke_registry():
 
 def test_a_flat_index_is_fingerprinted_exactly_as_it_was_before_hierarchies():
     # this is a unit test
-    """Seven new fields, none of which may touch a flat index's name — every
-    `index.collection` already written into `.runs/` names an index a
-    rebuild has to be able to reproduce."""
-    assert IndexConfig().fingerprint() == '804444ae65db'
-    assert IndexConfig().collection() == 'raglab-804444ae65db'
-    assert IndexConfig(embedder='ascii-hash').fingerprint() == '9d62a8c374b6'
+    """The hierarchy's seven fields never touch a flat index's name. The
+    literal was reset once, when the split plan replaced the chunker and every
+    recorded fingerprint changed by intent; from here on a rebuild has to
+    reproduce it again."""
+    assert IndexConfig().fingerprint() == '6cf7db2bab4f'
+    assert IndexConfig().collection() == 'raglab-6cf7db2bab4f'
+    assert IndexConfig(embedder='ascii-hash').fingerprint() == '005a5ac2b80c'
 
 
 def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index():
@@ -78,16 +83,25 @@ def test_hierarchy_knobs_left_over_from_another_config_do_not_name_a_new_index()
             == IndexConfig().fingerprint())
 
 
-def test_the_delimiter_list_is_free_at_its_default_and_paid_for_when_set():
+def test_the_corpus_neutral_knobs_are_free_at_their_defaults_and_the_plan_hashes_its_order():
     # this is a unit test
-    """`delimiters=()` means the two character-budget chunkers split exactly as
-    they did before the knob existed, so it must not rename a single index
-    already recorded in `.runs/` — the same bargain `dataset` and `hierarchy`
-    struck. A list that is actually set changes what is stored, so it costs a
-    rebuild like any other index knob."""
-    assert IndexConfig(delimiters=()).fingerprint() == IndexConfig().fingerprint()
-    assert (IndexConfig(delimiters=('\n\n', ' ')).fingerprint()
-            != IndexConfig().fingerprint())
+    """Each of the four knobs that exist to delete an assumption about one
+    corpus is inert at its default, so it may not name a second index while
+    it is not set; set, it changes what is stored and costs a rebuild. The
+    plan is always in the payload, and two plans differing only in the order
+    of their stages are two different indexes."""
+    from raglab.configuration import split_plan
+    assert (IndexConfig(part_join='\n', part_prefix='', normalizer='',
+                        chunk_unit='characters').fingerprint()
+            == IndexConfig().fingerprint())
+    for knob in ({'part_join': '\n\n'}, {'part_prefix': 'role'},
+                 {'normalizer': 'neutral'}, {'chunk_unit': 'tokens'}):
+        assert IndexConfig(**knob).fingerprint() != IndexConfig().fingerprint(), knob
+    assert (IndexConfig(split_plan=split_plan.parse('document / part / drift')).fingerprint()
+            != IndexConfig(split_plan=split_plan.parse('document / drift / part')).fingerprint())
+    # a plan carried as lists with its defaults unsaid is the same plan
+    assert (IndexConfig(split_plan=[{'kind': 'document'}, {'kind': 'part'}]).fingerprint()
+            == IndexConfig(split_plan=split_plan.parse('document / part')).fingerprint())
 
 
 def test_a_knob_the_chosen_grouping_never_reads_does_not_cost_a_rebuild():

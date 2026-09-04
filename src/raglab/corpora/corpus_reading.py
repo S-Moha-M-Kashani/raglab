@@ -13,19 +13,22 @@ def date_int(date: str) -> int:
     return int(date.replace('-', ''))
 
 
-def part_line(part: dict) -> str:
-    """One part as it reads in plain text: its own `role` label prefixed when
-    declared, the raw label rather than a language-specific translation of
-    it, since not every corpus declares one — shared by `document_text` and
-    every chunker that renders a part on its own line."""
-    role = (part.get('labels') or {}).get('role')
+def part_line(part: dict, prefix: str = '') -> str:
+    """One part as it reads in plain text: the part's own text, exactly as the
+    corpus recorded it. `prefix` names a declared part-level label whose
+    value is written in front (`user: …`) — asked for by name, never assumed,
+    since the corpus template's own rule is that a part's text carries no
+    speaker prefix and nothing an embedder should not read as content."""
     text = part.get('text', '')
-    return f'{role}: {text}' if role else text
+    value = (part.get('labels') or {}).get(prefix) if prefix else None
+    return f'{value}: {text}' if value not in (None, '') else text
 
 
-def document_text(document: dict) -> str:
-    """One document as plain text, part by part, for embedding."""
-    return '\n'.join(part_line(part)
+def document_text(document: dict, join: str = '\n', prefix: str = '') -> str:
+    """One document as plain text, its parts joined by `join` — a bare newline
+    unless a corpus of sections rather than turns asks for a blank line, which
+    is what lets a paragraph separator match between two parts at all."""
+    return join.join(part_line(part, prefix)
                      for part in document.get('document_content') or [])
 
 

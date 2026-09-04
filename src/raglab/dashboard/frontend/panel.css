@@ -447,8 +447,11 @@ input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
 }
 .plan-stage button:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
 .plan-stage button:disabled { opacity: .4; cursor: default; }
-.plan-foot { display: flex; align-items: baseline; gap: var(--s-2); margin-top: var(--s-1); }
-.plan-foot select { width: auto; font-size: var(--t-sm); }
+/* Stacked, not side by side: the add-a-stage options are whole sentences, so
+   the select's content width fills the column and left a shrunk flex sibling
+   one character wide. The typed plan belongs under it in any case. */
+.plan-foot { display: flex; flex-direction: column; gap: var(--s-1); margin-top: var(--s-1); }
+.plan-foot select { font-size: var(--t-sm); }
 .plan-text { font: var(--t-xs)/1.4 var(--mono); color: var(--ink-soft); overflow-wrap: anywhere; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
 /* A primary button is a filled chip, and what fills it is the one thing that

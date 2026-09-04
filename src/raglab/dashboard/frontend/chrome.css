@@ -257,6 +257,12 @@
 .why-term:hover, .why-term:focus-visible {
   color: var(--ink); background: transparent; border-bottom-color: var(--ink-soft);
 }
+/* A heading that carries its own note is the only route to that note, so the
+   mark that says so cannot be as quiet as it is on a term inside a sentence:
+   `--rule` is a hairline against a card and nearly nothing against the plate a
+   page title sits on. One step in, and only for headings — a knob's term still
+   whispers, because the knob beside it is the thing being read. */
+h1.why-term, h2.why-term, h3.why-term { border-bottom-color: var(--ink-soft); }
 button.why {
   font: 700 var(--t-2xs)/1 var(--mono); padding: 0 var(--s-px); margin-left: var(--s-1);
   background: transparent; color: var(--ink-soft);

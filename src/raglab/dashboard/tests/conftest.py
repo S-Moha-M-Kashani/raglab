@@ -57,6 +57,13 @@ def panel_texts(client):
         # follow it here rather than being deleted with the old board.
         'leaderboard.html': client.get('/leaderboard').text,
         'leaderboard.js': client.get('/leaderboard.js').text,
+        # The corpus viewer, served by this same lab: it reads the dataset the
+        # knobs are measured against, so the rows that guard a reader surface —
+        # both themes, no step ink, the shared table component — follow it here
+        # rather than being written a third time.
+        'dataset.html': client.get('/dataset').text,
+        'dataset.js': client.get('/dataset.js').text,
+        'dataset.css': client.get('/dataset.css').text,
         # The row filter, over its own route: it is the leaderboard's, but it
         # reads a cell with the shared sorter's parser, so what it can be asked
         # is a claim about that pair of files rather than about this page.
@@ -288,6 +295,17 @@ def inspector(lab_server, page):
 def board(lab_server, page):
     """The leaderboard at `/leaderboard`, loaded and ready."""
     return _surface(page, lab_server, '/leaderboard')
+
+
+@pytest.fixture
+def dataset_page(lab_server, page):
+    """The corpus viewer at `/dataset`, on the smoke corpus.
+
+    Named in the URL rather than left to the catalogue's first entry, because
+    which corpus opens by default is not what any journey here is about — and
+    every claim below is about five documents that can be checked by eye.
+    """
+    return _surface(page, lab_server, '/dataset?dataset=smoke-mini')
 
 
 def _surface(page, base_url: str, path: str):

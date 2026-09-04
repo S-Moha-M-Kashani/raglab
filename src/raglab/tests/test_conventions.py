@@ -122,6 +122,12 @@ SPACING_OFF_RAMP = [
     ('inspector.css', 'gap: var(--s-1) 1.3rem',
      'the column gap between metric badges, which lands between --s-4 and '
      '--s-5 — and note the row gap beside it is on the ramp'),
+    ('dataset.css', 'margin-bottom: -1px',
+     "the selected tab's own 2px rule pulling onto the tab strip's 1px one, so "
+     'the chosen tab reads as attached to the panel it opened rather than '
+     'sitting above a second line — the negative of a border width, which the '
+     'ramp explicitly does not cover, and it must track that width rather than '
+     'a spacing step'),
     ('chrome.css', 'margin-left: -1px',
      'the theme segments pulling onto each other so neighbours share one edge '
      'instead of drawing two — it is the negative of a border width, which the '
@@ -147,7 +153,7 @@ def test_every_spacing_value_comes_off_the_ramp_or_is_named_here():
     allowed = sorted((f, d) for f, d, _ in SPACING_OFF_RAMP)
     found = sorted((name, hit)
                    for name in ('tokens.css', 'chrome.css', 'panel.css',
-                                'inspector.css', 'widget.css')
+                                'inspector.css', 'widget.css', 'dataset.css')
                    for hit in _spacing_literals(
                        (_SHEETS / name).read_text(encoding='utf-8')))
     assert found == allowed, (
@@ -169,7 +175,7 @@ def test_every_letter_spacing_value_comes_from_the_label_recipe():
     negative values are outside this guard by construction, since tightening
     three specific dense elements is not this recipe drifting."""
     for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css',
-                 'widget.css'):
+                 'widget.css', 'dataset.css'):
         css = (_SHEETS / name).read_text(encoding='utf-8')
         assert _track_literals(css) == [], (
             f'{name} spells its own tracking: {_track_literals(css)}. Read '

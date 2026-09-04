@@ -28,6 +28,18 @@ ASSETS = {
         'leaderboard.js', 'application/javascript',
         "The leaderboard surface's script — it renders what /api/leaderboard "
         'serves and re-derives no rank of its own.'),
+    '/dataset': Asset(
+        'dataset.html', None,
+        'The corpus viewer: the documents, parts and questions a run is '
+        'measured against, read-only and off the lab page.'),
+    '/dataset.js': Asset(
+        'dataset.js', 'application/javascript',
+        "The corpus viewer's script — it renders what "
+        '/api/dataset-content serves and derives no reading of its own.'),
+    '/dataset.css': Asset(
+        'dataset.css', 'text/css',
+        "The corpus viewer's own rules: the readings row, the parts panel "
+        'and the raw tree, which no other surface has.'),
     '/tokens.css': Asset(
         'tokens.css', 'text/css',
         'The design tokens shared with the Inspector, so a colour cannot '

@@ -455,6 +455,41 @@ CONVENTIONS = [
     ('index.html', '/experiment_handoff.js', None,
      'the Laboratory must load the handoff module, or the experiment the '
      'board hands over reaches a page that cannot read it'),
+    ('dataset.html', 'id="dataset"', None,
+     "the corpus viewer's script fills one container from "
+     '/api/dataset-content, and this is the hook it fills — the page is '
+     'otherwise a chassis and a paragraph'),
+    ('dataset.html', '/dataset.js', None,
+     'and the script that fills it has to be loaded, or the page is that '
+     'paragraph and nothing else'),
+    ('dataset.html', 'filtertable.js', None,
+     'the viewer reuses the board\'s row filter rather than growing a second '
+     'kind of table in this repo — the sorter beside it is pinned by the '
+     'shared-file row below'),
+    ('dataset.html', '/sorttable.js', None,
+     'and the shared column sorter, for the same reason: four grids on one '
+     'page and no sorting of their own'),
+    ('dataset.html', '/dataset.css', None,
+     "the viewer's own sheet — the readings row, the parts panel and the raw "
+     'tree, which no other surface has'),
+    ('dataset.html', '/chrome.css', None,
+     'the bar, the switcher and the table component, shared with every other '
+     'surface'),
+    ('dataset.html', '/widget.js', None,
+     'the helper rides this surface the way it rides the other three — one '
+     'shared file, and a page gains it by loading that and nothing else'),
+    ('dataset.html', '/widget.css', None,
+     "and the helper's own sheet with it, which is not this page's"),
+    # A reader surface is not a pipeline stage. The three inks mean index,
+    # retrieval and generation, and reading a corpus is none of those — the
+    # same rule that keeps the widget uninked.
+    ('dataset.html', None, 'data-step',
+     'the corpus viewer is a reader surface, not a pipeline step, so no ink '
+     'on it may claim to be one'),
+    ('dataset.css', None, 'var(--step-',
+     'and its own sheet may not reach for a step ink either'),
+    ('dataset.js', None, 'data-step',
+     'nor may the script that draws it'),
     ('leaderboard.html', '/experiment_handoff.js', None,
      'the board must load the same module it writes the slot with'),
     ('routes/assets.py', "'experiment_handoff.js'", None,
@@ -951,7 +986,7 @@ def test_the_panel_sizes_every_type_from_the_shared_scale(panel_texts):
     this claim lives in test_inspector.py; the widget's sheet is read here
     beside the panel's, because it left panel.css and the guard has to follow
     it or the rules it holds stop being checked at all."""
-    for sheet in ('panel.css', 'widget.css'):
+    for sheet in ('panel.css', 'widget.css', 'dataset.css'):
         assert _font_size_literals(panel_texts[sheet]) == [], sheet
 
 
@@ -995,7 +1030,7 @@ def test_the_panel_rounds_every_corner_from_the_shared_scale(panel_texts):
     Each must name a --radius-* token, shorthand corners included, so the two
     pages cannot round the same kind of thing differently. The widget's sheet
     is read here for the same reason the type guard reads it."""
-    for sheet in ('panel.css', 'widget.css'):
+    for sheet in ('panel.css', 'widget.css', 'dataset.css'):
         assert _radius_literals(panel_texts[sheet]) == [], sheet
 
 
@@ -1075,6 +1110,7 @@ def test_only_allowlisted_paths_are_reachable(client):
     would give one page two URLs."""
     assert client.get('/panel.html').status_code == 404
     assert client.get('/inspector.html').status_code == 404
+    assert client.get('/dataset.html').status_code == 404
     for walk in ('/../conftest.py', '/..%2fpanel_server.py',
                  '//etc/passwd', '/frontend/panel.css'):
         assert client.get(walk).status_code == 404, walk
@@ -1689,7 +1725,7 @@ def test_the_column_sorter_keeps_header_semantics_and_survives_a_restore():
 THEME_KEY = 'raglab-theme'
 
 
-SURFACES = ('index.html', 'leaderboard.html')
+SURFACES = ('index.html', 'leaderboard.html', 'dataset.html')
 
 
 @pytest.mark.parametrize('surface', SURFACES)
@@ -1747,7 +1783,8 @@ def test_the_night_palette_is_written_once_and_read_twice(panel_texts):
         'on Auto, or only for readers who picked Night, never for both')
 
 
-@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css', 'widget.css'))
+@pytest.mark.parametrize('sheet', ('tokens.css', 'panel.css', 'widget.css',
+                                  'dataset.css'))
 def test_no_dark_block_outranks_an_explicit_choice(panel_texts, sheet):
     # this is a convention test
     """Every `prefers-color-scheme: dark` block on either surface has to carry
@@ -2105,7 +2142,8 @@ def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):
     http://localhost:9002 was how a second port had to be linked; it now
     breaks the moment the lab is served anywhere but this machine, and
     :9003 points at nothing at all."""
-    for name in ('index.html', 'leaderboard.html', 'leaderboard.js'):
+    for name in ('index.html', 'leaderboard.html', 'leaderboard.js',
+                 'dataset.html', 'dataset.js'):
         assert 'localhost:900' not in panel_texts[name], (
             f'{name} still links out to a port instead of a path')
     # The board's row link is built at runtime from a template string rather

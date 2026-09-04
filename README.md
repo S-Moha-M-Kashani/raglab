@@ -11,7 +11,7 @@ Point it at any corpus with known answers and it will build, run, and score
 whatever pipeline you configure — then show you the evidence and leave the
 decision to you.
 
-- **Every stage is a knob** — chunker, embedder, summary hierarchy,
+- **Every stage is a knob** — split plan, embedder, summary hierarchy,
   retriever, fusion, reranker, grader, and generator are all config fields,
   scored against ground truth by four judged metrics.
 - **Honest rankings** — runs are compared only inside comparability groups

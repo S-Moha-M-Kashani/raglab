@@ -44,5 +44,5 @@ whether the expensive version (a model-written context line) is worth anything.
 ## Interactions
 Depends entirely on what the corpus declares in `label_fields` (see
 `run.dataset-file`); a corpus with no document labels gets an empty header and
-the knob becomes a no-op. Pairs with `index.chunker`: the smaller the chunk, the
+the knob becomes a no-op. Pairs with `index.split_plan`: the smaller the chunk, the
 more the header buys and the more it can drown out.

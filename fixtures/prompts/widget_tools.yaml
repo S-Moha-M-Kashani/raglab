@@ -65,7 +65,7 @@ read_knob: |-
 
   Args:
       keys: Knob keys from search_knobs, comma-separated, e.g.
-          "index.chunker, retrieval.k".
+          "index.split_plan, retrieval.k".
 measure_bilingual_alignment: |-
   Measure, live on this machine, whether an embedding model aligns
   English with Farsi — i.e. whether one index could serve cross-language

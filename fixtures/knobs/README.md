@@ -45,8 +45,9 @@ a knob the lab no longer has, both fail the suite.
 ## The knobs, by step
 
 **Index** — runs once per corpus; every one of these is inside the index
-fingerprint, so a change rebuilds: `index.dataset`, `index.chunker`,
-`index.chunk_chars`, `index.overlap`, `index.delimiters`,
+fingerprint, so a change rebuilds: `index.dataset`, `index.split_plan`,
+`index.chunk_chars`, `index.chunk_unit`, `index.overlap`, `index.part_join`,
+`index.part_prefix`, `index.normalizer`,
 `index.contextual`, `index.embedder`, `index.embed_model`,
 `index.hierarchy`, `index.graph_source`, `index.graph_knn`,
 `index.granularity`, `index.hierarchy_levels`, `index.min_group`,

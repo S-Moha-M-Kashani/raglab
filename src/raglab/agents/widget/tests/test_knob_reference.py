@@ -35,11 +35,17 @@ def test_the_index_covers_every_knob_the_lab_explains_and_no_others():
     served = set(HELP) | {role.field for role in ROLES}
     index = knobs.index()
     assert set(index) == served
+    listing = (ROOT / 'fixtures' / 'knobs' / 'README.md').read_text(encoding='utf-8')
     for key, summary in index.items():
         # the title-line contract: the key names its own file, and the summary
         # is the title's second half — neither the hash nor the key again
         assert (ROOT / 'fixtures' / 'knobs' / f'{key}.md').is_file()
         assert summary and not summary.startswith('#') and key not in summary
+        # and the folder's own README lists it. `index.delimiters` arrived on
+        # 2026-09-04 from another branch and had to be added there by hand;
+        # the list is the reader's map of the corpus, so it rots silently
+        # unless something reads it.
+        assert key in listing, f'{key} is missing from fixtures/knobs/README.md'
 
 
 def test_a_page_is_the_whole_markdown_of_that_knobs_file():

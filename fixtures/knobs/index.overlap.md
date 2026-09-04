@@ -38,3 +38,6 @@ Overlap is the cheapest insurance against that class of failure.
 ## Interactions
 Trades against `retrieval.k` (duplicates consume slots) and
 `retrieval.mmr_lambda` (which can suppress the duplicates overlap creates).
+`index.delimiters` is the cheaper answer to the same boundary problem: cutting
+at a seam the text already has costs no duplication at all, and an overlap
+still worth keeping beside it is one covering claims that span a seam.

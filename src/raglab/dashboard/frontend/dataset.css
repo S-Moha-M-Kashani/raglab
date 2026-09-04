@@ -1,0 +1,181 @@
+/* The dataset viewer's own rules, and only these: tokens.css carries the
+   scale and both themes, chrome.css the bar and the table component,
+   panel.css the cards and the prose this page reads inside. What is left is
+   the readings row, the parts panel and the raw tree — three things no other
+   surface has.
+
+   No Night block of its own, deliberately. Every colour below names a token
+   the shared sheets already define on both themes, so there is no private
+   value here for a second selector to assign — and no step ink either: index,
+   retrieval and generation are the three pipeline steps, and reading a corpus
+   is none of them. */
+
+/* --- the four readings -----------------------------------------------------
+   A count, what it counts, and — where it found something — a button, because
+   the count is only half of the answer and the rows behind it are the other
+   half. A reading that found nothing is not a button: there is nothing for it
+   to narrow, and a control that does nothing is worse than a number. */
+.readings {
+  display: flex; flex-wrap: wrap; gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.reading {
+  display: inline-flex; align-items: baseline; gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--card); color: var(--ink);
+  text-align: left;
+}
+button.reading { cursor: pointer; }
+button.reading:hover { border-color: var(--ink-soft); }
+button.reading:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The one in force reads as pressed rather than merely hovered: the tables
+   below it are showing fewer rows than the dataset has, and that has to be
+   visible from the control that did it. */
+.reading[aria-pressed="true"] {
+  border-color: var(--ink-soft); background: var(--rule-soft);
+}
+.reading-count { font: 700 var(--t-md)/1 var(--mono); color: var(--ink); }
+.reading-says { font: var(--t-2xs)/1.4 var(--sans); color: var(--ink-soft); }
+/* Nothing to report is still a reading, so it keeps its place in the row and
+   says zero in the quieter ink rather than disappearing — which is what lets
+   a reader tell a clean corpus from a check that did not run. */
+.reading-zero .reading-count { color: var(--ink-soft); }
+/* An id the corpus does not contain cannot be a row of any table here, so the
+   reading names it itself. Its own line, in the alert ink: it is the one
+   reading that is a fault in the pair rather than a fact about it. */
+.reading-detail {
+  flex: 1 0 100%;
+  font: var(--t-2xs)/1.5 var(--mono); color: var(--alert);
+}
+
+/* --- the grids -------------------------------------------------------------
+   The shared component sets `white-space: nowrap`, which is right for a grid
+   of figures and wrong for the two prose columns this page has: a part's text
+   and a question's wording would make the region scroll for a mile instead of
+   letting a sentence be read. So a left-reading cell wraps inside a bounded
+   width. */
+.data-table td.text { white-space: normal; max-width: 46ch; }
+
+/* The identity cell that opens a document's parts. A button rather than a
+   click on the row, so it is reachable from the keyboard; drawn as the id it
+   is, so the column still sorts and filters as the number a reader sees. */
+.open-doc {
+  border: 0; background: none; padding: 0;
+  font: var(--t-sm)/1.5 var(--mono); color: var(--ink);
+  text-decoration: underline dotted; text-underline-offset: 2px;
+  cursor: pointer;
+}
+.open-doc:hover { text-decoration-style: solid; }
+.open-doc[aria-expanded="true"] { font-weight: 700; text-decoration-style: solid; }
+
+/* The parts of the one document that is open, under the documents table and
+   inside the same card — the parts of a document are not a subject of their
+   own, they are what one row of the table above is made of. */
+.parts-panel {
+  margin-top: var(--s-4); padding-top: var(--s-3);
+  border-top: 1px solid var(--rule);
+}
+
+/* --- the pair as given -----------------------------------------------------
+   `<details>`/`<summary>` all the way down: the browser's own disclosure
+   behaviour, which is keyboard-operable and searchable by the browser's own
+   find, and which needs no library to be either. Height-bounded for the same
+   reason a table region is — the diary is 167 documents, and a card that
+   grows to hold all of them expanded is a card nobody can scroll past. */
+.raw-tree {
+  max-height: 70vh; overflow: auto;
+  border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--card);
+  padding: var(--s-3);
+  font: var(--t-xs)/1.6 var(--mono);
+}
+.raw-tree details { padding-left: var(--s-3); }
+.raw-tree > details { padding-left: 0; }
+.raw-tree summary { cursor: pointer; color: var(--ink); }
+.raw-tree summary:hover { background: var(--rule-soft); }
+.raw-tree summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.raw-tree .leaf { padding-left: var(--s-3); }
+.raw-tree .leaf b { color: var(--ink-soft); font-weight: 400; }
+/* The value as recorded: whitespace kept, long strings wrapped rather than
+   sent off the side of a box that would then scroll in two directions. */
+.raw-tree .leaf span {
+  color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* --- the head, as an instrument ---------------------------------------------
+   The corpus picker sits on the heading line rather than under it: which
+   corpus you are reading and what it is called are one fact, and splitting
+   them over two rows made the name look like a title and the picker like a
+   control that belonged to the paragraph below. */
+.card-head .board-bar { margin-bottom: 0; }
+
+/* Size as three figures, not a sentence of them. Set in the mono face like
+   every other figure on these surfaces, with the noun beside each in the
+   quieter ink — so the eye reads 167 · 2135 · 112 and the words only if it
+   wants them. */
+.corpus-size {
+  display: flex; flex-wrap: wrap; gap: var(--s-4);
+  margin: var(--s-2) 0 0;
+  font: var(--t-xs)/1.4 var(--sans); color: var(--ink-soft);
+}
+.corpus-size b { font: 700 var(--t-sm)/1.4 var(--mono); color: var(--ink); }
+.corpus-source { color: var(--ink-soft); font: var(--t-2xs)/1.6 var(--mono); }
+
+/* This page's own headings are sentence case, and a question that is a
+   question keeps its mark. The uppercase tracked-out label in panel.css is
+   right for a knob group, whose name is one noun; it is wrong for a heading
+   that asks the reader something, and shouting it does not make the four
+   figures under it any easier to read. Scoped to this page on purpose — the
+   knob surface keeps its own. */
+#dataset h3 {
+  margin: var(--s-5) 0 var(--s-2);
+  font: 700 var(--t-sm)/1.4 var(--sans); color: var(--ink);
+  text-transform: none; letter-spacing: normal;
+}
+#dataset .card-head + .corpus-size { margin-top: var(--s-1); }
+
+/* The declarations are a short table and a reference one — you look at it to
+   find out what a column means, not to read it through. So it is bounded well
+   below the 70vh a data region gets, and scrolls inside the head rather than
+   pushing the tabs off the screen on a corpus that declares thirteen labels. */
+.labels-block .table-scroll { max-height: 15rem; }
+
+/* --- the three tabs --------------------------------------------------------
+   A corpus is read one way at a time. The chosen one is marked by weight and
+   by a rule directly under it, in the page's own ink: no step colour, because
+   reading a corpus is not a pipeline step, and no filled chip, because the
+   tabs sit between two cards and a third filled surface between them would
+   read as a third card.
+
+   `.subtab` after `.why-term` in the cascade on purpose: these headings answer
+   a hover like every other explaining heading on the page, but a dotted
+   underline on a tab would fight the solid rule that says which tab you are
+   on. */
+.subtabs {
+  display: flex; gap: var(--s-1); flex-wrap: wrap;
+  margin: var(--s-5) 0 0;
+  border-bottom: 1px solid var(--rule);
+}
+.subtab {
+  appearance: none; background: transparent; cursor: pointer;
+  padding: var(--s-2) var(--s-3);
+  border: 0; border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font: var(--t-sm)/1.4 var(--sans); color: var(--ink-soft);
+}
+.subtab:hover { color: var(--ink); background: var(--rule-soft); }
+.subtab:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.subtab[aria-selected="true"] {
+  color: var(--ink); font-weight: 700;
+  border-bottom-color: var(--ink);
+  background: transparent;
+}
+/* The panel joins the rule the tabs sit on rather than floating below it, so
+   the pair reads as one object and the chosen tab is visibly attached to what
+   it opened. */
+.subtab-panel { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+
+/* A note pinned by a press rather than shown by a hover. Same words, same
+   place, for the reader who has no pointer to hover with. */
+#dataset p.explain { max-width: 68ch; }

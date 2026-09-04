@@ -265,10 +265,17 @@ def test_the_board_shows_every_recorded_experiment_and_names_no_winner(
     expect(board.locator('#board .section-meta.right')).to_have_text(
         f'{shown} recorded · best score first')
 
-    # The rule, said on the page and kept by it: the prose states it, and no
-    # cell, class or mark in the table then contradicts it by naming one.
-    expect(board.locator('.table-hint').first).to_contain_text(
+    # The rule, said on the page and kept by it. Said is now said when asked:
+    # the note that used to be a paragraph under the table hangs off the
+    # heading above it, opened by a hover, by keyboard focus, or by a press.
+    # Which is still on the page — it is one pointer-move away rather than a
+    # scroll away — and the assertion follows it rather than being dropped,
+    # because a board that stopped stating this rule would be a board making a
+    # comparability claim it has no right to.
+    board.locator('#board .card-head h2').hover()
+    expect(board.locator('#help-brief')).to_contain_text(
         'This table names no winner')
+    # And no cell, class or mark in the table then contradicts it by naming one.
     assert board.locator('[class*="winner"], [data-winner]').count() == 0
     assert 'winner' not in board.locator('#board table').inner_text().lower()
 

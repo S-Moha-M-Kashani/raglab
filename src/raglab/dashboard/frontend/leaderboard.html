@@ -28,6 +28,7 @@
       <a href="/">Laboratory</a>
       <a href="/inspector">Inspector</a>
       <a href="/leaderboard" aria-current="page">Leaderboard</a>
+      <a href="/dataset">Dataset</a>
     </nav>
     <div class="topbar-actions">
       <button class="settings-button" id="app-settings" type="button"
@@ -53,19 +54,11 @@
 <div class="stack">
 
   <section class="card">
-    <div class="card-head"><h2>Leaderboard</h2></div>
-    <p class="prose">
-      <b>One table per dataset.</b> Every experiment that touched one corpus —
-      index builds, retrievals and evaluations alike — in one table, ordered by
-      decision score, sortable by any column and narrowable by any of them
-      (<code>state!=failed</code>, <code>questions&gt;30</code>,
-      <code>when&gt;2026-08-01</code>). No winner is named: rows graded
-      by different judges over different question sets share a table, so
-      <code>judge</code> and <code>questions</code> are columns you compare on
-      rather than a promise that two rows are comparable. That stricter claim
-      still exists where it holds — a sweep moves one knob with its models fixed,
-      so <code>raglab-sweep</code> still names a winner and still refuses to when
-      the lead is inside the combined error.</p>
+    <!-- The note this heading used to carry as a paragraph above the
+         table. It is the same words, moved onto the title: lab.js shows
+         them on hover and on keyboard focus, and leaderboard.js pins
+         them under the heading on a press, for the reader with neither. -->
+    <div class="card-head"><h2 class="why-term" data-brief="One table per dataset. Every experiment that touched one corpus — index builds, retrievals and evaluations alike — in one table, ordered by decision score, sortable by any column and narrowable by any of them. No winner is named: rows graded by different judges over different question sets share a table, so judge and questions are columns you compare on rather than a promise that two rows are comparable. That stricter claim still exists where it holds — a sweep moves one knob with its models fixed, so raglab-sweep still names a winner and still refuses to when the lead is inside the combined error.">Leaderboard</h2></div>
   </section>
 
   <!-- Filled by leaderboard.js from /api/leaderboard. -->

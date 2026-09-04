@@ -316,6 +316,49 @@ def _the_stored_corpora_are_never_the_real_ones(tmp_path_factory):
         os.environ['RAGLAB_CORPORA_DB'] = saved
 
 
+def _files_under(path: Path) -> dict[str, int]:
+    """Name and size of every file in a directory, or nothing if it is absent."""
+    return {item.name: item.stat().st_size
+            for item in sorted(path.glob('*')) if item.is_file()}
+
+
+@pytest.fixture(autouse=True, scope='session')
+def _imports_never_land_in_the_real_datasets_dir(tmp_path_factory):
+    """No test may write into the lab's real `.datasets/` — the import route
+    stores the validated pair as two files there, so any test that posts an
+    import would otherwise leave a corpus in the developer's own catalogue,
+    where it shows up in the picker on every surface until somebody notices
+    and deletes it by hand. That is exactly what happened, which is why this
+    joined the other four. An env var rather than a patched attribute, for the
+    reason the ledger's fixture gives: `imported_dir()` resolves it per call.
+    The cache is dropped on the way in and on the way out, because the
+    catalogue is read once and kept."""
+    real = Path(datasets.IMPORTED_DIR)
+    before = _files_under(real)
+    saved = os.environ.get('RAGLAB_DATASETS')
+    os.environ['RAGLAB_DATASETS'] = str(
+        tmp_path_factory.mktemp('raglab-datasets'))
+    datasets.forget()
+    yield
+    if saved is None:
+        os.environ.pop('RAGLAB_DATASETS', None)
+    else:
+        os.environ['RAGLAB_DATASETS'] = saved
+    datasets.forget()
+    # The env var is the redirect; this is the check that it held. A test that
+    # reaches `IMPORTED_DIR` directly, or one that starts a child process
+    # without passing the variable on, would slip past the line above and
+    # leave a corpus in the picker — so the directory is counted before and
+    # after. Only `.datasets/`, deliberately: the developer's lab on :9002
+    # writes its widget and ledger files while the suite runs, and guarding
+    # those would fail a green suite for a reason the suite did not cause.
+    # An import is a thing the developer does on purpose, and rarely.
+    assert _files_under(real) == before, (
+        'a test wrote into the developer\'s real .datasets/ — an imported '
+        'corpus shows up in the picker on every surface until somebody '
+        f'deletes it by hand. Changed: {sorted(set(_files_under(real)) ^ set(before))}')
+
+
 @pytest.fixture(autouse=True, scope='session')
 def _runs_dir_is_never_the_real_one(tmp_path_factory):
     """No test may write into the lab's real `.runs/` — `evaluate.run_eval`

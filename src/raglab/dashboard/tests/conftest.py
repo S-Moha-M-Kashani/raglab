@@ -192,8 +192,8 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
         'RAGLAB_WIDGET_DB': str(lab_home / 'widget.db'),
         'RAGLAB_CORPORA_DB': str(lab_home / 'corpora.db'),
         'RAGLAB_BROWSER_RUNS': str(lab_home / 'runs'),
-        # The fifth durable place, and the one the offline suite redirects
-        # per-test rather than per-session: a dataset imported through the
+        # The fifth durable place, redirected here for the same reason and
+        # in the same way as the four above: a dataset imported through the
         # page lands here, and the repo's own `.datasets/` must not be it.
         'RAGLAB_DATASETS': str(lab_home / 'datasets'),
         # The Inspector asks the lab about experiments and jobs over HTTP, and

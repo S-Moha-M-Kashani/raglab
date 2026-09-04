@@ -220,7 +220,7 @@ const ExperimentHandoff = (() => {
       // empty pair of brackets reads as a stage whose knobs went missing.
       if (!here.length) continue;
       said.push(`${STAGE_NAMES[group]} (` + here.map((row) =>
-        `${row.path.slice(group.length + 1)} = ${String(row.value)} — `
+        `${row.path.slice(group.length + 1)} = ${row.path === 'index.split_plan' ? planText(row.value) : String(row.value)} — `
         + `${row.reason}`).join('; ') + ')');
     }
     return `To set: ${said.join(', ')}.`;

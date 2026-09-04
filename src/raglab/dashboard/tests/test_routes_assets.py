@@ -2264,10 +2264,10 @@ def _archive_template_knobs(archive_js):
 def _controlled_knobs(panel_js):
     """Knobs the panel reads back off a real control.
 
-    Two kinds. Most name their element inline (`chunker: $('chunker').value`),
+    Two kinds. Most name their element inline (`embedder: $('embedder').value`),
     whether they take it as it comes, coerce it to a number, or hand it to a
-    parser (`delimiters: readDelimiters($('delimiters').value)`, the one knob
-    whose control holds a list rather than a scalar) — what makes a knob
+    reader (`split_plan: readPlan($('split_plan'))`, the one knob whose
+    control holds a list of stages rather than a scalar) — what makes a knob
     controlled is that the element it reads is named on its own line here.
     The model roles are the second kind: rendered from the served catalogue
     and read through `data-field` in a loop, so their names live in

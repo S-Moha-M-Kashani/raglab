@@ -6,6 +6,42 @@
 // The stricter of the two copies this page used to carry separately: escapes
 // `"` as well as `&<>`. In a text node `&quot;` renders as `"`, so nothing
 // looks different there; in an attribute value it closes a latent injection.
+// The split plan as the one line a person reads: stages joined by ` / `, a
+// separator quoted the way JSON writes it, a label boundary as `role=user`,
+// a drift stage's markers as `drift or "…"`, and a stage's `when` only when
+// it differs from its kind's default. The same rendering
+// `configuration/split_plan.text()` produces, so a plan reads identically on
+// a knob page, a sweep candidate, the board and the Inspector.
+const PLAN_DEFAULT_WHEN = Object.freeze(
+  { part: 'always', label: 'always', drift: 'always', separator: 'over-budget' });
+
+function planText(stages) {
+  if (typeof stages === 'string') return stages;
+  if (!Array.isArray(stages)) return '';
+  const atom = (a) => ('text' in (a || {}) ? JSON.stringify(a.text)
+    : `${(a || {}).label}=${(a || {}).value}`);
+  return stages.map((stage) => {
+    const kind = (stage || {}).kind || '';
+    let words;
+    if (kind === 'document' || kind === 'part') words = [kind];
+    else if (kind === 'drift') {
+      words = ['drift'];
+      for (const marker of stage.markers || []) words.push('or', JSON.stringify(marker));
+    } else {
+      words = [];
+      for (const a of stage.atoms || []) {
+        if (words.length) words.push(stage.join || 'or');
+        words.push(atom(a));
+      }
+      if (!words.length) words = [kind];
+    }
+    if (kind in PLAN_DEFAULT_WHEN && stage.when && stage.when !== PLAN_DEFAULT_WHEN[kind]) {
+      words.push(stage.when);
+    }
+    return words.join(' ');
+  }).join(' / ');
+}
+
 function escapeHtml(text) {
   return String(text === null || text === undefined ? '' : text)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

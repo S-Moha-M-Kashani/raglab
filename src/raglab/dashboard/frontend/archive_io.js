@@ -23,9 +23,11 @@ const ArchiveIO = (() => {
   ]);
   const CONFIG_TEMPLATE = Object.freeze({
     index: {
-      dataset: '', chunker: 'semantic-drift', chunk_chars: 500, overlap: 100,
-      delimiters: [], contextual: true, embedder: 'sentence-transformers',
-      embed_model: '',
+      // The plan's stages are objects of several shapes, which a template of
+      // one cannot say; the list is checked here and each stage by `plan`.
+      dataset: '', split_plan: [], chunk_chars: 500, chunk_unit: 'characters',
+      overlap: 0, part_join: '\n', part_prefix: '', normalizer: '',
+      contextual: true, embedder: 'sentence-transformers', embed_model: '',
       hierarchy: '', graph_source: 'hybrid', graph_knn: 8, granularity: 1,
       hierarchy_levels: 1, min_group: 3, summarizer: 'centroid',
     },
@@ -45,7 +47,8 @@ const ArchiveIO = (() => {
     label: '',
   });
   const VOCABULARIES = Object.freeze({
-    'index.chunker': ['semantic-drift', 'fixed', 'fixed-overlap', 'message', 'turn-pair', 'session'],
+    'index.chunk_unit': ['characters', 'tokens'],
+    'index.normalizer': ['', 'persian', 'neutral'],
     'index.embedder': ['sentence-transformers', 'fastembed', 'ascii-hash', 'token-hash', 'char-hash'],
     'index.hierarchy': ['', 'louvain', 'leiden', 'label-prop', 'raptor', 'agglomerative', 'kmeans', 'metadata'],
     'index.graph_source': ['hybrid', 'knn', 'lexical', 'bipartite-terms'],
@@ -159,8 +162,28 @@ const ArchiveIO = (() => {
     return value;
   };
 
+  const STAGE_KINDS = Object.freeze(['document', 'part', 'label', 'separator', 'drift']);
+  // The plan's shape: the document first, every stage a known kind with its
+  // lists as lists. Which stages may follow which, and whether a label is one
+  // the corpus declares, is the server's `validate()` — one rule, one place.
+  const plan = (stages, path) => {
+    array(stages, path);
+    if (!stages.length || !stages[0] || stages[0].kind !== 'document') {
+      fail(`${path}: must begin with the document stage`);
+    }
+    stages.forEach((stage, index) => {
+      object(stage, `${path}[${index}]`);
+      if (!STAGE_KINDS.includes(stage.kind)) {
+        fail(`${path}[${index}].kind: unsupported stage ${JSON.stringify(stage.kind)}`);
+      }
+      if ('atoms' in stage) array(stage.atoms, `${path}[${index}].atoms`);
+      if ('markers' in stage) array(stage.markers, `${path}[${index}].markers`);
+    });
+  };
+
   const validateConfig = config => {
     shape(config, CONFIG_TEMPLATE, 'settings.config');
+    plan(config.index.split_plan, 'settings.config.index.split_plan');
     Object.entries(VOCABULARIES).forEach(([field, allowed]) => {
       const [group, name] = field.split('.');
       if (!allowed.includes(config[group][name])) {

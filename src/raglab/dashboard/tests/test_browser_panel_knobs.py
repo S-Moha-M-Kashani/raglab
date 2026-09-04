@@ -33,6 +33,8 @@ pytestmark = pytest.mark.browser
 from playwright.sync_api import expect  # noqa: E402  (after the skip guard)
 
 from raglab.configuration.knob_dependencies import DEPENDENCIES  # noqa: E402
+from raglab.configuration.lab_config import LabConfig  # noqa: E402
+from raglab.dashboard.tests.conftest import set_plan  # noqa: E402
 
 
 EXPLAIN_TIMEOUT = 20_000
@@ -44,10 +46,13 @@ EXPLAIN_TIMEOUT = 20_000
 #: this file stops asserting anything about.
 KNOBS = [
     ('card-index', 'dataset', 'select'),
-    ('card-index', 'chunker', 'select'),
+    ('card-index', 'split_plan', 'plan'),
     ('card-index', 'chunk_chars', 'number'),
+    ('card-index', 'chunk_unit', 'select'),
     ('card-index', 'overlap', 'number'),
-    ('card-index', 'delimiters', 'text'),
+    ('card-index', 'part_join', 'text'),
+    ('card-index', 'part_prefix', 'select'),
+    ('card-index', 'normalizer', 'select'),
     ('card-index', 'contextual', 'checkbox'),
     ('card-index', 'hierarchy', 'select'),
     ('card-index', 'graph_source', 'select'),
@@ -88,7 +93,7 @@ def _booted(page):
     an explainer trigger. Waiting on an option and on a trigger waits on both
     without waiting on a clock.
     """
-    expect(page.locator('#chunker')).to_contain_text('semantic-drift')
+    expect(page.locator('#plan-text')).to_contain_text('document')
     expect(page.locator('#card-index .why-term').first).to_be_visible()
     return page
 
@@ -193,20 +198,34 @@ def test_every_knob_in_the_three_step_cards_is_on_the_page_and_filled(
     expect(control).to_be_visible()
     if kind == 'select':
         expect(panel.locator(f'#{knob} option')).not_to_have_count(0)
+    if kind == 'plan':
+        # the control draws its stages, the document pinned first
+        expect(panel.locator(f'#{knob} .plan-stage').first).to_contain_text('document')
 
 
 def test_the_index_knobs_take_a_choice_and_the_panel_records_it(panel):
-    """Every Index knob moved once, then read back off the control and the memory."""
+    """Every Index knob moved once, then read back off the control and the memory.
+
+    The plan is built the way a reader builds it: a stage added from the
+    dropdown, a separator's atoms typed with the field's own escapes, its one
+    combinator chosen, a stage's when-toggle moved. What the panel then
+    remembers is the plan's own stage list — and the lab reads that list back
+    as exactly the same plan, which is the round trip a build depends on.
+    """
     _booted(panel)
-    # Order matters only in that a knob has to be live to be typed into: the
-    # chunker and the grouping are what wake the eleven below them.
     _set(panel, 'dataset', 'select', 'smoke-mini')
-    _set(panel, 'chunker', 'select', 'fixed-overlap')
+    set_plan(panel, 'part', 'separator')
+    panel.select_option('#split_plan [data-plan="when"][data-at="1"]', 'over-budget')
+    panel.fill('#split_plan [data-plan="atom-text"][data-at="2"][data-atom="0"]', '\\n\\n')
+    panel.click('#split_plan [data-plan="atom-add"][data-at="2"]')
+    panel.fill('#split_plan [data-plan="atom-text"][data-at="2"][data-atom="1"]', '.\\s')
+    panel.select_option('#split_plan [data-plan="join"][data-at="2"]', 'and')
     _set(panel, 'chunk_chars', 'number', '760')
+    _set(panel, 'chunk_unit', 'select', 'tokens')
     _set(panel, 'overlap', 'number', '140')
-    # Typed the way the field documents itself: coarsest first, and the one
-    # boundary whose whitespace a text box cannot show written `\s`.
-    _set(panel, 'delimiters', 'text', '\\n\\n, .\\s')
+    _set(panel, 'part_join', 'text', '\\n\\n')
+    _set(panel, 'part_prefix', 'select', 'role')
+    _set(panel, 'normalizer', 'select', 'neutral')
     _set(panel, 'contextual', 'checkbox', False)
     _set(panel, 'hierarchy', 'select', 'louvain')
     _set(panel, 'graph_source', 'select', 'knn')
@@ -216,18 +235,46 @@ def test_the_index_knobs_take_a_choice_and_the_panel_records_it(panel):
     _set(panel, 'min_group', 'number', '5')
     _set(panel, 'summarizer', 'select', 'mmr')
 
-    expect(panel.locator('#chunker')).to_have_value('fixed-overlap')
+    expect(panel.locator('#plan-text')).to_have_text(
+        'document / part over-budget / "\\n\\n" and ". "')
     expect(panel.locator('#chunk_chars')).to_have_value('760')
     expect(panel.locator('#contextual')).not_to_be_checked()
     expect(panel.locator('#hierarchy')).to_have_value('louvain')
 
-    assert _stored_config(panel)['index'] == {
-        'dataset': 'smoke-mini', 'chunker': 'fixed-overlap', 'chunk_chars': 760,
-        'overlap': 140, 'delimiters': ['\n\n', '. '], 'contextual': False,
-        'embedder': 'sentence-transformers',
+    stored = _stored_config(panel)
+    assert stored['index'] == {
+        'dataset': 'smoke-mini',
+        'split_plan': [
+            {'kind': 'document'},
+            {'kind': 'part', 'when': 'over-budget'},
+            {'kind': 'separator', 'atoms': [{'text': '\n\n'}, {'text': '. '}],
+             'join': 'and', 'when': 'over-budget'}],
+        'chunk_chars': 760, 'chunk_unit': 'tokens', 'overlap': 140,
+        'part_join': '\n\n', 'part_prefix': 'role', 'normalizer': 'neutral',
+        'contextual': False, 'embedder': 'sentence-transformers',
         'embed_model': '', 'hierarchy': 'louvain', 'graph_source': 'knn',
         'graph_knn': 12, 'granularity': 1.4, 'hierarchy_levels': 3,
         'min_group': 5, 'summarizer': 'mmr'}
+    # The built plan is the lab's own reading of it: the stage list the
+    # browser wrote comes back from the config the lab would run unchanged.
+    read_back = LabConfig.from_dict(stored).to_dict()['index']['split_plan']
+    assert [dict(stage, atoms=list(stage.get('atoms', ()))) if 'atoms' in stage
+            else stage for stage in read_back] == stored['index']['split_plan']
+
+
+def test_the_plan_control_reorders_and_removes_stages_but_never_the_document(panel):
+    """The stage rows are the plan: moving one moves the plan, removing one
+    shortens it, and the document row offers nothing to press."""
+    _booted(panel)
+    set_plan(panel, 'part', 'drift')
+    expect(panel.locator('#plan-text')).to_have_text('document / part / drift')
+    panel.click('#split_plan [data-plan="up"][data-at="2"]')
+    expect(panel.locator('#plan-text')).to_have_text('document / drift / part')
+    panel.click('#split_plan [data-plan="remove"][data-at="1"]')
+    expect(panel.locator('#plan-text')).to_have_text('document / part')
+    expect(panel.locator('#split_plan .plan-stage[data-at="0"] button')).to_have_count(0)
+    assert _stored_config(panel)['index']['split_plan'] == [
+        {'kind': 'document'}, {'kind': 'part', 'when': 'always'}]
 
 
 def test_the_retrieval_knobs_take_a_choice_and_the_panel_records_it(panel):
@@ -296,30 +343,6 @@ def test_the_generation_knobs_take_a_choice_and_the_panel_records_it(panel):
     assert kept['generation']['fact_judge'] is True
 
 
-def test_the_chunker_decides_which_of_its_own_knobs_are_live(panel):
-    """`index.chunker` governs three knobs, and the table says which."""
-    _booted(panel)
-    assert _governed_by('index.chunker') == [
-        'index.chunk_chars', 'index.delimiters', 'index.overlap']
-
-    # The lab boots on semantic-drift: it cuts to a budget, so a chunk length
-    # is read, and neither an overlap nor a delimiter list is — it finds its
-    # own boundaries in the corpus rather than in the text.
-    expect(panel.locator('#chunk_chars')).to_be_enabled()
-    expect(panel.locator('#overlap')).to_be_disabled()
-    expect(panel.locator('#delimiters')).to_be_disabled()
-
-    _set(panel, 'chunker', 'select', 'fixed-overlap')
-    expect(panel.locator('#chunk_chars')).to_be_enabled()
-    expect(panel.locator('#overlap')).to_be_enabled()
-    expect(panel.locator('#delimiters')).to_be_enabled()
-
-    _set(panel, 'chunker', 'select', 'session')
-    expect(panel.locator('#chunk_chars')).to_be_disabled()
-    expect(panel.locator('#overlap')).to_be_disabled()
-    expect(panel.locator('#delimiters')).to_be_disabled()
-
-
 def test_choosing_a_grouping_wakes_every_knob_the_table_says_it_governs(panel):
     """A flat index makes nine knobs inert; one grouping wakes all nine."""
     _booted(panel)
@@ -344,9 +367,10 @@ def test_choosing_a_grouping_wakes_every_knob_the_table_says_it_governs(panel):
         expect(_control(panel, path)).to_be_enabled()
         expect(_wrapper(panel, path)).not_to_have_class(OFF)
     expect(panel.locator('#graph_knn')).to_be_enabled()
-    # And nothing else moved: the chunking knobs answer to the chunker.
+    # And nothing else moved: the budget and the overlap have no owner, since
+    # the budget closes every plan.
     expect(panel.locator('#chunk_chars')).to_be_enabled()
-    expect(panel.locator('#overlap')).to_be_disabled()
+    expect(panel.locator('#overlap')).to_be_enabled()
 
 
 def test_the_reranker_and_the_gate_each_wake_only_their_own_dependents(panel):
@@ -415,19 +439,19 @@ def test_an_inert_knob_renders_empty_and_says_why_in_its_explainer(panel):
     number that nothing will read. The reason is the explainer half.
     """
     _booted(panel)
-    expect(panel.locator('#overlap')).to_be_disabled()
-    expect(_wrapper(panel, 'index.overlap')).to_have_class(OFF)
+    expect(panel.locator('#graph_source')).to_be_disabled()
+    expect(_wrapper(panel, 'index.graph_source')).to_have_class(OFF)
     assert panel.evaluate(
-        "() => getComputedStyle(document.getElementById('overlap'))"
+        "() => getComputedStyle(document.getElementById('graph_source'))"
         '.webkitTextFillColor') == 'rgba(0, 0, 0, 0)'
 
-    explain = _open_explainer(panel, 'overlap')
-    expect(explain).to_contain_text(_said('index.overlap'))
+    explain = _open_explainer(panel, 'graph_source')
+    expect(explain).to_contain_text(_said('index.graph_source'))
     # The reason leads; the definition follows it rather than replacing it.
-    expect(explain).to_contain_text('Characters repeated between neighbouring')
+    expect(explain).to_contain_text('What an edge between two chunks means')
 
 
-@pytest.mark.parametrize('knob', ['chunker', 'reranker', 'answerer'])
+@pytest.mark.parametrize('knob', ['split_plan', 'reranker', 'answerer'])
 def test_a_knob_explains_itself_at_two_lengths_one_per_step(panel, knob):
     """Hover for the brief, click for the whole note — on a live knob of each step."""
     # A window tall enough to hold the whole bench, so reaching a knob in the
@@ -484,7 +508,7 @@ def test_a_reload_brings_back_the_knobs_the_reader_set(panel):
     """The panel's memory is the point of writing every keystroke to storage."""
     _booted(panel)
     _set(panel, 'dataset', 'select', 'smoke-mini')
-    _set(panel, 'chunker', 'select', 'fixed-overlap')
+    set_plan(panel, 'part')
     _set(panel, 'chunk_chars', 'number', '640')
     _set(panel, 'hierarchy', 'select', 'kmeans')
     _set(panel, 'reranker', 'select', 'none')
@@ -496,7 +520,7 @@ def test_a_reload_brings_back_the_knobs_the_reader_set(panel):
     _booted(panel)
 
     expect(panel.locator('#dataset')).to_have_value('smoke-mini')
-    expect(panel.locator('#chunker')).to_have_value('fixed-overlap')
+    expect(panel.locator('#plan-text')).to_have_text('document / part')
     expect(panel.locator('#chunk_chars')).to_have_value('640')
     expect(panel.locator('#hierarchy')).to_have_value('kmeans')
     expect(panel.locator('#reranker')).to_have_value('none')

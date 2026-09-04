@@ -53,13 +53,12 @@
 <main id="main">
 <div class="stack">
 
-  <section class="card">
-    <!-- The note this heading used to carry as a paragraph above the
-         table. It is the same words, moved onto the title: lab.js shows
-         them on hover and on keyboard focus, and leaderboard.js pins
-         them under the heading on a press, for the reader with neither. -->
-    <div class="card-head"><h2 class="why-term" data-brief="One table per dataset. Every experiment that touched one corpus — index builds, retrievals and evaluations alike — in one table, ordered by decision score, sortable by any column and narrowable by any of them. No winner is named: rows graded by different judges over different question sets share a table, so judge and questions are columns you compare on rather than a promise that two rows are comparable. That stricter claim still exists where it holds — a sweep moves one knob with its models fixed, so raglab-sweep still names a winner and still refuses to when the lead is inside the combined error.">Leaderboard</h2></div>
-  </section>
+  <!-- The page's own title, and the note that used to be a paragraph of
+       prose under it. A card holding one heading and nothing else is not a
+       card; this is the page saying what it is, once, above the board it
+       holds. lab.js opens the note on hover and on keyboard focus, and
+       leaderboard.js pins it here on a press. -->
+  <h1 class="page-title why-term" data-brief="One table per dataset. Every experiment that touched one corpus — index builds, retrievals and evaluations alike — in one table, ordered by decision score, sortable by any column and narrowable by any of them. No winner is named: rows graded by different judges over different question sets share a table, so judge and questions are columns you compare on rather than a promise that two rows are comparable. That stricter claim still exists where it holds — a sweep moves one knob with its models fixed, so raglab-sweep still names a winner and still refuses to when the lead is inside the combined error.">Leaderboard</h1>
 
   <!-- Filled by leaderboard.js from /api/leaderboard. -->
   <div id="board"></div>

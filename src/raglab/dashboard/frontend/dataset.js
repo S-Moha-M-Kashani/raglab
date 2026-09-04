@@ -144,8 +144,12 @@ function questionsGrid(data) {
     columns: [
       { label: 'question' },
       { label: 'asks', text: true },
-      { label: 'expects', title: 'answer or abstain — what the ground truth '
-        + 'says a correct pipeline does with this question' },
+      // The one field the harness branches on, so it is named exactly as the
+      // schema names it: answer from the corpus, abstain because the corpus
+      // does not hold it, or correct the question's false premise.
+      { label: 'expects', title: 'what the ground truth says a correct '
+        + 'pipeline does with this question — answer, abstain, or '
+        + 'correct_premise' },
       { label: 'cites', text: true,
         title: 'the documents this question names as its evidence' },
       { label: 'facts', title: 'how many derived facts the expected answer '
@@ -348,9 +352,11 @@ const SAYS = {
     + 'chunker divides. Press a document number to read the parts it is made '
     + 'of, which are the units a chunker cuts between.',
   questions: 'Every ground-truth question, what it expects a correct pipeline '
-    + 'to do with it, and which documents it names as its evidence. A '
-    + 'question expecting abstain is one the corpus cannot answer, and '
-    + 'refusing it honestly is the behaviour being measured.',
+    + 'to do with it, and which documents it names as its evidence. Expects '
+    + 'is the one field the harness branches on: answer means the corpus '
+    + 'holds it, abstain means it does not and refusing honestly is what is '
+    + 'being measured, and correct_premise means the question itself is wrong '
+    + 'and saying so is the right answer.',
   raw: 'Both files exactly as recorded, value by value — whitespace and '
     + 'nesting included, nothing reformatted or rounded. The tables summarise; '
     + 'this is where you check the shape of a value, which is the only place '
@@ -431,7 +437,12 @@ function renderPanel(data) {
   const parts = partsGrid(data, OPENED);
   if (TAB === 'documents') {
     return renderGrid(documentsGrid(data, OPENED), narrowing('documents'))
-      + (parts ? `<div class="parts-panel">${renderGrid(parts, null)}</div>` : '');
+      // The parts table's own name is read aloud from its caption but drawn
+      // nowhere, and a second table appearing under the first with no heading
+      // leaves a sighted reader to infer what it is. It is one line.
+      + (parts ? '<div class="parts-panel">'
+        + `<h3>${escapeHtml(parts.caption)}</h3>`
+        + `${renderGrid(parts, null)}</div>` : '');
   }
   if (TAB === 'questions') {
     return data.ground_truth_error

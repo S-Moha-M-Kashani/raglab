@@ -371,6 +371,16 @@ main { max-width: var(--measure); margin: 0 auto;
   min-width: 0;
 }
 .card[data-step] { border-top: 3px solid var(--step); }
+/* A page's own name, above the cards rather than inside one. The slab face is
+   the machine's own voice — the same face the mark in the bar is set in — and
+   this is the one place a surface says what it is. Only where a surface's
+   subject is the surface itself: the corpus viewer's first heading is the
+   corpus's name, which is a better title than the word "Dataset" would be. */
+.page-title {
+  margin: var(--s-2) 0 0;
+  font: 600 var(--t-lg)/1.2 var(--slab); color: var(--ink);
+}
+
 .card-head {
   display: flex; align-items: baseline; gap: var(--s-2); margin: var(--s-3) 0 var(--s-1);
 }

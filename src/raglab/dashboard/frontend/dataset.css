@@ -137,9 +137,10 @@ button.reading:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
 
 /* The declarations are a short table and a reference one — you look at it to
    find out what a column means, not to read it through. So it is bounded well
-   below the 70vh a data region gets, and scrolls inside the head rather than
-   pushing the tabs off the screen on a corpus that declares thirteen labels. */
-.labels-block .table-scroll { max-height: 15rem; }
+   below the 70vh a data region gets — about five rows — and scrolls inside the
+   head rather than pushing the tabs off the screen on a corpus that declares
+   thirteen labels. */
+.labels-block .table-scroll { max-height: 11rem; }
 
 /* --- the three tabs --------------------------------------------------------
    A corpus is read one way at a time. The chosen one is marked by weight and

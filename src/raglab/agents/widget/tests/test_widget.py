@@ -369,7 +369,21 @@ def test_trim_and_call_guard_short_circuits_without_calling_handler():
     assert not called
     assert isinstance(result, AIMessage)
     assert not (result.tool_calls or [])
-    assert 'tool calls started repeating' in result.content
+    assert result.content == widget.hooks.HOP_GUARD_REFUSAL
+
+
+def test_the_hop_guard_refusal_fits_a_question_that_named_no_experiment():
+    # this is a unit test
+    """The other half of the 2026-09-03 regression. The guard fired on a knob
+    question and told the reader to "ask for the run by its experiment ID" —
+    advice for a lookup they had not asked for. A refusal must describe what
+    happened and offer a remedy that fits any question the guard can stop, or
+    it is a message lying about what produced it."""
+    refusal = widget.hooks.HOP_GUARD_REFUSAL
+    assert str(widget.hooks.MAX_TOOL_HOPS) in refusal, (
+        'the refusal must say how many calls it stopped after')
+    assert 'knob' in refusal.lower(), (
+        'a knob question can trip this guard, so the remedy must name knobs too')
 
 
 def test_hook_log_stops_growing_at_its_cap():

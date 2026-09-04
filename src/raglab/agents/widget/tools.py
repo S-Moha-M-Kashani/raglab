@@ -103,10 +103,18 @@ MAX_KNOB_READS = 3
 def search_knobs(query: str) -> str:
     """This lab's own knobs, matched literally, the whole surface on a miss;
     the model-facing prompt is fixtures/prompts/widget_tools.yaml's entry."""
-    hits = knobs.search(query)
+    hits = knobs.search(query, limit=None)
     if not hits:
         return (f"No knob matches '{query}'.\n\n" + knobs.index_text())
-    return '\n'.join(f'{key} — {summary}' for key, summary in hits)
+    shown, rest = hits[:knobs.MAX_SEARCH_HITS], hits[knobs.MAX_SEARCH_HITS:]
+    lines = [f'{key} — {summary}' for key, summary in shown]
+    if rest:
+        # A cap the model cannot see is an invitation to reword and search
+        # again — which is the loop this whole ranking exists to end.
+        lines.append(f'({len(rest)} more matched less closely. Narrow the '
+                     'query, or read one of the above with read_knob rather '
+                     'than searching again.)')
+    return '\n'.join(lines)
 
 
 @tool

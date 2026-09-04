@@ -32,6 +32,31 @@ _KEY = re.compile(r'\b(?:index|retrieval|generation|run)\.[a-z][a-z0-9_-]*')
 
 _INTERACTIONS = '## Interactions'
 
+#: How many knobs one search returns. A shortlist to commit to, not a wall to
+#: narrow: the whole surface, unranked, is what the model rewords its way
+#: around instead of reading a page.
+MAX_SEARCH_HITS = 8
+
+#: What a query word is worth by where it landed. A key match names the knob
+#: asked about, a summary match describes it, a body match may be one clause
+#: in a page about something else — and the spread has to be wide enough that
+#: one key match outranks several passing mentions.
+KEY_WEIGHT, SUMMARY_WEIGHT, BODY_WEIGHT = 8, 4, 1
+
+#: Question and function words, dropped before scoring. They carry no topic
+#: and they actively mislead: the first ranking measured put the three
+#: `*_model` knobs on top of "which knob fixes missed retrieval", because
+#: their summaries open with "which model …" and `which` was scoring as a
+#: summary match. Domain words are deliberately absent from this list — `run`
+#: is a group prefix and `knob` appears in every page body, where a uniform
+#: +1 changes no ordering.
+_STOPWORDS = frozenset('''
+    which what when where why how does did done the and for with that this
+    from into are was were has have had can could should would will not you
+    your our its about one any all more most than then there their them they
+    use used using give gives make makes something anything
+'''.split())
+
 
 def _parse(path: Path):
     """One file to (summary, page), or None when the title line is malformed.
@@ -94,21 +119,44 @@ def related(key: str, root=None) -> tuple:
     return tuple(found)
 
 
-def search(query: str, root=None) -> list:
-    """(key, summary) for every knob whose key, summary or page matches.
+def search(query: str, root=None, limit=MAX_SEARCH_HITS) -> list:
+    """(key, summary) for the knobs a query matches, closest first.
 
-    Literal, case-insensitive, one word at a time — the same cheap matcher
-    the skills corpus uses, for the same reason: a helper's search must not
-    need an index of its own."""
-    words = {w for w in re.findall(r'[a-z0-9_.-]+', query.lower()) if len(w) > 2}
+    Literal and case-insensitive, like the skills corpus's matcher, but
+    ranked and bounded — which that one does not need to be and this one
+    does. A skill catalogue is twelve descriptions; this is fifty pages of
+    2.6 KB prose, so "any query word anywhere" matched up to the whole
+    surface and returned it alphabetically. Measured on 2026-09-03: the real
+    question "which knob fixes missed retrieval" matched all fifty, led by
+    the generation knobs, and the model answered by searching again eight
+    times until the hop guard stopped the turn. Nothing was wrong with the
+    guard; the reply was simply of no use.
+
+    So *where* a word lands decides what it is worth: the key names the
+    knob, the summary describes it, and the page merely mentions it. Ties
+    break by key, so the ordering is stable rather than dict-ordered, and
+    `limit=None` asks for the whole ranked list — which is how the tool
+    knows how many it is not showing."""
+    words = {w for w in re.findall(r'[a-z0-9_.-]+', query.lower())
+             if len(w) > 2 and w not in _STOPWORDS}
     if not words:
         return []
-    hits = []
+    scored = []
     for key, (summary, text) in _load(root).items():
-        haystack = f'{key}\n{summary}\n{text}'.lower()
-        if any(word in haystack for word in words):
-            hits.append((key, summary))
-    return hits
+        low_key, low_summary, low_text = key.lower(), summary.lower(), text.lower()
+        score = 0
+        for word in words:
+            if word in low_key:
+                score += KEY_WEIGHT
+            elif word in low_summary:
+                score += SUMMARY_WEIGHT
+            elif word in low_text:
+                score += BODY_WEIGHT
+        if score:
+            scored.append((-score, key, summary))
+    scored.sort()
+    hits = [(key, summary) for _, key, summary in scored]
+    return hits if limit is None else hits[:limit]
 
 
 def index_text(root=None) -> str:

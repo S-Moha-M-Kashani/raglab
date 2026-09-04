@@ -39,10 +39,12 @@ search_knobs: |-
   it costs an index rebuild, why it is greyed out, or which knob to move
   for a symptom.
 
-  Returns matching knob keys with a one-line summary each, and the whole
-  knob surface when nothing matches. Matching is literal keyword search,
-  not semantic, so search again with different wording if the hits look
-  thin. Then read the ones that fit with read_knob.
+  Returns the closest knob keys with a one-line summary each — ranked, at
+  most eight, and saying how many more matched less closely — or the whole
+  knob surface when nothing matches. Matching is literal keyword search, not
+  semantic. Read the closest hit with read_knob rather than searching again:
+  a second search with different wording is worth one try at most, and the
+  page you were pointed at answers more than another shortlist will.
 
   This is the lab's own controls; search_rag_skills is the field's
   techniques. A question naming a key like "retrieval.reranker" belongs

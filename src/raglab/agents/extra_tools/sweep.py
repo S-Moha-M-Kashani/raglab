@@ -14,6 +14,7 @@ from raglab.llm_backends import cli_subprocess_chat as clichat
 from raglab.corpora import corpus_reading as corpus
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
+from raglab.configuration import split_plan
 from raglab.configuration.lab_config import (
     GenerationConfig,
     IndexConfig,
@@ -83,7 +84,8 @@ def candidates() -> list[LabConfig]:
     variant('F llm relevance gate', retrieval={'grader': 'llm',
                                                'grade_threshold': 0.4,
                                                'grader_model': ANSWER_MODEL})
-    variant('H session chunks', index={'chunker': 'session'})
+    variant('H whole-document chunks',
+            index={'split_plan': split_plan.parse('document')})
     return out
 
 

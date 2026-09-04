@@ -463,8 +463,9 @@ def test_the_widget_package_is_a_deletable_leaf():
     slip past.
 
     The direction is the claim. The widget package reaches the lab only
-    through its two unmeasured edges — the CLI chat drive and the env
-    settings — never the chat factory, the pipeline, evaluation or the stores
+    through its unmeasured edges — the CLI chat drive, the env settings and
+    the split plan's printer, a pure formatter of a config value — never the
+    chat factory, the pipeline, evaluation or the stores
     (its skills corpus loader lives *inside* the package now, so it is no
     longer an edge at all). And the lab reaches the widget only from
     `dashboard/`, from the named files and nowhere else: the factory that
@@ -481,7 +482,8 @@ def test_the_widget_package_is_a_deletable_leaf():
     widget_pkg = 'raglab.agents.widget'
     widget_dir = SRC / 'raglab' / 'agents' / 'widget'
     allowed_into_lab = {'raglab.llm_backends.cli_subprocess_chat',
-                        'raglab.configuration.env_settings'}
+                        'raglab.configuration.env_settings',
+                        'raglab.configuration.split_plan'}
     # Paths rather than bare file names: `widget.py` alone would name two
     # different files here.
     allowed_to_reach_in = {

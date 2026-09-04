@@ -73,7 +73,7 @@ DIGEST = {'experiment_id': 'r1', 'kind': 'run', 'state': 'done', 'error': '',
                       'llm_context_precision_with_reference': 0.6,
                       'context_recall': 0.75},
           'ragas_notes': [], 'ragas_skipped': 0,
-          'config': {'index': {'chunker': 'session'},
+          'config': {'index': {'split_plan': [{'kind': 'document'}]},
                     'retrieval': {'retriever': 'bm25', 'k': 3},
                     'generation': {'answerer': 'llm'}},
           'index': {'chunks': 15}, 'summary': {'overall': {'recall': 0.5}},
@@ -154,7 +154,7 @@ def test_reading_one_experiment_names_its_knobs_and_its_four_metrics():
     tools.set_experiment_reader(_Reader(experiment=DIGEST))
     reply = widget.read_experiment.invoke({'experiment_id': 'r1'})
     assert 'faithfulness' in reply and '0.800' in reply
-    assert 'bm25' in reply and 'chunker' in reply
+    assert 'bm25' in reply and 'split_plan' in reply
     assert 'sonnet-4' in reply
 
 
@@ -310,13 +310,13 @@ def test_an_unjudged_row_does_not_read_as_judge_no_judge():
 
 
 INERT_DIGEST = dict(DIGEST, config={
-    'index': {'chunker': 'semantic-drift', 'chunk_chars': 500, 'overlap': 100},
-}, inert={'index.overlap': 'semantic-drift does not chunk by overlap'})
+    'index': {'hierarchy': '', 'chunk_chars': 500, 'min_group': 3},
+}, inert={'index.min_group': 'nothing is grouped'})
 
 
 def test_a_knob_the_run_never_read_renders_as_none_not_its_leftover_value():
     # this is a unit test
-    """`overlap=100` on a chunker that never reads overlap is a lie about what
+    """`min_group=3` on a flat index that grouped nothing is a lie about what
     produced the row. The inert map (tasks 1-3, injected on the found dict) says
     which dotted knob paths the run never read; this tool must render exactly
     those as the literal word `none`, never the number still sitting in the
@@ -324,8 +324,8 @@ def test_a_knob_the_run_never_read_renders_as_none_not_its_leftover_value():
     tools.set_experiment_reader(_Reader(experiment=INERT_DIGEST))
     reply = widget.read_experiment.invoke({'experiment_id': 'r1'})
     assert 'chunk_chars=500' in reply
-    assert 'overlap=none' in reply
-    assert 'overlap=100' not in reply
+    assert 'min_group=none' in reply
+    assert 'min_group=3' not in reply
 
 
 def test_a_found_dict_without_inert_renders_knobs_as_before():
@@ -337,7 +337,7 @@ def test_a_found_dict_without_inert_renders_knobs_as_before():
     del without_inert['inert']
     tools.set_experiment_reader(_Reader(experiment=without_inert))
     reply = widget.read_experiment.invoke({'experiment_id': 'r1'})
-    assert 'overlap=100' in reply
+    assert 'min_group=3' in reply
     assert 'overlap=none' not in reply
 
 

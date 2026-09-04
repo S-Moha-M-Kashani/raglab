@@ -191,7 +191,11 @@ def _validate_settings(value, limits: dict) -> dict:
     settings = _dict(value, 'settings')
     _keys(settings, ('config', 'ui'), 'settings')
     config = _dict(settings['config'], 'settings.config')
-    _shape(config, _json_value(LabConfig().to_dict()), 'settings.config')
+    template = _json_value(LabConfig().to_dict())
+    # The plan's stages are objects of several shapes, which a template of one
+    # cannot say; the list is checked here and each stage by `validate()`.
+    template['index']['split_plan'] = []
+    _shape(config, template, 'settings.config')
     try:
         cfg = LabConfig.from_dict(config)
         canonical = _json_value(cfg.to_dict())

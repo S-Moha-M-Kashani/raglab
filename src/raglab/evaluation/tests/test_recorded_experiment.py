@@ -43,7 +43,7 @@ def _run_file(tmp_path, monkeypatch, run_id, *, dataset='smoke-mini',
     (tmp_path / f'{run_id}.json').write_text(json.dumps({
         'run_id': run_id, 'label': f'{run_id} label', 'dataset': dataset,
         'started_at': '2026-08-01 10:00:00', 'seconds': 12,
-        'config': {'index': {'chunker': 'session', 'embedder': 'token-hash'},
+        'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'},
                    'retrieval': {'retriever': 'bm25', 'k': 3},
                    'generation': {'answerer': 'llm', 'model': 'sonnet'}},
         'index': {'chunks': 15, 'embed_dim': 512, 'avg_chars': 243.7},
@@ -65,7 +65,7 @@ def _ledger_row(db, run_id, *, dataset='smoke-mini', provider='openrouter',
               'ragas': {'decision': 0.7125}}
     result.update(detail_extra or {})
     ledger.record({'id': run_id, 'kind': kind, 'seconds': 12,
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'dataset': dataset,
                                         'embedder': 'token-hash'},
                               'retrieval': {'retriever': 'bm25'},

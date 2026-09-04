@@ -60,10 +60,11 @@ def _label_declaration(fields: dict) -> list[dict]:
         for name, declaration in sorted(fields.items())]
 
 
-#: A line with nothing on it but whitespace, between two newlines. What the
-#: character-budget chunkers' `"\n\n"` delimiter needs in order to match
-#: anything at all — a corpus whose parts are single lines can never offer it,
-#: and the reading below is how a reader finds that out before sweeping it.
+#: A line with nothing on it but whitespace, between two newlines. What a
+#: separator stage cutting on `"\n\n"` needs in order to match anything at
+#: all inside a part — a corpus whose parts are single lines can never offer
+#: it (only `part_join` can put one between parts), and the reading below is
+#: how a reader finds that out before sweeping it.
 BLANK_LINE = re.compile(r'\n[^\S\n]*\n')
 
 

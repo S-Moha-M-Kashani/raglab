@@ -12,6 +12,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from raglab.configuration import split_plan
 from raglab.configuration.lab_config import ROOT
 
 # Order matters: it is the column order of the table and of every row returned.
@@ -22,7 +23,7 @@ COLUMNS = (
     'label', 'started_at', 'seconds',
     'dataset',              # which corpus — a score means nothing without it
     'provider',             # the resolved chat backend: fake means "not a measurement"
-    'chunker', 'embedder', 'retriever', 'reranker', 'grader', 'answerer',
+    'split_plan', 'embedder', 'retriever', 'reranker', 'grader', 'answerer',
     'n_questions',
     'decision', 'decision_stderr',
     'error',
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS experiments (
   seconds         REAL NOT NULL DEFAULT 0,
   dataset         TEXT NOT NULL DEFAULT '',
   provider        TEXT NOT NULL DEFAULT '',
-  chunker         TEXT NOT NULL DEFAULT '',
+  split_plan      TEXT NOT NULL DEFAULT '',
   embedder        TEXT NOT NULL DEFAULT '',
   retriever       TEXT NOT NULL DEFAULT '',
   reranker        TEXT NOT NULL DEFAULT '',
@@ -87,7 +88,8 @@ def _migrate(db: sqlite3.Connection) -> None:
     """Add columns this schema has gained since a ledger was created —
     `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists."""
     have = {row['name'] for row in db.execute('PRAGMA table_info(experiments)')}
-    for name, kind in (('dataset', "TEXT NOT NULL DEFAULT ''"),):
+    for name, kind in (('dataset', "TEXT NOT NULL DEFAULT ''"),
+                       ('split_plan', "TEXT NOT NULL DEFAULT ''")):
         if name not in have:
             db.execute(f'ALTER TABLE experiments ADD COLUMN {name} {kind}')
 
@@ -95,6 +97,11 @@ def _migrate(db: sqlite3.Connection) -> None:
 def stamp() -> str:
     """Local time, zero-padded, matching `RunResult.started_at`'s format."""
     return time.strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _plan_text(recorded) -> str:
+    """The plan as the one line a row has room for — its typed form."""
+    return split_plan.text(recorded) if recorded else ''
 
 
 def row_for(job: dict, state: str) -> dict:
@@ -105,7 +112,7 @@ def row_for(job: dict, state: str) -> dict:
     One of the two projections between a job's nested config and the flat
     columns a row has, and the writing half: `leaderboard.ledger_config` reads
     these same columns back into a nested config. Both have to mean the same
-    thing by `chunker`, `retriever` and `answerer`.
+    thing by `split_plan`, `retriever` and `answerer`.
 
     There was a third — a run file written into this shape, so that resolving an
     experiment by id could answer in a ledger row's spelling. Resolving by id
@@ -139,7 +146,7 @@ def row_for(job: dict, state: str) -> dict:
                                or job.get('seconds') or 0.0), 2),
         'provider': config.get('provider') or '',
         'dataset': result.get('dataset') or index.get('dataset') or '',
-        'chunker': index.get('chunker') or '',
+        'split_plan': _plan_text(index.get('split_plan')),
         'embedder': index.get('embedder') or '',
         'retriever': retrieval.get('retriever') or '',
         'reranker': retrieval.get('reranker') or '',
@@ -187,7 +194,7 @@ def _row_for_archive(payload: dict) -> dict:
         'seconds': round(float(result['seconds']), 2),
         'dataset': result['dataset'],
         'provider': evaluation['execution']['provider'],
-        'chunker': index['chunker'],
+        'split_plan': _plan_text(index['split_plan']),
         'embedder': index['embedder'],
         'retriever': retrieval['retriever'],
         'reranker': retrieval['reranker'],

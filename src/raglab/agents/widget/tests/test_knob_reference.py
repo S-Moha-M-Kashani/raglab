@@ -63,7 +63,7 @@ def test_an_unknown_key_raises_with_valid_keys_in_the_message():
     # this is a unit test
     with pytest.raises(KeyError) as caught:
         knobs.page('index.zeppelin')
-    assert 'index.chunker' in str(caught.value)
+    assert 'index.split_plan' in str(caught.value)
 
 
 def test_related_knobs_are_the_ones_that_page_names_in_its_interactions():
@@ -90,14 +90,14 @@ def test_the_loader_reads_a_custom_root_and_skips_a_page_with_no_title_line(tmp_
     helper, and a helper that dies on one bad file serves nothing."""
     (tmp_path / 'index.good.md').write_text(
         '# index.good — a well-formed page\n\nBody.\n\n'
-        '## Interactions\n`index.chunker` moves with it.\n', encoding='utf-8')
+        '## Interactions\n`index.split_plan` moves with it.\n', encoding='utf-8')
     (tmp_path / 'index.bad.md').write_text('no title line at all\n',
                                            encoding='utf-8')
     (tmp_path / 'README.md').write_text('# Not a knob — prose\n', encoding='utf-8')
     index = knobs.index(root=tmp_path)
     assert index == {'index.good': 'a well-formed page'}
     assert 'Body.' in knobs.page('index.good', root=tmp_path)
-    assert knobs.related('index.good', root=tmp_path) == ('index.chunker',)
+    assert knobs.related('index.good', root=tmp_path) == ('index.split_plan',)
 
 
 def test_search_matches_on_keys_summaries_and_bodies_case_insensitively():
@@ -175,7 +175,7 @@ def test_search_knobs_returns_the_summary_beside_the_key():
 def test_search_knobs_lists_the_whole_knob_surface_when_nothing_matches():
     # this is a unit test
     reply = widget.search_knobs.invoke({'query': 'zeppelin xylophone'})
-    for key in ('index.chunker', 'retrieval.k', 'generation.answerer', 'run.limit'):
+    for key in ('index.split_plan', 'retrieval.k', 'generation.answerer', 'run.limit'):
         assert key in reply
 
 
@@ -190,9 +190,9 @@ def test_read_knob_returns_the_page_with_the_knobs_it_interacts_with():
 
 def test_read_knob_returns_several_pages_each_under_its_key():
     # this is a unit test
-    reply = widget.read_knob.invoke({'keys': 'index.chunker, retrieval.k'})
-    assert reply.index('index.chunker') < reply.index('retrieval.k')
-    assert '=== index.chunker ===' in reply
+    reply = widget.read_knob.invoke({'keys': 'index.split_plan, retrieval.k'})
+    assert reply.index('index.split_plan') < reply.index('retrieval.k')
+    assert '=== index.split_plan ===' in reply
     assert '=== retrieval.k ===' in reply
 
 
@@ -212,7 +212,7 @@ def test_read_knob_reports_an_unknown_key_and_serves_the_known_one():
     # this is a unit test
     """A model that mistypes one key must not lose the whole call — the reply
     serves what it can and says what it could not."""
-    reply = widget.read_knob.invoke({'keys': 'index.chunker, index.zeppelin'})
-    assert '=== index.chunker ===' in reply
+    reply = widget.read_knob.invoke({'keys': 'index.split_plan, index.zeppelin'})
+    assert '=== index.split_plan ===' in reply
     assert 'index.zeppelin' in reply
     assert 'index.chunk_chars' in reply     # the valid keys are offered back

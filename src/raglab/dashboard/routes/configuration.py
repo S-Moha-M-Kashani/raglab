@@ -11,7 +11,7 @@ from pathlib import Path
 
 from raglab.configuration.lab_config import (
     ANSWERERS,
-    CHUNKERS,
+    CHUNK_UNITS,
     DEPENDENCIES,
     EMBEDDERS,
     GRADERS,
@@ -25,6 +25,11 @@ from raglab.configuration.lab_config import (
     SUMMARIZERS,
     SUMMARY_SCOPES,
     LabConfig)
+from raglab.configuration.option_vocabularies import (
+    COMBINATORS,
+    NORMALIZERS,
+    STAGE_KINDS,
+    STAGE_WHEN)
 from raglab.configuration import explainer_assembly as explain
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard.routes.datasets import dataset_options, question_vocab
@@ -47,9 +52,13 @@ def _relative(path: Path) -> str:
 
 
 def _catalogue_vocab() -> dict:
-    """The closed vocabularies for the three pipeline stages: chunker/embedder, retriever/reranker, grader/answerer."""
+    """The closed vocabularies for the three pipeline stages: the split plan's
+    words and the embedder, retriever/reranker, grader/answerer."""
     return {
-        'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
+        'split_plan': {'kinds': list(STAGE_KINDS), 'joins': list(COMBINATORS),
+                       'when': list(STAGE_WHEN)},
+        'normalizers': list(NORMALIZERS), 'chunk_units': list(CHUNK_UNITS),
+        'embedders': list(EMBEDDERS),
         'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
         'graders': list(GRADERS), 'answerers': list(ANSWERERS),
     }

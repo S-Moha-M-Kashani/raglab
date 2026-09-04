@@ -51,7 +51,7 @@ def test_replacing_a_dataset_id_rebuilds_index_and_archive_evidence(
 
     old = payload(1, 'old indexed evidence')
     assert client.post('/api/datasets', json=old).status_code == 200
-    index = {'dataset': 'archive-same-id', 'chunker': 'session',
+    index = {'dataset': 'archive-same-id', 'split_plan': [{'kind': 'document'}],
              'embedder': 'token-hash'}
     built = client.post('/api/indexes', json={'index': index})
     assert built.status_code == 202, built.text
@@ -110,7 +110,7 @@ def test_dataset_replacement_waits_for_the_evaluation_snapshot_and_index(
     original = payload(1, 'old evaluation evidence')
     replacement = payload(1, 'replacement evaluation evidence')
     assert client.post('/api/datasets', json=original).status_code == 200
-    index = {'dataset': 'archive-race-id', 'chunker': 'session',
+    index = {'dataset': 'archive-race-id', 'split_plan': [{'kind': 'document'}],
              'embedder': 'token-hash'}
     entered_index = threading.Event()
     release_index = threading.Event()
@@ -217,7 +217,7 @@ def test_dataset_replacement_waits_for_a_standalone_index_build(
     original = payload(1, 'old standalone evidence')
     replacement = payload(1, 'replacement standalone evidence')
     assert client.post('/api/datasets', json=original).status_code == 200
-    index = {'dataset': 'archive-build-race', 'chunker': 'session',
+    index = {'dataset': 'archive-build-race', 'split_plan': [{'kind': 'document'}],
              'embedder': 'token-hash'}
     entered_index = threading.Event()
     release_index = threading.Event()

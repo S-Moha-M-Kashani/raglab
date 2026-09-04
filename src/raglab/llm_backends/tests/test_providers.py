@@ -343,7 +343,7 @@ def test_the_process_memory_ceilings_are_settings_a_sweep_still_fits_under():
     the default rather than making the lab unstartable over a cache size."""
     settings = config.LabSettings()
     widest = max(len(vocabulary) for vocabulary in
-                 (config.CHUNKERS, config.EMBEDDERS, config.HIERARCHIES,
+                 (config.EMBEDDERS, config.HIERARCHIES,
                   config.SUMMARIZERS, config.GRAPH_SOURCES))
     assert settings.max_indexes >= widest
 

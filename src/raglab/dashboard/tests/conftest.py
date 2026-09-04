@@ -237,7 +237,7 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
 #: The corpus every browser journey runs on: five sessions, six questions, and
 #: a hashing embedder, so a build costs a fraction of a second and downloads
 #: nothing. No browser journey claims anything about the diary.
-SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',
+SMOKE_INDEX = {'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}],
                'embedder': 'token-hash'}
 
 
@@ -306,6 +306,19 @@ def dataset_page(lab_server, page):
     every claim below is about five documents that can be checked by eye.
     """
     return _surface(page, lab_server, '/dataset?dataset=smoke-mini')
+
+
+def set_plan(page, *kinds: str):
+    """Put the split plan control at `document` plus one stage per kind, added
+    the way a reader adds them — through the dropdown under the rows.
+
+    Every stage after the document is removed first, so a journey states the
+    whole plan it wants rather than what it hopes was there before."""
+    remove = page.locator('#split_plan [data-plan="remove"]')
+    while remove.count():
+        remove.first.click()
+    for kind in kinds:
+        page.select_option('#plan-add', kind)
 
 
 def _surface(page, base_url: str, path: str):

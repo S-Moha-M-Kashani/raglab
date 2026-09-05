@@ -13,7 +13,7 @@
 // three inks mean index, retrieval and generation, and reading a corpus is
 // none of those.
 //
-// The four grid builders and both renderers take what they draw as arguments
+// The grid builders and both renderers take what they draw as arguments
 // rather than reading the state below, so what a column is named and which
 // rows a reading leaves are questions that can be asked of this file directly
 // — `dataset_grids.test.js` asks them.
@@ -211,17 +211,30 @@ function labelsGrid(data) {
 // question about which rows exist at all, while the typed filter below is a
 // question about the rows on screen, and the two compose in that order.
 
+// The identity column of every grid here is its first, and it is frozen for
+// the reason the board freezes its own: a corpus declaring thirteen labels is
+// a table scrolled sideways, and a document number that leaves the viewport
+// leaves every cell to its right belonging to nothing. The class is the
+// board's — `.freeze-1` in chrome.css — so the two surfaces freeze the same
+// way, at a width this page sets, because what is frozen here is an id and
+// not a sentence.
+function cellClass(column, at) {
+  const named = [column.text ? 'text' : '', at === 0 ? 'freeze-1' : '']
+    .filter(Boolean).join(' ');
+  return named ? ` class="${named}"` : '';
+}
+
 function renderGrid(grid, narrowed) {
   const rows = narrowed
     ? grid.rows.filter((row) => narrowed.includes(String(row[0]))) : grid.rows;
 
-  const head = grid.columns.map((column) => `<th scope="col"`
-    + `${column.text ? ' class="text"' : ''}`
+  const head = grid.columns.map((column, at) => `<th scope="col"`
+    + cellClass(column, at)
     + `${column.title ? ` title="${escapeHtml(column.title)}"` : ''}>`
     + `${escapeHtml(column.label)}</th>`).join('');
 
   const body = rows.map((row) => '<tr>' + grid.columns.map((column, at) =>
-    `<td${column.text ? ' class="text"' : ''}>`
+    `<td${cellClass(column, at)}>`
     + `${column.cell ? column.cell(row[at]) : escapeHtml(shown(row[at]))}</td>`
   ).join('') + '</tr>').join('');
 
@@ -249,6 +262,8 @@ function renderFilter(grid) {
              data-grid="${grid.name}"
              value="${escapeHtml(QUERY[grid.name] || '')}"
              placeholder="${escapeHtml(grid.hint)}">
+      <button type="button" class="filter-clear"
+              data-clear="${grid.name}">clear</button>
       <span class="filter-count" id="count-${grid.name}" role="status"></span>
       <p class="filter-said" id="said-${grid.name}" hidden></p>
     </div>`;
@@ -399,18 +414,27 @@ function renderPicker() {
     </div>`;
 }
 
-// --- three tabs -------------------------------------------------------------
-// A corpus is read one way at a time: you are looking at its documents, or at
-// the questions put to it, or at the files themselves. Stacked as five cards
-// they were one long scroll where the third thing was never on screen with the
-// first; as tabs each is a whole screen and the reader says which.
+// --- four tabs --------------------------------------------------------------
+// A corpus is read one way at a time: you are looking at its documents, at the
+// questions put to it, at the labels it declares, or at the files themselves.
+// Stacked as cards they were one long scroll where the last thing was never on
+// screen with the first; as tabs each is a whole screen and the reader says
+// which.
+//
+// The label table was the last to move. It stayed in the head on the argument
+// that it says what the other tables' columns mean — but it is a table, it was
+// bounded to five rows to keep it there, and a corpus declaring thirteen
+// labels then had its own declarations behind a scrollbar inside a card while
+// pushing the tables a reader came for below the fold. It is a fourth reading
+// of the same pair, so it is a fourth tab.
 //
 // Only the chosen panel is built. That is not an optimisation for its own
-// sake: the diary's raw tree alone is 60,000 nodes, and building all three at
-// once would be paying for two screens nobody is looking at.
+// sake: the diary's raw tree alone is 60,000 nodes, and building all four at
+// once would be paying for three screens nobody is looking at.
 const TABS = [
   { id: 'documents', label: 'Documents' },
   { id: 'questions', label: 'Questions' },
+  { id: 'labels', label: 'Labels' },
   { id: 'raw', label: 'The pair as given' },
 ];
 
@@ -449,6 +473,9 @@ function renderPanel(data) {
       ? `<p class="prose">${escapeHtml(data.ground_truth_error)}</p>`
       : renderGrid(questionsGrid(data), narrowing('questions'));
   }
+  if (TAB === 'labels') {
+    return renderGrid(labelsGrid(data), narrowing('labels'));
+  }
   return renderRaw(data, CURRENT);
 }
 
@@ -475,15 +502,12 @@ function render() {
         ${renderPicker()}
       </div>
       ${renderSize(DATA)}
-      <p class="prose">${escapeHtml(DATA.dataset.description || '')}</p>
+      ${DATA.dataset.description
+        ? `<p class="corpus-note">${escapeHtml(DATA.dataset.description)}</p>`
+        : ''}
 
       <h3 class="why-term"${asked('readings')}>Can this pair be measured?</h3>
       ${renderReadings(DATA.readings, ONLY)}
-
-      <h3 class="why-term"${asked('labels')}>Labels this dataset declares</h3>
-      <div class="labels-block">
-        ${renderGrid(labelsGrid(DATA), narrowing('labels'))}
-      </div>
     </section>
 
     ${renderTabs()}
@@ -498,6 +522,15 @@ function render() {
   // table's count correct rather than correct-after-the-first-click.
   for (const table of $('dataset').querySelectorAll('table')) {
     SortTable.make(table, { onApply: () => applyFilter(table) });
+  }
+  // The board's second handle on a wide region, for the same reason it has
+  // one: the bar under a 167-row table is off the bottom of the screen, so
+  // moving the columns means scrolling away from the rows you were reading.
+  // Every region on the page, because every tab here can be the wide one — a
+  // corpus declaring thirteen labels widens the documents table, and the
+  // questions table carries its own.
+  for (const region of $('dataset').querySelectorAll('.table-scroll')) {
+    mountScrollRail(region);
   }
 }
 
@@ -568,6 +601,17 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  const clear = target.closest('.filter-clear[data-clear]');
+  if (clear) {
+    const name = clear.dataset.clear;
+    QUERY[name] = '';
+    const box = document.getElementById(`filter-${name}`);
+    if (box) { box.value = ''; box.focus(); }
+    const table = document.querySelector(`table[data-grid="${name}"]`);
+    if (table) applyFilter(table);
+    return;
+  }
+
   const tab = target.closest('.subtab');
   if (tab) {
     // A heading that is also a tab: `lab.js` answers the hover, and this
@@ -597,7 +641,7 @@ document.addEventListener('click', (event) => {
     // A count is only turned into its rows if those rows are on screen: a
     // reading about questions opens the Questions tab, because narrowing a
     // table the reader cannot see would look like nothing happening.
-    if (ONLY && (found.grid === 'documents' || found.grid === 'questions')) {
+    if (ONLY && TABS.some((entry) => entry.id === found.grid)) {
       TAB = found.grid;
     }
     render();

@@ -56,6 +56,11 @@ button.reading:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
    letting a sentence be read. So a left-reading cell wraps inside a bounded
    width. */
 .data-table td.text { white-space: normal; max-width: 46ch; }
+/* A row here can be one line or ten — a part's text wraps while the figures
+   beside it do not — and cells that meet in the middle of a ten-line
+   paragraph read as belonging to different rows. Top, so every cell of a row
+   starts on the same line. */
+.data-table td, .data-table th { vertical-align: top; }
 
 /* The identity cell that opens a document's parts. A button rather than a
    click on the row, so it is reachable from the keyboard; drawn as the id it
@@ -122,6 +127,26 @@ button.reading:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
 .corpus-size b { font: 700 var(--t-sm)/1.4 var(--mono); color: var(--ink); }
 .corpus-source { color: var(--ink-soft); font: var(--t-2xs)/1.6 var(--mono); }
 
+/* The corpus's name is this page's subject, so it is set as a title and not as
+   the uppercase group label `.card-head h2` is elsewhere: on the knob surface
+   that h2 names a section of controls, and here it names the thing the whole
+   page is about. The slab face is the one `.page-title` uses on the board —
+   the same voice saying what a surface is. */
+#dataset .card-head h2 {
+  font: 600 var(--t-lg)/1.2 var(--slab); color: var(--ink);
+  text-transform: none; letter-spacing: normal;
+}
+
+/* The description, at reading size. It was `.prose` — 12px in the quieter ink,
+   which is the size a footnote is set in, and this is the one sentence on the
+   page that says what the corpus is. One short paragraph and no more: the four
+   readings under it and the tables behind the tabs are what a reader came for,
+   and prose between them and the name is prose in the way. */
+.corpus-note {
+  margin: var(--s-3) 0 0; max-width: 78ch;
+  font: var(--t-base)/1.6 var(--sans); color: var(--ink);
+}
+
 /* This page's own headings are sentence case, and a question that is a
    question keeps its mark. The uppercase tracked-out label in panel.css is
    right for a knob group, whose name is one noun; it is wrong for a heading
@@ -135,14 +160,20 @@ button.reading:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
 }
 #dataset .card-head + .corpus-size { margin-top: var(--s-1); }
 
-/* The declarations are a short table and a reference one — you look at it to
-   find out what a column means, not to read it through. So it is bounded well
-   below the 70vh a data region gets — about five rows — and scrolls inside the
-   head rather than pushing the tabs off the screen on a corpus that declares
-   thirteen labels. */
-.labels-block .table-scroll { max-height: 11rem; }
+/* The identity column is frozen the way the board freezes its pipeline
+   sentence, but narrow: what is pinned here is a document number, a part
+   position, a question id or a label name, not a sentence — so 17rem of the
+   region would be spent holding four characters. The divider points inward,
+   the same cue the board's right-hand freeze gives from the other side. */
+#dataset .data-table .freeze-1 {
+  /* A floor, not a width: `table-layout: auto` lets the column grow to its
+     longest value, and nothing here is clipped — so this only keeps a column
+     of one-digit ids from collapsing to nothing against the frozen edge. */
+  --freeze-1: 5rem;
+  box-shadow: 1px 0 0 var(--rule);
+}
 
-/* --- the three tabs --------------------------------------------------------
+/* --- the four tabs --------------------------------------------------------
    A corpus is read one way at a time. The chosen one is marked by weight and
    by a rule directly under it, in the page's own ink: no step colour, because
    reading a corpus is not a pipeline step, and no filled chip, because the

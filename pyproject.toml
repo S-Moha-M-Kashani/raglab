@@ -139,7 +139,8 @@ testpaths = ["src/raglab"]
 # which matters because CI installs every extra. A command-line `-m` overrides
 # this one, so the suite is run with:
 #   uv run pytest src/raglab -m browser
-addopts = "-m 'not browser'"
+addopts = "-m 'not browser and not live'"
 markers = [
   "browser: end-to-end journey driven through a real headless Chromium; opt-in, deselected by default (see README)",
+  "live: spends real model calls; opt-in twice over — this marker is deselected here, and the test file must also be named on the command line (see README)",
 ]

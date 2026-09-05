@@ -513,12 +513,47 @@ sorting, filtering and its open handoff into the panel; the Inspector's
 record mode, tabs and added questions; the dataset and experiment-archive
 imports; and the Ask widget on every surface.
 
+One file in it asserts geometry rather than behaviour
+(`test_browser_layout.py`): no surface scrolls sideways, and no visible
+element is narrower than a character while being taller than a paragraph.
+Both surfaces are walked at two widths. That second rule exists because a
+control once shared a row with a dropdown whose options are whole sentences,
+was shrunk to about one character wide, and rendered its text as a vertical
+column of letters — with every behavioural test passing, since the element
+existed, was visible and held the right text.
+
 The suite starts its own lab: a child process on a port the operating system
 hands out, the `fake` backend, and the four durable paths pointing into a
 temporary directory. It never talks to a lab on :9002, never reaches a model,
 and a guard fails the run if the developer's own databases or `.runs/` changed
 while it worked. In CI it is a separate job that runs on pull requests and on
 demand, so the offline suite stays the fast gate.
+
+### The live end-to-end journey
+
+`fake` is what makes every journey above fast and free, and it is also their
+limit: it returns invention no field contradicts, so a stage that would have
+refused, hung or answered in the wrong language passes there exactly as a
+working one does. One file closes that gap by running a single question
+through every LLM stage the lab has, on the codex CLI, against the fifteen
+German meeting notes — a five-stage split plan, a grouping, HyDE, a
+multi-query expansion, an LLM reranker, an LLM relevance gate, an LLM
+answerer, the fact judge and the four judged RAGAS metrics. It then reads
+the chunks, the summaries, the ranking and the answer back off the Inspector,
+adds a second question the run never sampled, and checks the experiment
+reached the board. The answer is asserted to be in the corpus's own language,
+which is the one claim no offline journey can make.
+
+It spends real model calls, so it is opt-in twice over: the `live` marker is
+deselected by default, *and* the file must be named on the command line. Both
+together mean no sweep can trigger it, including `-m browser` in CI.
+
+```sh
+uv run pytest src/raglab/dashboard/tests/test_browser_e2e_live.py -m live -q
+```
+
+Budget several minutes; the lab it starts is redirected and guarded exactly
+like the offline one, so it still cannot touch anything the developer owns.
 
 Development happens on a private `development` branch; `master` carries one
 squash-merged release point per landing.

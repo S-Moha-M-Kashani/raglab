@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
@@ -173,18 +174,13 @@ def lab_home(tmp_path_factory) -> Path:
     return tmp_path_factory.mktemp('browser-lab')
 
 
-@pytest.fixture(scope='session')
-def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
-    """A lab in a child process, on an ephemeral port, writing only to `lab_home`.
-
-    Session-scoped on purpose: an index build is the expensive step, and every
-    journey that only reads can share one. Journeys that write name their own
-    dataset, experiment or thread instead of demanding a clean server, so
-    their order never matters.
-    """
-    port = _free_port()
-    base_url = f'http://127.0.0.1:{port}'
-    env = {
+#: What no lab started by any suite may reach: the developer's own five
+#: durable places, and the Inspector's default of the daemon on :9002. Every
+#: value depends on the temporary home and the port, so this is a function
+#: rather than a table.
+def redirected_env(lab_home: Path, port: int, base_url: str) -> dict:
+    """The environment every suite lab shares, whatever backend it runs."""
+    return {
         **os.environ,
         # The four durable paths, redirected exactly as the offline suite
         # redirects them — nothing the developer owns is reachable from here.
@@ -202,24 +198,42 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
         # experiments this suite actually recorded.
         'RAGLAB_INSPECTOR_LAB_URL': base_url,
         'RAGLAB_BROWSER_PORT': str(port),
-        # No live model, and no credential for one. The blanks are set rather
-        # than removed because `load_env_file` uses `setdefault`: a name that
-        # is already present, even empty, is a name the repo's `.env` cannot
-        # fill in.
-        'RAGLAB_LLM': 'fake',
-        'BRAIN_LLM': 'fake',
-        'OPENROUTER_API_KEY': '',
-        'OPENAI_API_KEY': '',
-        'LANGSMITH_API_KEY': '',
-        'LANGSMITH_TRACING': 'false',
-        # Saving a key makes the lab ask OpenRouter which models it serves.
-        # That is the one call this suite could make to the internet, so it is
-        # pointed at a closed local port: the probe fails at once, offline,
-        # and the catalogue reports what an installation without OpenRouter
-        # really has.
-        'OPENROUTER_BASE_URL': 'http://127.0.0.1:1',
     }
-    env.pop('RAGLAB_MODEL', None)
+
+
+#: No live model, and no credential for one. The blanks are set rather than
+#: removed because `load_env_file` uses `setdefault`: a name that is already
+#: present, even empty, is a name the repo's `.env` cannot fill in. The
+#: OpenRouter base url is pointed at a closed local port because saving a key
+#: makes the lab ask OpenRouter which models it serves, and that is the one
+#: call this suite could otherwise make to the internet.
+OFFLINE_BACKEND = {
+    'RAGLAB_LLM': 'fake',
+    'BRAIN_LLM': 'fake',
+    'OPENROUTER_API_KEY': '',
+    'OPENAI_API_KEY': '',
+    'LANGSMITH_API_KEY': '',
+    'LANGSMITH_TRACING': 'false',
+    'OPENROUTER_BASE_URL': 'http://127.0.0.1:1',
+}
+
+
+@contextmanager
+def serve_lab(lab_home: Path, backend: dict):
+    """A lab in a child process on a free port, writing only to `lab_home`.
+
+    `backend` is layered over the shared redirections and says which models
+    the lab may reach — `OFFLINE_BACKEND` for every journey in this folder,
+    and a real CLI provider for the one live journey that opts into paying
+    for calls. Extracted so the live lab reuses this plumbing rather than
+    keeping a second copy of it that can drift out of step with the five
+    redirections above.
+    """
+    port = _free_port()
+    base_url = f'http://127.0.0.1:{port}'
+    env = {**redirected_env(lab_home, port, base_url), **backend}
+    if not backend.get('RAGLAB_MODEL'):
+        env.pop('RAGLAB_MODEL', None)
     process = subprocess.Popen(
         [sys.executable, '-m', 'raglab.dashboard.tests.browser_lab_server'],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -232,6 +246,19 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+@pytest.fixture(scope='session')
+def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
+    """The offline lab every browser journey in this folder shares.
+
+    Session-scoped on purpose: an index build is the expensive step, and every
+    journey that only reads can share one. Journeys that write name their own
+    dataset, experiment or thread instead of demanding a clean server, so
+    their order never matters.
+    """
+    with serve_lab(lab_home, OFFLINE_BACKEND) as base_url:
+        yield base_url
 
 
 #: The corpus every browser journey runs on: five sessions, six questions, and

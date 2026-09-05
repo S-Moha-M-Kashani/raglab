@@ -31,7 +31,7 @@ dependencies = [
   # langchain.chat_models. It arrives transitively via langchain-community, and
   # an import that works by accident is one dependency resolution away from not.
   "langchain>=1,<2",
-  "langchain-core>=1,<2",
+  "langchain-core>=1.6.1,<2",
   "langchain-openai>=1,<2",
   # NOT `<0.4` for the reason the old comment gave (a 1.x brain in a shared
   # environment) but for ragas's vertexai import above. It is the one pin here

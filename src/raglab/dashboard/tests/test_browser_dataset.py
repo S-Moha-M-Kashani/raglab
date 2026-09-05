@@ -2,7 +2,7 @@
 """The corpus viewer as a reader actually uses it, in a real browser.
 
 Everything this surface does happens after the page has loaded: an identity
-head carrying four readings and the label table, three tabs over one panel,
+head carrying four readings, four tabs over one panel,
 tables drawn by script from a single `GET /api/dataset-content/<id>`, a
 document that expands into the parts it is given as, and a raw view built out
 of `<details>`. None of that can be asserted on markup — an offline test sees
@@ -63,16 +63,19 @@ def test_the_viewer_shows_one_corpus_whole_and_changes_nothing(dataset_page):
     # Five documents, and the documents table holds all five: the whole of the
     # dataset arrives in one request, so nothing is a page away.
     expect(_rows(dataset_page, 'documents')).to_have_count(5)
-    # Four labels declared — two on the corpus, two on the questions. The label
-    # table is in the head rather than behind a tab, because it says what the
-    # columns of the other two mean.
-    expect(_rows(dataset_page, 'labels')).to_have_count(4)
-    # Documents opens first, and the other two panels are not built until
+    # Documents opens first, and the other three panels are not built until
     # asked for — which is why the questions table is absent rather than empty.
     expect(dataset_page.locator('table[data-grid="questions"]')).to_have_count(0)
+    expect(dataset_page.locator('table[data-grid="labels"]')).to_have_count(0)
     _tab(dataset_page, 'questions')
     expect(_rows(dataset_page, 'questions')).to_have_count(6)
     expect(dataset_page.locator('table[data-grid="documents"]')).to_have_count(0)
+    # Four labels declared — two on the corpus, two on the questions. Its own
+    # tab, like the other three readings of the pair: it is a table, and a
+    # table bounded to five rows inside the head pushed the rows a reader came
+    # for below the fold on any corpus that declares more than a handful.
+    _tab(dataset_page, 'labels')
+    expect(_rows(dataset_page, 'labels')).to_have_count(4)
     _tab(dataset_page, 'documents')
     # No document is open yet, so there are no parts on screen at all.
     headings = dataset_page.locator('table[data-grid="parts"] thead th')
@@ -190,12 +193,12 @@ def test_the_page_explains_itself_only_when_asked(dataset_page):
     expect(dataset_page.locator('#dataset p.explain')).to_have_count(0)
 
 
-def test_the_arrow_keys_walk_the_three_tabs(dataset_page):
+def test_the_arrow_keys_walk_the_four_tabs(dataset_page):
     _ready(dataset_page)
     expect(dataset_page.locator('#tab-documents')).to_have_attribute(
         'aria-selected', 'true')
 
-    # A roving tabindex is what makes three buttons a tablist: the group takes
+    # A roving tabindex is what makes four buttons a tablist: the group takes
     # one tab stop and the arrows move inside it.
     expect(dataset_page.locator('#tab-questions')).to_have_attribute(
         'tabindex', '-1')
@@ -204,6 +207,8 @@ def test_the_arrow_keys_walk_the_three_tabs(dataset_page):
     expect(dataset_page.locator('#tab-questions')).to_have_attribute(
         'aria-selected', 'true')
     expect(_rows(dataset_page, 'questions')).to_have_count(6)
+    dataset_page.keyboard.press('ArrowRight')
+    expect(_rows(dataset_page, 'labels')).to_have_count(4)
     dataset_page.keyboard.press('End')
     expect(dataset_page.locator('#tab-raw')).to_have_attribute(
         'aria-selected', 'true')
@@ -230,3 +235,63 @@ def test_a_reading_opens_the_tab_holding_the_rows_it_named(dataset_page):
     expect(dataset_page.locator('#tab-documents')).to_have_attribute(
         'aria-selected', 'true')
     expect(_rows(dataset_page, 'documents')).to_have_count(counted)
+
+
+def test_the_arrows_walk_the_rows_and_enter_opens_one(dataset_page):
+    """A table you can read from the keyboard, not only look at.
+
+    A scroll region that takes focus already scrolls with the arrows, which
+    moves the viewport and nothing else: there is no "the row I am on", so
+    there is nothing for Enter to open. Here the arrows move a row instead —
+    the row itself takes focus, so a screen reader is told the whole of it —
+    and Enter presses the row's own control, which on this page is the button
+    that opens a document into its parts.
+    """
+    _ready(dataset_page)
+    region = dataset_page.locator('.table-scroll').first
+    region.focus()
+
+    def on():
+        return dataset_page.locator('tr.row-here td').first.inner_text().strip()
+
+    dataset_page.keyboard.press('ArrowDown')
+    assert on() == '1', 'arriving from the region lands on the first row'
+    dataset_page.keyboard.press('ArrowDown')
+    assert on() == '2'
+    dataset_page.keyboard.press('End')
+    assert on() == '5', 'End is the last row the reader can see'
+    dataset_page.keyboard.press('Home')
+    assert on() == '1'
+
+    # And the row is what holds focus, which is what makes Enter mean
+    # something: it presses the control the row carries.
+    assert dataset_page.evaluate(
+        '() => document.activeElement.tagName') == 'TR'
+    dataset_page.keyboard.press('Enter')
+    expect(dataset_page.locator('table[data-grid="parts"]')).to_have_count(1)
+
+
+def test_every_column_says_what_it_means(dataset_page):
+    """No heading is left to be guessed at.
+
+    The same gate the knobs and the metrics are held to: a column named
+    `feeling_confidence` or `expects` means nothing until it says so, and a
+    `title` attribute would say it to a mouse and to nothing else. So every
+    heading and every group above it carries `data-brief`, which `lab.js`
+    opens on hover and on keyboard focus alike — and `sorttable.js` leaves its
+    own native tooltip off any heading that has one, so a reader never gets two
+    tooltips over one word.
+    """
+    _ready(dataset_page)
+    for grid in ('documents', 'questions', 'labels'):
+        _tab(dataset_page, grid)
+        heads = dataset_page.locator(f'table[data-grid="{grid}"] thead th')
+        assert heads.count(), grid
+        for at in range(heads.count()):
+            head = heads.nth(at)
+            said = head.get_attribute('data-brief') or ''
+            assert said.strip(), (
+                f'{grid}: the {head.inner_text()!r} heading explains nothing')
+            assert not head.get_attribute('title'), (
+                f'{grid}: {head.inner_text()!r} carries a native tooltip as '
+                'well as its note — a mouse would get both')

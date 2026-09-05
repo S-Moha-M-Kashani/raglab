@@ -143,7 +143,11 @@ const SortTable = (() => {
       // only together. What a column measures is the more useful sentence, and
       // what a click does is the same on every sortable column on both pages —
       // so the generic hint yields to a specific one wherever there is one.
-      if (!th.title) {
+      // A heading that carries `data-brief` says the same thing better: the
+      // brief opens on hover AND on keyboard focus, and it ends with this
+      // line anyway. Leaving the native title on as well would put two
+      // tooltips over one heading, one of which no keyboard can reach.
+      if (!th.title && !th.hasAttribute('data-brief')) {
         th.title = 'sort by this column · again to reverse · a third time for '
           + 'the order it was served in';
       }

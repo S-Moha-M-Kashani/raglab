@@ -13,7 +13,7 @@
 // three inks mean index, retrieval and generation, and reading a corpus is
 // none of those.
 //
-// The four grid builders and both renderers take what they draw as arguments
+// The grid builders and both renderers take what they draw as arguments
 // rather than reading the state below, so what a column is named and which
 // rows a reading leaves are questions that can be asked of this file directly
 // — `dataset_grids.test.js` asks them.
@@ -61,8 +61,18 @@ function labelColumns(declarations, level) {
   return labelsAt(declarations, level).map((declaration) => ({
     label: declaration.name,
     text: true,
-    title: `${declaration.type || 'label'}${(declaration.levels || []).length
-      ? ` · one of ${(declaration.levels || []).join(', ')}` : ''}`,
+    group: 'labels',
+    // The declaration read back as a note, so a column named `feeling` says
+    // what a `feeling` is allowed to be without a reader opening another tab.
+    brief: `${declaration.name}\n`
+      + `• A label this corpus declares, of type ${declaration.type || 'label'}`
+      + `, carried by every ${level}.\n`
+      + ((declaration.levels || []).length
+        ? `• One of: ${(declaration.levels || []).join(', ')}.\n` : '')
+      + (declaration.confidence_for
+        ? `• A confidence for ${declaration.confidence_for}.\n` : '')
+      + `• ${declaration.extracted ? 'Produced by a model'
+        : 'Written by a person'}, per the file\u2019s own declaration.`,
   }));
 }
 
@@ -70,6 +80,56 @@ function labelCells(declarations, level, labels) {
   return labelsAt(declarations, level).map(
     (declaration) => shown((labels || {})[declaration.name]));
 }
+
+// --- what a block of columns is ---------------------------------------------
+// The same spanning row the board carries, for the same reason: a corpus that
+// declares thirteen labels is a table nobody holds in their head, and the
+// heading over a block saying what kind of thing it is costs one row.
+//
+// No step ink anywhere here. Index, retrieval and generation are the three
+// pipeline steps, and reading a corpus is none of them — a group bar on this
+// page is a name and a rule, never a colour.
+const GROUPS = {
+  document: { label: 'In the corpus', brief: 'Which document\n'
+    + '• The corpus\u2019s own id for it.\n'
+    + '• Press it to read the parts it is given as.\n'
+    + '• Frozen to the left edge, so it survives scrolling right.' },
+  part: { label: 'In the document', brief: 'Which part\n'
+    + '• The position of this part inside its document, counted from one.\n'
+    + '• Parts are the units a split plan cuts between; it never cuts one in '
+    + 'half without being told to.' },
+  question: { label: 'In the ground truth', brief: 'Which question\n'
+    + '• The ground truth\u2019s own id for it.\n'
+    + '• Frozen to the left edge, so it survives scrolling right.' },
+  size: { label: 'Size', brief: 'How much there is\n'
+    + '• How many parts the document is given as, and how many characters of '
+    + 'text those parts hold.\n'
+    + '• The two figures a split plan\u2019s budget has to divide.' },
+  asked: { label: 'Asked', brief: 'What is being asked, and of what\n'
+    + '• The question\u2019s own wording, and what a correct pipeline is '
+    + 'expected to do with it.\n'
+    + '• Expects is the one field the harness branches on.' },
+  evidence: { label: 'Evidence', brief: 'What answering it needs\n'
+    + '• The documents the ground truth names as this question\u2019s '
+    + 'evidence.\n'
+    + '• And how many separate facts the expected answer is broken into.' },
+  labels: { label: 'Declared labels', brief: 'What this corpus declares\n'
+    + '• One column per label the dataset\u2019s own files declare, and no '
+    + 'others.\n'
+    + '• A label keeps its column whether or not any row has a value for it '
+    + 'yet.\n'
+    + '• The Labels tab lists every one of them.' },
+  text: { label: 'Text', brief: 'The part as recorded\n'
+    + '• What a split plan actually reads.\n'
+    + '• Wrapped to be read; the pair-as-given tab shows it byte for byte.' },
+  declaration: { label: 'Declared as', brief: 'How the label is declared\n'
+    + '• Which of the two files declares it, what type it holds, where it may '
+    + 'land, and the closed set of values where it declares one.\n'
+    + '• All read off the files themselves — nothing here is hardcoded.' },
+  provenance: { label: 'Provenance', brief: 'Where the value came from\n'
+    + '• Whether a model produced this label rather than a person.\n'
+    + '• And which label it carries a confidence for, if it is a confidence.' },
+};
 
 // --- the four grids ---------------------------------------------------------
 // Each is a name, a caption, a filter example, its columns and its rows — and
@@ -87,7 +147,11 @@ function documentsGrid(data, opened) {
       // A button, because opening a document's parts has to be reachable from
       // the keyboard and not only by pointer. Its text is still the id, so the
       // column sorts and filters as the number a reader sees.
-      { label: 'document', cell: (id) => `<button type="button" class="open-doc"`
+      { label: 'document', group: 'document', freeze: 'freeze-1',
+        brief: 'Document\n'
+          + '• The corpus\u2019s own id for this document.\n'
+          + '• Press it to read the parts it is given as.',
+        cell: (id) => `<button type="button" class="open-doc"`
         + ` data-document="${escapeHtml(id)}"`
         + ` aria-expanded="${String(String(id) === opened)}"`
         // A stable name with `aria-expanded` carrying the state, rather than
@@ -95,10 +159,15 @@ function documentsGrid(data, opened) {
         // does not change when it is open.
         + ` aria-label="Parts of document ${escapeHtml(id)}"`
         + `>${escapeHtml(id)}</button>` },
-      { label: 'parts', title: 'how many parts this document is given as — a '
-        + 'document given as one part can only be cut inside its text' },
-      { label: 'chars', title: 'characters of part text — what the split '
-        + 'plan\'s budget has to divide' },
+      { label: 'parts', group: 'size',
+        brief: 'Parts\n'
+          + '• How many parts this document is given as.\n'
+          + '• A document given as one part can only ever be cut inside its '
+          + 'own text.' },
+      { label: 'chars', group: 'size',
+        brief: 'Characters\n'
+          + '• How much part text this document holds, in characters.\n'
+          + '• This is the figure a split plan\u2019s budget has to divide.' },
       ...labelColumns(declared, 'document'),
     ],
     rows: (data.corpus.corpus_documents || []).map((document) => {
@@ -125,8 +194,18 @@ function partsGrid(data, opened) {
     // Position and text alone where the corpus declares no part-level label:
     // a placeholder column for a label this corpus lacks would be a claim
     // about a field that does not exist.
-    columns: [{ label: 'part' }, ...labelColumns(declared, 'part'),
-              { label: 'text', text: true }],
+    columns: [
+      { label: 'part', group: 'part', freeze: 'freeze-1',
+        brief: 'Part\n'
+          + '• Where this part sits inside its document, counted from one.\n'
+          + '• Parts are the units a split plan cuts between.' },
+      ...labelColumns(declared, 'part'),
+      { label: 'text', text: true, group: 'text',
+        brief: 'Text\n'
+          + '• The part exactly as the corpus records it, wrapped to be '
+          + 'read.\n'
+          + '• The pair-as-given tab shows it whitespace and all.' },
+    ],
     rows: (found.document_content || []).map((part, at) => [
       at + 1,
       ...labelCells(declared, 'part', part.labels),
@@ -142,18 +221,34 @@ function questionsGrid(data) {
     caption: `every ground-truth question for ${data.dataset.name}`,
     hint: 'expects=abstain',
     columns: [
-      { label: 'question' },
-      { label: 'asks', text: true },
+      { label: 'question', group: 'question', freeze: 'freeze-1',
+        brief: 'Question\n'
+          + '• The ground truth\u2019s own id for this question.' },
+      { label: 'asks', text: true, group: 'asked',
+        brief: 'Asks\n'
+          + '• The question exactly as it is put to the pipeline.' },
       // The one field the harness branches on, so it is named exactly as the
       // schema names it: answer from the corpus, abstain because the corpus
       // does not hold it, or correct the question's false premise.
-      { label: 'expects', title: 'what the ground truth says a correct '
-        + 'pipeline does with this question — answer, abstain, or '
-        + 'correct_premise' },
-      { label: 'cites', text: true,
-        title: 'the documents this question names as its evidence' },
-      { label: 'facts', title: 'how many derived facts the expected answer '
-        + 'is broken into' },
+      { label: 'expects', group: 'asked',
+        brief: 'Expects\n'
+          + '• What the ground truth says a correct pipeline does here.\n'
+          + '• answer — the corpus holds it.\n'
+          + '• abstain — it does not, and refusing honestly is what is being '
+          + 'measured.\n'
+          + '• correct_premise — the question itself is wrong, and saying so '
+          + 'is the right answer.' },
+      { label: 'cites', text: true, group: 'evidence',
+        brief: 'Cites\n'
+          + '• The documents the ground truth names as this question\u2019s '
+          + 'evidence.\n'
+          + '• An id the corpus does not hold is reported by the second '
+          + 'reading above.' },
+      { label: 'facts', group: 'evidence',
+        brief: 'Facts\n'
+          + '• How many separate derived facts the expected answer is broken '
+          + 'into.\n'
+          + '• More facts is a harder question to answer completely.' },
       ...labelColumns(declared, 'question'),
     ],
     rows: (data.ground_truth.groundtruth_dataset || []).map((question) => {
@@ -181,17 +276,36 @@ function labelsGrid(data) {
     caption: `every label ${data.dataset.name} declares`,
     hint: 'file=corpus',
     columns: [
-      { label: 'label', text: true },
-      { label: 'file', title: 'the corpus declares the labels its documents '
-        + 'and parts carry; the ground truth declares the labels its '
-        + 'questions carry' },
-      { label: 'type' },
-      { label: 'applies to', text: true },
-      { label: 'levels', text: true,
-        title: 'the closed set of values, where the label declares one' },
-      { label: 'extracted', title: 'whether a model produced this label '
-        + 'rather than a person' },
-      { label: 'rates', title: 'the label this one carries a confidence for' },
+      { label: 'label', text: true, group: 'labels', freeze: 'freeze-1',
+        brief: 'Label\n'
+          + '• The name the dataset\u2019s own files declare it under.\n'
+          + '• This is the column heading it gets in the tables above.' },
+      { label: 'file', group: 'declaration',
+        brief: 'File\n'
+          + '• corpus — the file declaring what its documents and parts '
+          + 'carry.\n'
+          + '• questions — the file declaring what its questions carry.' },
+      { label: 'type', group: 'declaration',
+        brief: 'Type\n'
+          + '• What kind of value the label holds: string, number, array or '
+          + 'object.' },
+      { label: 'applies to', text: true, group: 'declaration',
+        brief: 'Applies to\n'
+          + '• Which level of the corpus may carry this label.\n'
+          + '• A declaration naming no level at all is shown at every level '
+          + 'rather than dropped where nobody would find it.' },
+      { label: 'levels', text: true, group: 'declaration',
+        brief: 'Levels\n'
+          + '• The closed set of values, where the label declares one.\n'
+          + '• A dash means the label accepts anything of its type.' },
+      { label: 'extracted', group: 'provenance',
+        brief: 'Extracted\n'
+          + '• yes — a model produced this label.\n'
+          + '• no — a person wrote it.' },
+      { label: 'rates', group: 'provenance',
+        brief: 'Rates\n'
+          + '• The label this one carries a confidence for.\n'
+          + '• A dash means it is not a confidence at all.' },
     ],
     rows: [
       ...(data.dataset.label_declarations || []).map((row) => [row, 'corpus']),
@@ -211,17 +325,31 @@ function labelsGrid(data) {
 // question about which rows exist at all, while the typed filter below is a
 // question about the rows on screen, and the two compose in that order.
 
+// Each grid's identity column says `freeze: 'freeze-1'` for the reason the
+// board freezes its own: a corpus declaring thirteen labels is a table
+// scrolled sideways, and a document number that leaves the viewport leaves
+// every cell to its right belonging to nothing. The class is the board's —
+// `.freeze-1` in chrome.css — so the two surfaces freeze the same way, at a
+// width this page sets, because what is frozen here is an id and not a
+// sentence. Said on the column rather than read off its position, because the
+// shared group row has to know which of its cells is the frozen one too.
+function cellClass(column, ...also) {
+  const named = [...also, column.text ? 'text' : '', column.freeze || '']
+    .filter(Boolean).join(' ');
+  return named ? ` class="${named}"` : '';
+}
+
 function renderGrid(grid, narrowed) {
   const rows = narrowed
     ? grid.rows.filter((row) => narrowed.includes(String(row[0]))) : grid.rows;
 
   const head = grid.columns.map((column) => `<th scope="col"`
-    + `${column.text ? ' class="text"' : ''}`
-    + `${column.title ? ` title="${escapeHtml(column.title)}"` : ''}>`
+    + cellClass(column, 'why-term')
+    + ` data-brief="${escapeHtml((column.brief || column.label) + SORT_LINE)}">`
     + `${escapeHtml(column.label)}</th>`).join('');
 
   const body = rows.map((row) => '<tr>' + grid.columns.map((column, at) =>
-    `<td${column.text ? ' class="text"' : ''}>`
+    `<td${cellClass(column)}>`
     + `${column.cell ? column.cell(row[at]) : escapeHtml(shown(row[at]))}</td>`
   ).join('') + '</tr>').join('');
 
@@ -231,7 +359,7 @@ function renderGrid(grid, narrowed) {
          aria-label="${escapeHtml(grid.caption)}">
       <table class="data-table centred" data-grid="${escapeHtml(grid.name)}">
         <caption>${escapeHtml(grid.caption)}</caption>
-        <thead><tr>${head}</tr></thead>
+        <thead>${groupRow(grid.columns, GROUPS)}<tr>${head}</tr></thead>
         <tbody>${body}</tbody>
       </table>
     </div>`;
@@ -249,6 +377,8 @@ function renderFilter(grid) {
              data-grid="${grid.name}"
              value="${escapeHtml(QUERY[grid.name] || '')}"
              placeholder="${escapeHtml(grid.hint)}">
+      <button type="button" class="filter-clear"
+              data-clear="${grid.name}">clear</button>
       <span class="filter-count" id="count-${grid.name}" role="status"></span>
       <p class="filter-said" id="said-${grid.name}" hidden></p>
     </div>`;
@@ -399,18 +529,27 @@ function renderPicker() {
     </div>`;
 }
 
-// --- three tabs -------------------------------------------------------------
-// A corpus is read one way at a time: you are looking at its documents, or at
-// the questions put to it, or at the files themselves. Stacked as five cards
-// they were one long scroll where the third thing was never on screen with the
-// first; as tabs each is a whole screen and the reader says which.
+// --- four tabs --------------------------------------------------------------
+// A corpus is read one way at a time: you are looking at its documents, at the
+// questions put to it, at the labels it declares, or at the files themselves.
+// Stacked as cards they were one long scroll where the last thing was never on
+// screen with the first; as tabs each is a whole screen and the reader says
+// which.
+//
+// The label table was the last to move. It stayed in the head on the argument
+// that it says what the other tables' columns mean — but it is a table, it was
+// bounded to five rows to keep it there, and a corpus declaring thirteen
+// labels then had its own declarations behind a scrollbar inside a card while
+// pushing the tables a reader came for below the fold. It is a fourth reading
+// of the same pair, so it is a fourth tab.
 //
 // Only the chosen panel is built. That is not an optimisation for its own
-// sake: the diary's raw tree alone is 60,000 nodes, and building all three at
-// once would be paying for two screens nobody is looking at.
+// sake: the diary's raw tree alone is 60,000 nodes, and building all four at
+// once would be paying for three screens nobody is looking at.
 const TABS = [
   { id: 'documents', label: 'Documents' },
   { id: 'questions', label: 'Questions' },
+  { id: 'labels', label: 'Labels' },
   { id: 'raw', label: 'The pair as given' },
 ];
 
@@ -449,6 +588,9 @@ function renderPanel(data) {
       ? `<p class="prose">${escapeHtml(data.ground_truth_error)}</p>`
       : renderGrid(questionsGrid(data), narrowing('questions'));
   }
+  if (TAB === 'labels') {
+    return renderGrid(labelsGrid(data), narrowing('labels'));
+  }
   return renderRaw(data, CURRENT);
 }
 
@@ -475,15 +617,12 @@ function render() {
         ${renderPicker()}
       </div>
       ${renderSize(DATA)}
-      <p class="prose">${escapeHtml(DATA.dataset.description || '')}</p>
+      ${DATA.dataset.description
+        ? `<p class="corpus-note">${escapeHtml(DATA.dataset.description)}</p>`
+        : ''}
 
       <h3 class="why-term"${asked('readings')}>Can this pair be measured?</h3>
       ${renderReadings(DATA.readings, ONLY)}
-
-      <h3 class="why-term"${asked('labels')}>Labels this dataset declares</h3>
-      <div class="labels-block">
-        ${renderGrid(labelsGrid(DATA), narrowing('labels'))}
-      </div>
     </section>
 
     ${renderTabs()}
@@ -498,6 +637,16 @@ function render() {
   // table's count correct rather than correct-after-the-first-click.
   for (const table of $('dataset').querySelectorAll('table')) {
     SortTable.make(table, { onApply: () => applyFilter(table) });
+  }
+  // The board's second handle on a wide region, for the same reason it has
+  // one: the bar under a 167-row table is off the bottom of the screen, so
+  // moving the columns means scrolling away from the rows you were reading.
+  // Every region on the page, because every tab here can be the wide one — a
+  // corpus declaring thirteen labels widens the documents table, and the
+  // questions table carries its own.
+  for (const region of $('dataset').querySelectorAll('.table-scroll')) {
+    mountScrollRail(region);
+    mountRowKeys(region);
   }
 }
 
@@ -568,6 +717,17 @@ document.addEventListener('click', (event) => {
     return;
   }
 
+  const clear = target.closest('.filter-clear[data-clear]');
+  if (clear) {
+    const name = clear.dataset.clear;
+    QUERY[name] = '';
+    const box = document.getElementById(`filter-${name}`);
+    if (box) { box.value = ''; box.focus(); }
+    const table = document.querySelector(`table[data-grid="${name}"]`);
+    if (table) applyFilter(table);
+    return;
+  }
+
   const tab = target.closest('.subtab');
   if (tab) {
     // A heading that is also a tab: `lab.js` answers the hover, and this
@@ -597,7 +757,7 @@ document.addEventListener('click', (event) => {
     // A count is only turned into its rows if those rows are on screen: a
     // reading about questions opens the Questions tab, because narrowing a
     // table the reader cannot see would look like nothing happening.
-    if (ONLY && (found.grid === 'documents' || found.grid === 'questions')) {
+    if (ONLY && TABS.some((entry) => entry.id === found.grid)) {
       TAB = found.grid;
     }
     render();
@@ -607,8 +767,13 @@ document.addEventListener('click', (event) => {
   // The reader with no pointer, and the reader on a touch screen: hovering is
   // not available to either, so the same note a hover shows is pinned under
   // its heading by a press. Toggled, so a second press puts it away.
+  // Not a tab, whose press opens the panel, and not a column heading, whose
+  // press sorts — and where a pinned paragraph would land inside `<thead>`,
+  // which is not somewhere a `<p>` may be. Both say the same note on hover and
+  // on keyboard focus, which is where a heading inside a table publishes it.
   const heading = target.closest('.why-term[data-brief]');
-  if (heading && !heading.classList.contains('subtab')) pinned(heading);
+  if (heading && !heading.classList.contains('subtab')
+      && !heading.closest('table')) pinned(heading);
 });
 
 // One note at a time, under the heading that owns it.

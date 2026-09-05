@@ -623,6 +623,13 @@ machine itself, where both tools are already logged in:
 uv run --extra local-embeddings --extra semantic raglab
 ```
 
+## Version, changes and security
+
+The version is the one in `pyproject.toml`, and it names the newest release
+point on `master`. [CHANGELOG.md](CHANGELOG.md) has one entry per release point,
+in the tag's own words. [SECURITY.md](SECURITY.md) says what the lab defends,
+what it does not, and where to report a hole — by email, never a public issue.
+
 ## License
 
 Copyright (c) 2026 Moha Kashani. All rights reserved. This repository is

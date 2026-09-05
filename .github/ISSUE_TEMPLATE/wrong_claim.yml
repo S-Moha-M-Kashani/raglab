@@ -1,0 +1,34 @@
+name: A claim that is wrong
+description: The README or a knob's own help text says something the code does not do, or a number here does not reproduce.
+labels: ["docs"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is a project about deciding by measurement rather than by taste, so
+        a sentence that no longer matches the code — or a figure that does not
+        come back when you run it — is a real defect, not a nitpick. This is the
+        right place for both.
+
+  - type: input
+    id: where
+    attributes:
+      label: Where the claim is
+      placeholder: "README.md, the 'Design decisions' section"
+    validations:
+      required: true
+
+  - type: textarea
+    id: claim
+    attributes:
+      label: What it says
+    validations:
+      required: true
+
+  - type: textarea
+    id: reality
+    attributes:
+      label: What the code actually does, or what you measured instead
+      description: A file and a line number is ideal. For a number, say which corpus, question set and judge you used.
+    validations:
+      required: true

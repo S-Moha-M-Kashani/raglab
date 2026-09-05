@@ -591,10 +591,13 @@ CONVENTIONS = [
      'a table header declared `position: sticky` with no inset resolves '
      'against nothing and stays in flow, which reads on screen as a header '
      'that is simply not sticky — the inset is the whole rule'),
-    ('chrome.css', None, 'position: sticky; top: 0; z-index: 3;',
+    ('chrome.css', None, '.data-table caption {\n  position: sticky',
      "the caption must not be sticky: it and the header row both sat at "
      '`top: 0` and the caption won on z-index, so the column names vanished '
-     'under it the moment a table scrolled'),
+     'under it the moment a table scrolled. Named as the caption rather than '
+     'as any sticky element at that depth — the group row above the column '
+     'names is legitimately sticky, and a guard that forbade a z-index '
+     'rather than a mistake would have forbidden that too'),
     ('chrome.css', 'th.sort-col:focus-visible', None,
      'a focused sortable header must show a ring in the shared sheet — while '
      'each page kept its own copy of these rules only the Inspector had one, '
@@ -2124,39 +2127,39 @@ def test_the_surface_switcher_reads_lab_inspector_leaderboard(panel_texts, surfa
         'the switcher must run Laboratory, Inspector, Leaderboard')
 
 
-def test_a_hovered_row_lights_up_whole_and_in_one_direction(panel_texts):
+def test_the_row_under_the_reader_lights_up_whole(panel_texts):
     # this is a convention test
-    """Two defects that Night made visible and Day had been hiding. The hover
-    background was `--plate`, the page behind the table: on Day that is a
-    hundredth of a step off the even-row stripe, so hovering half the rows did
-    nothing you could see; on Night the plate is darker than every row, so the
-    hovered row read as a hole punched in the table. And the rule never covered
-    the two frozen identity columns, whose striping selector matches at the same
-    specificity — so a hovered even row lit up everywhere except the columns
-    saying which run it was. `--rule` fixes the first (one step past the stripe,
-    in whichever direction that theme's rules run) and the pair of frozen
-    selectors, placed after the striping rule, fixes the second."""
+    """A defect Night made visible and Day had been hiding: the row tint never
+    covered the two frozen identity columns, so the row a reader was on lit up
+    everywhere except the cells saying which run it was.
+
+    A frozen column is opaque by definition — that is what stops the scrolling
+    columns showing through it — so it does not inherit the row's background
+    and has to be named. Both edges, because the board freezes a pipeline
+    sentence on the left and its Inspector link on the right.
+
+    The zebra stripe this used to be measured against is gone; what the tint is
+    now a step away from is the card itself, which `--rule-soft` is on both
+    themes. `--plate` is still wrong and always was: it is the page *behind*
+    the table, a hundredth of a step off the card on Day and darker than every
+    row on Night, where the tinted row read as a hole punched in the table."""
     css = panel_texts['chrome.css']
-    hover = css[css.index('.data-table tbody tr:hover td'):]
-    hover = hover[:hover.index('}')]
-    assert 'var(--rule)' in hover and 'var(--plate)' not in hover, (
-        'row hover must be a step past the stripe, not the page behind the table')
-    frozen = ('.data-table tbody tr:hover .freeze-1,\n'
-              '.data-table tbody tr:hover .freeze-last')
-    assert frozen in css, (
-        'the frozen columns must take the hover too, or a hovered even row is '
-        'two-tone — its identity column keeps the stripe while the numbers '
-        'light up. Both edges: the board freezes a pipeline sentence on the '
-        'left and its Inspector link on the right, and the right-hand column '
-        'has the same problem for the same reason')
-    # After *both* striping rules, not just the first. They match at the same
-    # specificity, so order is the only thing deciding which wins — and a hover
-    # rule placed between the two stripes loses to the second one, which is a
-    # way of half-fixing this that still leaves one edge two-tone.
-    for stripe in ('nth-child(even) .freeze-1', 'nth-child(even) .freeze-last'):
-        assert css.index(stripe) < css.index(frozen), (
-            f'the hover rule must come after {stripe}, or that column keeps '
-            'its stripe while the rest of the row lights up')
+    tint = css[css.index('.data-table tbody tr:hover td'):]
+    tint = tint[:tint.index('}')]
+    assert 'var(--rule-soft)' in tint and 'var(--plate)' not in tint, (
+        'the row tint must be a step off the card, not the page behind the '
+        'table')
+    assert '.data-table tbody tr.row-here td' in tint, (
+        "the keyboard's row and the pointer's row must be tinted by the same "
+        'rule, or the two drift into meaning different things')
+    for frozen in ('.data-table tbody tr:hover .freeze-1',
+                   '.data-table tbody tr:hover .freeze-last',
+                   '.data-table tbody tr.row-here .freeze-1',
+                   '.data-table tbody tr.row-here .freeze-last'):
+        assert frozen in css, (
+            f'{frozen} must take the row tint too — a frozen column is opaque, '
+            'so a row that lights up everywhere else leaves its own identity '
+            'cell unlit')
 
 
 def test_no_surface_links_to_a_hardcoded_localhost(panel_texts):

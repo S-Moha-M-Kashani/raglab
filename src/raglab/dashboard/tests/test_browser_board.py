@@ -91,9 +91,15 @@ def a_populated_board(a_recorded_experiment, a_second_recorded_experiment,
 
 #: Every column that sorts, by the name its heading filters under. `open` is
 #: the one column marked `data-nosort`, so it is not here.
-SORTABLE = ['pipeline', 'dataset', 'questions', 'decision', 'spread', 'faith',
-            'ans-rel', 'ctx-prec', 'ctx-recall', 'kind', 'when', 'label',
-            'judge', 'backend', 'state', 'seconds']
+SORTABLE = ['pipeline', 'dataset', 'questions', 'decision', 'spread',
+            'faithful', 'relevant', 'precision', 'recall', 'kind', 'when',
+            'label', 'judge', 'backend', 'state', 'seconds']
+
+#: The column names, and only those. `<thead>` also carries the spanning group
+#: row above them, whose cells are not columns and sort nothing — the same
+#: reading `sorttable.js` and `filtertable.js` take, which is the last row of
+#: the head.
+HEADINGS = '#board thead tr:last-child th'
 
 #: One cell's worth of the page, in JavaScript, because `data-sort` and the
 #: cell's own text deliberately differ — the pipeline column shows an
@@ -131,7 +137,7 @@ def _column(page, name: str) -> dict:
 
 
 def _heading(page, at: int):
-    return page.locator('#board thead th').nth(at)
+    return page.locator(HEADINGS).nth(at)
 
 
 _MISSING = {'', '—', '–', '·', 'n/a'}
@@ -352,8 +358,8 @@ def test_every_sortable_heading_sorts_reverses_and_restores(
     # A column that is no longer the sort key still announces that it can be
     # sorted, so every sortable heading says 'none' and none of them is blank.
     assert board.locator(
-        '#board thead th:not([data-nosort])[aria-sort="none"]').count() \
-        == board.locator('#board thead th:not([data-nosort])').count()
+        f'{HEADINGS}:not([data-nosort])[aria-sort="none"]').count() \
+        == board.locator(f'{HEADINGS}:not([data-nosort])').count()
 
 
 def test_a_heading_sorts_from_the_keyboard_too(a_populated_board, board):
@@ -571,3 +577,39 @@ def test_a_leaderboard_the_lab_cannot_answer_says_so(a_populated_board, board):
         'Could not read the leaderboard')
     expect(board.locator('#board table')).to_have_count(0)
 
+
+
+
+def test_every_column_and_every_group_says_what_it_means(a_populated_board, board):
+    """No heading on a seventeen-column board is left to be guessed at.
+
+    The same gate the knobs and the metrics are held to. `faithful` and
+    `precision` are two words that mean nothing on their own, and a `title`
+    attribute would say what they mean to a mouse and to nothing else — which
+    is why the tooltips on these pages were removed. So every heading, and
+    every group spanning them, carries `data-brief`, opened on hover and on
+    keyboard focus alike; and `sorttable.js` leaves its own native tooltip off
+    any heading carrying one, so no word gets two tooltips.
+
+    The group row is checked with them because a column added to a group that
+    does not exist would draw a bar with the group's key on it and no note at
+    all — visibly wrong only to someone who already knew what it should say.
+    """
+    # The board draws itself from one fetch after load, and `count()` does not
+    # wait for anything.
+    board.wait_for_selector('#board table')
+    heads = board.locator('#board thead th')
+    assert board.locator('#board thead tr.group-row th').count(), (
+        'the group row is part of the head and is checked with the columns')
+    for at in range(heads.count()):
+        head = heads.nth(at)
+        name = head.inner_text()
+        # The action column at the frozen right edge has nothing to be called,
+        # so its group cell is deliberately empty and explains nothing.
+        if not name.strip():
+            continue
+        assert (head.get_attribute('data-brief') or '').strip(), (
+            f'the {name!r} heading explains nothing')
+        assert not head.get_attribute('title'), (
+            f'{name!r} carries a native tooltip as well as its note — a mouse '
+            'would get both, and a keyboard neither')

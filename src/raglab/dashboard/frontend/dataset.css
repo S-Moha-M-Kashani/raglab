@@ -165,12 +165,14 @@ button.reading:focus-visible { outline: 2px solid var(--ink); outline-offset: 2p
    position, a question id or a label name, not a sentence — so 17rem of the
    region would be spent holding four characters. The divider points inward,
    the same cue the board's right-hand freeze gives from the other side. */
+/* The width only. The divider, and the accent the hovered and focused rows
+   draw over it, belong to the component in chrome.css — and an id selector
+   here would outrank both of them however they were written. */
 #dataset .data-table .freeze-1 {
   /* A floor, not a width: `table-layout: auto` lets the column grow to its
      longest value, and nothing here is clipped — so this only keeps a column
      of one-digit ids from collapsing to nothing against the frozen edge. */
   --freeze-1: 5rem;
-  box-shadow: 1px 0 0 var(--rule);
 }
 
 /* --- the four tabs --------------------------------------------------------

@@ -18,48 +18,161 @@ const $ = (id) => document.getElementById(id);
 // picker rather than a second surface.
 const EVERY = '*';
 
+// Which block of the table a column belongs to, and what that block is. A
+// sixteen-column board is more than a reader holds at once, and the
+// abbreviations that make sixteen fit are exactly the headings that most need
+// something over them saying what kind of thing they are.
+//
+// `step` only where a block IS a pipeline step: the two metrics a generated
+// answer is judged by are generation, the two its retrieved context is judged
+// by are retrieval. A block that is not a step — identity, provenance — takes
+// no colour, because on these surfaces colour means step and nothing else.
+const GROUPS = {
+  // Named for the row rather than for the column under it: a group bar that
+  // repeats the heading it sits on teaches nothing, and what this frozen
+  // column identifies is an experiment.
+  pipeline: { label: 'Experiment', brief: 'What was run\n'
+    + '• Every step of this experiment, as one abbreviated sentence.\n'
+    + '• Frozen to the left edge, so it survives scrolling right.' },
+  corpus: { label: 'Corpus', brief: 'What it was measured against\n'
+    + '• Which corpus, and how many of its questions were scored.\n'
+    + '• Rows on different corpora, or different question sets, are not '
+    + 'comparable.' },
+  score: { label: 'Score', brief: 'What decides\n'
+    + '• The unweighted mean of the four judged metrics, and its standard '
+    + 'error.\n'
+    + '• The only columns on this board that decide anything. Everything '
+    + 'else is reported and votes in nothing.' },
+  answer: { label: 'Answer', step: 'generation',
+    brief: 'How the written answer was judged\n'
+    + '• Two of the four metrics that decide.\n'
+    + '• Both are about the text the model wrote, not about what it was '
+    + 'given.' },
+  context: { label: 'Context', step: 'retrieval',
+    brief: 'How the retrieved context was judged\n'
+    + '• Two of the four metrics that decide.\n'
+    + '• Both are about what retrieval found, before anything was written.' },
+  run: { label: 'Run', brief: 'What produced the row\n'
+    + '• When it ran, through what, for how long, and how it ended.\n'
+    + '• Reported, never voting.' },
+  // The action column at the frozen right edge has nothing to be called.
+  open: { label: '' },
+};
+
 const COLUMNS = [
-  // `title` here is the short form for a pointer, and `sorttable.js` now leaves
-  // a heading that has one alone. It is not where any of this is *published*,
-  // though — a title answers a mouse and nothing else, so the two sentences a
-  // reader actually needs (that this cell opens, and that `fake` is a rehearsal)
-  // are in the hint prose under the table, in the page's own text.
+  // Every heading carries its own note, opened on hover AND on keyboard focus
+  // by `lab.js`. A `title` would answer a mouse and nothing else, which is the
+  // reason the tooltips on these pages were removed in the first place; the
+  // two sentences a reader most needs — that the pipeline cell opens, and that
+  // `fake` is a rehearsal — are here rather than in prose under the table.
   { key: 'pipeline', label: 'pipeline', text: true, freeze: 'freeze-1',
-    title: 'every step this experiment ran, abbreviated · hover or focus for '
-      + 'the whole sentence and every knob behind it' },
+    group: 'pipeline',
+    brief: 'Pipeline\n'
+      + '• Every step this experiment ran, abbreviated to fit.\n'
+      + '• Hover or focus the cell for the whole sentence and every recorded '
+      + 'knob under it.' },
   // What the row is *about*, before anything it measured: which corpus (on the
   // board that mixes them — one table per dataset means this column is only a
   // question there) and how many questions were put to it. A metric read
   // without knowing how many questions produced it is a number with no error
   // bar, so the count comes before the numbers rather than after them.
-  { key: 'dataset', label: 'dataset', everyOnly: true },
-  { key: 'questions', label: 'questions',
-    title: 'how many questions were scored, and the sample they were drawn '
-      + 'from when the run recorded one' },
+  { key: 'dataset', label: 'dataset', everyOnly: true, group: 'corpus',
+    brief: 'Dataset\n'
+      + '• Which corpus this experiment ran against.\n'
+      + '• Shown only on the every-experiment board; each corpus otherwise '
+      + 'has a table of its own.' },
+  { key: 'questions', label: 'questions', group: 'corpus',
+    brief: 'Questions\n'
+      + '• How many ground-truth questions were scored.\n'
+      + '• And the sample they were drawn from, where the run recorded one.\n'
+      + '• A metric read without this is a number with no error bar.' },
   // Then the deciding score, its error, and the four metrics it is the mean of:
   // the only columns that decide anything, kept as close to the identity as the
   // frozen sentence allows. The descriptive columns wait behind them.
-  { key: 'decision', label: 'decision', title: 'unweighted mean of the four judged metrics' },
+  { key: 'decision', label: 'decision', group: 'score',
+    brief: 'Decision score\n'
+      + '• The unweighted mean of the four judged metrics beside it.\n'
+      + '• A dash unless all four are present — it is never a mean of three.\n'
+      + '• Never read without the ± next to it.' },
   // '±' is a column no reader can type, so it says its filter name itself. Every
   // other heading is already the word a reader would use for it.
-  { key: 'spread', label: '±', filter: 'spread',
-    title: 'standard error of the decision score' },
-  { key: 'faithfulness', label: 'faith', step: 'generation' },
-  { key: 'answer_relevancy', label: 'ans rel', step: 'generation' },
-  { key: 'llm_context_precision_with_reference', label: 'ctx prec', step: 'retrieval' },
-  { key: 'context_recall', label: 'ctx recall', step: 'retrieval' },
-  { key: 'kind', label: 'kind', title: 'index, retrieve, run or query' },
-  { key: 'when', label: 'when', title: 'when it started' },
-  { key: 'label', label: 'label' },
-  { key: 'judge', label: 'judge', step: 'generation',
-    title: 'which model graded — rows graded differently are not comparable' },
-  { key: 'provider', label: 'backend',
-    title: 'where the model calls went · fake is a rehearsal, not a measurement' },
-  { key: 'state', label: 'state' },
-  { key: 'seconds', label: 'seconds', title: 'wall clock' },
+  { key: 'spread', label: '±', filter: 'spread', group: 'score',
+    brief: 'Spread\n'
+      + '• The standard error of the decision score.\n'
+      + '• A lead smaller than this is not a lead.\n'
+      + '• Type it in the filter as spread.' },
+  // Four headings that are words rather than abbreviations, now that the group
+  // above them says which half of the pipeline each pair is about: ANSWER
+  // faithful/relevant and CONTEXT precision/recall. They were `faith`,
+  // `ans rel`, `ctx prec` and `ctx recall`, which repeated in every heading
+  // the one thing the group bar now says once — and 'ans rel' is not a word.
+  // The filter follows the heading, as it does for every column here, so these
+  // are also what a reader types.
+  { key: 'faithfulness', label: 'faithful', step: 'generation', group: 'answer',
+    brief: 'Faithfulness\n'
+      + '• Is every claim in the answer supported by what was retrieved?\n'
+      + '• Judged by a model. 0 to 1, higher is better.\n'
+      + '• One of the four that decide.' },
+  { key: 'answer_relevancy', label: 'relevant', step: 'generation',
+    group: 'answer',
+    brief: 'Answer relevancy\n'
+      + '• Does the answer address the question that was actually asked?\n'
+      + '• Judged by a model. 0 to 1, higher is better.\n'
+      + '• One of the four that decide.' },
+  { key: 'llm_context_precision_with_reference', label: 'precision',
+    step: 'retrieval', group: 'context',
+    brief: 'Context precision\n'
+      + '• Of everything retrieval returned, how much of it was needed?\n'
+      + '• Judged by a model against the ground truth. 0 to 1, higher is '
+      + 'better.\n'
+      + '• One of the four that decide.' },
+  { key: 'context_recall', label: 'recall', step: 'retrieval',
+    group: 'context',
+    brief: 'Context recall\n'
+      + '• Of everything the answer needed, how much did retrieval find?\n'
+      + '• Judged by a model against the ground truth. 0 to 1, higher is '
+      + 'better.\n'
+      + '• One of the four that decide.' },
+  { key: 'kind', label: 'kind', group: 'run',
+    brief: 'Kind\n'
+      + '• What this experiment was: index, retrieve, run or query.\n'
+      + '• Only a run scores the four judged metrics; the others leave them '
+      + 'as dashes.' },
+  { key: 'when', label: 'when', group: 'run',
+    brief: 'When\n'
+      + '• When the experiment started, to the minute.\n'
+      + '• Not when it finished — seconds is how long it took.' },
+  { key: 'label', label: 'label', group: 'run',
+    brief: 'Label\n'
+      + '• Whatever you typed to name this experiment.\n'
+      + '• Free text. It decides nothing and is here to be searched.' },
+  { key: 'judge', label: 'judge', step: 'generation', group: 'run',
+    brief: 'Judge\n'
+      + '• Which model graded the four judged metrics, and through what.\n'
+      + '• Rows graded by different judges are not comparable — which is why '
+      + 'this board names no winner.\n'
+      + '• A judge is screened before it is allowed to grade.' },
+  { key: 'provider', label: 'backend', group: 'run',
+    brief: 'Backend\n'
+      + '• Where the model calls actually went.\n'
+      + '• fake answers and judges without ever failing, so those rows are a '
+      + 'rehearsal of the pipeline and not a measurement of it.' },
+  { key: 'state', label: 'state', group: 'run',
+    brief: 'State\n'
+      + '• How the job ended.\n'
+      + '• A row that did not finish cleanly carries a ! saying why.' },
+  { key: 'seconds', label: 'seconds', group: 'run',
+    brief: 'Seconds\n'
+      + '• Wall clock, start to finish.\n'
+      + '• A bill, not a measurement: it votes in nothing.' },
   { key: 'open', label: 'open', nosort: true, freeze: 'freeze-last',
-    title: 'open this experiment in the Laboratory · its settings become the '
-      + 'knobs, and what this lab cannot serve is named there' },
+    group: 'open',
+    brief: 'Open in the Laboratory\n'
+      + '• Puts this experiment\u2019s recorded settings on the knobs, in this '
+      + 'tab.\n'
+      + '• Pins the Inspector link above to the same experiment.\n'
+      + '• A knob this installation cannot serve is left where it was and '
+      + 'named in the helper, never quietly written.' },
 ];
 
 // The two notes this page used to print as paragraphs — one above the table
@@ -69,7 +182,7 @@ const COLUMNS = [
 // this file pins one under its heading on a press, so a reader with no
 // pointer is not shut out of what the page has to say.
 const TABLE_NOTE = "Click any column heading to sort by it, again to reverse, a third time for the order it was served in. The pipeline cell is abbreviated and clipped to the column's width — hover it or give it focus and the whole sentence opens beside it, with every recorded knob under that. backend is where the model calls actually went: fake answers and judges without ever failing, so those rows are a rehearsal of the pipeline and not a measurement of it. This table names no winner: rows graded by different judges over different question sets share it, so judge and questions are columns you compare on. The open arrow opens the Laboratory in this tab with the experiment's settings on the knobs, pins the Inspector link above to that same experiment, and names any unserved knob in the lab helper rather than quietly leaving it behind.";
-const FILTER_NOTE = "One term per column, all of which must hold, each written as the column's own heading and what you want of it: questions>30, decision>=0.6, seconds<120, when>2026-08-01, state!=failed, judge~sonnet. A colon is the forgiving spelling of ~ (kind:run); a colon with nothing after it asks whether the column was measured at all (ctx-recall: for the rows that have it, !ctx-recall: for the rows that do not). A bare word searches the whole row, !word excludes it, and quotes hold a value together: label~\"hybrid vs dense\". A term about a column a row never measured does not match it in either direction — a dash is never measured, not a low value.";
+const FILTER_NOTE = "One term per column, all of which must hold, each written as the column's own heading and what you want of it: questions>30, decision>=0.6, seconds<120, when>2026-08-01, state!=failed, judge~sonnet. A colon is the forgiving spelling of ~ (kind:run); a colon with nothing after it asks whether the column was measured at all (recall: for the rows that have it, !recall: for the rows that do not). A bare word searches the whole row, !word excludes it, and quotes hold a value together: label~\"hybrid vs dense\". A term about a column a row never measured does not match it in either direction — a dash is never measured, not a low value.";
 
 const fmt = (value, digits = 3) =>
   value === null || value === undefined ? '—' : Number(value).toFixed(digits);
@@ -191,12 +304,14 @@ function renderTable(dataset, rows) {
   const columns = columnsFor(dataset);
 
   const head = columns.map((col) => {
-    const cls = [col.text ? 'text' : '', col.freeze || ''].filter(Boolean).join(' ');
-    return `<th scope="col"${cls ? ` class="${cls}"` : ''}`
+    const cls = ['why-term', col.text ? 'text' : '', col.freeze || '']
+      .filter(Boolean).join(' ');
+    return `<th scope="col" class="${cls}"`
       + `${col.step ? ` data-step="${col.step}"` : ''}`
       + `${col.nosort ? ' data-nosort' : ''}`
       + `${col.filter ? ` data-filter="${escapeHtml(col.filter)}"` : ''}`
-      + `${col.title ? ` title="${escapeHtml(col.title)}"` : ''}>`
+      + ` data-brief="${escapeHtml(
+          col.brief + (col.nosort ? '' : SORT_LINE))}">`
       + `${escapeHtml(col.label)}</th>`;
   }).join('');
 
@@ -233,7 +348,7 @@ function renderTable(dataset, rows) {
            aria-label="${named}">
         <table class="data-table centred">
           <caption>${named}</caption>
-          <thead><tr>${head}</tr></thead>
+          <thead>${groupRow(columns, GROUPS)}<tr>${head}</tr></thead>
           <tbody>${body}</tbody>
         </table>
       </div>`;
@@ -453,7 +568,9 @@ async function loadBoard(dataset) {
     // The filter knows nothing about sorting in return — it decides each row
     // from the query alone, so it cannot drift whatever order it is handed.
     SortTable.make(table, { onApply: applyFilter });
-    REMEASURE = mountScrollRail(box.querySelector('.table-scroll'));
+    const region = box.querySelector('.table-scroll');
+    REMEASURE = mountScrollRail(region);
+    mountRowKeys(region);
   }
   applyFilter();
   wirePicker();
@@ -617,6 +734,13 @@ document.addEventListener('click', (event) => {
   const heading = event.target && event.target.closest
     ? event.target.closest('.why-term[data-brief]') : null;
   if (!heading) return;
+  // Never a column heading. A `th` carries its note for hover and for keyboard
+  // focus, where the brief box says it; a click on one sorts the column, which
+  // is the only thing a reader means by pressing it. And a pinned paragraph
+  // would be inserted after a `<tr>` inside `<thead>`, where a `<p>` is not
+  // allowed and the parser quietly rearranges the table around it — which is
+  // exactly what happened the first time these headings became triggers.
+  if (heading.closest('table')) return;
   const host = heading.closest('.card-head') || heading.parentElement;
   const already = host.parentElement.querySelector(':scope > .explain');
   const mine = already && already.dataset.of === heading.dataset.brief;

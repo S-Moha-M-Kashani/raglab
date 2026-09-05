@@ -32,6 +32,40 @@ read_rag_skill: |-
   Args:
       names: Skill names from search_rag_skills, comma-separated,
           e.g. "rag-evaluation, reranking-late-interaction".
+search_knobs: |-
+  Find the knobs of this lab — the controls an experiment is configured
+  with — by key or by what they do. Use it whenever a question is about a
+  setting rather than about the field: what a knob does, whether changing
+  it costs an index rebuild, why it is greyed out, or which knob to move
+  for a symptom.
+
+  Returns the closest knob keys with a one-line summary each — ranked, at
+  most eight, and saying how many more matched less closely — or the whole
+  knob surface when nothing matches. Matching is literal keyword search, not
+  semantic. Read the closest hit with read_knob rather than searching again:
+  a second search with different wording is worth one try at most, and the
+  page you were pointed at answers more than another shortlist will.
+
+  This is the lab's own controls; search_rag_skills is the field's
+  techniques. A question naming a key like "retrieval.reranker" belongs
+  here; "should I use a cross-encoder at all" belongs there.
+
+  Args:
+      query: A knob key or a few keywords, e.g. "retrieval.summary_scope"
+          or "rebuild fingerprint".
+read_knob: |-
+  Read the full page for one or more knobs, at most three per call.
+
+  Each page says what the knob does, what it means scientifically, why RAG
+  architectures have such a knob, when it is useful, and which knobs it
+  interacts with — and the reply ends with a "related knobs:" line naming
+  those, so a follow-up needs no second search. Numbers a page quotes as
+  measured are facts about the corpus named beside them, not about RAG in
+  general: repeat the corpus when you repeat the number.
+
+  Args:
+      keys: Knob keys from search_knobs, comma-separated, e.g.
+          "index.split_plan, retrieval.k".
 measure_bilingual_alignment: |-
   Measure, live on this machine, whether an embedding model aligns
   English with Farsi — i.e. whether one index could serve cross-language

@@ -4,12 +4,22 @@
 # both panels render these directly as offered choices;
 # `test_every_option_list_leads_with_the_default` keeps a moved default from
 # quietly staying buried in the list.
-CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap', 'message', 'turn-pair',
-            'session')
-# Chunkers that read chunk_chars/overlap, per chunking_strategies.py's own branches — the
-# rest emit one piece per part, pair or document and ignore both numbers.
-CHAR_SIZED_CHUNKERS = ('semantic-drift', 'fixed', 'fixed-overlap')
-OVERLAP_CHUNKERS = ('fixed-overlap',)
+# The split plan's vocabulary (configuration/split_plan.py holds the plan
+# itself). A stage is one of five kinds: `document` is always first, `part`
+# and `label` cut at part boundaries, `separator` cuts text at a literal
+# string, `drift` cuts where consecutive parts stop resembling each other.
+STAGE_KINDS = ('document', 'part', 'label', 'separator', 'drift')
+# Within one stage, atoms combine one way or the other — never both, so no
+# precedence rule is ever needed.
+COMBINATORS = ('or', 'and')
+# Whether a stage cuts every piece or only one still over the budget.
+STAGE_WHEN = ('always', 'over-budget')
+# Which text normaliser tokenises the corpus for the lexical stages. '' is
+# the default and means "whatever the corpus's declared language calls for"
+# (text_normalizers.BY_LANGUAGE); a name overrides that for any corpus.
+NORMALIZERS = ('', 'persian', 'neutral')
+# What the size budget counts: characters, or the units the embedding model reads.
+CHUNK_UNITS = ('characters', 'tokens')
 # fastembed (its own ONNX list) and sentence-transformers (any HuggingFace
 # checkpoint) load a named model; the hash embedders load none.
 EMBEDDERS = ('sentence-transformers', 'fastembed',

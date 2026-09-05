@@ -160,11 +160,11 @@ def test_a_traced_evaluation_scores_identically_and_leaves_traces_off_disk(
 
 def test_config_round_trips_through_the_panel_payload():
     # this is a unit test
-    cfg = LabConfig.from_dict({'index': {'chunker': 'session', 'unknown': 1},
+    cfg = LabConfig.from_dict({'index': {'split_plan': [{'kind': 'document'}], 'unknown': 1},
                                'retrieval': {'k': 3},
                                'generation': {'answerer': 'none'},
                                'label': 'x'})
-    assert cfg.index.chunker == 'session' and cfg.retrieval.k == 3
+    assert cfg.index.split_plan == ({'kind': 'document'},) and cfg.retrieval.k == 3
     assert cfg.validate() == []
     assert LabConfig.from_dict(cfg.to_dict()).to_dict() == cfg.to_dict()
 
@@ -635,20 +635,20 @@ def test_a_second_job_is_refused_in_readable_english(client, monkeypatch):
     release = threading.Event()
     original = index_module.chunk_document
 
-    def held(document, cfg, embedder, label_fields, language):
+    def held(*args, **kwargs):
         entered.set()
         release.wait(timeout=5)
-        return original(document, cfg, embedder, label_fields, language)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(index_module, 'chunk_document', held)
     try:
         first = client.post('/api/indexes', json={
-            'index': {**SMOKE_INDEX, 'chunker': 'message'}})
+            'index': {**SMOKE_INDEX, 'split_plan': [{'kind': 'document'}, {'kind': 'part', 'when': 'always'}]}})
         assert first.status_code == 202
         assert entered.wait(timeout=5), 'the first job never reached the chunker'
 
         second = client.post('/api/indexes', json={
-            'index': {**SMOKE_INDEX, 'chunker': 'turn-pair'}})
+            'index': {**SMOKE_INDEX, 'split_plan': [{'kind': 'document'}, {'kind': 'label', 'atoms': [{'label': 'role', 'value': 'user'}], 'join': 'or', 'when': 'always'}]}})
         assert second.status_code == 409
         detail = second.json()['detail']
         assert 'a index' not in detail
@@ -693,7 +693,7 @@ def test_the_index_job_reports_every_row_it_wrote_and_lists_what_it_ran(client):
     newest = entries[0]
     assert newest['id'] == job['id']
     assert newest['kind'] == 'index'
-    assert newest['config']['index']['chunker'] == SMOKE_INDEX['chunker']
+    assert newest['config']['index']['split_plan'] == SMOKE_INDEX['split_plan']
     assert newest['config']['index']['embedder'] == SMOKE_INDEX['embedder']
     assert newest['config']['index']['hierarchy'] == 'louvain'
     assert 'result' not in newest and '_cancel' not in newest
@@ -819,7 +819,6 @@ def test_every_option_list_leads_with_the_default():
     default moves without its list."""
     cfg = LabConfig()
     for name, options, default in (
-            ('chunkers', config.CHUNKERS, cfg.index.chunker),
             ('embedders', config.EMBEDDERS, cfg.index.embedder),
             ('retrievers', config.RETRIEVERS, cfg.retrieval.retriever),
             ('rerankers', config.RERANKERS, cfg.retrieval.reranker),
@@ -837,24 +836,14 @@ def test_every_option_list_leads_with_the_default():
 def test_a_dependent_control_is_live_only_when_its_owner_makes_it_mean_something():
     # this is a unit test
     """Each case is a knob the pipeline would ignore, so leaving it editable
-    invites tuning a number that does nothing. `semantic-drift` is
-    deliberately in the *enabled* set for chunk_chars: unlike
-    message/turn-pair/session it genuinely reads it, as a max_chars cap."""
+    invites tuning a number that does nothing. The budget and the overlap
+    have no owner: the budget closes every plan and the overlap is repeated
+    wherever it divides, so neither is ever greyed out."""
     def state(cfg):
         return config.dependency_state(cfg.to_dict())
 
-    drift = state(LabConfig(index=IndexConfig(chunker='semantic-drift')))
-    assert drift['index.chunk_chars']['enabled']
-    assert not drift['index.overlap']['enabled']
-    # Both directions, because only one of them is a *disabled* control: a
-    # rule that emptied `index.overlap`'s owner list would grey the knob out
-    # for every chunker, including the one whose whole point is the overlap.
-    assert state(LabConfig(index=IndexConfig(chunker='fixed-overlap'))
-                 )['index.overlap']['enabled']
-
-    per_message = state(LabConfig(index=IndexConfig(chunker='message')))
-    assert not per_message['index.chunk_chars']['enabled']
-    assert 'structure' in per_message['index.chunk_chars']['reason']
+    assert 'index.chunk_chars' not in config.DEPENDENCIES
+    assert 'index.overlap' not in config.DEPENDENCIES
 
     hashed = state(LabConfig(index=IndexConfig(embedder='char-hash')))
     assert not hashed['index.embed_model']['enabled']
@@ -926,21 +915,21 @@ def test_a_reranker_choice_and_a_dataset_fact_both_gate_the_same_knob():
                  )['retrieval.time_filter']['enabled']
 
 
-def test_inert_knobs_names_only_the_knob_the_chunker_never_reads():
+def test_inert_knobs_names_only_the_knob_the_embedder_never_reads():
     # this is a unit test
-    """`overlap` is dead weight under semantic-drift and live under
-    fixed-overlap — the same asymmetry `dependency_state` already proves,
+    """`embed_model` is dead weight under a hash embedder and live under a
+    model-backed one — the same asymmetry `dependency_state` already proves,
     now surfaced through the one function later callers (leaderboard rows,
     board reveal, widget) will actually read."""
-    drift = config.inert_knobs(
-        LabConfig(index=IndexConfig(chunker='semantic-drift', overlap=100)
+    hashed = config.inert_knobs(
+        LabConfig(index=IndexConfig(embedder='char-hash', embed_model='x')
                  ).to_dict())
-    assert drift['index.overlap'] == config.DEPENDENCIES['index.overlap']['reason']
-    assert 'index.chunk_chars' not in drift
+    assert hashed['index.embed_model'] == config.DEPENDENCIES['index.embed_model']['reason']
+    assert 'index.chunk_chars' not in hashed
 
-    fixed = config.inert_knobs(
-        LabConfig(index=IndexConfig(chunker='fixed-overlap')).to_dict())
-    assert 'index.overlap' not in fixed
+    modelled = config.inert_knobs(
+        LabConfig(index=IndexConfig(embedder='fastembed')).to_dict())
+    assert 'index.embed_model' not in modelled
 
 
 def test_inert_knobs_names_the_whole_hierarchy_gated_family_when_flat():
@@ -1000,7 +989,7 @@ def test_inert_knobs_walks_the_owner_chain_when_the_owner_is_itself_inert():
     # graph_source (hybrid, a KNN source) is recorded and graph_knn's own
     # field is recorded, but the hierarchy the chain ultimately turns on
     # never was — the config was never asked, so the knob stays unlabelled.
-    cfg = {'index': {'chunker': 'semantic-drift', 'graph_source': 'hybrid',
+    cfg = {'index': {'split_plan': [{'kind': 'document'}, {'kind': 'drift', 'markers': [], 'when': 'always'}], 'graph_source': 'hybrid',
                      'graph_knn': 8}}
     assert 'index.graph_knn' not in config.inert_knobs(cfg)
 
@@ -1133,7 +1122,7 @@ def test_the_production_preset_is_a_declared_snapshot():
     # chunking: the brain splits at 500 with 100 of overlap, so the lab's
     # honest mirror is fixed-overlap at those exact sizes — not semantic-drift,
     # which the sweep preferred but the brain does not ship.
-    assert index['chunker'] == 'fixed-overlap'
+    assert index['split_plan'] == [{'kind': 'document'}]
     assert index['chunk_chars'] == 500          # retrieval.CHUNK_SIZE
     assert index['overlap'] == 100              # retrieval.CHUNK_OVERLAP
     # and it prepends no situating header

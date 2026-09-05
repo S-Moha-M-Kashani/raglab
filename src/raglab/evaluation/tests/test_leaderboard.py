@@ -252,7 +252,7 @@ def test_the_pipeline_sentence_names_one_fragment_per_step_that_ran():
     page, for the reason `board_dict` exists: two surfaces that each derived
     the sentence could describe one row two ways."""
     config = {
-        'index': {'chunker': 'fixed-overlap', 'contextual': True,
+        'index': {'split_plan': [{'kind': 'document'}], 'contextual': True,
                   'hierarchy': 'leiden', 'embedder': 'sentence-transformers',
                   'embed_model': 'intfloat/multilingual-e5-small'},
         'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
@@ -261,8 +261,8 @@ def test_the_pipeline_sentence_names_one_fragment_per_step_that_ran():
     }
     assert leaderboard.pipeline_fragments(config) == [
         {'step': 'index',
-         'text': 'fixed-overlap+ctx·leiden·sentence-transformers·multilingual-e5-small',
-         'short': 'fix-ov+ctx·leid·ST·e5-small'},
+         'text': 'document+ctx·leiden·sentence-transformers·multilingual-e5-small',
+         'short': 'doc+ctx·leid·ST·e5-small'},
         {'step': 'retrieval', 'text': 'hybrid-rrf·lexical·llm',
          'short': 'rrf·lex·llm'},
         {'step': 'generation', 'text': 'llm', 'short': 'llm'},
@@ -279,7 +279,7 @@ def test_every_fragment_carries_a_short_form_beside_its_own_text():
     such width, and the reveal that opens on the cell publishes `text` in full.
     An abbreviation nobody can expand is a worse column than a wide one."""
     config = {
-        'index': {'chunker': 'semantic-drift', 'hierarchy': 'louvain',
+        'index': {'split_plan': [{'kind': 'document'}, {'kind': 'drift', 'markers': [], 'when': 'always'}], 'hierarchy': 'louvain',
                   'embedder': 'fastembed',
                   'embed_model':
                       'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'},
@@ -288,10 +288,10 @@ def test_every_fragment_carries_a_short_form_beside_its_own_text():
         'generation': {'answerer': 'extractive'},
     }
     assert [f['short'] for f in leaderboard.pipeline_fragments(config)] == [
-        'sem-drift·louv·FE·MiniLM-L12', 'rrf·CE·lex', 'extr']
+        'drift·louv·FE·MiniLM-L12', 'rrf·CE·lex', 'extr']
     # Nothing is lost: the same call still says all of it.
     assert [f['text'] for f in leaderboard.pipeline_fragments(config)] == [
-        'semantic-drift·louvain·fastembed·paraphrase-multilingual-MiniLM-L12-v2',
+        'drift·louvain·fastembed·paraphrase-multilingual-MiniLM-L12-v2',
         'hybrid-rrf·cross-encoder·lexical', 'extractive']
 
 
@@ -317,9 +317,9 @@ def test_a_step_that_did_not_run_is_absent_from_the_sentence():
     it with em-dashes for the three stages that never ran would draw a row that
     looks like a failed evaluation instead of a successful build."""
     fragments = leaderboard.pipeline_fragments(
-        {'index': {'chunker': 'session', 'embedder': 'token-hash'}})
-    assert fragments == [{'step': 'index', 'text': 'session·token-hash',
-                          'short': 'sess·tok#'}]
+        {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'}})
+    assert fragments == [{'step': 'index', 'text': 'document·token-hash',
+                          'short': 'doc·tok#'}]
     assert leaderboard.pipeline_fragments({}) == []
 
 
@@ -329,10 +329,10 @@ def test_the_sentence_keeps_the_embedding_model_and_drops_its_vendor():
     the model has to be on the row — but the vendor prefix is the same on every
     row and costs the width the sentence needs."""
     fragments = leaderboard.pipeline_fragments(
-        {'index': {'chunker': 'session', 'embedder': 'fastembed',
+        {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'fastembed',
                    'embed_model': 'BAAI/bge-small-en-v1.5'}})
-    assert fragments[0]['text'] == 'session·fastembed·bge-small-en-v1.5'
-    assert fragments[0]['short'] == 'sess·FE·bge-small-en'
+    assert fragments[0]['text'] == 'document·fastembed·bge-small-en-v1.5'
+    assert fragments[0]['short'] == 'doc·FE·bge-small-en'
 
 
 def test_a_knob_set_to_none_is_absent_from_the_sentence():
@@ -445,12 +445,12 @@ def test_a_run_file_that_names_no_corpus_reads_as_the_built_in_one(
     (tmp_path / 'ancient.json').write_text(json.dumps({
         'run_id': 'ancient', 'label': 'before there were corpora',
         'started_at': '2026-01-01 09:00:00', 'seconds': 4,
-        'config': {'index': {'chunker': 'session'}},
+        'config': {'index': {'split_plan': [{'kind': 'document'}]}},
         'summary': {'n_questions': 3}, 'ragas': {},
     }), encoding='utf-8')
     ledger.record({'id': 'ancient', 'kind': 'run',
                    'config': {'index': {'dataset': 'meetings-de',
-                                        'chunker': 'session'}},
+                                        'split_plan': [{'kind': 'document'}]}},
                    'seconds': 4, 'result': {'run_id': 'ancient'}},
                   'done', path=db)
     row, = leaderboard.board_rows(db_path=db)
@@ -463,7 +463,7 @@ def _write_run(tmp_path, monkeypatch, run_id, dataset, metrics, decision):
     (tmp_path / f'{run_id}.json').write_text(json.dumps({
         'run_id': run_id, 'label': run_id, 'dataset': dataset,
         'started_at': '2026-08-01 10:00:00', 'seconds': 12,
-        'config': {'index': {'chunker': 'session', 'embedder': 'token-hash'}},
+        'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'}},
         'summary': {'n_questions': 2},
         'ragas': {'metrics': metrics, 'decision': decision,
                   'decision_spread': {'stderr': 0.01},
@@ -509,7 +509,7 @@ def test_a_ledger_row_with_no_run_file_shows_no_metrics_rather_than_zeros(
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-1', 'kind': 'index',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'dataset': 'smoke-mini',
                                         'embedder': 'token-hash'}},
                    'seconds': 3, 'result': {}}, 'done', path=db)
@@ -536,7 +536,7 @@ def test_the_questions_column_reads_the_runs_own_selection_note(
     (tmp_path / 'balanced.json').write_text(json.dumps({
         'run_id': 'balanced', 'label': 'balanced', 'dataset': 'diary-fa',
         'started_at': '2026-08-01 10:00:00', 'seconds': 12,
-        'config': {'index': {'chunker': 'session', 'embedder': 'token-hash'}},
+        'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'}},
         'summary': {'n_questions': 9},
         'ragas': {'metrics': {}, 'decision': None, 'judge': {}},
         'selection': {'balance': 'difficulty', 'limit': 9, 'n': 9,
@@ -567,7 +567,7 @@ def test_the_questions_column_falls_back_to_the_bare_count_with_no_note(
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-1', 'kind': 'index',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'dataset': 'smoke-mini',
                                         'embedder': 'token-hash'}},
                    'seconds': 3, 'result': {}}, 'done', path=db)
@@ -635,14 +635,14 @@ def test_every_row_carries_its_pipeline_sentence(tmp_path, monkeypatch):
     ledger.connect(db).close()
     _write_run(tmp_path, monkeypatch, 'r1', 'diary-fa', {}, None)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
-        {'step': 'index', 'text': 'session·token-hash',
-         'short': 'sess·tok#'}]
+        {'step': 'index', 'text': 'document·token-hash',
+         'short': 'doc·tok#'}]
 
 
 def test_a_ledger_only_index_build_still_gets_a_pipeline_sentence(
         tmp_path, monkeypatch):
     # this is an integration test
-    """`ledger.experiments()` returns flat columns — `chunker`, `embedder` —
+    """`ledger.experiments()` returns flat columns — `split_plan`, `embedder` —
     never a nested config; only a run file carries one, and an index build
     never writes a run file. Without reshaping the flat columns back into a
     config, this row's leftmost column would be blank for exactly the rows
@@ -651,13 +651,13 @@ def test_a_ledger_only_index_build_still_gets_a_pipeline_sentence(
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-1', 'kind': 'index',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'dataset': 'smoke-mini',
                                         'embedder': 'token-hash'}},
                    'seconds': 3, 'result': {}}, 'done', path=db)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
-        {'step': 'index', 'text': 'session·token-hash',
-         'short': 'sess·tok#'}]
+        {'step': 'index', 'text': 'document·token-hash',
+         'short': 'doc·tok#'}]
 
 
 def test_a_ledger_only_retrieval_gets_its_retrieval_fragment(
@@ -671,14 +671,14 @@ def test_a_ledger_only_retrieval_gets_its_retrieval_fragment(
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-2', 'kind': 'retrieve',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'embedder': 'token-hash'},
                               'retrieval': {'retriever': 'hybrid-rrf',
                                            'reranker': 'lexical',
                                            'grader': 'none'}},
                    'seconds': 2, 'result': {}}, 'done', path=db)
     assert leaderboard.board_rows(db_path=db)[0]['pipeline'] == [
-        {'step': 'index', 'text': 'session·token-hash', 'short': 'sess·tok#'},
+        {'step': 'index', 'text': 'document·token-hash', 'short': 'doc·tok#'},
         {'step': 'retrieval', 'text': 'hybrid-rrf·lexical', 'short': 'rrf·lex'}]
 
 
@@ -750,13 +750,13 @@ def test_a_ledger_only_row_offers_no_stage_it_never_recorded(tmp_path,
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-1', 'kind': 'index',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'embedder': 'token-hash'}},
                    'seconds': 3, 'result': {}}, 'done', path=db)
     config = leaderboard.board_rows(db_path=db)[0]['config']
     assert set(config) == {'index'}, (
         'a step the ledger recorded no knob for is absent, not an empty block')
-    assert config['index'] == {'chunker': 'session', 'embedder': 'token-hash'}
+    assert config['index'] == {'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'}
 
 
 def test_a_recorded_none_survives_into_the_reveal(tmp_path, monkeypatch):
@@ -768,7 +768,7 @@ def test_a_recorded_none_survives_into_the_reveal(tmp_path, monkeypatch):
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-2', 'kind': 'retrieve',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'embedder': 'token-hash'},
                               'retrieval': {'retriever': 'dense',
                                             'reranker': 'none',
@@ -792,18 +792,18 @@ def test_a_run_backed_row_names_its_inert_knobs(tmp_path, monkeypatch):
     db = tmp_path / 'l.db'
     (tmp_path / '20260801-100000-abc123.json').write_text(json.dumps({
         'run_id': '20260801-100000-abc123',
-        'config': {'index': {'chunker': 'semantic-drift', 'overlap': 100}},
+        'config': {'index': {'embedder': 'char-hash', 'embed_model': 'x'}},
     }), encoding='utf-8')
     row, = leaderboard.board_rows(db_path=db)
-    assert 'index.overlap' in row['inert']
-    assert row['inert']['index.overlap'], (
+    assert 'index.embed_model' in row['inert']
+    assert row['inert']['index.embed_model'], (
         'a reason has to accompany the flag, or the reveal cannot say why')
 
 
 def test_a_ledger_only_row_marks_nothing_inert(tmp_path, monkeypatch):
     # this is an integration test
     """The ledger's six flat fields never carry `overlap` at all — `ledger_config`
-    only ever reshapes `chunker`/`embedder`/`retriever`/`reranker`/`grader`/
+    only ever reshapes `split_plan`/`embedder`/`retriever`/`reranker`/`grader`/
     `answerer` — so there is nothing here for `inert_knobs` to call inert: a
     field the config never wrote is a question nobody asked, not an answer of
     no."""
@@ -811,7 +811,7 @@ def test_a_ledger_only_row_marks_nothing_inert(tmp_path, monkeypatch):
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'job-3', 'kind': 'index',
-                   'config': {'index': {'chunker': 'semantic-drift',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}, {'kind': 'drift', 'markers': [], 'when': 'always'}],
                                         'embedder': 'token-hash'}},
                    'seconds': 3, 'result': {}}, 'done', path=db)
     row, = leaderboard.board_rows(db_path=db)
@@ -830,7 +830,7 @@ def test_a_row_agrees_with_the_table_it_is_filed_under(tmp_path, monkeypatch):
     db = tmp_path / 'l.db'
     monkeypatch.setattr(evaluate, 'RUNS_DIR', tmp_path / 'empty')
     ledger.record({'id': 'old-1', 'kind': 'run',
-                   'config': {'index': {'chunker': 'session',
+                   'config': {'index': {'split_plan': [{'kind': 'document'}],
                                         'embedder': 'token-hash'}},
                    'seconds': 1, 'result': {}}, 'done', path=db)
     row, = leaderboard.board_rows(db_path=db)
@@ -882,10 +882,10 @@ def test_the_markdown_joins_the_pipeline_the_way_the_page_does():
     a terminal it is carried by nothing, and a space had the whole sentence
     reading as one run-on token."""
     row = dict(_board_row('r1', 'diary-fa', 0.5),
-               pipeline=[{'step': 'index', 'text': 'session·token-hash'},
+               pipeline=[{'step': 'index', 'text': 'document·token-hash'},
                          {'step': 'generation', 'text': 'llm'}])
     text = leaderboard.markdown(leaderboard.by_dataset([row]))
-    assert 'session·token-hash · llm' in text
+    assert 'document·token-hash · llm' in text
 
 
 def test_a_board_of_one_says_one_experiment():

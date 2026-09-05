@@ -87,10 +87,19 @@ def test_every_prompt_the_model_reads_is_the_yaml_fixture():
     # model-facing text and belong on this page with the prompts either side
     # of them — not in panel.js, where nothing would pin them.
     assert widget.STARTERS == [line.strip() for line in page['starters']]
-    assert len(widget.STARTERS) == 4, (
-        'four starters: they exist to span what the helper can do, and a list '
+    assert len(widget.STARTERS) == 5, (
+        'five starters: they exist to span what the helper can do, and a list '
         'that grew is a menu the reader now has to read instead of a set of '
         'examples they can take in at a glance')
+    # And the sharper rule the set is chosen by: a starter must be a question
+    # only *this* lab can answer — from the ledger, the run files, the corpus
+    # or its own knob surface. A general RAG question, however good, is one any
+    # chat model answers without the lab, so it wastes the one place a reader
+    # learns what the helper is for. Each of the five names a record here.
+    for starter in widget.STARTERS:
+        assert any(word in starter.lower() for word in
+                   ('run', 'runs', 'experiments', "lab's")), (
+            f'{starter!r} does not reach for anything only this lab holds')
     knowledge_page = yaml.safe_load(
         (widget.PROMPTS_DIR / 'widget_knowledge.yaml').read_text(encoding='utf-8'))
     assert widget.KNOWLEDGE_BASE == {key: text.strip()
@@ -360,7 +369,21 @@ def test_trim_and_call_guard_short_circuits_without_calling_handler():
     assert not called
     assert isinstance(result, AIMessage)
     assert not (result.tool_calls or [])
-    assert 'tool calls started repeating' in result.content
+    assert result.content == widget.hooks.HOP_GUARD_REFUSAL
+
+
+def test_the_hop_guard_refusal_fits_a_question_that_named_no_experiment():
+    # this is a unit test
+    """The other half of the 2026-09-03 regression. The guard fired on a knob
+    question and told the reader to "ask for the run by its experiment ID" —
+    advice for a lookup they had not asked for. A refusal must describe what
+    happened and offer a remedy that fits any question the guard can stop, or
+    it is a message lying about what produced it."""
+    refusal = widget.hooks.HOP_GUARD_REFUSAL
+    assert str(widget.hooks.MAX_TOOL_HOPS) in refusal, (
+        'the refusal must say how many calls it stopped after')
+    assert 'knob' in refusal.lower(), (
+        'a knob question can trip this guard, so the remedy must name knobs too')
 
 
 def test_hook_log_stops_growing_at_its_cap():
@@ -429,7 +452,7 @@ def test_cli_irrelevance_refuses_before_cli_invocation_or_memory(monkeypatch):
     assert 'RAG lab' in result['reply']
     # The refusal is its own decision: nothing ran, so nothing was filed.
     # Read off the two fields a reader of this API actually has
-    # (`panel_server._safe_widget_event` turns them into `irrelevant`) rather
+    # (`routes.widget._safe_widget_event` turns them into `irrelevant`) rather
     # than off a `blocked` flag that no code left reads.
     assert result['memory']['relevant'] is False
     assert result['memory']['saved'] is False

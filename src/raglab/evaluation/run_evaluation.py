@@ -18,6 +18,7 @@ from raglab.evaluation import deterministic_metrics as metrics
 from raglab.llm_backends import model_role_catalogue as models
 from raglab.rag_components import question_to_answer_pipeline as pipeline
 from raglab.evaluation import ragas_judged_metrics as ragas_eval
+from raglab.configuration import split_plan
 from raglab.configuration.lab_config import (
     RUNS_DIR,
     LabConfig,
@@ -481,7 +482,8 @@ def _build_result(*, run_id: str, cfg: LabConfig, index, summary: dict,
     """The `RunResult` `run_eval` ends its work with — one call rather than one
     seventeen-field literal, so the conductor reads as "build the result" and
     not as the result's own shape."""
-    return RunResult(run_id=run_id, label=cfg.label or cfg.index.chunker,
+    return RunResult(run_id=run_id,
+                     label=cfg.label or split_plan.short(cfg.index.split_plan),
                      config=cfg.to_dict(),
                      dataset=cfg.index.dataset or datasets.BUILTIN,
                      index={'collection': index.stats.collection,

@@ -371,6 +371,16 @@ main { max-width: var(--measure); margin: 0 auto;
   min-width: 0;
 }
 .card[data-step] { border-top: 3px solid var(--step); }
+/* A page's own name, above the cards rather than inside one. The slab face is
+   the machine's own voice — the same face the mark in the bar is set in — and
+   this is the one place a surface says what it is. Only where a surface's
+   subject is the surface itself: the corpus viewer's first heading is the
+   corpus's name, which is a better title than the word "Dataset" would be. */
+.page-title {
+  margin: var(--s-2) 0 0;
+  font: 600 var(--t-lg)/1.2 var(--slab); color: var(--ink);
+}
+
 .card-head {
   display: flex; align-items: baseline; gap: var(--s-2); margin: var(--s-3) 0 var(--s-1);
 }
@@ -413,6 +423,36 @@ textarea { min-height: 3.2rem; resize: vertical; }
   text-transform: none; letter-spacing: 0; font-size: var(--t-sm); color: var(--ink);
 }
 input[type=checkbox] { accent-color: var(--step, var(--step-generation)); }
+
+/* ── the split plan ──────────────────────────────────────────────────────
+   One row per stage, the document pinned first. A row is its kind, its atoms
+   with the one combinator between them, its when-toggle and its three
+   buttons; the inputs are sized to what they hold rather than the column. */
+.plan { display: flex; flex-direction: column; gap: var(--s-1); }
+.plan-stage {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1);
+  padding: var(--s-1) var(--s-2); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--card);
+}
+.plan-kind { font: 600 var(--t-sm)/1.4 var(--mono); color: var(--ink); }
+.plan-stage select, .plan-stage input[type=text] {
+  width: auto; padding: var(--s-px) var(--s-1); font-size: var(--t-sm);
+}
+.plan-stage input[type=text] { font-family: var(--mono); min-width: 5rem; }
+.plan-join { color: var(--ink-soft); font-size: var(--t-xs); }
+.plan-stage .plan-tools { margin-left: auto; display: flex; gap: var(--s-px); }
+.plan-stage button {
+  font: var(--t-xs)/1 var(--sans); padding: var(--s-px) var(--s-1); color: var(--ink-soft);
+  background: transparent; border: 1px solid var(--rule); border-radius: var(--radius-sm); cursor: pointer;
+}
+.plan-stage button:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-soft); }
+.plan-stage button:disabled { opacity: .4; cursor: default; }
+/* Stacked, not side by side: the add-a-stage options are whole sentences, so
+   the select's content width fills the column and left a shrunk flex sibling
+   one character wide. The typed plan belongs under it in any case. */
+.plan-foot { display: flex; flex-direction: column; gap: var(--s-1); margin-top: var(--s-1); }
+.plan-foot select { font-size: var(--t-sm); }
+.plan-text { font: var(--t-xs)/1.4 var(--mono); color: var(--ink-soft); overflow-wrap: anywhere; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
 /* A primary button is a filled chip, and what fills it is the one thing that
    genuinely differs between the themes: on Day the chassis, near-black against

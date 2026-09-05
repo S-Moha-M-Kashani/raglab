@@ -18,8 +18,8 @@ RAGLAB_DIR = Path(raglab.__file__).resolve().parent
 
 # A length or percentage in a font-size declaration, e.g. ".72rem", "12.5px",
 # "90%", "1.2vw" or "11pt" — or a computed `calc(...)` value — but not a
-# var() reference and not a bare 0. Shared by test_panel.py and
-# test_inspector.py, both of which check their sheet's type scale against
+# var() reference and not a bare 0. Shared by test_routes_assets.py
+# and test_inspector.py, both of which check their sheet's type scale against
 # the same claim, so the pattern is named once here rather than twice. The
 # unit alternation stays wide on purpose: `rem|px|em` alone missed every
 # other CSS length unit and every percentage, which is exactly the kind of
@@ -45,8 +45,9 @@ def _font_size_literals(css: str) -> list[str]:
 
 
 # A hand-spelled corner radius, longhand or shorthand alike — but not a
-# var() reference. Shared by test_panel.py and test_inspector.py, both of
-# which check their sheet's radius scale against the same claim, so the
+# var() reference. Shared by test_routes_assets.py and
+# test_inspector.py, both of which check their sheet's radius scale against
+# the same claim, so the
 # pattern is named once here rather than twice. `border(?:-[a-z]+)*-radius:`
 # matches the shorthand (`border-radius:`), the four physical corner
 # longhands (`border-top-left-radius:` and siblings) and the logical corner
@@ -156,7 +157,7 @@ def registry(diary):
 
 @pytest.fixture(scope='module')
 def index(registry):
-    return registry.get(IndexConfig(chunker='semantic-drift', embedder='char-hash',
+    return registry.get(IndexConfig(embedder='char-hash',
                                     contextual=True))
 
 
@@ -181,7 +182,7 @@ def language(diary):
 # which needs no model download —
 # every integration test that needs *an* index rather than specifically the
 # 167-session Farsi diary reaches for this instead of building the big one.
-SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',
+SMOKE_INDEX = {'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}],
                'embedder': 'token-hash'}
 
 
@@ -315,6 +316,49 @@ def _the_stored_corpora_are_never_the_real_ones(tmp_path_factory):
         os.environ['RAGLAB_CORPORA_DB'] = saved
 
 
+def _files_under(path: Path) -> dict[str, int]:
+    """Name and size of every file in a directory, or nothing if it is absent."""
+    return {item.name: item.stat().st_size
+            for item in sorted(path.glob('*')) if item.is_file()}
+
+
+@pytest.fixture(autouse=True, scope='session')
+def _imports_never_land_in_the_real_datasets_dir(tmp_path_factory):
+    """No test may write into the lab's real `.datasets/` — the import route
+    stores the validated pair as two files there, so any test that posts an
+    import would otherwise leave a corpus in the developer's own catalogue,
+    where it shows up in the picker on every surface until somebody notices
+    and deletes it by hand. That is exactly what happened, which is why this
+    joined the other four. An env var rather than a patched attribute, for the
+    reason the ledger's fixture gives: `imported_dir()` resolves it per call.
+    The cache is dropped on the way in and on the way out, because the
+    catalogue is read once and kept."""
+    real = Path(datasets.IMPORTED_DIR)
+    before = _files_under(real)
+    saved = os.environ.get('RAGLAB_DATASETS')
+    os.environ['RAGLAB_DATASETS'] = str(
+        tmp_path_factory.mktemp('raglab-datasets'))
+    datasets.forget()
+    yield
+    if saved is None:
+        os.environ.pop('RAGLAB_DATASETS', None)
+    else:
+        os.environ['RAGLAB_DATASETS'] = saved
+    datasets.forget()
+    # The env var is the redirect; this is the check that it held. A test that
+    # reaches `IMPORTED_DIR` directly, or one that starts a child process
+    # without passing the variable on, would slip past the line above and
+    # leave a corpus in the picker — so the directory is counted before and
+    # after. Only `.datasets/`, deliberately: the developer's lab on :9002
+    # writes its widget and ledger files while the suite runs, and guarding
+    # those would fail a green suite for a reason the suite did not cause.
+    # An import is a thing the developer does on purpose, and rarely.
+    assert _files_under(real) == before, (
+        'a test wrote into the developer\'s real .datasets/ — an imported '
+        'corpus shows up in the picker on every surface until somebody '
+        f'deletes it by hand. Changed: {sorted(set(_files_under(real)) ^ set(before))}')
+
+
 @pytest.fixture(autouse=True, scope='session')
 def _runs_dir_is_never_the_real_one(tmp_path_factory):
     """No test may write into the lab's real `.runs/` — `evaluate.run_eval`
@@ -380,7 +424,7 @@ def _no_test_reads_the_developers_real_key(request):
     `monkeypatch.setenv` here would still run *after* the first test in each
     module had already called `create_app()` → `load_lab_settings()` with the
     real key sitting in `os.environ`, protecting nothing. Measured: with the
-    pin at function scope, `test_server.py`, `test_panel.py` and
+    pin at function scope, `test_server.py`, the panel route tests and
     `test_raglab.py` each still made a real `httpx.get` to
     `https://openrouter.ai/api/v1/models` carrying the `.env` key, because
     their module-scoped `client` had already baked it into `boot_settings`

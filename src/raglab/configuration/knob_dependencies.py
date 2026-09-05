@@ -1,8 +1,6 @@
 """Which controls the panel greys out, and why."""
 
 from raglab.configuration.option_vocabularies import (
-    CHAR_SIZED_CHUNKERS,
-    OVERLAP_CHUNKERS,
     MODEL_EMBEDDERS,
     GRAPH_HIERARCHIES,
     KNN_SOURCES,
@@ -17,13 +15,9 @@ from raglab.configuration.option_vocabularies import (
 # two cannot grey out different knobs. `on` lists the enabling values,
 # `on_true` means a boolean must be set, and `reason` completes "disabled because …".
 DEPENDENCIES = {
-    'index.chunk_chars': {
-        'field': 'index.chunker', 'on': list(CHAR_SIZED_CHUNKERS),
-        'reason': 'the message, turn-pair and session chunkers cut on structure, '
-                  'not on length'},
-    'index.overlap': {
-        'field': 'index.chunker', 'on': list(OVERLAP_CHUNKERS),
-        'reason': 'only the fixed-overlap chunker slides a window'},
+    # No entry for the split plan's own knobs: the budget closes every plan
+    # and the overlap is repeated wherever the budget divides, so both are
+    # read whatever the stages say.
     'index.embed_model': {
         'field': 'index.embedder', 'on': list(MODEL_EMBEDDERS),
         'reason': 'the hash embedders load no model'},

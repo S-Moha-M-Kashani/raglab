@@ -11,7 +11,7 @@ Point it at any corpus with known answers and it will build, run, and score
 whatever pipeline you configure — then show you the evidence and leave the
 decision to you.
 
-- **Every stage is a knob** — chunker, embedder, summary hierarchy,
+- **Every stage is a knob** — split plan, embedder, summary hierarchy,
   retriever, fusion, reranker, grader, and generator are all config fields,
   scored against ground truth by four judged metrics.
 - **Honest rankings** — runs are compared only inside comparability groups
@@ -21,9 +21,9 @@ decision to you.
   validated import path for yours.
 - **A helper that never decides for you** — an agentic assistant with
   conversation memory, token accounting, safety guards, and LangSmith
-  tracing turns a table of numbers into a next step, and reads the stored
-  RAG skills in `fixtures/skills/`; the experiment itself stays yours to
-  launch.
+  tracing turns a table of numbers into a next step, and reads both the
+  stored RAG skills in `fixtures/skills/` and a page per knob of this lab in
+  `fixtures/knobs/`; the experiment itself stays yours to launch.
 
 **Who it is for.** Engineers and students building a RAG system over their
 own documents who need evidence for a design decision.
@@ -92,7 +92,7 @@ src/raglab/
 └── agents/           the widget (the panel's helper) and the extra CLI
                       tools: sweep, judge screening, export
 fixtures/             model-facing prompts, the seven corpus/ground-truth
-                      pairs, and the RAG skills corpus
+                      pairs, the RAG skills corpus, and a page per knob
 scripts/              the release script and the git hooks that enforce the
                       branch discipline
 ```
@@ -280,9 +280,10 @@ Questions the Ask widget is built for:
   three pages share one token file and one widget bundle, and the browser
   contract is tested with `node --test` without a build step. The case against
   the two usual alternatives is in *Why not Next.js or Streamlit* below.
-- **Prompts, tool descriptions and skills are fixtures, not code**
-  (`fixtures/prompts/*.yaml`, `fixtures/skills/*/SKILL.md`), pinned byte-equal
-  by a test, so a prompt change is a reviewed diff.
+- **Prompts, tool descriptions, skills and knob pages are fixtures, not
+  code** (`fixtures/prompts/*.yaml`, `fixtures/skills/*/SKILL.md`,
+  `fixtures/knobs/*.md`), pinned byte-equal or covered by a test, so a change
+  to what the model reads is a reviewed diff.
 
 ## Agent architecture
 
@@ -372,9 +373,10 @@ cost, and it was weighed rather than dismissed.
 - **Token accounting** — every turn reports its token account and stores it
   in `widget_turn_log`; it is a bill, never a metric, and no ranking ever
   reads it.
-- **Agentic retrieval** — the helper retrieves over the skills corpus in two
-  layers: a cheap catalogue search, then full bodies capped at three per
-  call.
+- **Agentic retrieval** — the helper retrieves over two corpora the same
+  way, in two layers: a cheap catalogue search, then full bodies capped at
+  three per call. The skills are the field's techniques; the knob pages are
+  this lab's own controls, each with the knobs it interacts with.
 - **Observability** — LangSmith tracing for widget turns only, allowed
   precisely because the helper sits outside the measured seam.
 
@@ -511,12 +513,47 @@ sorting, filtering and its open handoff into the panel; the Inspector's
 record mode, tabs and added questions; the dataset and experiment-archive
 imports; and the Ask widget on every surface.
 
+One file in it asserts geometry rather than behaviour
+(`test_browser_layout.py`): no surface scrolls sideways, and no visible
+element is narrower than a character while being taller than a paragraph.
+Both surfaces are walked at two widths. That second rule exists because a
+control once shared a row with a dropdown whose options are whole sentences,
+was shrunk to about one character wide, and rendered its text as a vertical
+column of letters — with every behavioural test passing, since the element
+existed, was visible and held the right text.
+
 The suite starts its own lab: a child process on a port the operating system
 hands out, the `fake` backend, and the four durable paths pointing into a
 temporary directory. It never talks to a lab on :9002, never reaches a model,
 and a guard fails the run if the developer's own databases or `.runs/` changed
 while it worked. In CI it is a separate job that runs on pull requests and on
 demand, so the offline suite stays the fast gate.
+
+### The live end-to-end journey
+
+`fake` is what makes every journey above fast and free, and it is also their
+limit: it returns invention no field contradicts, so a stage that would have
+refused, hung or answered in the wrong language passes there exactly as a
+working one does. One file closes that gap by running a single question
+through every LLM stage the lab has, on the codex CLI, against the fifteen
+German meeting notes — a five-stage split plan, a grouping, HyDE, a
+multi-query expansion, an LLM reranker, an LLM relevance gate, an LLM
+answerer, the fact judge and the four judged RAGAS metrics. It then reads
+the chunks, the summaries, the ranking and the answer back off the Inspector,
+adds a second question the run never sampled, and checks the experiment
+reached the board. The answer is asserted to be in the corpus's own language,
+which is the one claim no offline journey can make.
+
+It spends real model calls, so it is opt-in twice over: the `live` marker is
+deselected by default, *and* the file must be named on the command line. Both
+together mean no sweep can trigger it, including `-m browser` in CI.
+
+```sh
+uv run pytest src/raglab/dashboard/tests/test_browser_e2e_live.py -m live -q
+```
+
+Budget several minutes; the lab it starts is redirected and guarded exactly
+like the offline one, so it still cannot touch anything the developer owns.
 
 Development happens on a private `development` branch; `master` carries one
 squash-merged release point per landing.
@@ -536,6 +573,62 @@ docker compose down
 
 The container uses host Ollama through `host.docker.internal:11434` by
 default. Embedding data is kept in the named `hf-cache` volume.
+
+### The CLI backends in a container
+
+`RAGLAB_LLM=claude` and `RAGLAB_LLM=codex` run a command-line tool once per
+call, so the lab offers their models only when that command is on `PATH`
+**inside the container**. The stock image carries neither, and reports every
+Claude and Codex model as NA rather than pretending otherwise. The host
+binaries cannot be copied in: they are macOS executables and this image is
+Linux.
+
+Two things have to arrive — the command, and a login.
+
+**The command.** Both tools publish npm packages, which do run on Linux. They
+are off by default, because Node is weight the Ollama and OpenRouter backends
+never need:
+
+```sh
+docker compose build --build-arg INSTALL_CLI=true
+docker compose up -d
+```
+
+**The login.** Here the two differ, and only one of them is simple.
+
+Codex keeps its login in a single file. Uncomment the first credential line in
+`compose.yaml` and it crosses read-only, so the container may spend the token
+but never rewrite yours. Check it arrived:
+
+```sh
+docker compose exec panel codex --version
+```
+
+Claude on macOS keeps its login in the Keychain, which a Linux container cannot
+reach, and there is no file to mount. Uncomment the `claude-home` volume in
+`compose.yaml` and log in once inside the container; the volume is what makes
+that login outlive `docker compose down`:
+
+```sh
+docker compose exec panel claude    # then /login
+```
+
+On a Linux host Claude's credential is an ordinary file and can be mounted the
+same way Codex's is.
+
+If you would rather keep credentials out of a container, run the lab on the
+machine itself, where both tools are already logged in:
+
+```sh
+uv run --extra local-embeddings --extra semantic raglab
+```
+
+## Version, changes and security
+
+The version is the one in `pyproject.toml`, and it names the newest release
+point on `master`. [CHANGELOG.md](CHANGELOG.md) has one entry per release point,
+in the tag's own words. [SECURITY.md](SECURITY.md) says what the lab defends,
+what it does not, and where to report a hole — by email, never a public issue.
 
 ## License
 

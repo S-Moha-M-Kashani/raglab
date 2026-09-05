@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Lab · Dataset</title>
+<!-- The stored theme, stamped before anything paints. See panel.html. -->
+<script>try{var t=localStorage.getItem('raglab-theme');if(t==='day'||t==='night')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/chrome.css">
+<link rel="stylesheet" href="/panel.css">
+<!-- Only what a grid page needs beyond the chassis: the three sheets above
+     carry both themes, every table and every card, so this one holds the
+     readings row, the parts panel and the raw tree and nothing else. -->
+<link rel="stylesheet" href="/dataset.css">
+<!-- The helper, shared with the other three surfaces. It writes no run, no
+     ledger row and no number, which is why a read-only surface may carry it. -->
+<link rel="stylesheet" href="/widget.css">
+<script src="/sorttable.js"></script>
+<script src="/filtertable.js"></script>
+<script src="/lab.js"></script>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to the corpus</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="/"><span class="lab-mark">RL</span>RAG Lab</a>
+    <nav class="topnav" aria-label="Surfaces">
+      <a href="/">Laboratory</a>
+      <a href="/inspector">Inspector</a>
+      <a href="/leaderboard">Leaderboard</a>
+      <a href="/dataset" aria-current="page">Dataset</a>
+    </nav>
+    <div class="topbar-actions">
+      <button class="settings-button" id="app-settings" type="button"
+        popovertarget="app-settings-panel" aria-label="Settings" title="Settings">⚙</button>
+      <div class="settings-popover" id="app-settings-panel" popover
+           aria-label="Settings">
+        <div class="settings-head">
+          <b>Settings</b>
+          <span>This installation</span>
+        </div>
+        <div class="settings-group">
+          <h3 id="theme-control-label">Theme</h3>
+          <div class="theme-control" id="theme-control"
+               aria-labelledby="theme-control-label"></div>
+        </div>
+        <div class="settings-group">
+          <h3 id="density-control-label">Rows</h3>
+          <!-- Filled by lab.js beside the theme, and stored the same way: how tall
+               a table's rows are is the reader's to say, not the page's. -->
+          <div class="theme-control" id="density-control"
+               aria-labelledby="density-control-label"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="chrome-progress"><i></i></div>
+</header>
+
+<main id="main">
+<div class="stack">
+
+  <!-- Filled by dataset.js from /api/dataset-content/<id>: the corpus's
+       identity and readings, then one of three tabs. Every sentence of
+       explanation hangs off the heading it belongs to, shown on hover and on
+       keyboard focus by lab.js and pinned by a press — so what is on the page
+       is figures and rows. -->
+  <div id="dataset"></div>
+
+</div>
+</main>
+
+<script src="/dataset.js"></script>
+<!-- The helper, shared with the other three surfaces. It writes no run, no
+     ledger row and no number, which is why a read-only surface may carry it. -->
+<script src="/widget.js"></script>
+</body>
+</html>

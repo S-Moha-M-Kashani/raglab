@@ -5,10 +5,11 @@ Queries and passages embed separately (`query_vectors`) since E5-style models ex
 import hashlib
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 
-from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
+from raglab.rag_components.retrieval import text_normalizers
 
 ASCII_DIM = 128
 
@@ -59,15 +60,20 @@ def _bucket(token: str, dim: int) -> int:
 
 
 class TokenHashEmbedder:
-    """Hashed bag of normalised words with sub-linear term frequency. Lexical, but at least it sees the language."""
+    """Hashed bag of normalised words with sub-linear term frequency. Lexical,
+    but at least it sees the language — through the normaliser the build
+    chose for the corpus, never one assumed for it."""
     dim = TOKEN_DIM
     name = 'token-hash'
+
+    def __init__(self, normalizer=text_normalizers.NEUTRAL):
+        self.normalizer = normalizer
 
     def embed(self, texts: list[str]) -> np.ndarray:
         out = np.zeros((len(texts), self.dim), dtype=np.float32)
         for i, text in enumerate(texts):
             counts: dict[int, float] = {}
-            for token in textnorm.tokens(text):
+            for token in self.normalizer.tokens(text):
                 slot = _bucket(token, self.dim)
                 counts[slot] = counts.get(slot, 0.0) + 1.0
             for slot, count in counts.items():
@@ -80,13 +86,14 @@ class CharHashEmbedder:
     dim = CHAR_DIM
     name = 'char-hash'
 
-    def __init__(self, n: int = 4):
+    def __init__(self, n: int = 4, normalizer=text_normalizers.NEUTRAL):
         self.n = n
+        self.normalizer = normalizer
 
     def embed(self, texts: list[str]) -> np.ndarray:
         out = np.zeros((len(texts), self.dim), dtype=np.float32)
         for i, text in enumerate(texts):
-            for gram in textnorm.char_ngrams(text, self.n):
+            for gram in self.normalizer.char_ngrams(text, self.n):
                 out[i, _bucket(gram, self.dim)] += 1.0
         return _normalize(out)
 
@@ -163,6 +170,23 @@ class SentenceTransformerEmbedder:
 
     def embed_queries(self, texts: list[str]) -> np.ndarray:
         return self._vectors(list(texts), self.query_prefix)
+
+
+def token_counter(embedder):
+    """How many units of the embedder's own model one word costs, or None when
+    this embedder cannot say — the hash embedders read characters, and a
+    model-backed one only counts once its tokeniser is reachable. What
+    `chunk_unit='tokens'` measures a budget in; a caller given None refuses
+    rather than counting characters under the wrong name."""
+    tokenizer = getattr(getattr(embedder, 'model', None), 'tokenizer', None)
+    if tokenizer is None or not callable(getattr(tokenizer, 'encode', None)):
+        return None
+
+    @lru_cache(maxsize=200_000)
+    def count(word: str) -> int:
+        encoded = tokenizer.encode(word, add_special_tokens=False)
+        return len(getattr(encoded, 'ids', encoded))
+    return count
 
 
 def query_vectors(embedder, texts: list[str]) -> np.ndarray:
@@ -394,16 +418,20 @@ def language_note(kind: str, model: str = '') -> str:
     return f'embedder {kind}: {coverage}'
 
 
-def make_embedder(kind: str, settings=None, model: str = ''):
+def make_embedder(kind: str, settings=None, model: str = '',
+                  normalizer=text_normalizers.NEUTRAL):
+    """`normalizer` is what the two lexical hash embedders tokenise with — the
+    one the build resolved for its corpus; the model-backed kinds bring their
+    own tokeniser and ignore it."""
     if kind == 'ascii-hash':
         embedder = HashEmbedder()
         embedder.name = 'ascii-hash'          # type: ignore[attr-defined]
         embedder.dim = 128                    # type: ignore[attr-defined]
         return embedder
     if kind == 'token-hash':
-        return TokenHashEmbedder()
+        return TokenHashEmbedder(normalizer)
     if kind == 'char-hash':
-        return CharHashEmbedder()
+        return CharHashEmbedder(normalizer=normalizer)
     if kind in BACKENDS:
         name = resolve_model(kind, settings, model)
         entry = _MODELS.get(name)

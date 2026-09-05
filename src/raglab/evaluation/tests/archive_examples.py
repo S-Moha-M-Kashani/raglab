@@ -35,7 +35,7 @@ from raglab.configuration.lab_config import (
 
 def completed_archive(run_id: str = 'imported-run-001') -> dict:
     config = json.loads(json.dumps(LabConfig(
-        index=IndexConfig(dataset='smoke-mini', chunker='session',
+        index=IndexConfig(dataset='smoke-mini', split_plan=({'kind': 'document'},),
                           embedder='token-hash'),
         retrieval=RetrievalConfig(grader='none'),
         generation=GenerationConfig(answerer='extractive')).to_dict()))
@@ -144,7 +144,7 @@ def pre_migration_archive(run_id: str = 'pre-migration-run-001') -> dict:
     downstream of storage needs this shape translated to read it back.
     """
     config = json.loads(json.dumps(LabConfig(
-        index=IndexConfig(dataset='smoke-mini', chunker='session',
+        index=IndexConfig(dataset='smoke-mini', split_plan=({'kind': 'document'},),
                           embedder='token-hash'),
         retrieval=RetrievalConfig(grader='none'),
         generation=GenerationConfig(answerer='extractive')).to_dict()))
@@ -254,8 +254,13 @@ def pre_migration_archive(run_id: str = 'pre-migration-run-001') -> dict:
 SHIFTED_CONFIG = {
     'label': 'every knob moved off its default',
     'index': {
-        'dataset': 'smoke-mini', 'chunker': 'fixed-overlap', 'chunk_chars': 384,
-        'overlap': 64, 'contextual': False, 'embedder': 'fastembed',
+        'dataset': 'smoke-mini',
+        'split_plan': [{'kind': 'document'},
+                       {'kind': 'separator', 'atoms': [{'text': '\n\n'}, {'text': '. '}],
+                        'join': 'or', 'when': 'over-budget'}],
+        'chunk_chars': 384, 'chunk_unit': 'tokens', 'overlap': 64,
+        'part_join': '\n\n', 'part_prefix': 'role', 'normalizer': 'persian',
+        'contextual': False, 'embedder': 'fastembed',
         'embed_model': 'shifted-embed-model', 'hierarchy': 'metadata',
         'graph_source': 'knn', 'graph_knn': 5, 'granularity': 1.5,
         'hierarchy_levels': 2, 'min_group': 4, 'summarizer': 'lead-idf',

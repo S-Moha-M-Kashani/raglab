@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +11,7 @@ from raglab.corpora import dataset_import_contract as datasets
 from raglab.dashboard import inspector_server as inspector
 from raglab.evaluation import deterministic_metrics as metrics
 from raglab.dashboard import service_presentation as present
+from raglab.dashboard import service_route_plumbing as plumbing
 from raglab.evaluation.tests.archive_examples import completed_archive
 from raglab.configuration.lab_config import (
     IndexConfig,
@@ -21,8 +23,8 @@ from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 from raglab.conftest import _finished, _font_size_literals, _radius_literals
 
 LAB_SETTINGS = LabSettings(openrouter_api_key='', llm_provider='fake')
-INSPECTOR_JS = inspector.STATIC / 'inspector.js'
-INSPECTOR_HTML = inspector.STATIC / 'inspector.html'
+INSPECTOR_JS = plumbing.STATIC / 'inspector.js'
+INSPECTOR_HTML = plumbing.STATIC / 'inspector.html'
 
 
 def test_evidence_spans_and_mark_gold_agree_on_the_same_quote_either_direction():
@@ -89,7 +91,7 @@ def test_a_question_reports_how_many_gold_chunks_existed_to_find():
     split across chunks and one chunk can carry two quotes."""
     gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
-        IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
+        IndexConfig(split_plan=({'kind': 'document'},), chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
     question = next(q for q in gt['groundtruth_dataset']
                     if metrics.verbatim_quotes(q))
@@ -126,7 +128,7 @@ def test_a_traced_candidate_carries_spans_that_slice_back_to_the_quote():
     least one."""
     gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
-        IndexConfig(chunker='fixed-overlap', chunk_chars=500, overlap=100,
+        IndexConfig(split_plan=({'kind': 'document'},), chunk_chars=500, overlap=100,
                     contextual=True, embedder='ascii-hash'))
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none', grader='none',
                           k=5, rerank_depth=20, time_filter=False,
@@ -159,7 +161,7 @@ def test_retrieve_traced_records_ranks_and_dropped_candidates():
     diary = datasets.load()[0]
     gt = datasets.load()[1]
     index = IndexRegistry(LAB_SETTINGS, diary).get(
-        IndexConfig(chunker='session', embedder='ascii-hash'))
+        IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash'))
     # rerank_depth(20) > k(3): mmr keeps 3, so at least 17 candidates are dropped.
     cfg = RetrievalConfig(retriever='hybrid-rrf', reranker='none',
                           grader='none', k=3, rerank_depth=20, time_filter=False)
@@ -236,174 +238,25 @@ def test_the_inspector_page_asks_the_mounted_paths_for_everything_it_needs():
     assert "const API = '/inspector'" in js
 
 
-def _client(monkeypatch):
+def _client(monkeypatch, lab=None):
     from raglab.dashboard import inspector_server as inspector
     # Pin the offline/fake backend so no test needs a key or a network.
     monkeypatch.setattr(inspector, 'load_lab_settings', lambda: LAB_SETTINGS)
-    return TestClient(inspector.create_inspector_app())
+    return TestClient(inspector.create_inspector_app(lab=lab))
 
 
+# How the Inspector reaches the lab — in-process when mounted, over HTTP when
+# pointed elsewhere — is pinned in `test_lab_access.py`, which runs both modes
+# through one test body. What is left here is what `/api/follow` makes of the
+# answers.
 def test_follow_advertises_only_the_active_archive_id(monkeypatch):
     # this is an integration test
-    calls = []
-
-    def lab_get(path):
-        calls.append(path)
-        if path == '/api/imported-archives/active':
-            return {'archive_id': 'imported-run-001'}
-        return {'jobs': []}
-
-    monkeypatch.setattr(inspector, '_lab_get', lab_get)
-    body = _client(monkeypatch).get('/api/follow').json()
+    lab = SimpleNamespace(
+        active_archive=lambda: {'archive_id': 'imported-run-001'},
+        jobs=lambda: {'jobs': []})
+    body = _client(monkeypatch, lab).get('/api/follow').json()
     assert body['archive_id'] == 'imported-run-001'
     assert 'evaluation' not in body
-
-
-def test_inspector_proxies_one_archive_and_return_to_live(monkeypatch):
-    # this is an integration test
-    full = completed_archive()
-    monkeypatch.setattr(inspector, '_lab_get',
-                        lambda path: full if path.endswith('imported-run-001') else None)
-    deleted = []
-    monkeypatch.setattr(inspector, '_lab_delete', lambda path: deleted.append(path) or {})
-    client = _client(monkeypatch)
-    assert client.get('/api/imported-archives/imported-run-001').json() == full
-    assert client.delete('/api/imported-archives/active').status_code == 200
-    assert deleted == ['/api/imported-archives/active']
-
-
-def test_the_inspector_proxies_one_recorded_experiment(monkeypatch):
-    # this is an integration test
-    """The board's `↗` sends a reader here, so the Inspector needs to fetch a
-    record. It proxies rather than reading raglab.db: this service owns no
-    ledger, and giving it one would be a second writer to a record whose whole
-    value is being written once."""
-    record = {'experiment_id': 'exp-1', 'kind': 'run', 'dataset': 'smoke-mini',
-              'detail': {'config': {}, 'rows': [], 'traces': []}}
-    asked = []
-
-    def lab_get(path):
-        asked.append(path)
-        return record if path == '/api/experiments/exp-1' else None
-
-    monkeypatch.setattr(inspector, '_lab_get', lab_get)
-    client = _client(monkeypatch)
-    found = client.get('/api/experiments/exp-1')
-    assert found.status_code == 200
-    assert found.json()['experiment_id'] == 'exp-1'
-    # Asked of the lab, over HTTP, and not of a database this process opened.
-    assert asked == ['/api/experiments/exp-1']
-
-
-def test_the_inspector_proxies_a_recorded_experiments_archive(monkeypatch):
-    # this is an integration test
-    """The ledger strips chunk text from a job row, but a finished experiment
-    archives itself with that text in it — so the Chunks tab of a pinned record
-    reads the archive, through the same proxy discipline as the record: asked of
-    the lab over HTTP, refusals kept as refusals."""
-    archive = {'format': 'raglab-experiment', 'evaluation': {'inspector': {
-        'chunks_by_session': [{'session_id': 's1', 'chunks': []}]}}}
-    asked = []
-
-    def lab_get(path):
-        asked.append(path)
-        if path == '/api/experiments/exp-1/archive':
-            return archive
-        if path == '/api/experiments/old-1/archive':
-            return 404, 'old-1 has no complete archive'
-        return None
-
-    monkeypatch.setattr(inspector, '_lab_get_response', lab_get)
-    client = _client(monkeypatch)
-    assert client.get('/api/experiments/exp-1/archive').json() == archive
-    refused = client.get('/api/experiments/old-1/archive')
-    assert refused.status_code == 404
-    assert 'no complete archive' in refused.json()['detail']
-    assert client.get('/api/experiments/down/archive').status_code == 503
-    assert asked == ['/api/experiments/exp-1/archive',
-                     '/api/experiments/old-1/archive',
-                     '/api/experiments/down/archive']
-
-
-def test_an_experiment_the_lab_cannot_produce_is_a_404_not_an_empty_view(
-        monkeypatch):
-    # this is an integration test
-    """Better a stated 404 than a read-only view pinned to nothing, which reads
-    as an experiment that recorded no evidence."""
-    monkeypatch.setattr(inspector, '_lab_get', lambda path: None)
-    client = _client(monkeypatch)
-    assert client.get('/api/experiments/no-such-id').status_code == 404
-
-
-def test_the_inspector_proxies_recorded_question_additions_and_lab_jobs(monkeypatch):
-    # this is an integration test
-    posted = []
-
-    def lab_post(path, payload):
-        posted.append((path, payload))
-        return {'job_id': 'question-job'}
-
-    def lab_get(path):
-        return ({'questions': [{'experiment_id': 'addition-1'}]}
-                if path == '/api/experiments/exp-1/questions'
-                else {'id': 'question-job', 'state': 'done'})
-
-    monkeypatch.setattr(inspector, '_lab_post', lab_post, raising=False)
-    monkeypatch.setattr(inspector, '_lab_get_response', lab_get)
-    client = _client(monkeypatch)
-
-    created = client.post('/api/experiments/exp-1/questions',
-                          json={'question_id': 'q7'})
-    assert created.status_code == 202
-    assert created.json() == {'job_id': 'question-job'}
-    assert posted == [('/api/experiments/exp-1/questions', {'question_id': 'q7'})]
-    assert client.get('/api/experiments/exp-1/questions').json()['questions'] == [
-        {'experiment_id': 'addition-1'}]
-    assert client.get('/api/lab-jobs/question-job').json()['state'] == 'done'
-
-
-def test_question_proxies_preserve_lab_refusals_and_name_transport_outages(
-        monkeypatch):
-    # this is an integration test
-    client = _client(monkeypatch)
-    monkeypatch.setattr(inspector, '_lab_post',
-                        lambda _path, _payload: (409, 'a question job is already running'),
-                        raising=False)
-    refused = client.post('/api/experiments/exp-1/questions',
-                          json={'question_id': 'q7'})
-    assert refused.status_code == 409
-    assert refused.json()['detail'] == 'a question job is already running'
-
-    monkeypatch.setattr(inspector, '_lab_post', lambda _path, _payload: None,
-                        raising=False)
-    unavailable = client.post('/api/experiments/exp-1/questions',
-                              json={'question_id': 'q7'})
-    assert unavailable.status_code == 503
-    assert 'lab is unavailable' in unavailable.json()['detail']
-
-    monkeypatch.setattr(inspector, '_lab_get_response', lambda _path: None)
-    assert client.get('/api/experiments/exp-1/questions').status_code == 503
-    assert client.get('/api/lab-jobs/question-job').status_code == 503
-
-
-def test_question_get_proxies_preserve_lab_refusals(monkeypatch):
-    # this is an integration test
-    def lab_get_response(path):
-        if path == '/api/experiments/exp-1/questions':
-            return 404, 'unknown experiment: exp-1'
-        return 409, 'question job was cancelled'
-
-    monkeypatch.setattr(inspector, '_lab_get_response', lab_get_response,
-                        raising=False)
-    client = _client(monkeypatch)
-
-    questions = client.get('/api/experiments/exp-1/questions')
-    assert questions.status_code == 404
-    assert questions.json()['detail'] == 'unknown experiment: exp-1'
-
-    job = client.get('/api/lab-jobs/question-job')
-    assert job.status_code == 409
-    assert job.json()['detail'] == 'question job was cancelled'
 
 
 # FastAPI TestClient over the read-only app.
@@ -452,9 +305,9 @@ def test_groundtruth_endpoint_names_the_corpus_language(monkeypatch, dataset,
 # on the five-session smoke corpus, so the toggle's two halves (leaves-only,
 # leaves-plus-summaries) are one test rather than two near-duplicates.
 @pytest.mark.parametrize('index_cfg, expect_summaries', [
-    ({'dataset': 'smoke-mini', 'chunker': 'session', 'embedder': 'token-hash'},
+    ({'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'},
      False),
-    ({'dataset': 'smoke-mini', 'chunker': 'session', 'embedder': 'token-hash',
+    ({'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash',
       'hierarchy': 'kmeans', 'summarizer': 'centroid', 'min_group': 2},
      True),
 ], ids=['flat', 'hierarchy'])
@@ -513,7 +366,7 @@ def test_trace_job_marks_gold(monkeypatch):
     # this is an integration test
     client = _client(monkeypatch)
     gt_q = client.get('/api/groundtruth').json()['questions'][0]
-    payload = {'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+    payload = {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'},
                'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'none',
                              'grader': 'none', 'k': 3, 'rerank_depth': 20,
                              'time_filter': False},
@@ -542,7 +395,7 @@ def test_trace_job_marks_gold(monkeypatch):
     # before accepting a job for reasons CLAUDE.md records as having drifted
     # from this one before (the board's proxy tests, the panel/Inspector split).
     bad = client.post('/api/trace', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+        'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'},
         'retrieval': {'reranker': 'nope'},
         'question_id': gt_q['groundtruth_question_id']})
     assert bad.status_code == 400
@@ -554,7 +407,7 @@ def test_trace_job_marks_gold(monkeypatch):
 # The six page-pin tests that used to live here (three-views, generation tab
 # and evidence reveal, question picker, chunks/summaries toggle, JS keeps no
 # config literal, the corpus-follow fixture wiring), plus the Inspector's own
-# half of two tests that used to live in test_panel.py (the shared column
+# half of two tests that live in test_routes_assets.py (the shared column
 # sorter, the shared token sheet and script) are rows below.
 
 @pytest.fixture(scope='module')
@@ -592,7 +445,8 @@ def inspector_texts():
 INSPECTOR_CONVENTIONS = [
     ('inspector.html', None, 'class="port"',
      'the switcher names surfaces, not ports. Both panel pages dropped theirs '
-     '(pinned in test_panel.py) and this page kept two, so every walk to the '
+     '(pinned in test_routes_assets.py) and this page kept two, so every walk '
+     'to the '
      'Inspector made ":9002" appear out of nowhere beside two links that had '
      'been bare on the page before it — one switcher worn by three surfaces '
      'cannot label the address on one of them only'),
@@ -839,7 +693,8 @@ INSPECTOR_CONVENTIONS = [
 def test_the_served_inspector_page_keeps_its_conventions(
         inspector_texts, file, must_contain, must_not_contain, reason):
     # this is a convention test
-    """Six page-pin tests plus two halves moved over from test_panel.py,
+    """Six page-pin tests plus two halves moved over from the panel's own
+    served-frontend table,
     folded into one table. Each row is a claim the served Inspector shell
     makes about itself, and the reason string is what a failure prints
     instead of a bare `assert 'x' in text`."""
@@ -1071,7 +926,8 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     the page's own overrides instead of feeding them. Built over
     `served_lab.app`, not the bare Inspector app: the shared files are the
     panel's routes now, unreachable from the Inspector app alone once it
-    became a mount. The panel's half of this claim lives in test_panel.py."""
+    became a mount. The panel's half of this claim lives in
+    test_routes_assets.py."""
     from fastapi.testclient import TestClient
     from raglab.dashboard import served_lab
 
@@ -1079,7 +935,7 @@ def test_the_inspector_shares_one_token_sheet_and_one_script_with_the_panel():
     shared_css = ('tokens.css', 'chrome.css')
     shared_js = ('lab.js', 'sorttable.js')
     for name in shared_css + shared_js:
-        assert (inspector.STATIC / name).exists(), name
+        assert (plumbing.STATIC / name).exists(), name
 
     html = client.get('/inspector/').text
     for name in shared_css:
@@ -1103,7 +959,7 @@ def test_the_inspector_draws_its_scale_from_the_shared_sheet(inspector_texts):
     """The Inspector carried 16 hand-set type sizes and its own radii, and
     agreed with the panel on none of them. Both surfaces read one scale or the
     shared sheet is decoration. The panel's half of this claim lives in
-    test_panel.py."""
+    test_routes_assets.py."""
     css = inspector_texts['inspector.css']
     assert _font_size_literals(css) == []
     assert _radius_literals(css) == []
@@ -1176,7 +1032,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 FAKE_INDEX_JOB = {
     'id': 'idx-fake-1', 'kind': 'index', 'state': 'done',
-    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash'}},
+    'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'}},
     'result': {'chunks': 1, 'chunks_by_session': [
         {'session_id': 's1', 'date': '2026-01-01',
          'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}]}}
@@ -1210,7 +1066,7 @@ FAKE_RETRIEVE_JOB = {
 # key — the eval path scores as well as retrieves, so its rows live elsewhere.
 FAKE_RUN_JOB = {
     'id': 'run-fake-1', 'kind': 'run', 'state': 'done',
-    'config': {'index': {'chunker': 'semantic-drift',
+    'config': {'index': {'split_plan': [{'kind': 'document'}, {'kind': 'drift', 'markers': [], 'when': 'always'}],
                          'embedder': 'sentence-transformers'},
                'retrieval': {'retriever': 'dense', 'k': 8}},
     'result': {'run_id': '20260804-000000-abcdef',
@@ -1235,7 +1091,7 @@ FAKE_RUN_JOB = {
 # starts, and the Inspector must read that rather than guess the diary.
 FAKE_OTHER_CORPUS_JOB = {
     'id': 'idx-fake-2', 'kind': 'index', 'state': 'done',
-    'config': {'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+    'config': {'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash',
                          'dataset': 'meetings-de'}},
     'result': {'chunks': 1, 'chunks_by_session': [
         {'session_id': 'mtg-0113', 'date': '2026-01-13',
@@ -1294,14 +1150,13 @@ def _index_of(jobs: list[dict]) -> dict:
 
 
 def _canned_lab(jobs: list[dict]):
-    """A monkeypatch stand-in for `inspector._lab_get`: a dict lookup by job
-    id over canned full job bodies, so `_job_view`/`_question_set`/
-    `_newest_chunks` — which each fetch one job's full body once they have
-    picked it from the summary list — need no thread and no socket either."""
+    """A stand-in lab for the follow helpers: a dict lookup by job id over
+    canned full job bodies. `job` is the only operation `_job_view`/
+    `_question_set`/`_newest_chunks` ask of the lab once they have picked an
+    entry from the summary list, so it is the only one this has — no thread and
+    no socket either."""
     by_id = {job['id']: job for job in jobs}
-    def _get(path):
-        return by_id.get(path.rsplit('/', 1)[-1])
-    return _get
+    return SimpleNamespace(job=lambda job_id: by_id.get(job_id))
 
 
 # FastAPI TestClient; the lab is a real thread over a real socket — the one
@@ -1330,7 +1185,7 @@ def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab,
     client = _client(monkeypatch)
     body = client.get('/api/follow').json()
     assert body['lab'] == 'up'
-    assert body['index']['config']['index']['chunker'] == 'session'
+    assert body['index']['config']['index']['split_plan'] == [{'kind': 'document'}]
     assert body['index']['chunks_by_session'][0]['session_id'] == 's1'
     assert body['query']['config']['retrieval']['retriever'] == 'hybrid-rrf'
     assert body['query']['answer'] == 'یک جواب.'
@@ -1355,17 +1210,15 @@ def test_follow_reports_the_lab_transport_up_and_down(monkeypatch, fake_lab,
     assert body['generation']['job_id'] == FAKE_RUN_JOB['id']
 
 
-def test_question_set_prefers_the_newest_finished_set_over_an_older_one(monkeypatch):
+def test_question_set_prefers_the_newest_finished_set_over_an_older_one():
     # this is a unit test
     """The retrieval window must show *only* the questions the experiment
     picked, and whichever of the two set-wide kinds finished more recently —
     both feed `_question_set`, which normalises them to one shape so the
     page keeps one renderer. Fed canned job lists directly; no thread, no
     socket."""
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]))
-    view = inspector._question_set(
-        _index_of([FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    ordered = [FAKE_RETRIEVE_JOB, FAKE_RUN_JOB, FAKE_INDEX_JOB]
+    view = inspector._question_set(_canned_lab(ordered), _index_of(ordered))
     assert view['kind'] == 'retrieve'
     assert view['config']['retrieval']['k'] == 3
     assert [q['question_id'] for q in view['questions']] == ['q-001', 'q-002']
@@ -1374,18 +1227,17 @@ def test_question_set_prefers_the_newest_finished_set_over_an_older_one(monkeypa
 
     # an evaluation that finished later is what the window follows instead, and
     # its traces arrive under a different key on the lab's side
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
-    view = inspector._question_set(
-        _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+    ordered = [FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]
+    view = inspector._question_set(_canned_lab(ordered), _index_of(ordered))
     assert view['kind'] == 'run'
     assert [q['question_id'] for q in view['questions']] == ['q-009']
 
     # no set-wide run at all is a normal state, not an error
-    assert inspector._question_set(_index_of([FAKE_INDEX_JOB])) is None
+    assert inspector._question_set(_canned_lab([FAKE_INDEX_JOB]),
+                                   _index_of([FAKE_INDEX_JOB])) is None
 
 
-def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
+def test_newest_chunks_follows_whichever_job_reported_them():
     # this is a unit test
     """The chunks window must describe the same pipeline the retrieval window
     does: not `kind == 'index'` but "the newest job that reported any chunks
@@ -1393,30 +1245,30 @@ def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
     index job of its own. And a job recorded before the lab reported summaries
     at all must come back with `summaries == []`, never a missing key."""
     # the exact shape that misled: the run is newer than the index build, and
-    # they name different chunkers
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB, FAKE_RETRIEVE_JOB]))
-    index_view = inspector._newest_chunks(_index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
-    assert index_view['config']['index']['chunker'] == 'semantic-drift'
+    # they name different plans
+    lab = _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB, FAKE_RETRIEVE_JOB])
+    index_view = inspector._newest_chunks(
+        lab, _index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    assert index_view['config']['index']['split_plan'][1]['kind'] == 'drift'
     assert index_view['chunks_by_session'][0]['session_id'] == 'run-s1'
     assert index_view['summaries'] == []
     # and both windows now agree about which index produced what is on screen
     retrieval_view = inspector._question_set(
-        _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
-    assert (index_view['config']['index']['chunker']
-            == retrieval_view['config']['index']['chunker'])
+        lab, _index_of([FAKE_RUN_JOB, FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
+    assert (index_view['config']['index']['split_plan']
+            == retrieval_view['config']['index']['split_plan'])
 
     # an explicit build afterwards is the newest again, and wins
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_INDEX_JOB, FAKE_RUN_JOB]))
-    index_view = inspector._newest_chunks(_index_of([FAKE_INDEX_JOB, FAKE_RUN_JOB]))
-    assert index_view['config']['index']['chunker'] == 'session'
+    newest_build = [FAKE_INDEX_JOB, FAKE_RUN_JOB]
+    index_view = inspector._newest_chunks(_canned_lab(newest_build),
+                                          _index_of(newest_build))
+    assert index_view['config']['index']['split_plan'] == [{'kind': 'document'}]
     assert index_view['summaries'] == []
 
     # a hierarchy actually reports its summaries beside the leaves
     with_summaries = {
         'id': 'idx-fake-3', 'kind': 'index', 'state': 'done',
-        'config': {'index': {'chunker': 'session', 'hierarchy': 'metadata'}},
+        'config': {'index': {'split_plan': [{'kind': 'document'}], 'hierarchy': 'metadata'}},
         'result': {'chunks': 2, 'chunks_by_session': [
             {'session_id': 's1', 'date': '2026-01-01',
              'chunks': [{'id': 's1-0', 'text': 'chunk one'}]}],
@@ -1424,23 +1276,22 @@ def test_newest_chunks_follows_whichever_job_reported_them(monkeypatch):
                            'group_id': 'h1-000', 'level': 1, 'members': 2,
                            'member_ids': ['s1-0', 's2-0'], 'sessions': 2,
                            'chars': 12}]}}
-    monkeypatch.setattr(inspector, '_lab_get', _canned_lab([with_summaries]))
-    view = inspector._newest_chunks(_index_of([with_summaries]))
+    view = inspector._newest_chunks(_canned_lab([with_summaries]),
+                                    _index_of([with_summaries]))
     assert view['chunks_by_session'][0]['session_id'] == 's1'
     assert len(view['summaries']) == 1
     assert view['summaries'][0]['group_id'] == 'h1-000'
     assert view['summaries'][0]['sessions'] == 2
 
 
-def test_generation_view_only_when_an_evaluation_wrote_rows(monkeypatch):
+def test_generation_view_only_when_an_evaluation_wrote_rows():
     # this is a unit test
     """What the model wrote and how it scored come from the evaluation's own
     rows; only an evaluation has them, so a retrieval-only run leaves
     `_generation_view` returning `None` rather than showing a stale answer
     beside fresh ranks."""
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
-    view = inspector._generation_view(_index_of([FAKE_RUN_JOB, FAKE_INDEX_JOB]))
+    scored = [FAKE_RUN_JOB, FAKE_INDEX_JOB]
+    view = inspector._generation_view(_canned_lab(scored), _index_of(scored))
     assert view['job_id'] == FAKE_RUN_JOB['id']
     assert view['config']['retrieval']['retriever'] == 'dense'
     row = view['rows'][0]
@@ -1452,18 +1303,17 @@ def test_generation_view_only_when_an_evaluation_wrote_rows(monkeypatch):
     assert view['summary']['n_questions'] == 1
 
     # a retrieval-only run generates nothing, and says so rather than lying
-    monkeypatch.setattr(inspector, '_lab_get',
-                        _canned_lab([FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]))
-    assert inspector._generation_view(
-        _index_of([FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB])) is None
+    unscored = [FAKE_RETRIEVE_JOB, FAKE_INDEX_JOB]
+    assert inspector._generation_view(_canned_lab(unscored),
+                                      _index_of(unscored)) is None
 
 
 def test_followed_dataset_reads_the_newest_jobs_own_config():
     # this is a unit test
     """Which corpus the lab is on is a fact about the whole page, so
     `_followed_dataset` answers it once from the same summary list rather
-    than each window guessing separately — and it needs no `_lab_get` call at
-    all, since the dataset already rides on `/api/jobs`'s own config field."""
+    than each window guessing separately — and it asks the lab nothing at all,
+    since the dataset already rides on `/api/jobs`'s own config field."""
     assert inspector._followed_dataset(
         _index_of([FAKE_OTHER_CORPUS_JOB, FAKE_INDEX_JOB])) == 'meetings-de'
     # the newest job wins, exactly as every other window on this page follows
@@ -1498,7 +1348,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     gt = datasets.load()[1]
     gt_q = gt['groundtruth_dataset'][0]
     query_date = gt['groundtruth_dataset_metadata']['default_question_asked_at'][:10]
-    config = {'index': {'chunker': 'fixed-overlap', 'chunk_chars': 500,
+    config = {'index': {'split_plan': [{'kind': 'document'}], 'chunk_chars': 500,
                         'overlap': 100, 'contextual': True,
                         'embedder': 'ascii-hash'},
               'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
@@ -1533,7 +1383,7 @@ def test_adding_a_question_produces_rows_identical_to_the_run_s_own(monkeypatch)
     assert set(result) >= {'config', 'retrieval', 'generation'}
     # and it says which config produced it, because a row measured under other
     # settings than its neighbours is worse than no row
-    assert result['config']['index']['chunker'] == 'fixed-overlap'
+    assert result['config']['index']['split_plan'] == [{'kind': 'document'}]
 
     # the retrieval half, shaped like a followed question
     retrieval = result['retrieval']
@@ -1587,7 +1437,7 @@ def test_explain_serves_the_same_metric_help_the_lab_does(monkeypatch):
 
 # --- summaries: the rows a hierarchy adds beside the leaves -----------------
 
-HIERARCHY_INDEX = IndexConfig(chunker='session', embedder='ascii-hash',
+HIERARCHY_INDEX = IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash',
                               hierarchy='metadata', summarizer='centroid')
 # `metadata` rather than `louvain`: it groups by the storylines the corpus
 # already declares, so it needs no graph, no vectors and no optional wheel, and
@@ -1640,38 +1490,8 @@ def test_every_row_of_a_hierarchical_index_is_visible_in_one_of_the_two_views():
     # omitting the key — "no hierarchy" and "a hierarchy that found nothing" are
     # different facts, and only one of them is worth investigating
     flat = IndexRegistry(LAB_SETTINGS, datasets.load()[0]).get(
-        IndexConfig(chunker='session', embedder='ascii-hash'))
+        IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash'))
     assert present.summary_rows(flat) == []
-
-
-# A direct assert over the Inspector's job table and its own source, rather
-# than a full chunks-job build and a poll for the absence of a database file
-# — the round trip through the job runner is what
-# `test_chunks_job_returns_sessions_and_any_summaries_beside_them` already
-# proves.
-def test_the_inspector_constructs_its_job_table_with_no_recorder():
-    # this is a convention test
-    """`Jobs(record=None)` — the default — is what keeps the Inspector's
-    scratch builds for looking at chunks from becoming a second writer of the
-    lab's experiment ledger: `record(job, state)` is called once per finished
-    job, or nothing is, and the Inspector must be the "nothing" case. The
-    lab's own `panel_server.py` passes `record=ledger.record` at its own
-    construction site (checked against the same source below), so the
-    Inspector's absence of an argument is the whole of the guard."""
-    from raglab.dashboard.panel_server import Jobs
-    assert Jobs().record is None, 'Jobs must default to no recorder'
-
-    inspector_source = Path(inspector.__file__).read_text(encoding='utf-8')
-    assert 'jobs = Jobs()' in inspector_source, (
-        'the Inspector must construct its job table with no recorder')
-    assert 'record=ledger.record' not in inspector_source, (
-        "the Inspector must not adopt the lab's own recording call")
-
-    from raglab.dashboard import panel_server as server
-    server_source = Path(server.__file__).read_text(encoding='utf-8')
-    assert 'Jobs(record=ledger.record)' in server_source, (
-        'the lab, unlike the Inspector, does record — the contrast this '
-        'guard depends on')
 
 
 # FastAPI TestClient over the read-only app.
@@ -1687,7 +1507,6 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     body = client.get('/api/config').json()
 
     assert body['chosen'] == inspector.CHOSEN_CONFIG
-    assert body['chunkers'] == list(lab_config.CHUNKERS)
     assert body['embedders'] == list(lab_config.EMBEDDERS)
     assert body['retrievers'] == list(lab_config.RETRIEVERS)
     assert body['rerankers'] == list(lab_config.RERANKERS)
@@ -1695,7 +1514,6 @@ def test_config_endpoint_serves_the_chosen_config_and_the_labs_own_lists(monkeyp
     # A config naming a value its own lists do not offer is the drift this route
     # exists to make impossible, so every field of the chosen config is checked
     # against the list it is chosen from.
-    assert body['chosen']['index']['chunker'] in body['chunkers']
     assert body['chosen']['index']['embedder'] in body['embedders']
     assert body['chosen']['retrieval']['retriever'] in body['retrievers']
     assert body['chosen']['retrieval']['reranker'] in body['rerankers']
@@ -1720,7 +1538,8 @@ def test_the_inspector_stamps_the_stored_theme_before_it_paints(inspector_texts)
 
 def test_no_dark_block_on_the_inspector_outranks_an_explicit_choice(inspector_texts):
     # this is a convention test
-    """The lab's half of this rule lives in test_panel.py over tokens.css and
+    """The lab's half of this rule lives in test_routes_assets.py over
+    tokens.css and
     panel.css; this is the Inspector's own sheet, which carries four page-local
     tokens of its own (the ground-truth row, and the three that draw the
     evidence highlighter). An unguarded block here would leave a reader who

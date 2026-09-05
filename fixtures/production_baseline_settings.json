@@ -5,9 +5,17 @@
     "config": {
       "index": {
         "dataset": "",
-        "chunker": "fixed-overlap",
+        "split_plan": [
+          {
+            "kind": "document"
+          }
+        ],
         "chunk_chars": 500,
+        "chunk_unit": "characters",
         "overlap": 100,
+        "part_join": "\n",
+        "part_prefix": "",
+        "normalizer": "",
         "contextual": false,
         "embedder": "sentence-transformers",
         "embed_model": "",

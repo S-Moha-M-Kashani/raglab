@@ -8,10 +8,11 @@ already recorded. It retrieves nothing, judges nothing, computes no score, and
 writes no run, no ledger row and no number. That is why it may do two things the measured path
 must not: talk to OpenRouter through its own `ChatOpenAI`, and trace to
 LangSmith when tracing is switched on (backends.TRACING_ENV). Removing the
-widget is deleting this
-folder and the one route in panel_server.py; a convention test pins that no other
-lab module reaches in, and that this package reaches the lab only through
-its unmeasured edges (skills, clichat, settings).
+widget is deleting this folder and the `dashboard/` files that reach into it
+(`panel_server.py`, `dev_trace_page.py` and the four `routes/` modules the
+guard names); a convention test lists them and pins that no other lab module
+reaches in, and that this package reaches the lab only through its unmeasured
+edges (clichat, settings).
 
 One module per concern: `prompts` loads the model-facing fixtures,
 `hooks` holds the four middleware, `tools` the project-knowledge tools and the
@@ -119,10 +120,13 @@ from raglab.agents.widget.experiment_tools import (
     read_experiment_questions,
     set_experiment_reader)
 from raglab.agents.widget.tools import (
+    MAX_KNOB_READS,
     MAX_SKILL_READS,
     TOOLS,
     calculate,
     measure_bilingual_alignment,
+    read_knob,
     read_rag_skill,
+    search_knobs,
     search_knowledge_base,
     search_rag_skills)

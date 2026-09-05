@@ -1,19 +1,107 @@
-"""Plumbing for the browser suite: a lab of its own, on a port of its own.
+"""Plumbing the dashboard's tests share: the served texts the route tests read,
+and a lab of its own on a port of its own for the browser suite.
 
-Only the `browser`-marked journeys ask for these fixtures, and pytest builds a
-fixture only when a test requests it, so this file costs the rest of the
-dashboard suite nothing and imports no Playwright of its own — the browser
-tests skip themselves at import when the extra is absent.
+Only the `browser`-marked journeys ask for the lab fixtures, and pytest builds
+a fixture only when a test requests it, so they cost the rest of the dashboard
+suite nothing and import no Playwright of their own — the browser tests skip
+themselves at import when the extra is absent.
 """
 import os
+import re
 import socket
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import httpx
 import pytest
+
+from raglab.conftest import RAGLAB_DIR
+
+# --- the served panel's conventions, as one table ---------------------------
+
+@pytest.fixture(scope='module')
+def panel_texts(client):
+    """Every named text the convention table below checks, fetched the one
+    way a browser actually reaches it (`client.get`) — a second disk read of
+    the same file would be a claim about a copy nobody is served. Several
+    entries are carved out of the full page, css and script, because their
+    claim is *where* the text sits rather than merely that it exists
+    somewhere on the page — the same regions the retired pin tests scoped
+    their own reads to. The panel's route modules are the entries read from
+    disk: the lab's Python source is never served, so there is no route to
+    prefer over it."""
+    html = client.get('/').text
+    css = client.get('/panel.css').text
+    js = client.get('/panel.js').text
+    tokens = client.get('/tokens.css').text
+
+    embed_label = re.search(r'<label>Embedding model.*?</label>', html, re.S)
+    model_card = re.search(r'<section[^>]*id="modelCard".*?</section>', html, re.S)
+    assert embed_label and model_card, 'the panel dropped a section this table reads'
+
+    return {
+        'index.html': html,
+        # The shared scale, fetched over its own route because both pages link
+        # it before their own sheet — a disk read would be a claim about a copy
+        # nobody is served.
+        'tokens.css': tokens,
+        # The shared chrome sheet, over its own route for the same reason as
+        # tokens.css. It now holds the table component every table on either
+        # surface is built against, so its contract is checked here beside the
+        # markup that depends on it.
+        'chrome.css': client.get('/chrome.css').text,
+        # The leaderboard surface, served by this same lab: the ranking moved
+        # off the lab page, so the rows that guard what a ranking must say
+        # follow it here rather than being deleted with the old board.
+        'leaderboard.html': client.get('/leaderboard').text,
+        'leaderboard.js': client.get('/leaderboard.js').text,
+        # The corpus viewer, served by this same lab: it reads the dataset the
+        # knobs are measured against, so the rows that guard a reader surface —
+        # both themes, no step ink, the shared table component — follow it here
+        # rather than being written a third time.
+        'dataset.html': client.get('/dataset').text,
+        'dataset.js': client.get('/dataset.js').text,
+        'dataset.css': client.get('/dataset.css').text,
+        # The row filter, over its own route: it is the leaderboard's, but it
+        # reads a cell with the shared sorter's parser, so what it can be asked
+        # is a claim about that pair of files rather than about this page.
+        'filtertable.js': client.get('/filtertable.js').text,
+        # The script all three pages load before their own, over its own route
+        # for the same reason as tokens.css. What both surfaces turned out to
+        # need identically lives in it, so a claim about "one implementation"
+        # is a claim about this file.
+        'lab.js': client.get('/lab.js').text,
+        'panel.css': css,
+        'panel.js': js,
+        'index.html (embedding-model label)': embed_label.group(0),
+        'index.html (modelCard section)': model_card.group(0),
+        # The widget's own stylesheet and script — whole files, served from
+        # the root to all three surfaces, so what the rows below claim about
+        # the helper is a claim about these two files and nothing else. They
+        # were once slices carved out of panel.css/panel.js and kept those
+        # names for a while after they stopped being slices, which sent a
+        # maintainer chasing a widget failure into the Laboratory's own
+        # script; one key per file is what stops that.
+        # The codec, over its own route: what the two knob-coverage tests at
+        # the foot of this file claim about the export template is a claim
+        # about the file a browser is actually handed.
+        'archive_io.js': client.get('/archive_io.js').text,
+        # The handoff, over its own route for the same reason: it reads the
+        # codec's own `BUILTIN_DATASET` rather than keeping a second copy of
+        # that id, which is a claim about this served file.
+        'experiment_handoff.js': client.get('/experiment_handoff.js').text,
+        'widget.css': client.get('/widget.css').text,
+        'widget.js': client.get('/widget.js').text,
+        # The panel's route modules, one entry each, read from disk: the lab's
+        # Python source is never served, so there is no route to prefer over
+        # it. One key per module rather than one for the whole service, so a
+        # row that claims a route exists names the section it belongs to.
+    } | {f'routes/{module.name}': module.read_text(encoding='utf-8')
+         for module in sorted(
+             (RAGLAB_DIR / 'dashboard' / 'routes').glob('*.py'))}
 
 #: How long the child process gets to bind its port and answer once, and how
 #: long a browser step may take before it is called a failure. Generous
@@ -86,18 +174,13 @@ def lab_home(tmp_path_factory) -> Path:
     return tmp_path_factory.mktemp('browser-lab')
 
 
-@pytest.fixture(scope='session')
-def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
-    """A lab in a child process, on an ephemeral port, writing only to `lab_home`.
-
-    Session-scoped on purpose: an index build is the expensive step, and every
-    journey that only reads can share one. Journeys that write name their own
-    dataset, experiment or thread instead of demanding a clean server, so
-    their order never matters.
-    """
-    port = _free_port()
-    base_url = f'http://127.0.0.1:{port}'
-    env = {
+#: What no lab started by any suite may reach: the developer's own five
+#: durable places, and the Inspector's default of the daemon on :9002. Every
+#: value depends on the temporary home and the port, so this is a function
+#: rather than a table.
+def redirected_env(lab_home: Path, port: int, base_url: str) -> dict:
+    """The environment every suite lab shares, whatever backend it runs."""
+    return {
         **os.environ,
         # The four durable paths, redirected exactly as the offline suite
         # redirects them — nothing the developer owns is reachable from here.
@@ -105,8 +188,8 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
         'RAGLAB_WIDGET_DB': str(lab_home / 'widget.db'),
         'RAGLAB_CORPORA_DB': str(lab_home / 'corpora.db'),
         'RAGLAB_BROWSER_RUNS': str(lab_home / 'runs'),
-        # The fifth durable place, and the one the offline suite redirects
-        # per-test rather than per-session: a dataset imported through the
+        # The fifth durable place, redirected here for the same reason and
+        # in the same way as the four above: a dataset imported through the
         # page lands here, and the repo's own `.datasets/` must not be it.
         'RAGLAB_DATASETS': str(lab_home / 'datasets'),
         # The Inspector asks the lab about experiments and jobs over HTTP, and
@@ -115,24 +198,42 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
         # experiments this suite actually recorded.
         'RAGLAB_INSPECTOR_LAB_URL': base_url,
         'RAGLAB_BROWSER_PORT': str(port),
-        # No live model, and no credential for one. The blanks are set rather
-        # than removed because `load_env_file` uses `setdefault`: a name that
-        # is already present, even empty, is a name the repo's `.env` cannot
-        # fill in.
-        'RAGLAB_LLM': 'fake',
-        'BRAIN_LLM': 'fake',
-        'OPENROUTER_API_KEY': '',
-        'OPENAI_API_KEY': '',
-        'LANGSMITH_API_KEY': '',
-        'LANGSMITH_TRACING': 'false',
-        # Saving a key makes the lab ask OpenRouter which models it serves.
-        # That is the one call this suite could make to the internet, so it is
-        # pointed at a closed local port: the probe fails at once, offline,
-        # and the catalogue reports what an installation without OpenRouter
-        # really has.
-        'OPENROUTER_BASE_URL': 'http://127.0.0.1:1',
     }
-    env.pop('RAGLAB_MODEL', None)
+
+
+#: No live model, and no credential for one. The blanks are set rather than
+#: removed because `load_env_file` uses `setdefault`: a name that is already
+#: present, even empty, is a name the repo's `.env` cannot fill in. The
+#: OpenRouter base url is pointed at a closed local port because saving a key
+#: makes the lab ask OpenRouter which models it serves, and that is the one
+#: call this suite could otherwise make to the internet.
+OFFLINE_BACKEND = {
+    'RAGLAB_LLM': 'fake',
+    'BRAIN_LLM': 'fake',
+    'OPENROUTER_API_KEY': '',
+    'OPENAI_API_KEY': '',
+    'LANGSMITH_API_KEY': '',
+    'LANGSMITH_TRACING': 'false',
+    'OPENROUTER_BASE_URL': 'http://127.0.0.1:1',
+}
+
+
+@contextmanager
+def serve_lab(lab_home: Path, backend: dict):
+    """A lab in a child process on a free port, writing only to `lab_home`.
+
+    `backend` is layered over the shared redirections and says which models
+    the lab may reach — `OFFLINE_BACKEND` for every journey in this folder,
+    and a real CLI provider for the one live journey that opts into paying
+    for calls. Extracted so the live lab reuses this plumbing rather than
+    keeping a second copy of it that can drift out of step with the five
+    redirections above.
+    """
+    port = _free_port()
+    base_url = f'http://127.0.0.1:{port}'
+    env = {**redirected_env(lab_home, port, base_url), **backend}
+    if not backend.get('RAGLAB_MODEL'):
+        env.pop('RAGLAB_MODEL', None)
     process = subprocess.Popen(
         [sys.executable, '-m', 'raglab.dashboard.tests.browser_lab_server'],
         env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -147,10 +248,23 @@ def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
             process.kill()
 
 
+@pytest.fixture(scope='session')
+def lab_server(_the_developers_lab_stays_untouched, lab_home: Path):
+    """The offline lab every browser journey in this folder shares.
+
+    Session-scoped on purpose: an index build is the expensive step, and every
+    journey that only reads can share one. Journeys that write name their own
+    dataset, experiment or thread instead of demanding a clean server, so
+    their order never matters.
+    """
+    with serve_lab(lab_home, OFFLINE_BACKEND) as base_url:
+        yield base_url
+
+
 #: The corpus every browser journey runs on: five sessions, six questions, and
 #: a hashing embedder, so a build costs a fraction of a second and downloads
 #: nothing. No browser journey claims anything about the diary.
-SMOKE_INDEX = {'dataset': 'smoke-mini', 'chunker': 'session',
+SMOKE_INDEX = {'dataset': 'smoke-mini', 'split_plan': [{'kind': 'document'}],
                'embedder': 'token-hash'}
 
 
@@ -208,6 +322,30 @@ def inspector(lab_server, page):
 def board(lab_server, page):
     """The leaderboard at `/leaderboard`, loaded and ready."""
     return _surface(page, lab_server, '/leaderboard')
+
+
+@pytest.fixture
+def dataset_page(lab_server, page):
+    """The corpus viewer at `/dataset`, on the smoke corpus.
+
+    Named in the URL rather than left to the catalogue's first entry, because
+    which corpus opens by default is not what any journey here is about — and
+    every claim below is about five documents that can be checked by eye.
+    """
+    return _surface(page, lab_server, '/dataset?dataset=smoke-mini')
+
+
+def set_plan(page, *kinds: str):
+    """Put the split plan control at `document` plus one stage per kind, added
+    the way a reader adds them — through the dropdown under the rows.
+
+    Every stage after the document is removed first, so a journey states the
+    whole plan it wants rather than what it hopes was there before."""
+    remove = page.locator('#split_plan [data-plan="remove"]')
+    while remove.count():
+        remove.first.click()
+    for kind in kinds:
+        page.select_option('#plan-add', kind)
 
 
 def _surface(page, base_url: str, path: str):

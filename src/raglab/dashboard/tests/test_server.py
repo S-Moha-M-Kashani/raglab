@@ -46,7 +46,7 @@ def test_a_build_starts_without_any_service_running(client):
     (test_a_build_exposes_no_vector_store_gate); this half needs the real
     `client` fixture and a real build, so it stays here."""
     body = client.post('/api/indexes', json={
-        'index': {'chunker': 'session', 'embedder': 'ascii-hash',
+        'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash',
                   'layers': ['session']}}).json()
     assert body['job_id']
 
@@ -68,11 +68,11 @@ def test_options_describe_the_corpus_the_knobs_and_the_metrics(client):
     assert corpus['parts'] == 998
     assert corpus['questions'] == 112
     assert 'habit' in body['question_labels']['question_type']
-    assert 'semantic-drift' in body['chunkers']
+    assert body['split_plan']['kinds'][0] == 'document'
 
     # --- help text for every knob key, and the new metadata/deciding-score
     # metric's own text.
-    for key in ('index.chunker', 'retrieval.reranker', 'retrieval.grade_threshold',
+    for key in ('index.split_plan', 'retrieval.reranker', 'retrieval.grade_threshold',
                 'generation.answerer', 'model.answer', 'metric.recall',
                 'metric.ragas_decision'):
         assert body['help'].get(key), key
@@ -213,9 +213,9 @@ def test_options_advertise_no_vector_database(client):
 def test_query_rejects_an_unknown_strategy(client):
     # this is an integration test
     res = client.post('/api/queries', json={'question': 'x',
-                                          'index': {'chunker': 'nope'}})
+                                          'index': {'split_plan': [{'kind': 'nope'}]}})
     assert res.status_code == 400
-    assert 'unknown chunker' in res.json()['detail']
+    assert 'split_plan' in res.json()['detail']
 
 
 def test_questions_endpoint_hides_the_answers(client):
@@ -259,7 +259,7 @@ def test_an_experiment_resolves_from_the_run_file_when_the_ledger_has_none(clien
         'started_at': '2026-01-01 00:00:00', 'seconds': 12.5,
         'dataset': 'smoke-mini',
         'config': {'provider': 'fake',
-                   'index': {'chunker': 'session', 'embedder': 'token-hash'},
+                   'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'token-hash'},
                    'retrieval': {'retriever': 'bm25', 'reranker': 'none',
                                  'grader': 'none'},
                    'generation': {'answerer': 'llm'}},
@@ -379,7 +379,7 @@ def test_lab_config_accepts_the_embed_model_and_per_task_model_fields():
     running embedder ignores it" the original test's docstring meant, and it
     is asserted both ways below."""
     cfg = LabConfig.from_dict({
-        'index': {'chunker': 'message', 'embedder': 'sentence-transformers',
+        'index': {'split_plan': [{'kind': 'document'}, {'kind': 'part', 'when': 'always'}], 'embedder': 'sentence-transformers',
                   'embed_model': 'intfloat/multilingual-e5-small'},
         'retrieval': {'k': 4, 'grader_model': 'anthropic/claude-haiku-4.5'},
         'generation': {'answerer': 'extractive',
@@ -391,7 +391,7 @@ def test_lab_config_accepts_the_embed_model_and_per_task_model_fields():
     # A hash embedder ignores embed_model rather than erroring on it — a
     # stale browser tab posting both must not break the query.
     ignored = LabConfig.from_dict({
-        'index': {'chunker': 'message', 'embedder': 'char-hash',
+        'index': {'split_plan': [{'kind': 'document'}, {'kind': 'part', 'when': 'always'}], 'embedder': 'char-hash',
                   'embed_model': 'intfloat/multilingual-e5-small'}})
     assert ignored.index.embed_model == ''
 

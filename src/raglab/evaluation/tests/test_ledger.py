@@ -18,7 +18,8 @@ from raglab.configuration.lab_config import (
     IndexConfig,
     LabConfig,
     RetrievalConfig)
-from raglab.dashboard.panel_server import Jobs, _with_backend
+from raglab.dashboard.panel_server import Jobs
+from raglab.dashboard.service_route_plumbing import _with_backend
 
 from raglab.conftest import LAB_SETTINGS
 from raglab.evaluation.tests.archive_examples import completed_archive
@@ -73,7 +74,7 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     # no backend attached at all — a build calls no chat model).
     index_job = jobs.start(
         'index', lambda report: {'chunks': 5, 'leaves': 5},
-        config={'index': {'chunker': 'session', 'embedder': 'ascii-hash'},
+        config={'index': {'split_plan': [{'kind': 'document'}], 'embedder': 'ascii-hash'},
                 'retrieval': {'retriever': 'hybrid-rrf', 'reranker': 'lexical',
                               'grader': 'llm'},
                 'generation': {'answerer': 'llm'}})
@@ -83,7 +84,7 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     # the real route helper, rather than a hand-written `'provider': 'fake'`
     # — so `provider == 'fake'` below exercises the actual resolution
     # (`run_settings.provider`), not just a round trip of a literal.
-    retrieve_cfg = LabConfig(index=IndexConfig(chunker='session', embedder='ascii-hash'),
+    retrieve_cfg = LabConfig(index=IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash'),
                              retrieval=RetrievalConfig(retriever='hybrid-rrf'))
     retrieve_job = jobs.start(
         'retrieve', lambda report: {'selection': {'n': 2},
@@ -91,7 +92,7 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
         config=_with_backend(retrieve_cfg, LAB_SETTINGS))
     assert _run_to_terminal(jobs, retrieve_job)['state'] == 'done'
 
-    run_cfg = LabConfig(index=IndexConfig(chunker='session', embedder='ascii-hash'),
+    run_cfg = LabConfig(index=IndexConfig(split_plan=({'kind': 'document'},), embedder='ascii-hash'),
                         retrieval=RetrievalConfig(retriever='hybrid-rrf'),
                         generation=GenerationConfig(answerer='extractive'),
                         label='the ledger')
@@ -124,7 +125,7 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     # route-level fact is pinned by `tests/test_e2e.py`'s
     # `build_row['provider'] == ''`, not here.
     build = rows['index']
-    assert build['chunker'] == 'session' and build['embedder'] == 'ascii-hash'
+    assert build['split_plan'] == 'document' and build['embedder'] == 'ascii-hash'
     assert build['retriever'] == '' and build['reranker'] == ''
     assert build['grader'] == '' and build['answerer'] == ''
     assert build['provider'] == '', 'no chat model is involved in chunking'
@@ -156,7 +157,7 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     # rather than through the `/api/experiments/{id}` route — the claim is
     # about what `ledger.detail_for` strips, not about the route.
     run_detail = ledger.experiment(evaluated['experiment_id'])['detail']
-    assert run_detail['config']['index']['chunker'] == 'session'
+    assert run_detail['config']['index']['split_plan'] == [{'kind': 'document'}]
     assert run_detail['summary'] == {'n_questions': 3}
     assert [row['id'] for row in run_detail['rows']] == ['q1', 'q2', 'q3']
     assert run_detail['selection']['n'] == 3
@@ -175,6 +176,34 @@ def test_jobs_run_writes_the_ledger_row_before_the_job_goes_terminal_per_kind(
     assert (tmp_path / 'raglab.db').exists(), 'the ledger is one SQLite file'
 
 
+def test_a_job_dropped_from_the_live_table_is_still_on_the_record(
+        tmp_path, monkeypatch):
+    # this is an integration test
+    """The job table is bounded now, so a long-lived lab forgets its oldest
+    finished jobs. That must cost nothing: the ledger is the record and the
+    live table is only the view of it, so the row a dropped job wrote is still
+    there under the same experiment id, with the detail it recorded intact.
+    Read through `ledger.experiment` rather than `/api/experiments/{id}` for
+    the reason the test above gives — the claim is about the ledger, not about
+    the route that serves it."""
+    monkeypatch.setenv('RAGLAB_DB', str(tmp_path / 'raglab.db'))
+    jobs = Jobs(record=ledger.record, max_history=1)
+
+    def build() -> str:
+        job_id = jobs.start('index', lambda report: {'chunks': 5},
+                            config={'index': {'split_plan': [{'kind': 'document'}]}})
+        return _run_to_terminal(jobs, job_id)['id']
+
+    dropped = build()
+    build()
+    build()
+    assert dropped not in jobs.jobs, 'the oldest finished job left the table'
+
+    row = ledger.experiment(dropped)
+    assert row is not None and row['kind'] == 'index'
+    assert row['detail']['chunks'] == 5
+
+
 def test_a_ledger_that_cannot_be_written_reports_on_the_job_and_never_loses_it(
         monkeypatch):
     # this is an integration test
@@ -190,7 +219,7 @@ def test_a_ledger_that_cannot_be_written_reports_on_the_job_and_never_loses_it(
     monkeypatch.setattr(ledger, 'connect', refuse)
     jobs = Jobs(record=ledger.record)
     job_id = jobs.start('index', lambda report: {'chunks': 5},
-                        config={'index': {'chunker': 'session'}})
+                        config={'index': {'split_plan': [{'kind': 'document'}]}})
     job = _run_to_terminal(jobs, job_id)
     assert job['state'] == 'done', job.get('error')
     assert job['result']['chunks'] == 5

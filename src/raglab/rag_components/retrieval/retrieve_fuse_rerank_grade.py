@@ -7,16 +7,20 @@ from collections import defaultdict
 
 import numpy as np
 
-from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
+from raglab.rag_components.retrieval import text_normalizers
 from raglab.llm_backends.chat_model_factory import lab_chat
 
 
 class BM25:
-    """Okapi BM25 over Persian-normalised tokens, using the same tokeniser as the rest of the lab."""
+    """Okapi BM25 over the tokens of the normaliser the index was built with —
+    the same one for every document and every query, so a corpus in one
+    language is never searched through another language's folds."""
 
-    def __init__(self, documents: list[str], k1: float = 1.5, b: float = 0.75):
+    def __init__(self, documents: list[str], k1: float = 1.5, b: float = 0.75,
+                 tokenize=text_normalizers.NEUTRAL.tokens):
         self.k1, self.b = k1, b
-        self.docs = [textnorm.tokens(d) for d in documents]
+        self.tokenize = tokenize
+        self.docs = [tokenize(d) for d in documents]
         self.lengths = np.array([len(d) or 1 for d in self.docs], dtype=np.float32)
         self.avg_len = float(self.lengths.mean()) if len(self.lengths) else 1.0
         self.postings: dict[str, list[tuple[int, int]]] = defaultdict(list)
@@ -33,7 +37,7 @@ class BM25:
     def scores(self, query: str, allowed: np.ndarray | None = None) -> np.ndarray:
         out = np.zeros(len(self.docs), dtype=np.float32)
         norm = self.k1 * (1 - self.b + self.b * self.lengths / self.avg_len)
-        for token in set(textnorm.tokens(query)):
+        for token in set(self.tokenize(query)):
             posting = self.postings.get(token)
             if not posting:
                 continue

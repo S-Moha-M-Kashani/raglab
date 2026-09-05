@@ -257,6 +257,12 @@
 .why-term:hover, .why-term:focus-visible {
   color: var(--ink); background: transparent; border-bottom-color: var(--ink-soft);
 }
+/* A heading that carries its own note is the only route to that note, so the
+   mark that says so cannot be as quiet as it is on a term inside a sentence:
+   `--rule` is a hairline against a card and nearly nothing against the plate a
+   page title sits on. One step in, and only for headings — a knob's term still
+   whispers, because the knob beside it is the thing being read. */
+h1.why-term, h2.why-term, h3.why-term { border-bottom-color: var(--ink-soft); }
 button.why {
   font: 700 var(--t-2xs)/1 var(--mono); padding: 0 var(--s-px); margin-left: var(--s-1);
   background: transparent; color: var(--ink-soft);
@@ -291,6 +297,16 @@ button.why:hover, button.why:focus-visible {
   border-bottom-color: var(--step, var(--ink));
 }
 
+/* Said, but not shown. `aria-describedby` needs a real element to point at, so
+   a note that moved onto a heading's hover still has to exist somewhere in the
+   document — otherwise the reader who cannot hover is also the reader the note
+   was quietly taken away from. Same technique as `.data-table caption`, which
+   is a visible name for a screen reader and nothing for the eye. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; margin: 0; padding: 0;
+}
+
 /* ── the brief ─────────────────────────────────────────────────────────────
    One box per page, moved and refilled: hover a trigger and this is the
    sentence. Deliberately not a popover — it is read-only text that follows the
@@ -313,6 +329,12 @@ button.why:hover, button.why:focus-visible {
   border: 1px solid var(--rule); border-left: 2px solid var(--ink-soft);
   border-radius: var(--radius-sm); box-shadow: var(--shadow);
   font: var(--t-xs)/1.55 var(--sans); cursor: pointer;
+  /* The note is written as a title line and bulleted lines under it, and the
+     box is filled with `textContent` — so the newlines in the text are the
+     whole of the formatting, and this is what makes them break. A paragraph
+     of five facts is a paragraph a reader has to parse; five lines are five
+     facts. */
+  white-space: pre-line;
 }
 .help-brief[hidden] { display: none; }
 .help-brief[data-more="true"]::after {
@@ -329,6 +351,11 @@ button.why:hover, button.why:focus-visible {
    stick against. Shared, so both surfaces scroll the same way. */
 .table-scroll {
   position: relative;
+  /* How far down the column names sit when a table carries a group row above
+     them. A fixed height rather than a measured one: `position: sticky` needs
+     a number at paint time, and a row of one short uppercase word is exactly
+     as tall as it is told to be. */
+  --group-h: 1.75rem;
   max-height: 70vh; overflow: auto;
   border: 1px solid var(--rule); border-radius: var(--radius-sm);
   background: var(--card);
@@ -373,26 +400,52 @@ button.why:hover, button.why:focus-visible {
   font: var(--label-font);
   text-transform: uppercase; letter-spacing: var(--label-track);
   text-align: right; white-space: nowrap;
-  padding: var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-3) var(--s-2);
   border-bottom: 1px solid var(--rule);
 }
+/* How tall a row is, and the one thing about these tables a reader can set.
+   A sixteen-column board is read across, where tight rows put more of the
+   experiment on one screen; a corpus's parts are read down, where a paragraph
+   in a cell wants air around it. Neither is right for both, so it is a
+   setting — written on the root by `lab.js` beside the theme, because it
+   belongs to the reader and not to the page. */
+:root { --cell-pad-y: var(--s-1); }
+:root[data-density="comfortable"] { --cell-pad-y: var(--s-2); }
 .data-table td {
-  padding: var(--s-1) var(--s-3); text-align: right; white-space: nowrap;
+  padding: var(--cell-pad-y) var(--s-3); text-align: right; white-space: nowrap;
   border-bottom: 1px solid var(--rule-soft);
 }
 /* Identifier columns read left, numbers read right. The old sheet
    right-aligned everything but the first cell, which left five prose columns
    ragged-left — the worst alignment there is for scanning down a column. */
 .data-table th.text, .data-table td.text { text-align: left; }
-.data-table tbody tr:nth-child(even) td { background: var(--rule-soft); }
-/* Hover is one rule-step past the stripe, in whichever direction that theme's
-   rules run: darker than paper on Day, lighter than a dark card on Night. It
-   used to be `--plate`, which is the page behind the table — on Day that is a
-   twelfth of a step off the stripe, so hovering an even row did nothing
-   visible, and on Night the plate is darker than every row, so the hovered row
-   read as a hole punched in the table rather than as the row under the
-   pointer. One token, one direction, both themes. */
-.data-table tbody tr:hover td { background: var(--rule); }
+
+/* No stripe. Zebra banding answers one question — which cells belong to the
+   row my eye is on — and it answers it on every row at once, permanently, on
+   a table where sixteen columns are already competing for attention. A
+   hairline rule under each row answers the same question and says nothing
+   the rest of the time; the row you actually care about is the one under the
+   pointer or under the keyboard, and that one is tinted and marked at its
+   left edge, which is a stripe of exactly one row where a stripe is useful.
+
+   The tint is `--rule-soft` in both places: one step off the card in
+   whichever direction that theme's rules run — darker than paper on Day,
+   lighter than a dark card on Night. */
+.data-table tbody tr:hover td,
+.data-table tbody tr.row-here td { background: var(--rule-soft); }
+/* The mark at the left edge, on the cell that is already frozen there. Two
+   shadows, because the frozen column carries its own divider on the other
+   side of the same cell and a second `box-shadow` declaration would replace
+   it rather than join it. */
+.data-table tbody tr:hover > :first-child {
+  box-shadow: inset 3px 0 0 var(--ink-soft), 1px 0 0 var(--rule);
+}
+/* And the keyboard's row, in the focus ink the rest of these surfaces use, so
+   "where the keyboard is" reads the same here as it does on a control. */
+.data-table tbody tr.row-here > :first-child {
+  box-shadow: inset 3px 0 0 var(--step-generation), 1px 0 0 var(--rule);
+}
+.data-table tbody tr.row-here:focus { outline: none; }
 
 /* The row's identity survives scrolling right. Without this the run's date
    leaves the viewport and every remaining number belongs to nothing.
@@ -415,8 +468,10 @@ button.why:hover, button.why:focus-visible {
   --freeze-1: 17rem;
   position: sticky; z-index: 1; left: 0; background: var(--card);
   width: var(--freeze-1); min-width: var(--freeze-1);
+  /* The divider that says the column is pinned, pointing into the region it
+     holds still — the mirror of the negative one `.freeze-last` carries. */
+  box-shadow: 1px 0 0 var(--rule);
 }
-.data-table tbody tr:nth-child(even) .freeze-1 { background: var(--rule-soft); }
 .data-table thead .freeze-1 { z-index: 4; background: var(--plate); }
 /* A cell cannot hold its own width: `table-layout: auto` sizes a column from
    its widest `nowrap` content, so `width` on the cell is a suggestion the
@@ -442,16 +497,50 @@ button.why:hover, button.why:focus-visible {
   width: 3rem; min-width: 3rem;
   box-shadow: -1px 0 0 var(--rule);
 }
-.data-table tbody tr:nth-child(even) .freeze-last { background: var(--rule-soft); }
 .data-table thead .freeze-last { z-index: 4; background: var(--plate); }
-/* A frozen column has to take the row hover too, and after the striping rule
-   above it, which matches at the same specificity and would otherwise keep its
-   stripe. Without this a hovered even row is two-tone: its frozen columns stay
-   striped while everything between them lights up. Both edges are named, not
-   just the left one — the right-hand column has the same problem for the same
-   reason. */
+/* A frozen column has to take the row's tint too. It is opaque by definition —
+   that is what stops the scrolling columns showing through it — so it does not
+   inherit the row background and has to be told. Both edges are named, not just
+   the left one, and the keyboard's row alongside the pointer's. */
 .data-table tbody tr:hover .freeze-1,
-.data-table tbody tr:hover .freeze-last { background: var(--rule); }
+.data-table tbody tr:hover .freeze-last,
+.data-table tbody tr.row-here .freeze-1,
+.data-table tbody tr.row-here .freeze-last { background: var(--rule-soft); }
+
+/* ── the group row ─────────────────────────────────────────────────────────
+   A spanning row above the column names, saying which block of columns you
+   have scrolled into. Sixteen columns is more than a reader holds at once, and
+   the abbreviations that make sixteen fit — `ans rel`, `ctx prec` — are the
+   ones that most need a heading over them saying what kind of thing they are.
+
+   It carries the step ink where a block IS a step: the two metrics a generated
+   answer is judged by are generation, the two its retrieved context is judged
+   by are retrieval. That is the repo's rule about colour, kept honest — a
+   block that is not a pipeline step (identity, provenance) takes the plain
+   quiet ink and no colour at all.
+
+   `sorttable.js` reads the LAST row of `<thead>` as its headings, which is
+   what lets this row exist without the sorter knowing about it. */
+.data-table thead .group-row th {
+  position: sticky; top: 0; z-index: 3;
+  height: var(--group-h); background: var(--plate);
+  color: var(--step, var(--ink-soft));
+  font: var(--label-font); text-transform: uppercase;
+  letter-spacing: var(--label-track); text-align: left;
+  padding: var(--s-2) var(--s-3) var(--s-1);
+  border-bottom: 2px solid var(--step, var(--rule-soft));
+  white-space: nowrap;
+}
+/* A group with no name is still a column of the row — the frozen action column
+   at the right edge has nothing to be called — and it must not draw a rule
+   under a heading it does not have. */
+.data-table thead .group-row th:empty { border-bottom-color: transparent; }
+/* The names sit under the group bar rather than at the top of the region, so
+   both rows stay put and neither lands on the other. */
+.data-table thead .group-row + tr th { top: var(--group-h); }
+/* Frozen cells stay above the scrolling ones in their own row, on both rows. */
+.data-table thead .group-row .freeze-1,
+.data-table thead .group-row .freeze-last { z-index: 5; background: var(--plate); }
 
 /* macOS hides a scrollbar until it moves, so keep one visible: a cue that the
    table continues sideways, without a floated pseudo-element competing with
@@ -482,6 +571,10 @@ button.why:hover, button.why:focus-visible {
   background: var(--rule); border-radius: var(--radius-pill);
 }
 .scroll-rail::-webkit-scrollbar-track { background: var(--plate); }
+
+/* A row brought into view by the keyboard has to clear the header rows that
+   are sitting on top of the region, or it lands underneath them. */
+.data-table tbody tr { scroll-margin-top: calc(var(--group-h) + var(--s-6)); }
 
 /* A filtered-out row. `display` is what `[hidden]` means, and it is said here
    rather than left to the browser because a `tr` carries `display: table-row`
@@ -559,8 +652,8 @@ th[aria-sort="descending"]::after { content: " ▼"; color: var(--step-index); }
                    display: block; margin-bottom: var(--s-1); }
 .reveal-knob { display: block; color: var(--ink-soft); }
 .reveal-knob > b { color: var(--ink); }
-/* A knob the recorded config held but this build never read (an `overlap`
-   under a chunker that never slides a window): drawn as `none`, and never
+/* A knob the recorded config held but this build never read (an
+   `embed_model` under a hash embedder that loads none): drawn as `none`, and never
    inked as a real value — the `<b>` stays the label's own `--ink-soft`
    instead of stepping up to `--ink` (inherited, not restated), so a scan for
    real settings passes over it without a new colour to learn. This is

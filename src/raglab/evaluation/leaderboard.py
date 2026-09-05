@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from raglab.configuration import split_plan
 from raglab.configuration.lab_config import RUNS_DIR, inert_knobs
 from raglab.corpora import dataset_import_contract as datasets
 from raglab.evaluation.run_evaluation import load_run, load_runs
@@ -35,9 +36,8 @@ from raglab.evaluation import service_experiment_ledger as ledger
 # knob with no entry keeps its own name, which is what stops a knob added later
 # from being drawn as a word nobody can expand.
 SHORT_PARTS = {
-    # chunkers
-    'semantic-drift': 'sem-drift', 'fixed-overlap': 'fix-ov',
-    'message': 'msg', 'turn-pair': 'pair', 'session': 'sess',
+    # the plan of the document alone
+    'document': 'doc',
     # hierarchies
     'louvain': 'louv', 'leiden': 'leid', 'label-prop': 'lprop',
     'raptor': 'rapt', 'agglomerative': 'agglo', 'kmeans': 'kmn',
@@ -64,10 +64,32 @@ _MODEL_FAMILY = ('paraphrase-multilingual-', 'multilingual-', 'paraphrase-',
                  'all-')
 
 
+def _plan_word(recorded) -> str:
+    """The split plan as one word of the pipeline sentence: its stages after
+    the document, or `document` when that is all there is. A run file records
+    the stored form; nothing else reaches here."""
+    if not recorded:
+        return ''
+    return split_plan.short(recorded)
+
+
+def _plan_stages(recorded: str | None):
+    """A ledger row holds the plan in its typed form; read back into the
+    stored form the rest of the board reads, or dropped when it will not parse
+    — a row written by a lab that spelt plans differently says nothing here."""
+    if not recorded:
+        return None
+    try:
+        return list(split_plan.parse(recorded))
+    except ValueError:
+        return None
+
+
 def short_part(part: str) -> str:
     """One word of the pipeline sentence, in its short form."""
-    # The contextual mark rides on the chunker's name, and it is two syllables
-    # already: abbreviate what it is attached to, keep the mark.
+    # The contextual mark rides on the plan, which is already short of its
+    # always-present first stage: abbreviate what it is attached to, keep the
+    # mark.
     if part.endswith('+ctx'):
         return short_part(part[:-len('+ctx')]) + '+ctx'
     if part in SHORT_PARTS:
@@ -91,7 +113,7 @@ def pipeline_fragments(config: dict) -> list[dict]:
     # sentence needs; the model name after it is the part that differs.
     model = (index.get('embed_model') or '').split('/')[-1]
     parts = {
-        'index': [(index.get('chunker') or '')
+        'index': [_plan_word(index.get('split_plan'))
                   + ('+ctx' if index.get('contextual') else ''),
                   index.get('hierarchy') or '',
                   index.get('embedder') or '', model],
@@ -346,7 +368,7 @@ def selection_text(row: dict) -> str:
 
 
 # `ledger.experiments()` returns the flat columns `service_experiment_ledger`
-# stores — `chunker`, `embedder`, `retriever`, `reranker`, `grader`,
+# stores — `split_plan`, `embedder`, `retriever`, `reranker`, `grader`,
 # `answerer` — never a nested config dict; only a run file carries one. A
 # ledger-only row (every index build, every retrieval, every imported
 # archive — nothing a run file ever covers) still needs a pipeline sentence,
@@ -366,7 +388,7 @@ def selection_text(row: dict) -> str:
 # above refuses to pad. `'none'` is a recorded value and stays.
 def ledger_config(row: dict) -> dict:
     steps = {
-        'index': {'chunker': row.get('chunker'),
+        'index': {'split_plan': _plan_stages(row.get('split_plan')),
                   'embedder': row.get('embedder')},
         'retrieval': {'retriever': row.get('retriever'),
                       'reranker': row.get('reranker'),

@@ -100,9 +100,9 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
 
     first, last = payloads[0], payloads[-1]
     assert (first.system_messages, first.other_messages, first.total_chars) \
-        == (2, 1, 1722)
+        == (2, 1, 1924)
     assert (last.system_messages, last.other_messages, last.total_chars) \
-        == (3, 20, 2799)
+        == (3, 20, 3001)
 
     # The standing set is bounded now: SYSTEM_PROMPT and the opening line from
     # the first call, plus one memory line from the first turn that has memory
@@ -138,9 +138,12 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
     # The 20 KB is in the log, not in the prompt; what rides on is a stub.
     assert payloads[4].total_chars < hop_turn_2.total_chars + 1_000
     # Three tool turns, three stubs, and the floor barely moves: no call after
-    # a tool turn is anywhere near the 42,599 the last call used to carry.
+    # a tool turn is anywhere near the 42,599 the last call used to carry. The
+    # floor did rise by ~200 characters when the knob tools landed and the
+    # system prompt gained the line that routes to them — paid on every call,
+    # which is exactly the cost this test exists to state out loud.
     plateau = [p.total_chars for p in payloads if p.call_in_turn == 0][3:]
-    assert max(plateau) < 3_000
+    assert max(plateau) < 3_200
 
     # Today's whole-thread total, and the two steps that brought it here. It
     # was 466,458 while every superseded memory line was still being reread;
@@ -156,7 +159,9 @@ def test_prompt_payload_grows_across_a_scripted_thread(capsys):
     # *earlier* turns' bodies that used to ride along beside the reply being
     # read. That is the result, and it is a better one than "no tool-reading
     # call changed" would have been.
-    assert sum(p.total_chars for p in payloads) == 95_276
+    # 95,276 before the knob tools; the routing line they added to the
+    # system prompt is 202 characters carried by all fifteen calls.
+    assert sum(p.total_chars for p in payloads) == 98_306
 
 
 def test_a_thread_that_accumulated_memory_lines_still_sends_one():

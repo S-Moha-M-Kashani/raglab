@@ -153,3 +153,48 @@ def test_the_three_radios_are_one_control_with_one_choice_at_a_time(board):
         checked = board.locator('#theme-control input:checked')
         expect(checked).to_have_count(1)
         expect(checked).to_have_id(f'theme-{name}')
+
+
+def test_row_height_is_the_readers_to_set_and_it_survives_a_reload(dataset_page):
+    """The second setting, stored the way the first one is.
+
+    Compact is the absence of a stored value, exactly as Auto is for the theme:
+    the sheet's own `:root` is the compact one, and the attribute only ever
+    names the departure from it. Asserted through the padding a cell actually
+    computes rather than through the attribute alone — the attribute is a name,
+    and the row height is the thing the reader asked for.
+    """
+    def padding():
+        # The page draws its tables from one fetch after load, so the cell has
+        # to be waited for on the first read and again after the reload.
+        dataset_page.wait_for_selector('.data-table tbody td')
+        return dataset_page.evaluate(
+            "() => getComputedStyle(document.querySelector"
+            "('.data-table tbody td')).paddingTop")
+
+    def choose(name):
+        _open_settings(dataset_page)
+        dataset_page.click(f'#density-control label[for="density-{name}"]')
+        expect(dataset_page.locator(f'#density-{name}')).to_be_checked()
+
+    def stored():
+        return dataset_page.evaluate(
+            "() => localStorage.getItem('raglab-density')")
+
+    tight = padding()
+    choose('comfortable')
+    expect(dataset_page.locator('html')).to_have_attribute(
+        'data-density', 'comfortable')
+    assert stored() == 'comfortable'
+    roomy = padding()
+    assert float(roomy[:-2]) > float(tight[:-2]), (roomy, tight)
+
+    dataset_page.reload()
+    expect(dataset_page.locator('#density-comfortable')).to_be_checked()
+    assert padding() == roomy
+
+    choose('compact')
+    expect(dataset_page.locator('html')).not_to_have_attribute(
+        'data-density', 'comfortable')
+    assert stored() is None, 'compact is the absence of a stored value'
+    assert padding() == tight

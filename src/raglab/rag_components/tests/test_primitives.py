@@ -16,8 +16,8 @@ from raglab.rag_components.retrieval import query_understanding as query
 from raglab.rag_components.retrieval import (
     retrieve_fuse_rerank_grade as retrieval)
 from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
+from raglab.configuration import split_plan
 from raglab.configuration.lab_config import IndexConfig
-from raglab.configuration.option_vocabularies import CHUNKERS
 
 
 # --- text normalisation ----------------------------------------------------
@@ -97,6 +97,79 @@ def test_character_ngrams_share_a_stem_across_affixes():
     assert textnorm.char_ngrams('') == []
 
 
+# --- the split plan's two forms -------------------------------------------
+
+@pytest.mark.parametrize('line', [
+    'document',
+    'document / part',
+    'document / role=user',
+    'document / drift',
+    'document / "\\n\\n" / "\\n" / ". "',
+    'document / "\\n\\n" and role=assistant',
+    'document / drift or "ولش کن" or "بگذریم" / part over-budget',
+])
+def test_every_plan_round_trips_between_its_typed_and_stored_forms(line):
+    # this is a unit test
+    """The stored list is what the fingerprint hashes; the line is what a
+    person types into a sweep candidate or reads on a knob page. Each must
+    come back from the other unchanged, and two spellings differing only in
+    whitespace are one plan."""
+    stages = split_plan.parse(line)
+    assert split_plan.text(stages) == line
+    assert split_plan.parse(split_plan.text(stages)) == stages
+    assert split_plan.parse(line.replace(' / ', '/').replace(' or ', '  or  ')) == stages
+
+
+@pytest.mark.parametrize('line, names', [
+    ('part / document', 'must begin with the document stage'),
+    ('document / "\\n" / drift', 'drift stage cannot follow a separator'),
+    ('document / ". " / role=user', 'label stage cannot follow a separator'),
+    ('document / speaker=chair', "declares no part-level label 'speaker'"),
+    ('document / role=coach', "'role' takes one of user, assistant, not 'coach'"),
+])
+def test_an_impossible_plan_is_refused_by_name(line, names):
+    # this is a unit test
+    """A plan that cannot do what it says is refused before a build, and the
+    refusal names what was wrong — the stage that needs parts after the one
+    that cut them away, or the label the selected corpus never declared."""
+    declared = {'role': {'applies_to': ['part', 'chunk'], 'values': ['user', 'assistant']}}
+    problems = split_plan.problems(split_plan.parse(line), declared)
+    assert any(names in problem for problem in problems), problems
+
+
+def test_a_stage_takes_one_combinator_and_never_both():
+    # this is a unit test
+    with pytest.raises(ValueError, match='not both'):
+        split_plan.parse('document / "\\n\\n" or "\\n" and role=user')
+    assert split_plan.problems(({'kind': 'document'},
+                                {'kind': 'separator', 'atoms': ({'text': 'x'},),
+                                 'join': 'xor', 'when': 'always'}), {}) == [
+        'split_plan stage 1: a stage combines its atoms with "or" or with '
+        '"and", not \'xor\'']
+
+
+# --- the normalisers ----------------------------------------------------------
+
+def test_the_declared_language_picks_the_normaliser_and_a_name_overrides_it():
+    # this is a unit test
+    """A corpus declaring `fa` gets the Persian folds it always had; one
+    declaring `de` is not folded by another language's rules — the digit `٣`
+    stays a Farsi digit under the neutral normaliser and becomes `3` under the
+    Persian one. Either may be named for any corpus, and an unknown name is
+    refused rather than replaced."""
+    from raglab.rag_components.retrieval import text_normalizers
+    assert text_normalizers.resolve('', 'fa') is textnorm
+    assert text_normalizers.resolve('', 'de') is text_normalizers.NEUTRAL
+    assert text_normalizers.resolve('persian', 'de') is textnorm
+    assert text_normalizers.NEUTRAL.tokens('Sitzung ٣٣ heute') == ['sitzung', '٣٣', 'heute']
+    assert textnorm.tokens('Sitzung ٣٣ heute') == ['sitzung', '33', 'heute']
+    with pytest.raises(ValueError, match='unknown normalizer'):
+        text_normalizers.resolve('klingon', 'de')
+    from raglab.configuration.lab_config import LabConfig
+    assert any('unknown normalizer' in problem for problem in
+               LabConfig.from_dict({'index': {'normalizer': 'klingon'}}).validate())
+
+
 # --- embedders -------------------------------------------------------------
 
 def test_ascii_hash_embedder_is_blind_to_farsi():
@@ -126,48 +199,236 @@ def test_token_hash_is_normalised_and_nonzero_for_farsi():
 
 # --- chunking --------------------------------------------------------------
 
-@pytest.mark.parametrize('chunker', CHUNKERS)
-def test_every_chunker_yields_unique_nonempty_chunks_and_tracks_every_message(
+def _plan(line: str, **knobs) -> IndexConfig:
+    return IndexConfig(split_plan=split_plan.parse(line), embedder='char-hash',
+                       contextual=False, **knobs)
+
+
+def _cut(document, line, embedder=None, label_fields=None, language='fa', **knobs):
+    return chunking.chunk_document(
+        document, _plan(line, **knobs), embedder or embedding.make_embedder('char-hash'),
+        label_fields, language)
+
+
+# The six chunkers the lab used to name, as the six plans that replaced
+# them. The budget is set past every fixture document so nothing is divided
+# — a plan cuts where its stages say and the budget closes it, so `session`
+# is `document` only while the document fits.
+OLD_CHUNKERS = {
+    'session': ('document', 100_000, 0),
+    'message': ('document / part', 100_000, 0),
+    'turn-pair': ('document / role=user', 100_000, 0),
+    'semantic-drift': ('document / drift', 100_000, 0),
+    'fixed': ('document', 500, 0),
+    'fixed-overlap': ('document', 500, 100),
+}
+
+
+@pytest.mark.parametrize('chunker', list(OLD_CHUNKERS))
+def test_every_old_chunker_is_a_plan_that_yields_unique_nonempty_chunks_over_every_part(
         document, label_fields, language, chunker):
     # this is a unit test
-    """Every chunker, of every kind, must produce unique ids over nonempty
-    text. `message`, `turn-pair` and `semantic-drift` compute `part_start`/
-    `part_end` from where each chunk actually begins and ends, so no part
-    may be dropped from that span — the ground truth cites evidence by part
-    — and the check below reads those fields back. `session` hard-codes the
-    full span (`part_start=0, part_end=len(parts)-1`) on its one chunk
-    regardless of what got emitted, so reading the same fields back would
-    compare the index against itself; instead this checks that every part's
-    own content actually landed in the emitted text. `fixed` and
-    `fixed-overlap` chunk by character window and record no span at all
-    (`part_start`/`part_end` stay -1), so neither claim applies to them."""
-    cfg = IndexConfig(chunker=chunker, embedder='char-hash', contextual=False)
-    embedder = embedding.make_embedder('char-hash')
-    chunks = chunking.chunk_document(document, cfg, embedder, label_fields, language)
+    """The plan for each retired chunker must produce unique ids over nonempty
+    text, and the structural plans compute `part_start`/`part_end` from where
+    each chunk actually begins and ends, so no part may be dropped from that
+    span — the ground truth cites evidence by part."""
+    line, budget, overlap = OLD_CHUNKERS[chunker]
+    chunks = _cut(document, line, label_fields=label_fields, language=language,
+                  chunk_chars=budget, overlap=overlap)
     assert chunks, chunker
     assert len({c.id for c in chunks}) == len(chunks), chunker
     assert all(c.text.strip() for c in chunks), chunker
     parts = document['document_content']
-    if chunker == 'session':
-        assert len(chunks) == 1, chunker
-        for part in parts:
-            assert part['text'] in chunks[0].text, chunker
-    elif chunker not in ('fixed', 'fixed-overlap'):
-        covered = set()
-        for chunk in chunks:
+    covered = set()
+    for chunk in chunks:
+        if chunk.part_start >= 0:
             covered.update(range(chunk.part_start, chunk.part_end + 1))
+    if chunker in ('fixed', 'fixed-overlap'):
+        for part in parts:
+            assert part['text'].split()[0] in ' '.join(c.text for c in chunks)
+    else:
         assert covered == set(range(len(parts))), chunker
 
 
-def test_fixed_chunker_matches_the_production_packing(document):
+def test_the_six_plans_reproduce_the_six_old_chunkers_byte_for_byte(
+        document, label_fields, language):
     # this is a unit test
-    """Same greedy 500-char packing the brain ships, or the comparison is
-    against a straw man."""
-    from raglab.rag_components.indexing.chunking_strategies import chunk_text
-    cfg = IndexConfig(chunker='fixed', chunk_chars=500, contextual=False)
-    ours = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'))
-    theirs = chunk_text(corpus.document_text(document), 500)
-    assert [c.text for c in ours] == theirs
+    """The old output, captured on this same fixture document before the
+    rewrite and frozen here as its own shape rather than recomputed: the
+    part spans of each chunk and the text each carried. `part_prefix='role'`
+    puts back the `role: ` the old readers always wrote, and the embedder
+    tokenises with the Persian normaliser the old code applied to every
+    corpus, so the drift signal is the same signal. The two length-based
+    chunkers recorded no span at all; the plan knows a whole document it
+    never divided spans every part, so for them the text alone is compared."""
+    embedder = embedding.make_embedder('char-hash', normalizer=textnorm)
+    expected = {
+        'session': [(0, 5)],
+        'message': [(i, i) for i in range(6)],
+        'turn-pair': [(0, 1), (2, 3), (4, 5)],
+        'semantic-drift': [(0, 1), (2, 2), (3, 5)],
+    }
+    for chunker, (line, budget, overlap) in OLD_CHUNKERS.items():
+        chunks = _cut(document, line, embedder, label_fields, language,
+                      chunk_chars=budget, overlap=overlap, part_prefix='role')
+        texts = [c.text for c in chunks]
+        if chunker in expected:
+            assert [(c.part_start, c.part_end) for c in chunks] == expected[chunker], chunker
+            joined = [corpus.document_text(
+                {'document_content': document['document_content'][a:b + 1]},
+                prefix='role') for a, b in expected[chunker]]
+            assert texts == joined, chunker
+            for chunk in chunks:
+                assert chunk.text.startswith(('user: ', 'assistant: ')), chunker
+        else:
+            whole = corpus.document_text(document, prefix='role')
+            packed = (chunking._windows(whole, 500, 100) if overlap
+                      else chunking.chunk_text(whole, 500))
+            assert texts == packed, chunker
+
+
+def test_a_label_boundary_opens_a_turn_without_naming_the_other_speaker():
+    # this is a unit test
+    """`role=user` reproduces `turn-pair` — a chunk begins at each user part
+    and runs to the part before the next — and, because it names only the
+    opener, works on a corpus with three declared speakers and on a turn the
+    old pairing could not express (one question, two replies)."""
+    fields = {'speaker': {'type': 'string', 'applies_to': ['part', 'chunk'],
+                          'values': ['chair', 'member', 'guest']}}
+    meeting = {'corpus_document_id': 7, 'document_content': [
+        {'text': 'Opening the budget item.', 'labels': {'speaker': 'chair'}},
+        {'text': 'We are over by ten percent.', 'labels': {'speaker': 'member'}},
+        {'text': 'The vendor quote arrived late.', 'labels': {'speaker': 'guest'}},
+        {'text': 'Next item, the schedule.', 'labels': {'speaker': 'chair'}},
+        {'text': 'Two weeks behind.', 'labels': {'speaker': 'member'}}]}
+    chunks = _cut(meeting, 'document / speaker=chair', label_fields=fields,
+                  language='en', chunk_chars=10_000)
+    assert [(c.part_start, c.part_end) for c in chunks] == [(0, 2), (3, 4)]
+    # every part-level label of the parts a chunk spans reaches it
+    assert chunks[0].labels['speaker'] == ['chair', 'member', 'guest']
+    # and no speaker prefix is written into the text unless asked for by name
+    assert chunks[0].text.startswith('Opening the budget item.')
+    prefixed = _cut(meeting, 'document / speaker=chair', label_fields=fields,
+                    language='en', chunk_chars=10_000, part_prefix='speaker')
+    assert prefixed[0].text.startswith('chair: Opening the budget item.\nmember: ')
+
+
+# Three paragraphs, the middle one over any budget the tests use, its
+# sentences under it — the shape a coarse-to-fine list of separators is for.
+DELIMITED = ('Short opening paragraph.\n\n'
+             'A second paragraph too long for the budget. '
+             'It runs on with several sentences. One more here.\n\n'
+             'Tail.')
+
+
+def _document_of(text: str) -> dict:
+    return {'corpus_document_id': 1, 'document_content': [{'text': text}]}
+
+
+def test_successive_separator_stages_descend_and_stop_once_a_piece_fits():
+    # this is a unit test
+    """Coarse-to-fine as stages: a paragraph that fits the budget is left
+    whole by the sentence stage, and a paragraph that does not is cut at its
+    sentences. A separator applies only over budget by default, so the
+    document under a large budget is not cut at all."""
+    chunks = _cut(_document_of(DELIMITED), 'document / "\\n\\n" / ". "',
+                  language='en', chunk_chars=45)
+    assert [c.text for c in chunks] == [
+        'Short opening paragraph.',
+        'A second paragraph too long for the budget',
+        'It runs on with several sentences',
+        'One more here.',
+        'Tail.']
+    assert all(c.part_start == -1 for c in chunks), 'a separator knows no part span'
+    whole = _cut(_document_of(DELIMITED), 'document / "\\n\\n" / ". "',
+                 language='en', chunk_chars=1000)
+    assert [c.text for c in whole] == [DELIMITED]
+
+
+def test_a_stage_set_to_always_cuts_a_piece_that_already_fits():
+    # this is a unit test
+    """The per-stage toggle in both directions: `always` on a separator cuts
+    the short document, and `over-budget` on a part stage leaves a short
+    document whole while a long one is still cut into its parts."""
+    always = _cut(_document_of(DELIMITED), 'document / "\\n\\n" always',
+                  language='en', chunk_chars=1000)
+    assert len(always) == 3
+    two_parts = {'corpus_document_id': 1, 'document_content': [
+        {'text': 'one'}, {'text': 'two'}]}
+    assert len(_cut(two_parts, 'document / part over-budget', chunk_chars=1000)) == 1
+    assert len(_cut(two_parts, 'document / part', chunk_chars=1000)) == 2
+
+
+def test_or_cuts_at_any_atom_and_and_only_where_a_literal_and_a_label_both_hold():
+    # this is a unit test
+    """The two combinators on one document. Under `or` every blank line and
+    every single newline is a cut. Under `and` with a label boundary the
+    blank line cuts only inside the part that label selects — the other
+    part's blank line is left alone."""
+    fields = {'role': {'type': 'string', 'applies_to': ['part', 'chunk'],
+                       'values': ['user', 'assistant']}}
+    document = {'corpus_document_id': 1, 'document_content': [
+        {'text': 'first\n\nsecond\nthird', 'labels': {'role': 'user'}},
+        {'text': 'fourth\n\nfifth', 'labels': {'role': 'assistant'}}]}
+    either = _cut(document, 'document / "\\n\\n" or "\\n" always',
+                  label_fields=fields, language='en', chunk_chars=1000)
+    assert [c.text for c in either] == ['first', 'second', 'third', 'fourth', 'fifth']
+    narrowed = _cut(document, 'document / "\\n\\n" and role=assistant always',
+                    label_fields=fields, language='en', chunk_chars=1000)
+    assert [c.text for c in narrowed] == ['first\n\nsecond\nthird\nfourth', 'fifth']
+
+
+def test_word_packing_is_unchanged_as_the_budget_that_closes_every_plan():
+    # this is a unit test
+    """The greedy packing and the sliding window are the base case every
+    plan ends in; their output is frozen here from before the plan existed."""
+    text = 'Alpha beta.\nGamma  delta.\n\n\tEpsilon zeta eta.\n'
+    assert chunking.chunk_text(text, 20) == [
+        'Alpha beta. Gamma', 'delta. Epsilon zeta', 'eta.']
+    assert chunking._windows(text, 20, 5) == [
+        'Alpha beta. Gamma', 'Gamma delta. Epsilon', 'Epsilon zeta eta.']
+
+
+def test_the_budget_divides_a_piece_no_stage_reduced_and_keeps_a_single_parts_span():
+    # this is a unit test
+    """After the last stage a piece still over the budget is divided at word
+    boundaries. Cut from one part, the pieces still span that part — so its
+    labels reach them; cut from a run of parts, they no longer know which."""
+    fields = {'role': {'type': 'string', 'applies_to': ['part', 'chunk']}}
+    document = {'corpus_document_id': 1, 'document_content': [
+        {'text': ' '.join(f'w{i}' for i in range(40)), 'labels': {'role': 'user'}},
+        {'text': 'short reply', 'labels': {'role': 'assistant'}}]}
+    by_part = _cut(document, 'document / part', label_fields=fields,
+                   language='en', chunk_chars=60)
+    assert len(by_part) > 2
+    assert {(c.part_start, c.part_end) for c in by_part[:-1]} == {(0, 0)}
+    assert all(c.labels['role'] == 'user' for c in by_part[:-1])
+    whole = _cut(document, 'document', label_fields=fields, language='en',
+                 chunk_chars=60)
+    assert len(whole) > 1 and all(c.part_start == -1 for c in whole)
+    assert all('role' not in c.labels for c in whole)
+
+
+def test_a_budget_in_model_units_refuses_an_embedder_that_cannot_count_them():
+    # this is a unit test
+    """`chunk_unit='tokens'` measures the budget in the embedder's own units;
+    an embedder with no tokeniser is refused rather than counted in
+    characters under the wrong name."""
+    cfg = IndexConfig(split_plan=split_plan.parse('document'), chunk_unit='tokens',
+                      embedder='sentence-transformers')
+    with pytest.raises(ValueError, match='reports no model units'):
+        chunking.budget_measure(cfg, embedding.make_embedder('char-hash'))
+
+    class Counting:
+        """A stand-in for a model-backed embedder whose tokeniser counts a word as two units."""
+        class model:
+            class tokenizer:
+                @staticmethod
+                def encode(word, add_special_tokens=False):
+                    return [1, 2]
+    measure = chunking.budget_measure(cfg, Counting())
+    assert measure('three words here') == 6
+    assert chunking.chunk_text('a b c d e f', 4, measure) == ['a b', 'c d', 'e f']
 
 
 def test_contextual_prefix_situates_the_chunk():
@@ -188,7 +449,7 @@ def test_contextual_prefix_situates_the_chunk():
                   'applies_to': ['document', 'chunk']},
         'role': {'type': 'string', 'description': 'x', 'applies_to': ['part', 'chunk']},
     }
-    cfg = IndexConfig(chunker='message', contextual=True)
+    cfg = IndexConfig(split_plan=split_plan.parse('document / part'), contextual=True)
     chunk = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'),
                                     label_fields, 'en')[0]
     assert 'recorded_at: 2026-01-01T00:00:00Z' in chunk.prefix
@@ -309,41 +570,48 @@ def _long_document() -> dict:
         {'text': ' '.join(words[midpoint:]), 'labels': {'role': 'assistant'}}]}
 
 
-def test_overlap_chunker_repeats_material_between_windows():
+def test_an_overlap_repeats_material_between_the_pieces_the_budget_makes():
     # this is a unit test
-    """Adjacent windows must share material, or `fixed-overlap` is `fixed`
-    with extra config. Run over a synthetic document built long enough to
-    window at least twice, rather than skipping when the corpus document
-    handed to it happens to be short — a test that can skip itself is a test
-    that can assert nothing."""
+    """Adjacent pieces must share material, or the overlap is a number nothing
+    reads. Run over a synthetic document built long enough to window at
+    least twice, rather than skipping when the corpus document handed to it
+    happens to be short — a test that can skip itself is a test that can
+    assert nothing."""
     document = _long_document()
-    cfg = IndexConfig(chunker='fixed-overlap', chunk_chars=300, overlap=150,
-                      contextual=False)
-    chunks = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'))
+    chunks = _cut(document, 'document', chunk_chars=300, overlap=150)
     assert len(chunks) >= 2, 'the synthetic document must be long enough to window'
     total = sum(len(c.text) for c in chunks)
     assert total > len(corpus.document_text(document))
     # Not just longer overall: the tail of each window has to reappear,
-    # verbatim, at the head of the next one — every sentence here is
-    # numbered uniquely, so this substring cannot be satisfied by chance.
+    # verbatim, at the head of the next one — every word here is unique, so
+    # this substring cannot be satisfied by chance.
     for a, b in zip(chunks, chunks[1:]):
         tail = ' '.join(a.text.split()[-3:])
         assert tail in b.text, (tail, b.text)
 
 
-def test_semantic_drift_cuts_at_an_explicit_topic_shift():
+def test_the_drift_stage_cuts_at_a_marker_only_when_given_one():
     # this is a unit test
+    """No language's phrases are compiled in: with no markers the stage cuts
+    on similarity and its size ceiling alone, and the same corpus given the
+    diarist's own topic-change phrase cuts there too."""
+    # Three parts about the tax letter, the second opening with the diarist's
+    # topic-change phrase, then one about a different subject entirely: the
+    # similarity signal cuts before the last part whatever else is set, and
+    # only the marker can cut before the second.
     fake = {'corpus_document_id': 1, 'document_content': [
-        {'text': 'امروز کل روز درگیر مالیات بودم و نامه اداره مالیات',
-         'labels': {'role': 'user'}},
-        {'text': 'سخت بوده. چی شد آخرش؟', 'labels': {'role': 'assistant'}},
-        {'text': 'حالا اینا رو ولش کن، پریا سر کارهای خونه دوباره دعوا کرد',
-         'labels': {'role': 'user'}},
-        {'text': 'چه حسی داشتی؟', 'labels': {'role': 'assistant'}}]}
-    cfg = IndexConfig(chunker='semantic-drift', chunk_chars=500, contextual=False)
-    chunks = chunking.chunk_document(fake, cfg, embedding.make_embedder('char-hash'))
-    assert len(chunks) >= 2
-    assert any('پریا' in c.text and 'مالیات' not in c.text for c in chunks)
+        {'text': 'امروز کل روز درگیر مالیات بودم و نامه اداره مالیات'},
+        {'text': 'حالا اینا رو ولش کن، نامه اداره مالیات و درگیر مالیات بودم'},
+        {'text': 'نامه اداره مالیات، کل روز درگیر مالیات'},
+        {'text': 'پریا سر کارهای خونه دوباره دعوا کرد، چه حسی داشتی'}]}
+    embedder = embedding.make_embedder('char-hash', normalizer=textnorm)
+    without = _cut(fake, 'document / drift', embedder, chunk_chars=500)
+    assert [(c.part_start, c.part_end) for c in without] == [(0, 2), (3, 3)]
+    with_marker = _cut(fake, 'document / drift or "ولش کن"', embedder, chunk_chars=500)
+    assert [(c.part_start, c.part_end) for c in with_marker] == [(0, 0), (1, 2), (3, 3)]
+    module = chunking.__file__
+    assert 'ولش' not in open(module, encoding='utf-8').read(), (
+        'no Persian phrase may be compiled into the splitter')
 
 
 def test_chunk_metadata_is_chroma_safe(document, label_fields, language):
@@ -351,7 +619,7 @@ def test_chunk_metadata_is_chroma_safe(document, label_fields, language):
     """Exercises the diary document's own keyed confidence label
     (`topics_confidence`, an object) alongside its lists and scalars — the
     kind of value `metadata()` has to flatten, not just the easy ones."""
-    cfg = IndexConfig(chunker='message')
+    cfg = IndexConfig(split_plan=split_plan.parse('document / part'))
     chunk = chunking.chunk_document(document, cfg, embedding.make_embedder('char-hash'),
                                     label_fields, language)[0]
     for key, value in chunk.metadata().items():

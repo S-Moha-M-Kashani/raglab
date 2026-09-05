@@ -161,26 +161,31 @@ test('the pointer leaving the row closes the reveal, and so does leaving the '
 
 // This is a unit test.
 test('an inert knob renders as none, off, and without its recorded value', () => {
-  // `overlap` was recorded (100), but this row's chunker never reads it —
-  // `row.inert` names the path and says why. The reveal must not leak the
-  // ignored number, and must mark the span so a reader does not mistake a
-  // number that was never used for one that was.
+  // `embed_model` was recorded, but this row's hash embedder never loads a
+  // model — `row.inert` names the path and says why. The reveal must not leak
+  // the ignored value, and must mark the span so a reader does not mistake a
+  // value that was never used for one that was.
   const { sandbox } = board();
   const row = {
-    config: { index: { chunker: 'semantic-drift', overlap: 100 } },
-    inert: { 'index.overlap': 'only the fixed-overlap chunker slides a window' },
+    config: { index: { embedder: 'char-hash', embed_model: 'bge-small',
+                       split_plan: [{ kind: 'document' }, { kind: 'part', when: 'always' }] } },
+    inert: { 'index.embed_model': 'the hash embedders load no model' },
   };
   const html = sandbox.settingsReveal(row);
 
   assert.match(html,
-    /<span class="reveal-knob-off" title="only the fixed-overlap chunker slides a window — recorded value never used">overlap <b>none<\/b><\/span>/,
+    /<span class="reveal-knob-off" title="the hash embedders load no model — recorded value never used">embed_model <b>none<\/b><\/span>/,
     'the inert knob reads none, carries the off class and its reason');
-  assert.doesNotMatch(html, /100/, 'the recorded-but-unread value never appears');
+  assert.doesNotMatch(html, /bge-small/, 'the recorded-but-unread value never appears');
   // A knob the config recorded and this build actually read renders exactly
   // as it always has — plain class, its real value.
   assert.match(html,
-    /<span class="reveal-knob">chunker <b>semantic-drift<\/b><\/span>/,
+    /<span class="reveal-knob">embedder <b>char-hash<\/b><\/span>/,
     'a knob not named in row.inert still shows its recorded value');
+  // The plan is a list of stage objects in the record and one line to a
+  // reader — the same line `configuration/split_plan.text()` prints.
+  assert.match(html, /<span class="reveal-knob">split_plan <b>document \/ part<\/b><\/span>/,
+    'a plan renders in its typed form, never as its stored objects');
 });
 
 // This is a unit test.

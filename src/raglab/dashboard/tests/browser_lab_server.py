@@ -15,6 +15,8 @@ the directory run files may be written into. Nothing imports this module; the
 fixture names it on a command line, the way uvicorn names the app.
 """
 import os
+import threading
+import time
 from pathlib import Path
 
 import uvicorn
@@ -48,8 +50,32 @@ def redirect_runs_dir(runs: Path) -> None:
         module.RUNS_DIR = runs
 
 
+def exit_when_orphaned(poll: float = 2.0) -> None:
+    """Stop the moment the test that started us is gone.
+
+    The fixture terminates this process in its `finally`, which covers every
+    ordinary end of a run. It cannot cover the run being killed outright — a
+    `SIGKILL` to pytest, a closed terminal, a machine running out of memory —
+    and then this child is reparented to init and serves forever. Two such
+    labs were found still holding ports and memory, one of them a day old.
+
+    `os.getppid()` becoming 1 is the reparenting, so it is the signal. A
+    daemon thread rather than a signal handler, because there is no signal to
+    handle: nobody told us anything, our parent simply stopped existing.
+    `os._exit` rather than `sys.exit`, because uvicorn owns the main thread
+    and an exception raised here would not reach it.
+    """
+    def watch() -> None:
+        while os.getppid() != 1:
+            time.sleep(poll)
+        os._exit(0)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def main() -> None:
     redirect_runs_dir(Path(os.environ['RAGLAB_BROWSER_RUNS']))
+    exit_when_orphaned()
     uvicorn.run(APP, host='127.0.0.1',
                 port=int(os.environ['RAGLAB_BROWSER_PORT']),
                 log_level='warning')

@@ -10,6 +10,7 @@ import re
 
 from langchain_core.tools import tool
 
+from raglab.agents.widget import knob_reference as knobs
 from raglab.agents.widget import skills_corpus_loader as skills
 from raglab.agents.widget.conversation_memory import recall_conversation
 from raglab.agents.widget.experiment_tools import EXPERIMENT_TOOLS
@@ -92,6 +93,59 @@ def read_rag_skill(names: str) -> str:
     return '\n\n'.join(parts)
 
 
+# How many knob pages one read_knob call returns. Same reasoning as the skill
+# cap one layer down: the pages are the expensive layer, and a call asking for
+# the whole surface would put ~130 KB into the loop.
+MAX_KNOB_READS = 3
+
+
+@tool
+def search_knobs(query: str) -> str:
+    """This lab's own knobs, matched literally, the whole surface on a miss;
+    the model-facing prompt is fixtures/prompts/widget_tools.yaml's entry."""
+    hits = knobs.search(query, limit=None)
+    if not hits:
+        return (f"No knob matches '{query}'.\n\n" + knobs.index_text())
+    shown, rest = hits[:knobs.MAX_SEARCH_HITS], hits[knobs.MAX_SEARCH_HITS:]
+    lines = [f'{key} — {summary}' for key, summary in shown]
+    if rest:
+        # A cap the model cannot see is an invitation to reword and search
+        # again — which is the loop this whole ranking exists to end.
+        lines.append(f'({len(rest)} more matched less closely. Narrow the '
+                     'query, or read one of the above with read_knob rather '
+                     'than searching again.)')
+    return '\n'.join(lines)
+
+
+@tool
+def read_knob(keys: str) -> str:
+    """Whole knob pages with the knobs each interacts with, several per call
+    but capped; the model-facing prompt is
+    fixtures/prompts/widget_tools.yaml's entry."""
+    catalogue = knobs.index()
+    asked = [k for k in re.split(r'[,\s]+', keys.strip()) if k]
+    known = [k for k in asked if k in catalogue]
+    unknown = [k for k in asked if k not in catalogue]
+    served, over_cap = known[:MAX_KNOB_READS], known[MAX_KNOB_READS:]
+    parts = []
+    for key in served:
+        neighbours = knobs.related(key)
+        # The neighbours ride along rather than waiting for a second search:
+        # the page names them in prose, and this is the same list as a
+        # machine-readable line, so a follow-up question needs no round trip.
+        beside = ('\nrelated knobs: ' + ', '.join(neighbours)) if neighbours else ''
+        parts.append(f'=== {key} ===\n{knobs.page(key)}{beside}')
+    if over_cap:
+        parts.append(f'At most {MAX_KNOB_READS} knobs per call — not served: '
+                     + ', '.join(over_cap) + '. Ask again for them.')
+    if unknown:
+        parts.append('Not knobs: ' + ', '.join(unknown)
+                     + '. The knobs are: ' + ', '.join(sorted(catalogue)) + '.')
+    if not parts:
+        return 'No keys given. The knobs are: ' + ', '.join(sorted(catalogue)) + '.'
+    return '\n\n'.join(parts)
+
+
 @tool
 def measure_bilingual_alignment(model_name: str = '', pairs: str = '') -> str:
     """The EN-Farsi alignment probe over a real encoder — pair cosine,
@@ -128,6 +182,7 @@ def save_widget_memory(dataset_id: str, experiment_id: str, subtopic: str,
 # concern (what this lab has already measured), and the only tools whose data
 # is injected rather than read from a fixture.
 TOOLS = [search_knowledge_base, calculate, search_rag_skills, read_rag_skill,
+         search_knobs, read_knob,
          measure_bilingual_alignment, read_long_term_memory,
          recall_conversation] + EXPERIMENT_TOOLS
 

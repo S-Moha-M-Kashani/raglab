@@ -28,6 +28,7 @@
       <a href="/">Laboratory</a>
       <a href="/inspector">Inspector</a>
       <a href="/leaderboard" aria-current="page">Leaderboard</a>
+      <a href="/dataset">Dataset</a>
     </nav>
     <div class="topbar-actions">
       <button class="settings-button" id="app-settings" type="button"
@@ -43,6 +44,13 @@
           <div class="theme-control" id="theme-control"
                aria-labelledby="theme-control-label"></div>
         </div>
+        <div class="settings-group">
+          <h3 id="density-control-label">Rows</h3>
+          <!-- Filled by lab.js beside the theme, and stored the same way: how tall
+               a table's rows are is the reader's to say, not the page's. -->
+          <div class="theme-control" id="density-control"
+               aria-labelledby="density-control-label"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -52,21 +60,12 @@
 <main id="main">
 <div class="stack">
 
-  <section class="card">
-    <div class="card-head"><h2>Leaderboard</h2></div>
-    <p class="prose">
-      <b>One table per dataset.</b> Every experiment that touched one corpus —
-      index builds, retrievals and evaluations alike — in one table, ordered by
-      decision score, sortable by any column and narrowable by any of them
-      (<code>state!=failed</code>, <code>questions&gt;30</code>,
-      <code>when&gt;2026-08-01</code>). No winner is named: rows graded
-      by different judges over different question sets share a table, so
-      <code>judge</code> and <code>questions</code> are columns you compare on
-      rather than a promise that two rows are comparable. That stricter claim
-      still exists where it holds — a sweep moves one knob with its models fixed,
-      so <code>raglab-sweep</code> still names a winner and still refuses to when
-      the lead is inside the combined error.</p>
-  </section>
+  <!-- The page's own title, and the note that used to be a paragraph of
+       prose under it. A card holding one heading and nothing else is not a
+       card; this is the page saying what it is, once, above the board it
+       holds. lab.js opens the note on hover and on keyboard focus, and
+       leaderboard.js pins it here on a press. -->
+  <h1 class="page-title why-term" data-brief="One table per dataset. Every experiment that touched one corpus — index builds, retrievals and evaluations alike — in one table, ordered by decision score, sortable by any column and narrowable by any of them. No winner is named: rows graded by different judges over different question sets share a table, so judge and questions are columns you compare on rather than a promise that two rows are comparable. That stricter claim still exists where it holds — a sweep moves one knob with its models fixed, so raglab-sweep still names a winner and still refuses to when the lead is inside the combined error.">Leaderboard</h1>
 
   <!-- Filled by leaderboard.js from /api/leaderboard. -->
   <div id="board"></div>

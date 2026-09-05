@@ -18,7 +18,12 @@ def production_config(defaults: dict) -> dict:
     preset = {group: dict(fields) for group, fields in defaults.items()}
     preset['label'] = LABEL
     preset['index'] |= {
-        'chunker': 'fixed-overlap',
+        # The shipped assistant packed words up to the budget and slid a
+        # window: the whole document, cut by the budget alone — no stage
+        # between the document and the budget, and no paragraph boundary
+        # preferred over a word cut. A list rather than the dataclass's tuple,
+        # like `agentic_weights` below, because this dict is served as JSON.
+        'split_plan': [{'kind': 'document'}],
         'chunk_chars': 500,          # retrieval.CHUNK_SIZE
         'overlap': 100,              # retrieval.CHUNK_OVERLAP
         'contextual': False,

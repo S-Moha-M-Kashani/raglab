@@ -43,7 +43,7 @@ QUESTIONS = {q['groundtruth_question_id']: q
 RUN_FIXTURE = {
     'run_id': '20260101-010101-abc123', 'label': 'D wider context k=12',
     'seconds': 671.68, 'started_at': '2026-01-01 01:01:01',
-    'config': {'index': {'chunker': 'semantic-drift', 'embedder': 'x',
+    'config': {'index': {'split_plan': [{'kind': 'document'}, {'kind': 'drift', 'markers': [], 'when': 'always'}], 'embedder': 'x',
                          'embed_model': 'y'},
                'retrieval': {'k': 12, 'retriever': 'hybrid-rrf',
                              'reranker': 'lexical'},

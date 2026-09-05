@@ -4,462 +4,55 @@ Depends on no other service, so no route probes anything before creating a
 job. Runs are jobs, not requests — creating one answers 202 with a job id and a
 Location, and the panel polls that — one at a time, since concurrent runs
 would fight over the same index.
+
+The routes themselves live in `routes/`, one module per section. This file is
+the job table they run work on, the context they read state off, and the
+factory that builds both and calls each section's registrar.
 """
-import json
+import inspect
 import threading
 import time
 import traceback
 import uuid
-from urllib.parse import parse_qs
-import inspect
-import sqlite3
+from collections.abc import Callable
+from dataclasses import dataclass
 from types import SimpleNamespace
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, StreamingResponse)
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 
-from raglab.llm_backends import openrouter_key_memory as credentials
-from raglab.corpora import dataset_import_contract as datasets
-from raglab.corpora import corpus_reading
-from raglab.rag_components.indexing import embedding_backends as embedding
-from raglab.evaluation import run_evaluation as evaluate
-from raglab.evaluation import experiment_archive as archive
-from raglab.configuration import explainer_assembly as explain
-from raglab.evaluation import service_experiment_ledger as ledger
-from raglab.evaluation import experiment_archive_store as archive_store
-from raglab.evaluation import leaderboard
-from raglab.evaluation import deterministic_metrics as metrics
-from raglab.llm_backends import model_role_catalogue as models
-from raglab.rag_components import question_to_answer_pipeline as pipeline
-from raglab.evaluation import ragas_judged_metrics as ragas_eval
-from raglab.rag_components.retrieval import (
-    retrieve_fuse_rerank_grade as retrieval)
 from raglab.agents import widget
-from raglab.dashboard import dev_trace_page
 from raglab.configuration.lab_config import (
-    ANSWERERS,
-    CHUNKERS,
-    DEPENDENCIES,
-    EMBEDDERS,
-    GRADERS,
-    GRAPH_SOURCES,
-    HIERARCHIES,
-    LLM_PROVIDERS,
-    RERANKERS,
-    RETRIEVERS,
-    ROOT,
-    RUNS_DIR,
-    STEPS,
-    SUMMARIZERS,
-    SUMMARY_SCOPES,
-    GenerationConfig,
-    IndexConfig,
     LabConfig,
-    RetrievalConfig,
-    load_lab_settings,
-    settings_for_provider)
-from raglab.rag_components.indexing import (
-    summary_hierarchy_builder as hierarchy)
-from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
-from raglab.llm_backends.chat_model_factory import lab_llm
-from raglab.dashboard.service_presentation import (
-    chunks_by_session,
-    gold_available,
-    mark_gold,
-    summary_rows)
+    LabSettings,
+    load_lab_settings)
+from raglab.corpora import dataset_import_contract as datasets
+from raglab.dashboard import routes
 from raglab.dashboard.imported_archive_store import ImportedArchiveStore
 from raglab.dashboard.service_route_plumbing import (
-    _accepted,
-    cancel_checker,
-    _find_question,
+    InProcessLabAccess,
+    JobCancelled,
     ground_truth_for,
-    screen,
-    scaled_progress)
-
-STATIC = Path(__file__).resolve().parent / 'frontend'
-
-
-class JobCancelled(Exception):
-    """A cooperative stop requested from the RAG Lab panel."""
-
-
-def _relative(path: Path) -> str:
-    """Repo-relative path for the panel, or absolute when it's outside the repo (`relative_to` raises)."""
-    try:
-        return str(path.relative_to(ROOT))
-    except ValueError:
-        return str(path)
-
-
-def _with_backend(cfg: LabConfig, run_settings) -> dict:
-    """A job's config, plus the *resolved* backend it runs on — never the payload's possibly-blank request."""
-    return cfg.to_dict() | {'provider': run_settings.provider}
-
-
-def _recorded_config_problem(recorded: object) -> str | None:
-    """The strict counterpart to ``LabConfig.from_dict`` for old records.
-
-    The normal parser is intentionally forgiving of a stale *browser* payload.
-    A recorded experiment is different evidence: dropping a retired field or
-    coercing a malformed value here would run a question under settings the
-    record never named.  ``provider`` is execution metadata Jobs adds beside a
-    LabConfig, not a knob, and is the one accepted top-level companion field.
-    """
-    if not isinstance(recorded, dict) or not recorded:
-        return 'recorded experiment has no config'
-    lab_fields = set(LabConfig.__dataclass_fields__)
-    unknown = sorted(set(recorded) - lab_fields - {'provider'})
-    if unknown:
-        return f'{unknown[0]} is not a knob this lab reads any more'
-    if 'label' in recorded and not isinstance(recorded['label'], str):
-        return 'recorded label has malformed type'
-
-    for name, kind in (('index', IndexConfig),
-                       ('retrieval', RetrievalConfig),
-                       ('generation', GenerationConfig)):
-        if name not in recorded:
-            return f'recorded {name} is missing'
-        knobs = recorded[name]
-        if not isinstance(knobs, dict):
-            return f'recorded {name} has malformed shape'
-        retired = sorted(set(knobs) - set(kind.__dataclass_fields__))
-        if retired:
-            return f'{retired[0]} is not a knob this lab reads any more'
-        missing = sorted(set(kind.__dataclass_fields__) - set(knobs))
-        if missing:
-            return f'recorded {name}.{missing[0]} is missing'
-        for knob, value in knobs.items():
-            expected = kind.__dataclass_fields__[knob].type
-            if expected is str and not isinstance(value, str):
-                return f'recorded {name}.{knob} has malformed type'
-            if expected is bool and type(value) is not bool:
-                return f'recorded {name}.{knob} has malformed type'
-            if expected is int and type(value) is not int:
-                return f'recorded {name}.{knob} has malformed type'
-            if expected is float and (type(value) not in (int, float)):
-                return f'recorded {name}.{knob} has malformed type'
-            if knob == 'agentic_weights' and (
-                    not isinstance(value, (list, tuple))
-                    or len(value) != 3
-                    or any(type(weight) not in (int, float)
-                           for weight in value)):
-                return f'recorded {name}.{knob} has malformed type'
-    if 'provider' not in recorded:
-        return 'recorded provider is missing'
-    if not isinstance(recorded['provider'], str):
-        return 'recorded provider has malformed type'
-    provider = recorded['provider']
-    if provider and provider not in LLM_PROVIDERS:
-        return f'unknown recorded provider: {provider!r}'
-    return None
-
-
-def _recorded_config(detail: object, row: dict | None = None) -> object:
-    """The config a job recorded, with only its separately-recorded backend.
-
-    Run results predate the backend field and keep their `config` in the
-    portable archive spelling, where provider is deliberately execution
-    metadata rather than a knob.  The ledger records that resolved provider in
-    its own column from the same job.  Joining those two stored facts restores
-    the complete job config; it never consults the lab's current provider and
-    never mutates the detail object being read.
-    """
-    config = detail.get('config') if isinstance(detail, dict) else None
-    provider = (row or {}).get('provider')
-    if (isinstance(config, dict) and 'provider' not in config
-            and isinstance(provider, str) and provider):
-        return config | {'provider': provider}
-    return config
-
-
-def _archive_ui(payload: dict) -> dict:
-    """The panel controls of one run request, in the shape an archive records
-    them (`settings.ui`).
-
-    The knobs are a `LabConfig` and travel as one; these five are not — they
-    are how much of the corpus was scored and by which backend, which the
-    config cannot say. Read back off the request that carried them rather than
-    off the result, because the result never held them.
-
-    `mode` is the panel's dropdown, and the request carries the *provider* that
-    dropdown resolved to, so it is resolved back through the same table
-    (`models.MODES`) rather than guessed at. A provider no mode offers leaves
-    it blank, which is what a run started outside the panel honestly is.
-    """
-    provider = payload.get('provider') or ''
-    return {
-        'mode': next((mode.key for mode in models.MODES
-                      if mode.provider == provider), ''),
-        'ragas_mode': payload.get('ragas_mode', 'offline'),
-        'limit': int(payload.get('limit') or 0),
-        'ragas_limit': int(payload.get('ragas_limit') or 0),
-        # D7: a question filter is now one switch-group per question label
-        # the dataset itself declares, so there is no fixed vocabulary left
-        # to validate `labels`/`balance` against here — the panel checks them
-        # against the dataset the archived config names.
-        'labels': dict(payload.get('labels') or {}),
-        'balance': payload.get('balance') or '',
-    }
-
-
-def _catalogue_vocab() -> dict:
-    """The closed vocabularies for the three pipeline stages: chunker/embedder, retriever/reranker, grader/answerer."""
-    return {
-        'chunkers': list(CHUNKERS), 'embedders': list(EMBEDDERS),
-        'retrievers': list(RETRIEVERS), 'rerankers': list(RERANKERS),
-        'graders': list(GRADERS), 'answerers': list(ANSWERERS),
-    }
-
-
-def _hierarchy_options() -> dict:
-    """The summary hierarchy: grouping, graph edges, summariser, and what retrieval may do with the rows written."""
-    return {
-        'hierarchies': list(HIERARCHIES),
-        'graph_sources': list(GRAPH_SOURCES),
-        'summarizers': list(SUMMARIZERS),
-        'summary_scopes': list(SUMMARY_SCOPES),
-        # Verified by import, never guessed, so NA keeps meaning one thing:
-        # this installation cannot load it.
-        'hierarchy_support': hierarchy.available(),
-    }
-
-
-def _question_vocab(ground_truth: dict) -> dict:
-    """One switch-group per question label the loaded ground truth declares
-    with a closed set of values or a glossary (D7) — data-driven, since the
-    labels are the dataset's own, not a vocabulary every corpus must share.
-    `balance` may name any of them, or '' for a plain stride."""
-    fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
-             ).get('question_metadata_fields') or {}
-    labels = {name: (declaration.get('values')
-                     or list((declaration.get('glossary') or {})))
-             for name, declaration in fields.items()
-             if declaration.get('values') or declaration.get('glossary')}
-    return {
-        'question_labels': labels,
-        # The sample is part of the measurement: two rows on different
-        # samples are not two results of the same one.
-        'balances': [''] + sorted(labels),
-    }
-
-
-def _config_defaults() -> dict:
-    served = LabConfig().to_dict()
-    # The panel starts on the served DEFAULT corpus, named explicitly. The
-    # dataclass default stays '' — the legacy spelling of BUILTIN that keeps
-    # every recorded fingerprint meaning what it meant.
-    served['index']['dataset'] = datasets.DEFAULT
-    return {
-        # Served rather than duplicated per panel, so both grey out the same
-        # knobs for the same stated reason.
-        'dependencies': DEPENDENCIES,
-        'defaults': served,
-    }
-
-
-def _step_list() -> dict:
-    return {'steps': [{'key': step.key, 'short': step.short, 'label': step.label,
-                       'note': step.note} for step in STEPS]}
-
-
-def _model_catalogues(live) -> dict:
-    return {
-        'embedder_hints': embedding.embedder_hints(live),
-        'embed_models': embedding.embed_model_catalogue(live),
-        'models': models.catalogue(live),
-        'model_roles': [role.as_dict() for role in models.ROLES],
-        'modes': models.mode_catalogue(live),
-    }
-
-
-def _metric_help() -> dict:
-    # Label, step, formula and library per metric, so a name cannot
-    # drift from its definition. Two lengths of every explainer, from one
-    # source: `brief` is the opening sentence of `help`, taken by
-    # `explain.briefs()` rather than written a second time, so a hover box and
-    # the text it opens out into cannot come to say different things.
-    return {'metrics': explain.measures(), 'help': explain.topics(),
-            'brief': explain.briefs()}
-
-
-def _corpus_summary(diary: dict, ground_truth: dict) -> dict:
-    documents = diary.get('corpus_documents') or []
-    return {'corpus': {
-        'documents': len(documents),
-        'parts': sum(len(document.get('document_content') or [])
-                     for document in documents),
-        'questions': len(ground_truth.get('groundtruth_dataset') or []),
-        'query_date': (ground_truth.get('groundtruth_dataset_metadata') or {}
-                       ).get('default_question_asked_at', '')[:10],
-    }}
-
-
-def _capabilities(live) -> dict:
-    return {'capabilities': {
-        'fastembed': embedding.fastembed_available(),
-        'sentence_transformers': embedding.sentence_transformers_available(),
-        'cross_encoder': retrieval.cross_encoder_available(
-            live.cross_encoder_model),
-        'cross_encoder_model': live.cross_encoder_model,
-        'fastembed_model': live.fastembed_model,
-        # 'a real model is reachable', not 'a key exists' — under
-        # RAGLAB_LLM=ollama every stage runs locally with no key.
-        'llm': live.llm_ready,
-        'llm_provider': live.provider,
-        'llm_model': live.llm_model,
-        'ollama_base_url': live.ollama_base_url,
-        'ragas': ragas_eval.availability(live).as_dict(),
-        'openrouter_key': credentials.state(live),
-        # Stated positively, since the index is thrown away with the
-        # process rather than merely "no service named".
-        'storage': {'index': 'memory',
-                    'runs': str(RUNS_DIR.relative_to(ROOT)),
-                    'experiments': _relative(ledger.db_path())},
-    }}
-
-
-def _sent_events(events):
-    """One iterator of dicts, encoded as server-sent events: `data: ` and the
-    JSON, one object per line, blank line between. The lab's only streaming
-    route, so this lives beside it rather than in the shared plumbing.
-
-    A failure part-way through is encoded as an `error` event and the stream
-    ends there. It cannot be a status code — those were spent on the first
-    piece — and it must not be silence either: a page that saw the pieces stop
-    with no word would have to guess whether the answer had finished, and
-    guessing "finished" would show a fragment as a whole reply. Every
-    exception is caught, not only the widget's own: an iterator that dies
-    unexpectedly must still say so on the wire it was writing to.
-    """
-    try:
-        for event in events:
-            yield f'data: {json.dumps(_safe_widget_event(event))}\n\n'
-    except Exception as error:
-        yield f'data: {json.dumps({"error": str(error)})}\n\n'
-
-
-def _safe_widget_event(event):
-    """Keep widget responses to the reader-facing memory decision.
-
-    The widget backend needs the full policy and save result to coordinate its
-    own work, but those fields are internal implementation details and may
-    contain dataset or model text. The panel exposes only the useful outcome,
-    while leaving every other event field—including the authoritative reply—
-    unchanged. A malformed or absent memory value is omitted rather than
-    guessed at.
-
-    Four statuses, and every one of them is a thing `widget.ask` and
-    `widget.stream` can actually put on an event.
-
-    `pending` is the ordinary case: both answer paths file after they answer,
-    so the decision is still being taken when the turn lands. `unavailable` is
-    a turn nobody judged — no policy client could be built. `not_filed` is a
-    turn that ran to the end and must not be filed, which today means the
-    tool-hop guard answered in the widget's own voice. `irrelevant` is the
-    deterministic relevance guard's refusal (`backends._refused`), the one
-    memory block that still arrives here as policy booleans.
-
-    There were two more until 2026-08-28: `saved` and `not_saved`, read off a
-    resolved verdict's `saved` flag. No caller can produce one any more — the
-    verdict is taken on a thread of its own, after the response has gone, and
-    it lands on the `widget_turn_log` row rather than on any event. Statuses
-    this route cannot emit were removed rather than left standing, because a
-    documented status is a promise about what a client may see, and a promise
-    only a monkeypatched test could keep is not one.
-
-    Only `pending`, `unavailable` and `not_filed` reach the panel — the
-    deferred decision is the only memory event the page routes to a reader,
-    and of those three the page writes a line for the first two (`widget.js`,
-    `widgetMemoryStatus`). `irrelevant` is this API's alone, for a client
-    reading the route rather than the page.
-    """
-    if not isinstance(event, dict) or 'memory' not in event:
-        return event
-    memory = event.get('memory')
-    if not isinstance(memory, dict):
-        return {key: value for key, value in event.items() if key != 'memory'}
-    deferred = memory.get('status')
-    if deferred in ('pending', 'unavailable', 'not_filed'):
-        # A deferred or withheld decision carries no booleans, because there is
-        # no verdict to put in them. Dropping the block would leave the reader
-        # with no memory line at all, and no line reads as "nothing was worth
-        # keeping" — a verdict, and one nobody gave.
-        return event | {'memory': {'status': deferred}}
-    if not all(isinstance(memory.get(key), bool)
-               for key in ('relevant', 'should_save', 'saved')):
-        return {key: value for key, value in event.items() if key != 'memory'}
-    if memory.get('unavailable') is True:
-        status = 'unavailable'
-    elif not memory['relevant']:
-        status = 'irrelevant'
-    else:
-        # A relevant, boolean-bearing memory block is a shape no answer path
-        # builds. Rather than guess a verdict for it, the block is dropped the
-        # way a malformed one is.
-        return {key: value for key, value in event.items() if key != 'memory'}
-    return event | {'memory': {'status': status}}
-
-
-def _label_declaration(fields: dict) -> list[dict]:
-    """One row per declared label — name, type, its closed set of levels (a
-    plain `values` list or a `glossary`'s own keys; empty for an open field),
-    whether a model extracted it, and the confidence rater that scores it, if
-    any. Read straight off the file's own `label_fields`/
-    `question_metadata_fields` (D4) — nothing here is guessed or filled in."""
-    return [
-        {'name': name, 'type': declaration.get('type', ''),
-         'levels': declaration.get('values')
-                   or list(declaration.get('glossary') or {}),
-         'extracted': bool(declaration.get('extracted')),
-         'confidence_for': declaration.get('confidence_for', '')}
-        for name, declaration in sorted(fields.items())]
-
-
-def _dataset_declaration(dataset_id: str) -> dict:
-    """Everything the dataset card and the run's label filters read about one
-    dataset, straight off its loaded files (D4) — never hardcoded, so a
-    corpus with no date or ranks label just shows fewer rows and three
-    greyed-out knobs rather than a placeholder for what it lacks. The same
-    reading an import shows on success and a catalogue entry shows on
-    selection, because both are 'this is what the lab read' and must not
-    disagree."""
-    try:
-        corpus, ground_truth = datasets.load(dataset_id)
-    except ValueError:
-        # Listed but unmeasurable (D1): describe the corpus it does have and
-        # declare no question labels, rather than refusing to describe the
-        # catalogue at all. The refusal belongs on the run, not on the card.
-        corpus, ground_truth = datasets.load_corpus(dataset_id), {}
-    label_fields = (corpus.get('corpus_dataset_metadata') or {}
-                    ).get('label_fields') or {}
-    question_fields = (ground_truth.get('groundtruth_dataset_metadata') or {}
-                       ).get('question_metadata_fields') or {}
-    return {
-        'label_declarations': _label_declaration(label_fields),
-        'question_label_declarations': _label_declaration(question_fields),
-        # '' means the corpus declares no such label (D5/D6) — the source
-        # `knob_dependencies.DEPENDENCIES` reads to grey the three time knobs
-        # and the agentic importance weight.
-        'date_label': corpus_reading.date_label(label_fields),
-        'ranks_label': corpus_reading.ranks_label(label_fields),
-    } | _question_vocab(ground_truth)
-
-
-def _dataset_options() -> dict:
-    return {
-        'datasets': [found.as_dict() | _dataset_declaration(found.id)
-                     for found in datasets.catalogue()],
-    }
+    install_no_store)
+from raglab.evaluation import leaderboard
+from raglab.evaluation import run_evaluation as evaluate
+from raglab.evaluation import service_experiment_ledger as ledger
+from raglab.llm_backends import openrouter_key_memory as credentials
+from raglab.rag_components.indexing.index_builder_registry import IndexRegistry
 
 
 class Jobs:
-    """In-process job table. A lab restart loses running jobs; finished runs are
-    on disk, which is the part that matters."""
+    """In-process job table, bounded. A lab restart loses running jobs;
+    finished runs are on disk, which is the part that matters — and that is
+    also why the table may forget the oldest of them past `max_history`."""
 
-    def __init__(self, record=None):
+    def __init__(self, record=None, max_history: int = LabSettings.max_job_history):
         """`record(job, state)` is called once per finished job, or nothing is.
+
+        `max_history` is how many *finished* jobs the table keeps, defaulting
+        to the ceiling `LabSettings` states; 0 is unbounded. The panel polls
+        this table, so an unbounded one is a poll that walks further every
+        hour the lab stays up.
 
         A hook rather than a direct call to `ledger.record`, because the
         Inspector runs this same class read-only (`inspector_server.py` imports `Jobs`
@@ -468,8 +61,23 @@ class Jobs:
         does not owns nothing to pass."""
         self.lock = threading.Lock()
         self.record = record
+        self.max_history = max_history
         self.jobs: dict[str, dict] = {}
         self.current: str | None = None
+
+    def _prune(self) -> None:
+        """Drop the oldest finished jobs past the ceiling. Called under
+        `self.lock`, on insert. Nothing is lost: every finished job has a
+        ledger row and every evaluation a run file, and the two of them are the
+        record — this table is only the live view of it. A running or
+        cancelling job is never a candidate, whatever its age, because the live
+        view is the only place it exists yet."""
+        if not self.max_history:
+            return
+        terminal = [job_id for job_id, job in self.jobs.items()
+                    if job['state'] not in ('running', 'cancelling')]
+        for job_id in terminal[:-self.max_history]:
+            del self.jobs[job_id]
 
     def start(self, kind: str, target, config: dict | None = None,
               archive=None) -> str:
@@ -502,6 +110,7 @@ class Jobs:
                                  '_cancel': threading.Event(),
                                  '_archive': archive}
             self.current = job_id
+            self._prune()
 
         cancel = self.jobs[job_id]['_cancel']
 
@@ -575,11 +184,17 @@ class Jobs:
                 if not key.startswith('_')}
 
     def list(self) -> list[dict]:
-        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback."""
+        """Newest first, deliberately thin (id/kind/state/config) — not every job's result or traceback.
+
+        Under the lock: the panel polls this while a starting job prunes the
+        oldest finished ones, and walking a dict another thread is deleting
+        from raises rather than answering."""
+        with self.lock:
+            snapshot = list(self.jobs.values())
         return [{'id': job['id'], 'kind': job['kind'], 'state': job['state'],
                  'started_at': job.get('started_at', ''),
                  'config': job.get('config')}
-                for job in reversed(list(self.jobs.values()))]
+                for job in reversed(snapshot)]
 
     def cancel(self, job_id: str) -> dict:
         job = self.jobs.get(job_id)
@@ -592,6 +207,35 @@ class Jobs:
             job['stage'] = 'stopping'
             job['detail'] = 'stopping before the next model call'
         return self.get(job_id)
+
+
+@dataclass(frozen=True)
+class PanelContext:
+    """The state the panel's routes read, assembled once by `create_app` and
+    handed to each route module's `register`.
+
+    A container, and deliberately not a service layer: it holds and it does not
+    decide. Every field is either data or a callable the factory built, so a
+    route that needs a configuration screened calls the shared plumbing rather
+    than a method here — the moment one of these names starts choosing a
+    backend or shaping a response it has become the layer this project's
+    complexity gate refuses. A convention test pins that.
+
+    A dataclass rather than the app's own `state`, because `app.state` is
+    untyped: a route reaching for a name nobody put there would fail at request
+    time, while a missing field here fails when the app is built. The one
+    exception is `app.state.lab_access`, which `create_app` stashes and
+    `served_lab.py` reads while composing the two halves — a single build-time
+    handoff between two files, so a name nobody put there still fails when the
+    app is built, which is the property this container exists to keep."""
+    settings_now: Callable[[], LabSettings]
+    corpus: dict
+    ground_truth: dict
+    questions_for: Callable[[LabConfig], dict]
+    registry: IndexRegistry
+    dataset_lock: Callable[..., threading.Lock]
+    jobs: Jobs
+    archives: ImportedArchiveStore
 
 
 def create_app() -> FastAPI:
@@ -620,7 +264,6 @@ def create_app() -> FastAPI:
         """The ground truth of the corpus this config names — resolved by id, so index and questions match."""
         return ground_truth_for(cfg, ground_truth)
 
-    registry = IndexRegistry(settings, diary)
     # A dataset id names mutable machine-local content. Keep its snapshot,
     # in-memory index use and replacement atomic without making unrelated
     # datasets wait for one another. Lock order is deliberately one-way: the
@@ -634,822 +277,47 @@ def create_app() -> FastAPI:
         with dataset_locks_guard:
             return dataset_locks.setdefault(key, threading.Lock())
 
-    # This service owns the ledger, so this is the one place a recorder is passed.
-    jobs = Jobs(record=ledger.record)
-    archives = ImportedArchiveStore()
+    # Every job route opens `with dataset_lock(...), registry.hold(cfg.index):`.
+    # The second half is the memory bound's other side: the registry keeps only
+    # the newest few indexes, and a job says here that the one it is about to
+    # work against is in use — so a build elsewhere can never take it away
+    # mid-run and make the next question rebuild what is already resident.
+
+    context = PanelContext(
+        settings_now=settings_now,
+        corpus=diary,
+        ground_truth=ground_truth,
+        questions_for=questions_for,
+        registry=IndexRegistry(settings, diary),
+        dataset_lock=dataset_lock,
+        # This service owns the ledger, so this is the one place a recorder is
+        # passed.
+        jobs=Jobs(record=ledger.record, max_history=settings.max_job_history),
+        archives=ImportedArchiveStore())
+
     app = FastAPI(title='RAG Lab')
 
-    @app.middleware('http')
-    async def never_serve_yesterdays_page(request, call_next):
-        """The frontend is read from disk on every request, so an edit is live
-        the moment it is saved — but `FileResponse` sends no `Cache-Control`,
-        which leaves a browser free to reuse a page it already has without ever
-        asking. That turns an edited panel into "nothing changed", and the
-        reader has no way to tell that from a broken change. A workbench serves
-        what is on disk or it is lying about what it is running."""
-        response = await call_next(request)
-        response.headers['Cache-Control'] = 'no-store'
-        return response
-
-    @app.get('/')
-    def panel():
-        return FileResponse(STATIC / 'panel.html')
-
-    @app.get('/sorttable.js')
-    def sorttable():
-        """The column sorter, shared with the Inspector — one of three static files served outside the one page."""
-        return FileResponse(STATIC / 'sorttable.js',
-                            media_type='application/javascript')
-
-    @app.get('/filtertable.js')
-    def filtertable():
-        """The leaderboard's row filter, which reads a cell with the sorter's own parser rather than a second one."""
-        return FileResponse(STATIC / 'filtertable.js',
-                            media_type='application/javascript')
-
-    @app.get('/tokens.css')
-    def tokens_css():
-        """The design tokens shared with the Inspector, so a colour cannot drift apart on either page."""
-        return FileResponse(STATIC / 'tokens.css', media_type='text/css')
-
-    @app.get('/chrome.css')
-    def chrome_css():
-        """The bar and surface switcher shared with the Inspector, so the top of a page means one thing on both ports."""
-        return FileResponse(STATIC / 'chrome.css', media_type='text/css')
-
-    @app.get('/lab.js')
-    def lab_js():
-        """The utilities shared with the Inspector, so a name like escapeHtml has one behaviour, not two."""
-        return FileResponse(STATIC / 'lab.js',
-                            media_type='application/javascript')
-
-    @app.get('/widget.css')
-    def widget_css():
-        """The widget's own rules, served to all three surfaces — the helper is
-        not the Laboratory's, so its sheet is not panel.css."""
-        return FileResponse(STATIC / 'widget.css', media_type='text/css')
-
-    @app.get('/widget.js')
-    def widget_js():
-        """The widget itself. One file, three pages: it builds its own markup,
-        so a surface gains the helper by loading this and nothing else."""
-        return FileResponse(STATIC / 'widget.js',
-                            media_type='application/javascript')
-
-    @app.get('/leaderboard')
-    def leaderboard_page():
-        """The cross-run surface: what earlier runs said, kept off the lab page where the knobs live."""
-        return FileResponse(STATIC / 'leaderboard.html')
-
-    @app.get('/leaderboard.js')
-    def leaderboard_js():
-        """The leaderboard surface's script — it renders what /api/leaderboard serves and re-derives no rank of its own."""
-        return FileResponse(STATIC / 'leaderboard.js',
-                            media_type='application/javascript')
-
-    @app.get('/panel.css')
-    def panel_css():
-        """The panel's style, extracted from panel.html's <style> block."""
-        return FileResponse(STATIC / 'panel.css', media_type='text/css')
-
-    @app.get('/panel.js')
-    def panel_js():
-        """The panel's script, extracted from panel.html's <script> block."""
-        return FileResponse(STATIC / 'panel.js',
-                            media_type='application/javascript')
-
-    @app.get('/archive_io.js')
-    def archive_io_js():
-        """The versioned archive codec, loaded before the Panel integration."""
-        return FileResponse(STATIC / 'archive_io.js',
-                            media_type='application/javascript')
-
-    @app.get('/experiment_handoff.js')
-    def experiment_handoff_js():
-        """The board-to-Laboratory handoff, loaded by both pages: the board writes the slot, the panel decides which recorded knobs this installation can serve."""
-        return FileResponse(STATIC / 'experiment_handoff.js',
-                            media_type='application/javascript')
-
-    @app.get('/api/options')
-    def options():
-        """Everything the panel needs to render itself, including what is actually installed."""
-        live = settings_now()
-        return (_catalogue_vocab() | _hierarchy_options()
-                | _question_vocab(ground_truth) | _config_defaults() | _step_list()
-                | _model_catalogues(live) | _metric_help()
-                | _corpus_summary(diary, ground_truth) | _capabilities(live)
-                | _dataset_options() | {'indexes': registry.known()})
-
-    @app.post('/api/indexes')
-    def build_index(payload: dict):
-        cfg = LabConfig.from_dict(payload)
-        force = bool(payload.get('force'))
-        # The same screen the run routes apply: a missing library fails as a
-        # 400 naming what to install, not a 500 from an import three frames
-        # down. Only the index half is checked — a build reads no model.
-        problems = [p for p in cfg.validate()
-                    if not p.startswith(('unknown retriever', 'unknown reranker',
-                                         'unknown grader', 'unknown answerer',
-                                         'unknown summary_scope', 'k must be'))]
-        if problems:
-            raise HTTPException(400, '; '.join(problems))
-
-        def work(report, cancelled):
-            check_cancelled = cancel_checker(cancelled, JobCancelled)
-            check_cancelled()
-            with dataset_lock(cfg.index.dataset):
-                check_cancelled()
-                index = registry.get(cfg.index, progress=report, force=force)
-                return {'collection': index.stats.collection,
-                        'chunks': index.stats.chunks,
-                        'leaves': index.stats.leaves,
-                        'avg_chars': index.stats.avg_chars,
-                        'p95_chars': index.stats.p95_chars,
-                        'embed_dim': index.stats.embed_dim,
-                        'build_seconds': index.stats.build_seconds,
-                        # None on a flat build, distinguishing "no hierarchy"
-                        # from "a hierarchy that found nothing".
-                        'hierarchy': index.stats.hierarchy,
-                        'reused': index.stats.reused, 'notes': index.stats.notes,
-                        # So a follower (the Inspector) can render what was
-                        # built without holding its own index; both halves,
-                        # since `chunks_by_session` alone omits every summary a
-                        # grouping wrote.
-                        'chunks_by_session': chunks_by_session(index),
-                        'summaries': summary_rows(index)}
-
-        return _accepted(jobs.start('index', work, config=cfg.to_dict()))
-
-    @app.post('/api/evaluations')
-    def start_evaluation(payload: dict):
-        cfg = LabConfig.from_dict(payload)
-        # The mode dropdown's backend override, applied before the screen so
-        # the settings that refuse a model are the settings that would run it.
-        run_settings = settings_for_provider(settings_now(),
-                                             payload.get('provider') or '')
-        screen(cfg, run_settings)
-        run_execution = {
-            'provider': run_settings.provider,
-            'models': models.resolve(cfg, run_settings).as_dict(),
-        }
-        metric_catalogue = explain.measures()
-        archive_ui = _archive_ui(payload)
-
-        def work(report, cancelled):
-            check_cancelled = cancel_checker(cancelled, JobCancelled)
-            check_cancelled()
-            with dataset_lock(cfg.index.dataset):
-                # Snapshot and index use share this boundary. A replacement of
-                # the same id cannot put new corpus evidence beside old chunks.
-                check_cancelled()
-                run_corpus, run_truth = datasets.load(cfg.index.dataset)
-                result = evaluate.run_eval(
-                    registry, run_truth, cfg, run_settings,
-                    labels=payload.get('labels') or None,
-                    limit=payload.get('limit') or None,
-                    balance=payload.get('balance') or '',
-                    ragas_mode=payload.get('ragas_mode', 'offline'),
-                    ragas_limit=payload.get('ragas_limit') or None,
-                    workers=int(payload.get('workers', 1)), progress=report,
-                    # Always traced, so the Inspector is never blank after a run —
-                    # a recording of the same retrieval, so no score can move.
-                    trace=True, cancelled=check_cancelled)
-                # Added here, not inside `as_dict`: the run file `save_run`
-                # writes stays the summary, with no trace or chunk text in it.
-                return result.as_dict() | {
-                    'traces': result.traces,
-                    'chunks_by_session': result.chunks_by_session,
-                    'summaries': result.summaries,
-                    'archive_evidence': {
-                        'execution': run_execution,
-                        'metric_catalogue': metric_catalogue,
-                        'inspector': {
-                            'dataset': {
-                                'id': cfg.index.dataset or datasets.BUILTIN,
-                                'corpus': run_corpus,
-                                'ground_truth': run_truth,
-                            },
-                            'chunks_by_session': result.chunks_by_session,
-                            'summaries': result.summaries,
-                            'traces': result.traces,
-                        },
-                    }}
-
-        def keep_archive(job: dict) -> None:
-            """One finished evaluation, written down as the archive a reader
-            would have downloaded.
-
-            The evidence is already assembled for the browser; all this adds is
-            the knob surface it was produced under — the config off the result
-            itself, so the two can never disagree, and the panel controls this
-            request carried. Handed to the store as a whole object rather than
-            column by column: `build_completed` is the export codec's own
-            server-side twin, so an experiment on record and an experiment
-            exported are the same thing said twice.
-
-            Reached only from `Jobs.run`, and only for a job that finished:
-            unfinished work is not saved, and a failure here is reported on the
-            job rather than failing it.
-            """
-            result = job.get('result')
-            evidence = result.get('archive_evidence') if isinstance(result, dict) else None
-            if not isinstance(evidence, dict):
-                return
-            canonical = {key: value for key, value in result.items()
-                         if key != 'archive_evidence'}
-            archive_store.store_completed(
-                {'config': canonical['config'], 'ui': archive_ui}, canonical,
-                evidence)
-
-        return _accepted(jobs.start('run', work,
-                                    config=_with_backend(cfg, run_settings),
-                                    archive=keep_archive))
-
-    @app.post('/api/retrievals')
-    def start_retrieval(payload: dict):
-        """Retrieval only, over the questions the eval card has selected — no answering, no judging, no run file.
-
-        Its own route rather than a flag on `/api/evaluations`, so it stays the
-        step affordable to repeat while moving one knob. Takes the same
-        selection arguments as an evaluation on purpose."""
-        cfg = LabConfig.from_dict(payload)
-        run_settings = settings_for_provider(settings_now(),
-                                             payload.get('provider') or '')
-        screen(cfg, run_settings)
-
-        def work(report, cancelled):
-            check_cancelled = cancel_checker(cancelled, JobCancelled)
-            check_cancelled()
-            with dataset_lock(cfg.index.dataset):
-                check_cancelled()
-                return evaluate.run_retrieval(
-                    registry, questions_for(cfg), cfg, run_settings,
-                    labels=payload.get('labels') or None,
-                    limit=payload.get('limit') or None,
-                    balance=payload.get('balance') or '',
-                    progress=report, cancelled=check_cancelled)
-
-        return _accepted(jobs.start('retrieve', work,
-                                    config=_with_backend(cfg, run_settings)))
-
-    @app.get('/api/jobs')
-    def list_jobs():
-        """Every job this process has run, newest first — id/kind/state/config only, not the full result."""
-        return {'jobs': jobs.list()}
-
-    @app.get('/api/jobs/{job_id}')
-    def job_status(job_id: str):
-        return jobs.get(job_id)
-
-    @app.post('/api/jobs/{job_id}/cancel')
-    def cancel_job(job_id: str):
-        return jobs.cancel(job_id)
-
-    @app.get('/api/evaluations')
-    def evaluations(limit: int = 50):
-        # `total` beside the rows, since this listing is bounded.
-        return {'runs': evaluate.list_runs(limit),
-                'total': evaluate.count_runs()}
-
-    @app.get('/api/leaderboard')
-    def leaderboard_board(dataset: str = '', limit: int = 500):
-        """One board per dataset: every experiment that touched one corpus.
-
-        `dataset=''` is the built-in default, `dataset='*'` is every experiment
-        — the table that used to sit on the lab page, which is the same
-        population with no filter and so an option in the same picker rather
-        than a second surface.
-
-        The grouping and the row shape come from `evaluation.leaderboard`, the
-        same module `raglab-leaderboard` prints from, so the page and the
-        command line cannot describe the same records differently. This route is
-        why that module lives in `evaluation/` rather than among the terminal
-        tools no route reaches."""
-        wanted = dataset or '*'
-        running = jobs.get(jobs.current) if jobs.current else None
-        is_running = bool(running and running['state'] in ('running', 'cancelling'))
-        if is_running:
-            # A live job has no durable row yet. It still belongs on the board,
-            # newest first, so leaving the Laboratory does not make the reader
-            # lose the experiment currently in progress.
-            rows = leaderboard.board_rows(limit)
-            rows.append(leaderboard.live_job_record(running))
-            rows.sort(key=lambda row: row.get('started_at', ''), reverse=True)
-            if wanted != '*':
-                rows = [row for row in rows if row.get('dataset') == wanted]
-            ordering = 'newest'
-        else:
-            boards = leaderboard.build_board(limit)
-            # `every_row`, not the boards concatenated: the page's own prose says
-            # the order it was served in is the ranking, and a concatenation is
-            # ordered by dataset block instead.
-            rows = (leaderboard.every_row(boards) if wanted == '*' else
-                    next((b.rows for b in boards if b.dataset == wanted), []))
-            ordering = 'score'
-        return {'dataset': wanted,
-                'datasets': [found.as_dict() for found in datasets.catalogue()],
-                'rows': rows, 'ordering': ordering, 'running': is_running}
-
-    @app.get('/api/experiments')
-    def experiments(limit: int = 200):
-        """Everything this lab has ever finished, newest first — beside the leaderboard, never in it.
-
-        An index build has no questions and no score, so a numbered table it
-        appeared in would make a rank claim about work that measured nothing."""
-        return {'experiments': ledger.experiments(limit)}
-
-    @app.get('/api/experiments/{experiment_id}')
-    def experiment_detail(experiment_id: str):
-        """One experiment by id, from whichever of the two records holds it.
-
-        The ledger first, then the run file, because the board is built from
-        both and a row it lists must be a row this answers. An evaluation older
-        than the ledger has only its run file, and those are most of the scored
-        rows there are."""
-        found = leaderboard.experiment(experiment_id)
-        if found is None:
-            raise HTTPException(404, 'unknown experiment')
-        row = ledger.experiment(experiment_id)
-        run = evaluate.load_run(experiment_id)
-        # `experiment_record` is the projection the board's own rows are, so the
-        # row a reader clicked and the page that opens it cannot give two
-        # accounts of one experiment — and any later reader that wants the same
-        # experiment without the evidence asks the same function rather than
-        # writing the ledger-versus-run precedence a third time. What a page
-        # needs on top *is* the evidence: the ledger's own `detail`, which
-        # carries the whole job result for a row it recorded, and the run file
-        # itself for an evaluation older than the ledger.
-        return found | {'detail': (row or {}).get('detail') or run or {}}
-
-    @app.get('/api/experiments/{experiment_id}/archive')
-    def experiment_archive_route(experiment_id: str):
-        """One experiment as the portable archive the export button writes.
-
-        Its own route rather than a shape change to `/api/experiments/{id}`,
-        because that one has a second reader: the Inspector's recorded mode
-        reads `detail`, `state`, `kind` and `error` off it, and would go blank
-        if it started receiving an archive instead.
-
-        This is what the board's open button hands to the panel, and it is the
-        *same object* a downloaded file carries — so opening a row and importing
-        its export are one path with one strictness, not two that can drift.
-
-        The corpus is spliced back in on the way out (`archive_store.serve`)
-        from the content-addressed corpus store, and a version that store does
-        not hold is a refusal rather than a substitution: 409, because the
-        archive is intact and it is this installation that has moved.
-        """
-        # A question is a complete, durable record but deliberately not a
-        # completed evaluation: it has one answer and trace, no run file or
-        # corpus snapshot to turn into an export archive.  The open handoff
-        # therefore carries only the settings it actually recorded.  It does
-        # not touch the parent, manufacture evaluation evidence, or splice in
-        # today's corpus; a later Inspector visit reads the question row's own
-        # ledger evidence through its ordinary recorded-mode route.
-        question = ledger.experiment(experiment_id)
-        if (question or {}).get('kind') == 'question' and question.get('state') == 'done':
-            detail = question.get('detail')
-            recorded = _recorded_config(detail, question)
-            problem = _recorded_config_problem(recorded)
-            if problem:
-                raise HTTPException(409, problem)
-            handoff = {
-                'format': archive.FORMAT,
-                'version': archive.VERSION,
-                'settings': {
-                    'config': {name: recorded[name]
-                               for name in LabConfig.__dataclass_fields__},
-                    'ui': _archive_ui(detail | {
-                        'provider': recorded['provider']}),
-                },
-            }
-            try:
-                return archive.validate_archive(handoff)
-            except archive.ArchiveError as error:
-                raise HTTPException(409, str(error)) from error
-
-        db = archive_store.connect(ledger.db_path())
-        try:
-            found = archive_store.serve(db, experiment_id)
-        except archive_store.ArchiveStoreError as error:
-            raise HTTPException(409, str(error))
-        finally:
-            db.close()
-        if found is None:
-            raise HTTPException(
-                404, f'{experiment_id} has no complete archive: only '
-                'experiments whose evidence survives in full are archived')
-        return found
-
-    @app.post('/api/experiments/{experiment_id}/questions')
-    def add_recorded_question(experiment_id: str, payload: dict):
-        """Run one ground-truth question under an experiment's recorded config.
-
-        The parent record is evidence of work already done, so this route only
-        ever starts a distinct `question` job whose result names what it
-        annotates.  It never accepts a config from the browser: accepting one
-        would make the Inspector claim an experiment supplied settings it did
-        not actually record.
-        """
-        if leaderboard.experiment(experiment_id) is None:
-            raise HTTPException(404, f'unknown experiment: {experiment_id}')
-        row = ledger.experiment(experiment_id)
-        run = evaluate.load_run(experiment_id)
-        detail = (row or {}).get('detail') or run or {}
-        if not isinstance(detail, dict):
-            raise HTTPException(409, 'recorded experiment detail is malformed')
-        if detail.get('format') == 'raglab-experiment':
-            raise HTTPException(409, 'recorded archive has no runnable job config')
-        recorded = _recorded_config(detail, row)
-        problem = _recorded_config_problem(recorded)
-        if problem:
-            raise HTTPException(409, problem)
-
-        cfg = LabConfig.from_dict(recorded)
-        asked = questions_for(cfg)
-        question_id = payload.get('question_id') if isinstance(payload, dict) else None
-        question = _find_question(asked, question_id)
-        if question is None:
-            raise HTTPException(404, f'unknown question id: {question_id!r}')
-        run_settings = settings_for_provider(settings_now(),
-                                             recorded.get('provider') or '')
-        screen(cfg, run_settings)
-        job_config = _with_backend(cfg, run_settings)
-        selected_id = str(question_id)
-
-        def work(report, cancelled):
-            check_cancelled = cancel_checker(cancelled, JobCancelled)
-            check_cancelled()
-            with dataset_lock(cfg.index.dataset):
-                check_cancelled()
-                index = registry.get(cfg.index,
-                                     progress=scaled_progress(report, 0.6))
-                llm = lab_llm(run_settings)
-                roles = models.resolve(cfg, run_settings)
-                query_date = (asked.get('groundtruth_dataset_metadata') or {}
-                              ).get('default_question_asked_at',
-                                    '2026-07-28T00:00:00Z')[:10]
-                report('retrieving', 0.65, question['question'][:80])
-                outcome, trace = pipeline.retrieve_traced(
-                    index, cfg.retrieval, question['question'], query_date,
-                    llm=llm, models=roles)
-                trace_row = evaluate.trace_row(
-                    question, trace,
-                    gold_present=gold_available(
-                        index, metrics.verbatim_quotes(question)))
-                check_cancelled()
-                report('answering', 0.85)
-                outcome = pipeline.answer(outcome, cfg.generation, llm=llm,
-                                          models=roles)
-                answer_row = evaluate.json_safe(
-                    metrics.score_question(question, outcome, cfg.retrieval.k))
-                return {
-                    'label': f'adds {selected_id} to {experiment_id}',
-                    'annotates': experiment_id,
-                    'question_id': selected_id,
-                    'config': job_config,
-                    'models': roles.as_dict(),
-                    'selection': {'n': 1, 'question_ids': [selected_id]},
-                    'traces': [trace_row],
-                    'rows': [answer_row],
-                }
-
-        return _accepted(jobs.start('question', work, config=job_config))
-
-    @app.get('/api/experiments/{experiment_id}/questions')
-    def recorded_questions(experiment_id: str):
-        if leaderboard.experiment(experiment_id) is None:
-            raise HTTPException(404, f'unknown experiment: {experiment_id}')
-        return {'questions': ledger.annotations(experiment_id)}
-
-    @app.post('/api/imported-archives')
-    def import_archive(payload: dict):
-        try:
-            return archives.import_archive(payload)
-        except archive.ArchiveError as error:
-            raise HTTPException(400, str(error)) from error
-        except sqlite3.Error as error:
-            raise HTTPException(500, 'archive database persistence failed') from error
-
-    @app.get('/api/imported-archives/active')
-    def active_archive():
-        return archives.metadata()
-
-    @app.delete('/api/imported-archives/active')
-    def clear_active_archive():
-        archives.clear()
-        return {'archive_id': None}
-
-    @app.get('/api/imported-archives/{archive_id}')
-    def imported_archive(archive_id: str):
-        found = archives.get(archive_id)
-        if found is None:
-            raise HTTPException(404, 'unknown imported archive')
-        return found
-
-    @app.get('/api/evaluations/{run_id}')
-    def evaluation_detail(run_id: str):
-        data = evaluate.load_run(run_id)
-        if data is None:
-            raise HTTPException(404, 'unknown run')
-        return data
-
-    @app.post('/api/queries')
-    def ad_hoc_query(payload: dict):
-        """Run one question through the current settings and return every stage — still a job, since the
-        index it builds implicitly can outwait any HTTP timeout; preconditions still refuse synchronously."""
-        cfg = LabConfig.from_dict(payload)
-        question = (payload.get('question') or '').strip()
-        if not question:
-            raise HTTPException(400, 'question is required')
-        # The same screen /api/evaluations applies, so the two routes cannot
-        # disagree about which configs are legal.
-        run_settings = settings_for_provider(settings_now(),
-                                             payload.get('provider') or '')
-        screen(cfg, run_settings)
-        requested_query_date = payload.get('query_date')
-
-        def work(report, cancelled):
-            check_cancelled = cancel_checker(cancelled, JobCancelled)
-            check_cancelled()
-            with dataset_lock(cfg.index.dataset):
-                check_cancelled()
-                asked = questions_for(cfg)
-                query_date = requested_query_date or (
-                    asked.get('groundtruth_dataset_metadata') or {}
-                    ).get('default_question_asked_at', '2026-07-28T00:00:00Z')[:10]
-                # The implicit build is the long silent part — hand it the
-                # front of the bar, or it all happens on 'starting 0%'.
-                index = registry.get(
-                    cfg.index, progress=scaled_progress(report, 0.7))
-                llm = lab_llm(run_settings)
-                roles = models.resolve(cfg, run_settings)
-                report('retrieving', 0.75, question[:80])
-                # Traced rather than plain `retrieve`, for the per-step ranks
-                # the Inspector's table needs.
-                outcome, trace = pipeline.retrieve_traced(
-                    index, cfg.retrieval, question, query_date,
-                    llm=llm, models=roles)
-                report('answering', 0.9)
-                outcome = pipeline.answer(
-                    outcome, cfg.generation, llm=llm, models=roles)
-                # Exact match only, never fuzzy: everything else stays plainly
-                # ungraded rather than guessed at.
-                gt_question = next(
-                    (q for q in asked['groundtruth_dataset']
-                     if q['question'] == question), None)
-                if gt_question is not None:
-                    quotes = [
-                        ev['text']
-                        for relevant in gt_question.get(
-                            'relevant_corpus_documents') or []
-                        for ev in relevant.get('evidence') or []
-                        if ev.get('fidelity') == 'verbatim']
-                    gold_flags = mark_gold(
-                        [c['text'] for c in trace['candidates']], quotes)
-                    question_id = gt_question['groundtruth_question_id']
-                else:
-                    gold_flags = [False] * len(trace['candidates'])
-                    question_id = None
-                for candidate, gold in zip(trace['candidates'], gold_flags):
-                    candidate['gold'] = gold
-                    candidate['question_id'] = question_id
-                return (outcome.as_dict()
-                        | {'models': roles.as_dict(), 'trace': trace,
-                           'question_id': question_id})
-
-        return _accepted(jobs.start('query', work,
-                                    config=_with_backend(cfg, run_settings)))
-
-    @app.get('/api/questions')
-    def questions(limit: int = 200, dataset: str = ''):
-        """The ground truth without its answers, for picking a question in the query panel."""
-        asked = (datasets.load(dataset)[1] if dataset else ground_truth)
-        return {'questions': [
-            {'id': q['groundtruth_question_id'],
-             'labels': q.get('question_metadata') or {},
-             'question': q['question'],
-             'behavior': q['expected_answer']['behavior'],
-             'evidence_sessions': [
-                 str(relevant.get('corpus_document_id', ''))
-                 for relevant in q.get('relevant_corpus_documents') or []]}
-            for q in asked['groundtruth_dataset'][:limit]]}
-
-    @app.get('/api/dataset-templates/corpus')
-    def dataset_template_corpus():
-        """The corpus template, read from the fixture every time — no copy of
-        it lives in code, so the one author (the fixture file, pinned
-        byte-equal to the schema by its own convention test) is also the one
-        the import section's guidance link hands the browser."""
-        return FileResponse(datasets.BUNDLED_DIR / 'corpus_template.json',
-                            media_type='application/json',
-                            filename='corpus_template.json')
-
-    @app.get('/api/dataset-templates/groundtruth')
-    def dataset_template_groundtruth():
-        """The ground-truth template, on the same terms as the corpus one above."""
-        return FileResponse(datasets.BUNDLED_DIR / 'groundtruth_template.json',
-                            media_type='application/json',
-                            filename='groundtruth_template.json')
-
-    @app.get('/api/datasets')
-    def list_datasets():
-        return {'datasets': [found.as_dict() for found in datasets.catalogue()]}
-
-    @app.post('/api/datasets')
-    def import_dataset(payload: dict):
-        """Take one dataset pair — the corpus file and its ground truth (D1) —
-        check it against the contract, keep it. 400 with every problem at once."""
-        corpus = payload.get('corpus') if isinstance(payload, dict) else None
-        ground_truth = (payload.get('ground_truth')
-                        if isinstance(payload, dict) else None)
-        if not isinstance(corpus, dict) or not isinstance(ground_truth, dict):
-            raise HTTPException(
-                400, "a dataset import needs both files: {'corpus': …, "
-                     "'ground_truth': …}")
-        meta = corpus.get('corpus_dataset_metadata')
-        raw_id = meta.get('dataset') if isinstance(meta, dict) else ''
-        lock_id = raw_id if isinstance(raw_id, str) else ''
-        with dataset_lock(lock_id):
-            try:
-                found = datasets.import_dataset(corpus, ground_truth)
-            except ValueError as error:
-                raise HTTPException(400, str(error))
-            # Import writes the file and clears the loader cache first; eviction
-            # is the final step under the same lock, so no later index lookup
-            # can observe the new file through an old cached index.
-            registry.invalidate_dataset(found.id)
-        # The corpus set this installation knows has just changed, and the
-        # widget caches the board's dataset ids for the life of the process —
-        # it filters every turn's memory context against them and cannot pay
-        # for a board reading per turn. Forgetting them here is what stops an
-        # import needing a restart before the filter can see past it. This
-        # route, not the store: the widget is a sealed leaf and `corpora/` may
-        # not reach into it, while this module is the one that already does.
-        widget.forget_board_dataset_ids()
-        # The same declaration table a catalogue entry carries, so the panel
-        # can show what it just read without a second round trip.
-        return found.as_dict() | _dataset_declaration(found.id)
-
-    @app.post('/api/credentials')
-    def set_credentials(payload: dict):
-        """Take the OpenRouter key from the panel, held for this process only, never recorded on a run."""
-        try:
-            credentials.set_key(payload.get('api_key') or '')
-        except ValueError as error:
-            raise HTTPException(400, str(error))
-        widget.reset()
-        return credentials.state(settings_now())
-
-    @app.delete('/api/credentials')
-    def clear_credentials():
-        """Forget the key this panel supplied; never unsets the environment's own."""
-        credentials.clear()
-        widget.reset()
-        return credentials.state(settings_now())
-
-    @app.get('/api/widget')
-    def widget_options():
-        """The widget's own model list and the four questions its empty log
-        offers — served, because neither panel keeps a model list of its own,
-        and because the starters are model-facing text, which in this project
-        is a fixture rather than a string in a page. They ride the response
-        that already exists: no new route, and no new import inside the
-        widget package, which is a sealed leaf."""
-        return {'models': [{'value': value, 'label': label}
-                           for value, (_, label) in widget.WIDGET_MODELS.items()],
-                'default': widget.DEFAULT_MODEL,
-                'starters': widget.STARTERS}
-
-    @app.post('/api/widget')
-    def widget_chat(payload: dict):
-        """The corner widget's endpoint: a question in, the widget's reply
-        out. Synchronous, not a job — a chat turn is a request, not a run.
-        An unknown model raises ValueError, answered as a 400 naming it."""
-        message = (payload.get('message') or '').strip()
-        if not message:
-            raise HTTPException(400, 'message is empty')
-        try:
-            # The thread is the page's claim about which conversation this is —
-            # the lab's active experiment, or `general`. The route only carries
-            # it. The reply arrives with its token account and is served
-            # unchanged.
-            return _safe_widget_event(widget.ask(
-                message, (payload.get('model') or '').strip(),
-                thread=(payload.get('thread') or '').strip()))
-        except widget.WidgetUnavailable as error:
-            # The lab is up; its widget is not — the /api/queries split.
-            raise HTTPException(502, str(error))
-
-    @app.post('/api/widget/stream')
-    def widget_stream(payload: dict):
-        """The same turn as POST /api/widget, sent as it is written: one
-        server-sent event per piece of the answer, then the reply event —
-        carrying the reply the lab now holds and its token account, the very
-        body the other route returns whole — and after it one memory event.
-        The reply is the event with a `reply` key, not the last one: the
-        memory event is last, and it says only what the decision about keeping
-        this turn is at the moment it is written, because that decision now
-        outlives the response (`backends._defer_memory`). A client that reads
-        the final event as the reply reads the memory block as an answer. The
-        page renders the pieces as they land and adopts the reply event, so
-        what stays on screen is what the conversation log holds rather than
-        whatever the pieces spelled.
-
-        `widget.stream` raises before it yields anything, which is what keeps a
-        refusal a status code: an unserved model is a 400 and an unreachable
-        widget a 502, decided here, before the response opens. Once the first
-        piece is out the status code is spent, so a failure after that can only
-        be said inside the stream — an `error` event, and no `reply` event
-        ever, because a half-written answer must never be handed over as a
-        whole one."""
-        message = (payload.get('message') or '').strip()
-        if not message:
-            raise HTTPException(400, 'message is empty')
-        try:
-            events = widget.stream(message,
-                                   (payload.get('model') or '').strip(),
-                                   thread=(payload.get('thread') or '').strip())
-        except widget.WidgetUnavailable as error:
-            raise HTTPException(502, str(error))
-        return StreamingResponse(
-            _sent_events(events), media_type='text/event-stream',
-            # No cache anywhere in front of a conversation, and no proxy
-            # buffering: a stream held back until it completes is the sudden
-            # printing this route exists to end.
-            headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
-
-    def _trace_page(page: str) -> HTMLResponse:
-        # A checkout window shows the thread as it is now, never as the
-        # browser last saw it.
-        return HTMLResponse(page, headers={'Cache-Control': 'no-store'})
-
-    @app.get('/dev/trace', response_class=HTMLResponse)
-    def dev_trace(request: Request, thread: str = ''):
-        """The developer's step-by-step checkout of one widget thread — see
-        `dev_trace_page`. Exists only while `RAGLAB_DEV_KEY` is set (a 404
-        otherwise, because a page for developers should not announce itself
-        to readers); asks for the key on the page and never reads it from the
-        address bar."""
-        if not dev_trace_page.configured():
-            raise HTTPException(404)
-        if not dev_trace_page.unlocked(request.cookies.get(dev_trace_page.COOKIE)):
-            return _trace_page(dev_trace_page.unlock_page(next_thread=thread.strip()))
-        return _trace_page(dev_trace_page.thread(thread) if thread.strip()
-                           else dev_trace_page.index())
-
-    @app.post('/dev/trace', response_class=HTMLResponse)
-    async def dev_trace_unlock(request: Request):
-        """The plate's form. The body is read by hand (`parse_qs`) rather than
-        through `Form`, which would pull in a multipart parser for one field.
-        The key is compared and forgotten; what the browser keeps is a random
-        token this process remembers, with the key written into nothing."""
-        if not dev_trace_page.configured():
-            raise HTTPException(404)
-        form = parse_qs((await request.body()).decode('utf-8', 'replace'))
-        key = (form.get('key') or [''])[0]
-        next_thread = (form.get('next') or [''])[0].strip()
-        if not dev_trace_page.allowed(key):
-            return _trace_page(dev_trace_page.unlock_page(
-                next_thread=next_thread, error='That key did not match.'))
-        response = RedirectResponse(
-            dev_trace_page.thread_href(next_thread) if next_thread else dev_trace_page.PATH,
-            status_code=303, headers={'Cache-Control': 'no-store'})
-        response.set_cookie(dev_trace_page.COOKIE, dev_trace_page.issue_token(),
-                            httponly=True, samesite='strict', path=dev_trace_page.PATH)
-        return response
-
-    @app.post('/dev/trace/lock')
-    def dev_trace_lock(request: Request):
-        """Lock: forgets the token server-side and clears the cookie, so a
-        browser that kept it is back at the plate."""
-        dev_trace_page.revoke(request.cookies.get(dev_trace_page.COOKIE))
-        response = RedirectResponse(dev_trace_page.PATH, status_code=303,
-                                    headers={'Cache-Control': 'no-store'})
-        response.delete_cookie(dev_trace_page.COOKIE, path=dev_trace_page.PATH)
-        return response
-
-    @app.get('/api/widget/history')
-    def widget_history(thread: str = ''):
-        """One conversation, as the widget holds it. This is what a page draws
-        after a refresh: the lab is the only copy of the transcript, so a
-        reader's log and the model's memory cannot drift apart. A thread nobody
-        has used is empty, never a 404 — a conversation that has not happened
-        yet is not an error."""
-        return widget.history(thread)
-
-    @app.delete('/api/widget/history')
-    def widget_forget(thread: str = ''):
-        """New Chat. Ends the conversation named and no other — the reader's
-        other experiments keep theirs. Answers with the emptied thread, so the
-        page redraws from the lab rather than assuming what it now holds."""
-        widget.forget(thread)
-        return widget.history(thread)
-
-    @app.get('/api/health')
-    def health():
-        # No dependency to report: the lab is up or it is not running.
-        return {'ok': True, 'storage': 'memory'}
+    install_no_store(app)
+    routes.assets.register(app, context)
+    routes.configuration.register(app, context)
+    # Three of the eight sections own an operation the Inspector reads through,
+    # and hand it back by name; the other five register routes and nothing
+    # else. The nine together are the whole of what a mounted Inspector can
+    # ask of this service — assembled here because this is the only place that
+    # sees every section at once. The order of the calls is the order the
+    # routes are matched in, so it is the order it always was.
+    lab_operations = routes.pipeline.register(app, context)
+    lab_operations |= routes.experiments.register(app, context)
+    lab_operations |= routes.datasets.register(app, context)
+    routes.credentials.register(app, context)
+    routes.widget.register(app, context)
+    routes.dev_trace.register(app, context)
+    # Read once, by `served_lab.py`, on the way to mounting the Inspector.
+    # `app.state` rather than a return value because the composition reaches
+    # this service through the module-level app it already imports, and one
+    # named handoff between two files is not the untyped surface fifty routes
+    # reading state off the app would be.
+    app.state.lab_access = InProcessLabAccess(**lab_operations)
 
     @app.exception_handler(ValueError)
     def value_error(_request, error: ValueError):

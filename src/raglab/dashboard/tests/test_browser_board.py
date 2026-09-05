@@ -67,7 +67,7 @@ def a_failed_experiment(lab_server) -> str:
     non-empty `error`.
     """
     started = httpx.post(f'{lab_server}/api/retrievals', json={
-        'index': {'dataset': 'no-such-corpus', 'chunker': 'session',
+        'index': {'dataset': 'no-such-corpus', 'split_plan': [{'kind': 'document'}],
                   'embedder': 'token-hash'},
         'retrieval': {'k': 2, 'reranker': 'none', 'grader': 'none'},
         'generation': {'answerer': 'extractive'}}, timeout=30.0)
@@ -91,9 +91,15 @@ def a_populated_board(a_recorded_experiment, a_second_recorded_experiment,
 
 #: Every column that sorts, by the name its heading filters under. `open` is
 #: the one column marked `data-nosort`, so it is not here.
-SORTABLE = ['pipeline', 'dataset', 'questions', 'decision', 'spread', 'faith',
-            'ans-rel', 'ctx-prec', 'ctx-recall', 'kind', 'when', 'label',
-            'judge', 'backend', 'state', 'seconds']
+SORTABLE = ['pipeline', 'dataset', 'questions', 'decision', 'spread',
+            'faithful', 'relevant', 'precision', 'recall', 'kind', 'when',
+            'label', 'judge', 'backend', 'state', 'seconds']
+
+#: The column names, and only those. `<thead>` also carries the spanning group
+#: row above them, whose cells are not columns and sort nothing — the same
+#: reading `sorttable.js` and `filtertable.js` take, which is the last row of
+#: the head.
+HEADINGS = '#board thead tr:last-child th'
 
 #: One cell's worth of the page, in JavaScript, because `data-sort` and the
 #: cell's own text deliberately differ — the pipeline column shows an
@@ -131,7 +137,7 @@ def _column(page, name: str) -> dict:
 
 
 def _heading(page, at: int):
-    return page.locator('#board thead th').nth(at)
+    return page.locator(HEADINGS).nth(at)
 
 
 _MISSING = {'', '—', '–', '·', 'n/a'}
@@ -265,10 +271,17 @@ def test_the_board_shows_every_recorded_experiment_and_names_no_winner(
     expect(board.locator('#board .section-meta.right')).to_have_text(
         f'{shown} recorded · best score first')
 
-    # The rule, said on the page and kept by it: the prose states it, and no
-    # cell, class or mark in the table then contradicts it by naming one.
-    expect(board.locator('.table-hint').first).to_contain_text(
+    # The rule, said on the page and kept by it. Said is now said when asked:
+    # the note that used to be a paragraph under the table hangs off the
+    # heading above it, opened by a hover, by keyboard focus, or by a press.
+    # Which is still on the page — it is one pointer-move away rather than a
+    # scroll away — and the assertion follows it rather than being dropped,
+    # because a board that stopped stating this rule would be a board making a
+    # comparability claim it has no right to.
+    board.locator('#board .card-head h2').hover()
+    expect(board.locator('#help-brief')).to_contain_text(
         'This table names no winner')
+    # And no cell, class or mark in the table then contradicts it by naming one.
     assert board.locator('[class*="winner"], [data-winner]').count() == 0
     assert 'winner' not in board.locator('#board table').inner_text().lower()
 
@@ -345,8 +358,8 @@ def test_every_sortable_heading_sorts_reverses_and_restores(
     # A column that is no longer the sort key still announces that it can be
     # sorted, so every sortable heading says 'none' and none of them is blank.
     assert board.locator(
-        '#board thead th:not([data-nosort])[aria-sort="none"]').count() \
-        == board.locator('#board thead th:not([data-nosort])').count()
+        f'{HEADINGS}:not([data-nosort])[aria-sort="none"]').count() \
+        == board.locator(f'{HEADINGS}:not([data-nosort])').count()
 
 
 def test_a_heading_sorts_from_the_keyboard_too(a_populated_board, board):
@@ -438,7 +451,7 @@ def test_the_settings_reveal_publishes_the_knobs_that_produced_the_row(
     expect(reveal).to_be_visible()
     expect(reveal.locator('.reveal-said')).to_contain_text('token-hash')
     expect(reveal.locator('.reveal-step[data-step="index"]')).to_contain_text(
-        'session')
+        'split_plan document')
     expect(reveal.locator('.reveal-step[data-step="generation"]')).to_contain_text(
         'extractive')
     # A knob the build never read reads `none`, never the value that sat
@@ -512,7 +525,7 @@ def test_the_open_arrow_lands_the_laboratory_on_that_experiment(
     # The knobs are that experiment's: the corpus first, because a config
     # applied against the wrong corpus is not that experiment at all.
     expect(board.locator('#dataset')).to_have_value('smoke-mini')
-    expect(board.locator('#chunker')).to_have_value('session')
+    expect(board.locator('#plan-text')).to_have_text('document')
     expect(board.locator('#embedder')).to_have_value('token-hash')
     expect(board.locator('#k')).to_have_value('2')
     expect(board.locator('#reranker')).to_have_value('none')
@@ -564,3 +577,39 @@ def test_a_leaderboard_the_lab_cannot_answer_says_so(a_populated_board, board):
         'Could not read the leaderboard')
     expect(board.locator('#board table')).to_have_count(0)
 
+
+
+
+def test_every_column_and_every_group_says_what_it_means(a_populated_board, board):
+    """No heading on a seventeen-column board is left to be guessed at.
+
+    The same gate the knobs and the metrics are held to. `faithful` and
+    `precision` are two words that mean nothing on their own, and a `title`
+    attribute would say what they mean to a mouse and to nothing else — which
+    is why the tooltips on these pages were removed. So every heading, and
+    every group spanning them, carries `data-brief`, opened on hover and on
+    keyboard focus alike; and `sorttable.js` leaves its own native tooltip off
+    any heading carrying one, so no word gets two tooltips.
+
+    The group row is checked with them because a column added to a group that
+    does not exist would draw a bar with the group's key on it and no note at
+    all — visibly wrong only to someone who already knew what it should say.
+    """
+    # The board draws itself from one fetch after load, and `count()` does not
+    # wait for anything.
+    board.wait_for_selector('#board table')
+    heads = board.locator('#board thead th')
+    assert board.locator('#board thead tr.group-row th').count(), (
+        'the group row is part of the head and is checked with the columns')
+    for at in range(heads.count()):
+        head = heads.nth(at)
+        name = head.inner_text()
+        # The action column at the frozen right edge has nothing to be called,
+        # so its group cell is deliberately empty and explains nothing.
+        if not name.strip():
+            continue
+        assert (head.get_attribute('data-brief') or '').strip(), (
+            f'the {name!r} heading explains nothing')
+        assert not head.get_attribute('title'), (
+            f'{name!r} carries a native tooltip as well as its note — a mouse '
+            'would get both, and a keyboard neither')

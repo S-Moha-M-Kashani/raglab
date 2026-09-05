@@ -122,6 +122,12 @@ SPACING_OFF_RAMP = [
     ('inspector.css', 'gap: var(--s-1) 1.3rem',
      'the column gap between metric badges, which lands between --s-4 and '
      '--s-5 — and note the row gap beside it is on the ramp'),
+    ('dataset.css', 'margin-bottom: -1px',
+     "the selected tab's own 2px rule pulling onto the tab strip's 1px one, so "
+     'the chosen tab reads as attached to the panel it opened rather than '
+     'sitting above a second line — the negative of a border width, which the '
+     'ramp explicitly does not cover, and it must track that width rather than '
+     'a spacing step'),
     ('chrome.css', 'margin-left: -1px',
      'the theme segments pulling onto each other so neighbours share one edge '
      'instead of drawing two — it is the negative of a border width, which the '
@@ -147,7 +153,7 @@ def test_every_spacing_value_comes_off_the_ramp_or_is_named_here():
     allowed = sorted((f, d) for f, d, _ in SPACING_OFF_RAMP)
     found = sorted((name, hit)
                    for name in ('tokens.css', 'chrome.css', 'panel.css',
-                                'inspector.css', 'widget.css')
+                                'inspector.css', 'widget.css', 'dataset.css')
                    for hit in _spacing_literals(
                        (_SHEETS / name).read_text(encoding='utf-8')))
     assert found == allowed, (
@@ -169,7 +175,7 @@ def test_every_letter_spacing_value_comes_from_the_label_recipe():
     negative values are outside this guard by construction, since tightening
     three specific dense elements is not this recipe drifting."""
     for name in ('tokens.css', 'chrome.css', 'panel.css', 'inspector.css',
-                 'widget.css'):
+                 'widget.css', 'dataset.css'):
         css = (_SHEETS / name).read_text(encoding='utf-8')
         assert _track_literals(css) == [], (
             f'{name} spells its own tracking: {_track_literals(css)}. Read '
@@ -451,19 +457,44 @@ def test_every_entry_point_resolves_to_something_callable():
 def test_the_widget_package_is_a_deletable_leaf():
     # this is a convention test
     """The widget is a helper outside the measured seam, and removable:
-    deleting src/raglab/agents/widget/ plus its one route must strand
-    nothing. Pinned in both directions with real import parsing rather than
-    a regex, so a parenthesised import list cannot slip past: only
-    panel_server.py imports the widget, and the widget package reaches the
-    lab only through its two unmeasured edges — the CLI chat drive and the
-    env settings — never the chat factory, the pipeline, evaluation or the
-    stores. (Its skills corpus loader lives *inside* the package now, so it
-    is no longer an edge at all.)"""
+    deleting src/raglab/agents/widget/ plus the handful of dashboard files
+    listed below must strand nothing. Pinned in both directions with real
+    import parsing rather than a regex, so a parenthesised import list cannot
+    slip past.
+
+    The direction is the claim. The widget package reaches the lab only
+    through its unmeasured edges — the CLI chat drive, the env settings and
+    the split plan's printer, a pure formatter of a config value — never the
+    chat factory, the pipeline, evaluation or the stores
+    (its skills corpus loader lives *inside* the package now, so it is no
+    longer an edge at all). And the lab reaches the widget only from
+    `dashboard/`, from the named files and nowhere else: the factory that
+    wires it, the developer's trace page, its own route module (and the
+    package line that names it), and the two sections that must tell it when
+    what it cached changed underneath — a retyped OpenRouter key, an imported
+    corpus. Nothing in `corpora/`, `evaluation/`, `rag_components/` or
+    `llm_backends/` may reach in, which is what keeps the measured path free
+    of it.
+
+    Adding a name here is a decision, not a formality: it lengthens the list
+    of files that a deletion of the widget has to edit."""
     import ast
     widget_pkg = 'raglab.agents.widget'
     widget_dir = SRC / 'raglab' / 'agents' / 'widget'
     allowed_into_lab = {'raglab.llm_backends.cli_subprocess_chat',
-                        'raglab.configuration.env_settings'}
+                        'raglab.configuration.env_settings',
+                        'raglab.configuration.split_plan'}
+    # Paths rather than bare file names: `widget.py` alone would name two
+    # different files here.
+    allowed_to_reach_in = {
+        'raglab/dashboard/panel_server.py',      # wires the key resolver and
+                                                 # the experiment reader in
+        'raglab/dashboard/dev_trace_page.py',    # renders one widget thread
+        'raglab/dashboard/routes/__init__.py',   # names the route modules
+        'raglab/dashboard/routes/widget.py',     # the widget's own routes
+        'raglab/dashboard/routes/credentials.py',  # a retyped key: widget.reset()
+        'raglab/dashboard/routes/datasets.py',   # an import: forget_board_dataset_ids()
+    }
 
     def resolved(node, path) -> list[str]:
         """Absolute dotted targets of one import node, raglab ones only."""
@@ -480,14 +511,18 @@ def test_the_widget_package_is_a_deletable_leaf():
             module = node.module or ''
         if not module.startswith('raglab'):
             return []
-        if node.module and node.level == 0 and '.' in module:
-            return [module]
-        # `from <pkg> import x` — x may be a submodule; count the deeper name.
-        return [f'{module}.{a.name}' if module else a.name for a in node.names]
+        # `from <pkg> import x` — the package is imported, and x may itself be
+        # a submodule; count both names, or a nested package would hide behind
+        # its parent (`from raglab.agents import widget` reading as a mere
+        # import of `raglab.agents`).
+        if module:
+            return [module] + [f'{module}.{a.name}' for a in node.names]
+        return [a.name for a in node.names]
 
     reachers, escapes = [], []
     for path in _SRC_FILES:
         tree = ast.parse(path.read_text(encoding='utf-8'))
+        where = path.relative_to(SRC).as_posix()
         inside = path.is_relative_to(widget_dir)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -498,10 +533,119 @@ def test_the_widget_package_is_a_deletable_leaf():
                             and not any(target == edge or target.startswith(edge + '.')
                                         for edge in allowed_into_lab)):
                         escapes.append(f'{path.name} imports {target}')
-                elif 'widget' in target and path.name != 'panel_server.py':
-                    reachers.append(path.name)
-    assert not reachers, f'only panel_server.py may import the widget: {reachers}'
+                elif 'widget' in target and where not in allowed_to_reach_in:
+                    reachers.append(f'{where} imports {target}')
+    assert not reachers, (
+        'only these files may reach the widget — '
+        f'{sorted(allowed_to_reach_in)} — but {reachers}')
     assert not escapes, f'the widget escaped its unmeasured edges: {escapes}'
+
+
+def test_the_panel_context_holds_and_does_not_decide():
+    # this is a convention test
+    """The panel's routes are handed one container of the state they used to
+    close over. It is allowed to hold data and callables the application
+    factory built, and nothing else: the moment a method on it screens a
+    config, picks a backend or shapes a response, it has become the service
+    layer this project's complexity gate refuses, and fifty routes would then
+    have somewhere to hide logic that belongs in the plumbing they share.
+
+    Compared against a bare frozen dataclass rather than a written-out list of
+    dunders, so the check keeps meaning the same thing when Python adds another
+    generated attribute."""
+    import dataclasses
+
+    @dataclasses.dataclass(frozen=True)
+    class _Reference:
+        only: int
+
+    context = lab_server.PanelContext
+    assert dataclasses.is_dataclass(context)
+    assert context.__dataclass_params__.frozen, 'the context must be frozen'
+    # `vars()` below reads only the class's own dict, so a base class is where
+    # a method could still hide. There is no base.
+    assert context.__mro__[1:] == (object,), (
+        'the context inherits from nothing — logic in a base is still logic')
+    own = sorted(name for name in vars(context) if name not in vars(_Reference))
+    assert not own, f'the context grew {own} — it holds, it does not decide'
+    assert all(field.default is dataclasses.MISSING
+               and field.default_factory is dataclasses.MISSING
+               for field in dataclasses.fields(context)), (
+        'every field is passed in at construction; none is decided here')
+
+
+# The nine operations a mounted Inspector reads the lab through, and the panel
+# route each one is the caller's side of. The seam and the route surface are
+# two halves of one promise, and this table is where they are checked against
+# each other.
+_LAB_OPERATIONS = {
+    'imported_archive': ('GET', '/api/imported-archives/{archive_id}'),
+    'active_archive': ('GET', '/api/imported-archives/active'),
+    'clear_active_archive': ('DELETE', '/api/imported-archives/active'),
+    'experiment': ('GET', '/api/experiments/{experiment_id}'),
+    'experiment_archive': ('GET', '/api/experiments/{experiment_id}/archive'),
+    'experiment_questions': ('GET', '/api/experiments/{experiment_id}/questions'),
+    'add_experiment_question': ('POST', '/api/experiments/{experiment_id}/questions'),
+    'job': ('GET', '/api/jobs/{job_id}'),
+    'jobs': ('GET', '/api/jobs'),
+}
+
+
+def test_the_inspector_owns_none_of_the_records_it_shows():
+    # this is a convention test
+    """The Inspector reads the lab; it never opens what the lab owns.
+
+    That is the whole reason its records arrive through a seam rather than off
+    disk: the ledger, the archive store and the corpus store have one writer,
+    and a second reader that opened the files would be a second thing to keep
+    in step with a record whose value is being written once. `Jobs()` with no
+    recorder is the same rule for the scratch builds the Inspector does make —
+    the lab passes `record=ledger.record` at its own construction site, and
+    that contrast is what this guard is built on.
+
+    The seam is the other half: nine operations, each the caller's side of a
+    route the panel actually serves. A tenth that no route backs, or a route
+    renamed underneath one, is drift the reader would only meet as an empty
+    page."""
+    from raglab.dashboard.service_route_plumbing import LabAccess
+
+    inspector = next(path for path in _SRC_FILES
+                     if path.name == 'inspector_server.py')
+    source = inspector.read_text(encoding='utf-8')
+    for owned in ('service_experiment_ledger', 'experiment_archive_store',
+                  'corpus_store'):
+        assert owned not in source, (
+            f'the Inspector must not open {owned} — it asks the lab that owns it')
+    assert 'jobs = Jobs(max_history=settings.max_job_history)' in source, (
+        'the Inspector must construct its job table with no recorder')
+    # The grep above reads the construction site; this reads what that site
+    # actually builds. A `record` that defaulted to `ledger.record` would leave
+    # the Inspector's literal call unchanged and make it a second writer of the
+    # ledger anyway — the exact thing the greps are here to prevent.
+    assert lab_server.Jobs().record is None, (
+        'a job table built without a recorder must record nothing — the '
+        'Inspector asks for no recorder and must not be given one by default')
+    assert 'record=ledger.record' not in source, (
+        "the Inspector must not adopt the lab's own recording call")
+    panel = next(path for path in _SRC_FILES if path.name == 'panel_server.py')
+    assert 'Jobs(record=ledger.record,' in panel.read_text(encoding='utf-8'), (
+        'the lab, unlike the Inspector, does record — the contrast this guard '
+        'depends on')
+
+    named = {name for name in dir(LabAccess) if not name.startswith('_')}
+    assert named == set(_LAB_OPERATIONS), (
+        'the seam must name exactly the operations the Inspector needs')
+    app = lab_server.create_app()
+    access = app.state.lab_access
+    served = {(method, route.path)
+              for route in app.routes
+              for method in getattr(route, 'methods', ())}
+    for operation, (method, path) in _LAB_OPERATIONS.items():
+        assert callable(getattr(access, operation, None)), (
+            f'the panel answers no {operation}')
+        assert (method, path) in served, (
+            f'{operation} claims to be the caller of {method} {path}, which '
+            'the panel does not serve')
 
 
 def test_only_one_function_in_the_widget_writes_a_system_line():

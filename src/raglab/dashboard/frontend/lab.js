@@ -6,6 +6,42 @@
 // The stricter of the two copies this page used to carry separately: escapes
 // `"` as well as `&<>`. In a text node `&quot;` renders as `"`, so nothing
 // looks different there; in an attribute value it closes a latent injection.
+// The split plan as the one line a person reads: stages joined by ` / `, a
+// separator quoted the way JSON writes it, a label boundary as `role=user`,
+// a drift stage's markers as `drift or "…"`, and a stage's `when` only when
+// it differs from its kind's default. The same rendering
+// `configuration/split_plan.text()` produces, so a plan reads identically on
+// a knob page, a sweep candidate, the board and the Inspector.
+const PLAN_DEFAULT_WHEN = Object.freeze(
+  { part: 'always', label: 'always', drift: 'always', separator: 'over-budget' });
+
+function planText(stages) {
+  if (typeof stages === 'string') return stages;
+  if (!Array.isArray(stages)) return '';
+  const atom = (a) => ('text' in (a || {}) ? JSON.stringify(a.text)
+    : `${(a || {}).label}=${(a || {}).value}`);
+  return stages.map((stage) => {
+    const kind = (stage || {}).kind || '';
+    let words;
+    if (kind === 'document' || kind === 'part') words = [kind];
+    else if (kind === 'drift') {
+      words = ['drift'];
+      for (const marker of stage.markers || []) words.push('or', JSON.stringify(marker));
+    } else {
+      words = [];
+      for (const a of stage.atoms || []) {
+        if (words.length) words.push(stage.join || 'or');
+        words.push(atom(a));
+      }
+      if (!words.length) words = [kind];
+    }
+    if (kind in PLAN_DEFAULT_WHEN && stage.when && stage.when !== PLAN_DEFAULT_WHEN[kind]) {
+      words.push(stage.when);
+    }
+    return words.join(' ');
+  }).join(' / ');
+}
+
 function escapeHtml(text) {
   return String(text === null || text === undefined ? '' : text)
     .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -83,9 +119,176 @@ function mountThemeControl(host) {
   });
 }
 
+// --- how tall a row is -----------------------------------------------------
+// The second thing a reader gets to decide about these surfaces, kept beside
+// the first for the same reasons: one key, one origin, so the choice travels
+// between the four pages, and one place that builds the control so four copies
+// of it cannot drift.
+//
+// Compact is the default and is the absence of a stored value, exactly as Auto
+// is for the theme — the sheet's own `:root` is the compact one, and the
+// attribute only ever names the departure from it.
+const DENSITY_KEY = 'raglab-density';
+const DENSITIES = [['', 'Compact'], ['comfortable', 'Comfortable']];
+
+function readDensity() {
+  try {
+    return localStorage.getItem(DENSITY_KEY) === 'comfortable'
+      ? 'comfortable' : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function writeDensity(density) {
+  if (density) document.documentElement.dataset.density = density;
+  else document.documentElement.removeAttribute('data-density');
+  try {
+    if (density) localStorage.setItem(DENSITY_KEY, density);
+    else localStorage.removeItem(DENSITY_KEY);
+  } catch (error) {
+    /* Applied but not remembered, which beats refusing to switch. */
+  }
+}
+
+function mountDensityControl(host) {
+  if (!host) return;
+  const current = readDensity();
+  host.setAttribute('role', 'radiogroup');
+  host.innerHTML = DENSITIES.map(([value, label]) => {
+    const id = `density-${value || 'compact'}`;
+    return `<input type="radio" name="raglab-density" id="${id}" value="${value}"`
+      + `${value === current ? ' checked' : ''}>`
+      + `<label for="${id}">${escapeHtml(label)}</label>`;
+  }).join('');
+  host.addEventListener('change', (event) => {
+    if (event.target.name === 'raglab-density') writeDensity(event.target.value);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   mountThemeControl(document.getElementById('theme-control'));
+  // Applied before the control is built, so a page opened by a reader who
+  // chose comfortable last week draws that way rather than switching under
+  // them once the script reaches the radio.
+  writeDensity(readDensity());
+  mountDensityControl(document.getElementById('density-control'));
 });
+
+
+// --- the row above the column names ----------------------------------------
+// A spanning header saying which block of columns you have scrolled into.
+// Both grid surfaces build one, so it is built here: a column moved between
+// groups moves the bar with it, and a group can never claim a span it does not
+// have, because the runs are derived from the columns rather than declared
+// beside them.
+//
+// `sorttable.js` and `filtertable.js` both read the LAST row of `<thead>` as
+// the headings, which is the whole reason this row can exist without either of
+// them knowing about it.
+//
+// `columns` are the page's own column objects: `group` names the block, and
+// `freeze` — where a column has one — is carried onto the group cell, but only
+// where the group IS that one column. A spanning cell cannot be pinned to an
+// edge that most of its columns are not on.
+function groupRow(columns, groups) {
+  if (!columns.some((column) => column.group)) return '';
+  const runs = [];
+  for (const column of columns) {
+    const last = runs[runs.length - 1];
+    if (last && last.name === column.group) { last.span += 1; continue; }
+    runs.push({ name: column.group, span: 1, freeze: column.freeze || '' });
+  }
+  return '<tr class="group-row">' + runs.map((run) => {
+    const group = groups[run.name] || { label: run.name || '' };
+    const named = ['why-term', run.span === 1 ? run.freeze : '']
+      .filter(Boolean).join(' ');
+    return `<th scope="colgroup" colspan="${run.span}" class="${named}"`
+      + `${group.step ? ` data-step="${group.step}"` : ''}`
+      + `${group.brief ? ` data-brief="${escapeHtml(group.brief)}"` : ''}>`
+      + `${escapeHtml(group.label)}</th>`;
+  }).join('') + '</tr>';
+}
+
+// Appended to every sortable heading's note, so what a click does is said once
+// for all four tables rather than at each of their columns — and said in the
+// box a keyboard can open, which is why `sorttable.js` leaves its own native
+// tooltip off any heading carrying one of these.
+const SORT_LINE = '\n• Click to sort · again to reverse · a third time for '
+  + 'the order it was served in.';
+
+
+// --- the rows, from the keyboard -------------------------------------------
+// A scroll region that takes focus can already be scrolled with the arrows,
+// which moves the viewport and nothing else: there is no such thing as "the
+// row I am on", so there is nothing for Enter to open and nothing for a
+// screen reader to be told about. On a 167-row corpus or an 84-row board that
+// is the difference between a table you can read and a table you can only
+// look at.
+//
+// So the arrows move a row instead of the viewport — which scrolls the region
+// anyway, because focusing a row brings it into view. Up and Down step,
+// Home and End go to the ends, and Enter presses whatever the row's first
+// control is: the open arrow on the board, the parts button on a corpus. The
+// row itself is what takes focus, so the browser announces the whole row.
+//
+// Deliberately not a `role="grid"`: that is a contract about cell-by-cell
+// navigation, and what these tables want is row-by-row. A table that says it
+// is a grid and then does not behave like one is worse than a table.
+function mountRowKeys(region) {
+  const table = region && region.querySelector('table.data-table');
+  const body = table && table.tBodies[0];
+  if (!body || table.dataset.rowKeys) return;
+  table.dataset.rowKeys = 'on';
+
+  // A row must already be focusable before anything can focus it, and the
+  // sorter re-appends these same elements rather than rebuilding them, so
+  // this survives every reorder.
+  for (const row of body.rows) row.tabIndex = -1;
+
+  // What the reader can actually see: `filtertable.js` hides a row rather
+  // than removing it, and stepping onto a hidden row would move focus to
+  // nothing.
+  const shown = () => [...body.rows].filter((row) => !row.hidden);
+
+  const goTo = (row) => {
+    if (!row) return;
+    for (const other of body.rows) other.classList.remove('row-here');
+    row.classList.add('row-here');
+    row.focus();
+  };
+
+  region.addEventListener('keydown', (event) => {
+    const steps = { ArrowDown: 1, ArrowUp: -1, End: Infinity,
+                    // Home is a step of "all the way back" whichever row you
+                    // are on, and the first row when you are on none — which
+                    // is what a negative step of unbounded size already means
+                    // once the index is clamped, except from nowhere at all.
+                    Home: -Infinity };
+    const rows = shown();
+    if (!rows.length) return;
+    const here = event.target.closest ? event.target.closest('tbody tr') : null;
+
+    if (event.key === 'Enter' && here && event.target === here) {
+      const control = here.querySelector('button, a');
+      if (!control) return;
+      event.preventDefault();
+      control.click();
+      return;
+    }
+    const step = steps[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    // Where the keyboard already is, or — arriving from the region itself —
+    // the end the key was reaching for.
+    const at = here ? rows.indexOf(here) : -1;
+    const to = at >= 0 ? at + step
+      : step === 1 ? 0                  // ArrowDown from the region: the top
+      : step === -1 ? rows.length - 1   // ArrowUp from it: the bottom
+      : step;                           // Home and End clamp to their own end
+    goTo(rows[Math.min(rows.length - 1, Math.max(0, to))]);
+  });
+}
 
 // Place a reveal against its cell, in viewport coordinates.
 //

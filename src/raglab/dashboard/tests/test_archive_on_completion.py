@@ -144,7 +144,7 @@ def test_two_runs_over_one_corpus_are_two_rows_and_one_stored_corpus(client):
     """
     first = _evaluate(client, label='first')
     second = _evaluate(client, label='second',
-                       index=dict(SMOKE_INDEX, chunker='message'))
+                       index=dict(SMOKE_INDEX, split_plan=({'kind': 'document'}, {'kind': 'part'})))
     assert first['state'] == 'done' and second['state'] == 'done'
 
     rows = _archive_rows()

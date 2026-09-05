@@ -23,11 +23,13 @@ def test_the_preset_mirrors_what_the_production_assistant_shipped():
     says "the real system", not "the best one we found". `agentic_weights`
     is served as a **list**, not the dataclass's tuple, since this dict is
     served as JSON — the input here is a tuple, so the equality check below
-    only passes if the conversion really happened."""
+    only passes if the conversion really happened. The plan is pinned to the
+    document alone rather than carried over: the input cuts on drift and the
+    shipped assistant, which split on whitespace alone, must not inherit it."""
     preset = baseline.production_config({
-        'index': {'chunker': 'semantic-drift', 'chunk_chars': 900,
-                  'overlap': 0, 'contextual': True, 'embedder': 'hash',
-                  'embed_model': 'x'},
+        'index': {'split_plan': ({'kind': 'document'}, {'kind': 'drift'}),
+                  'chunk_chars': 900, 'overlap': 0, 'contextual': True,
+                  'embedder': 'hash', 'embed_model': 'x'},
         'retrieval': {'retriever': 'dense', 'k': 4, 'candidates': 10,
                       'rrf_k': 1, 'time_filter': False, 'multi_query': False,
                       'hyde': True, 'mmr_lambda': 0.5, 'reranker': 'none',
@@ -37,9 +39,9 @@ def test_the_preset_mirrors_what_the_production_assistant_shipped():
         'run': {'limit': 5},
     })
     assert preset['index'] == {
-        'chunker': 'fixed-overlap', 'chunk_chars': 500, 'overlap': 100,
-        'contextual': False, 'embedder': 'sentence-transformers',
-        'embed_model': ''}
+        'split_plan': [{'kind': 'document'}], 'chunk_chars': 500, 'overlap': 100,
+        'contextual': False,
+        'embedder': 'sentence-transformers', 'embed_model': ''}
     assert preset['retrieval'] == {
         'retriever': 'hybrid-rrf', 'k': 8, 'candidates': 40, 'rrf_k': 60,
         'time_filter': True, 'multi_query': True, 'hyde': False,
@@ -65,11 +67,11 @@ def test_the_snapshot_does_not_mutate_the_defaults_it_was_given():
     # this is a unit test
     """The preset is built once per process and served on every /api/options —
     writing through to the caller's dict would drift the lab's own defaults."""
-    defaults = {'index': {'chunker': 'semantic-drift'},
+    defaults = {'index': {'chunk_chars': 900},
                 'retrieval': {'agentic_weights': (1,), 'k': 4},
                 'generation': {'answerer': 'extractive'}, 'run': {}}
     baseline.production_config(defaults)
-    assert defaults['index']['chunker'] == 'semantic-drift'
+    assert defaults['index']['chunk_chars'] == 900
     assert defaults['retrieval']['k'] == 4
     assert defaults['generation']['answerer'] == 'extractive'
 

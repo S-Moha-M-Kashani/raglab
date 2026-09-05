@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from raglab.rag_components.retrieval import farsi_text_normalizer as textnorm
+from raglab.rag_components.retrieval import text_normalizers
 from raglab.rag_components.indexing.chunking_strategies import Chunk, is_present
 
 # One seed for everything that would otherwise wander. Not a knob: two builds of
@@ -90,11 +90,12 @@ def _knn_edges(vectors: np.ndarray, k: int) -> dict[tuple[int, int], float]:
     return edges
 
 
-def _term_postings(texts: list[str], top_terms: int = 12
+def _term_postings(texts: list[str], top_terms: int = 12, normalizer=None
                    ) -> tuple[dict[str, list[int]], dict[str, float]]:
     """The rare words each chunk is about, and how rare each is. Kept to the
     top `top_terms` by IDF per chunk — common words would join the whole corpus into one community."""
-    tokenised = [textnorm.tokens(text) for text in texts]
+    tokens = (normalizer or text_normalizers.NEUTRAL).tokens
+    tokenised = [tokens(text) for text in texts]
     document_count: dict[str, int] = defaultdict(int)
     for tokens in tokenised:
         for token in set(tokens):
@@ -124,9 +125,9 @@ def _surviving_terms(postings: dict[str, list[int]], n_texts: int):
         yield token, docs
 
 
-def _lexical_edges(texts: list[str]) -> dict[tuple[int, int], float]:
+def _lexical_edges(texts: list[str], normalizer=None) -> dict[tuple[int, int], float]:
     """Chunks sharing a rare word, weighted by rarity; a term in over a fifth of the corpus is skipped (it would swamp the partition)."""
-    postings, idf = _term_postings(texts)
+    postings, idf = _term_postings(texts, normalizer=normalizer)
     edges: dict[tuple[int, int], float] = defaultdict(float)
     for token, docs in _surviving_terms(postings, len(texts)):
         weight = idf.get(token, 0.0)
@@ -146,14 +147,15 @@ def _normalised(edges: dict[tuple[int, int], float]) -> dict[tuple[int, int], fl
     return {key: value / high for key, value in edges.items()}
 
 
-def build_graph(texts: list[str], vectors: np.ndarray, source: str, knn: int):
+def build_graph(texts: list[str], vectors: np.ndarray, source: str, knn: int,
+                normalizer=None):
     """The chunk graph as a networkx Graph, node ids are chunk indices.
     `bipartite-terms` returns chunks and terms; the caller projects communities back onto chunk nodes."""
     import networkx as nx
     graph = nx.Graph()
     graph.add_nodes_from(range(len(texts)))
     if source == 'bipartite-terms':
-        postings, idf = _term_postings(texts)
+        postings, idf = _term_postings(texts, normalizer=normalizer)
         for token, docs in _surviving_terms(postings, len(texts)):
             node = f'term:{token}'
             graph.add_node(node, term=True)
@@ -164,7 +166,7 @@ def build_graph(texts: list[str], vectors: np.ndarray, source: str, knn: int):
     if source in ('knn', 'hybrid'):
         edges = dict(_normalised(_knn_edges(vectors, knn)))
     if source in ('lexical', 'hybrid'):
-        for key, weight in _normalised(_lexical_edges(texts)).items():
+        for key, weight in _normalised(_lexical_edges(texts, normalizer)).items():
             edges[key] = edges.get(key, 0.0) + weight
     for (a, b), weight in edges.items():
         graph.add_edge(a, b, weight=weight)
@@ -356,24 +358,26 @@ def _centroid_order(vectors: np.ndarray, members: list[int]) -> list[int]:
     return [members[i] for i in np.argsort(-scores)]
 
 
-def _sentences(text: str) -> list[str]:
-    found = textnorm.sentences(text)
+def _sentences(text: str, normalizer) -> list[str]:
+    found = normalizer.sentences(text)
     return found or ([text] if text.strip() else [])
 
 
-def _idf_of(texts: list[str]) -> dict[str, float]:
-    _, idf = _term_postings(texts, top_terms=10**6)
+def _idf_of(texts: list[str], normalizer=None) -> dict[str, float]:
+    _, idf = _term_postings(texts, top_terms=10**6, normalizer=normalizer)
     return idf
 
 
 def summarize(chunks: list[Chunk], vectors: np.ndarray, members: list[int],
-              summarizer: str, idf: dict[str, float], budget: int = 900) -> str:
+              summarizer: str, idf: dict[str, float], budget: int = 900,
+              normalizer=None) -> str:
     """One group → one piece of text, extractively. `budget` (characters) is
     not a knob: a summary long enough to dominate its own members is not a
     summary — `summary_boost` on the retrieval side is what gets swept."""
+    normalizer = normalizer or text_normalizers.NEUTRAL
     texts = [chunks[i].body for i in members]
     if summarizer == 'card':
-        return _card(chunks, members, idf)
+        return _card(chunks, members, idf, normalizer)
     if summarizer == 'centroid':
         picked = _centroid_order(vectors, members)
         return _fit([chunks[i].body for i in picked], budget)
@@ -388,14 +392,14 @@ def summarize(chunks: list[Chunk], vectors: np.ndarray, members: list[int],
     # 'lead-idf': greedily takes sentences covering the most uncovered rare words.
     scored: list[tuple[float, str]] = []
     for text in texts:
-        for sentence in _sentences(text):
-            tokens = set(textnorm.tokens(sentence))
+        for sentence in _sentences(text, normalizer):
+            tokens = set(normalizer.tokens(sentence))
             if tokens:
                 scored.append((sum(idf.get(t, 0.0) for t in tokens), sentence))
     scored.sort(key=lambda pair: -pair[0])
     taken, seen, used = [], set(), 0
     for _, sentence in scored:
-        tokens = set(textnorm.tokens(sentence))
+        tokens = set(normalizer.tokens(sentence))
         if tokens <= seen:
             continue
         if used + len(sentence) > budget and taken:
@@ -406,11 +410,12 @@ def summarize(chunks: list[Chunk], vectors: np.ndarray, members: list[int],
     return ' '.join(taken) or _fit(texts, budget)
 
 
-def _card(chunks: list[Chunk], members: list[int], idf: dict[str, float]) -> str:
+def _card(chunks: list[Chunk], members: list[int], idf: dict[str, float],
+          normalizer) -> str:
     """No prose: states the terms, span, count and sessions directly rather than asking a model to count retrieved chunks."""
     weights: dict[str, float] = defaultdict(float)
     for i in members:
-        for token in set(textnorm.tokens(chunks[i].body)):
+        for token in set(normalizer.tokens(chunks[i].body)):
             weights[token] += idf.get(token, 0.0)
     terms = [t for t, _ in sorted(weights.items(), key=lambda kv: -kv[1])[:12]]
     dates = sorted({chunks[i].date for i in members if chunks[i].date})
@@ -461,7 +466,8 @@ class HierarchyStats:
 
 
 def _group_once(chunks: list[Chunk], vectors: np.ndarray, cfg,
-                stats: HierarchyStats, label_fields: dict) -> list[list[int]]:
+                stats: HierarchyStats, label_fields: dict,
+                normalizer=None) -> list[list[int]]:
     """One level of grouping, by whichever family `cfg.hierarchy` names."""
     if cfg.hierarchy == 'metadata':
         return _metadata_groups(chunks, label_fields)
@@ -471,7 +477,7 @@ def _group_once(chunks: list[Chunk], vectors: np.ndarray, cfg,
             stats.silhouette = _silhouette(vectors, groups)
         return groups
     graph = build_graph([c.text for c in chunks], vectors,
-                        cfg.graph_source, cfg.graph_knn)
+                        cfg.graph_source, cfg.graph_knn, normalizer)
     groups = _partition_graph(graph, cfg.hierarchy, cfg.granularity)
     if not stats.nodes:
         import networkx as nx
@@ -514,17 +520,21 @@ def _silhouette(vectors: np.ndarray, groups: list[list[int]]) -> float | None:
 
 
 def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
-          stats: HierarchyStats, label_fields: dict | None = None) -> list[Chunk]:
+          stats: HierarchyStats, label_fields: dict | None = None,
+          normalizer=None) -> list[Chunk]:
     """Every summary row this config asks for, over the given leaves — the
-    caller keeps the leaves always. Level 2 groups level 1's summaries, and so on."""
+    caller keeps the leaves always. Level 2 groups level 1's summaries, and so
+    on. `normalizer` is the one the index was built with; the rare-word edges
+    and the extractive summaries tokenise with it."""
     label_fields = label_fields or {}
+    normalizer = normalizer or text_normalizers.NEUTRAL
     import time
     started = time.time()
     stats.hierarchy = cfg.hierarchy
     stats.graph_source = (cfg.graph_source if cfg.hierarchy in
                           ('louvain', 'leiden', 'label-prop') else '')
     stats.summarizer = cfg.summarizer
-    idf = _idf_of([c.text for c in chunks])
+    idf = _idf_of([c.text for c in chunks], normalizer)
 
     summaries: list[Chunk] = []
     current, current_vectors = chunks, vectors
@@ -536,7 +546,7 @@ def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
                 f'level {level}: only {len(current)} rows to group — stopped')
             break
         groups = [g for g in _group_once(current, current_vectors, cfg, stats,
-                                         label_fields)
+                                         label_fields, normalizer)
                   if len(g) >= cfg.min_group]
         if not groups:
             stats.notes.append(
@@ -546,7 +556,7 @@ def build(chunks: list[Chunk], vectors: np.ndarray, cfg, embedder,
         for number, members in enumerate(groups):
             group_id = f'h{level}-{number:03d}'
             text = summarize(current, current_vectors, members,
-                             cfg.summarizer, idf)
+                             cfg.summarizer, idf, normalizer=normalizer)
             if not text.strip():
                 continue
             written.append(_summary_chunk(current, members, text, level,

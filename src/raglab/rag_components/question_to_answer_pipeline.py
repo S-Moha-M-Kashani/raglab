@@ -114,11 +114,11 @@ def summary_filter(cfg: RetrievalConfig) -> tuple[tuple[str, ...] | None,
 def lexical_grade(index, question: str, text: str) -> float:
     """IDF-weighted coverage of the question's informative words, bounded to
     [0,1] so it can be thresholded (unlike a raw BM25 score)."""
-    tokens = [t for t in textnorm.tokens(question)
+    tokens = [t for t in index.normalizer.tokens(question)
               if t not in query_mod.QUESTION_WORDS]
     if not tokens:
         return 0.0
-    present = set(textnorm.tokens(text))
+    present = set(index.normalizer.tokens(text))
     weights = {t: index.bm25.idf.get(t, 1.0) for t in set(tokens)}
     total = sum(weights.values()) or 1.0
     return float(sum(w for t, w in weights.items() if t in present) / total)

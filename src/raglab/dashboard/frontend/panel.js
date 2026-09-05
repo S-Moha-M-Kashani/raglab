@@ -4,22 +4,21 @@ const fmt = (v, d = 3) => (v === null || v === undefined || Number.isNaN(v))
 const pct = (v) => v === null || v === undefined ? '—' : Math.round(v * 100) + '%';
 let OPTIONS = null;
 
-const CHUNKER_HELP = {
-  'fixed': "the brain's current 500-char packing — baseline",
-  'fixed-overlap': 'sliding window, so a split thought survives whole in one window',
-  'message': 'one chunk per turn — precise, but short turns lose context',
-  'turn-pair': 'user turn + coach reply together',
-  'session': 'whole session — max fidelity, low precision',
-  'semantic-drift': 'topic segmentation: cut where the subject changes',
-};
-
 function fill(select, values, help) {
   select.innerHTML = values.map((v) =>
     `<option value="${v}">${v}${help && help[v] ? ' — ' + help[v] : ''}</option>`).join('');
 }
 
+// One line per normaliser. '' is the default and means "the corpus's declared
+// language decides", which a blank option could not say.
+const NORMALIZER_HELP = {
+  '': 'from the corpus language (default)',
+  'persian': 'folds Arabic letterforms and digits, drops Persian stop words',
+  'neutral': 'Unicode-normalised, folds nothing',
+};
+
 // One line per grouping, naming which family it belongs to. Kept beside the
-// dropdown, like CHUNKER_HELP, since config.HELP explains the knob, not its options.
+// dropdown, since config.HELP explains the knob, not its options.
 const HIERARCHY_HELP = {
   '': 'flat, no summaries (default)',
   'louvain': 'graph · modularity communities',
@@ -238,7 +237,7 @@ let QUESTION_SELECTION = { labels: {}, balance: '' };
 // archive names one that is not, and is only ever view-only because it
 // carries the completed evidence itself (`datasetDisposition` refuses
 // otherwise) — so its own embedded ground truth is read instead, the same
-// filtering `_question_vocab` applies server-side.
+// filtering `question_vocab` applies server-side.
 function labelVocabFor(config, archive) {
   const found = datasetOf(config.index.dataset);
   if (found) return found.question_labels || {};
@@ -281,6 +280,7 @@ function describeDataset() {
   $('dataset-detail-census').textContent = $('corpus').textContent;
   $('dataset-detail-description').textContent = found.description;
   renderDatasetLabels(found, 'dataset-detail-labels');
+  fillPartPrefix();
   QUESTION_SELECTION = { labels: {}, balance: '' };
 }
 
@@ -529,13 +529,246 @@ function keepUnshown(applied) {
   }
 }
 
+// --- the split plan --------------------------------------------------------
+// One control for where a document is cut. Its value is the plan's own stage
+// list, held on the element (`$('split_plan').plan`) the way an input holds
+// `.value`, and the rows are drawn from it — there is no second model of the
+// plan here. `document` is pinned first and cannot be removed; every other
+// stage is a row with its atoms, its one combinator, its always / over-budget
+// toggle and the buttons that reorder or remove it. The typed form under the
+// rows is `planText`, the same rendering the board and a knob page use.
+//
+// Whitespace is invisible in a text field, so a separator, a drift marker and
+// the part join are typed with three sequences: `\n` a line break, `\t` a
+// tab, `\s` a space. A space earns one because a value is trimmed on the way
+// in, and `". "` would otherwise arrive as `"."`.
+const TEXT_ESCAPES = [['\\n', '\n'], ['\\t', '\t'], ['\\s', ' ']];
+const readEscaped = (typed) => TEXT_ESCAPES.reduce(
+  (text, [shown, real]) => text.split(shown).join(real), (typed || '').trim());
+const writeEscaped = (real) => TEXT_ESCAPES.reduce(
+  (text, [shown, actual]) => text.split(actual).join(shown), real || '');
+
+const DOCUMENT_STAGE = Object.freeze({ kind: 'document' });
+// What the add-a-stage dropdown offers, in the order worth reading them; the
+// document is never offered because it is never absent.
+const STAGE_OFFERS = [
+  ['part', 'part — one piece per part of the document'],
+  ['label', 'label boundary — a piece opens at each part carrying label=value'],
+  ['separator', 'separator — cut at a literal string'],
+  ['drift', 'drift — cut where the subject changes'],
+];
+const copyOf = (value) => JSON.parse(JSON.stringify(value));
+
+// The selected corpus's own part-level labels — what a label boundary and the
+// part prefix may name, and nothing else.
+function partLabels() {
+  const found = datasetOf($('dataset').value) || {};
+  return (found.label_declarations || [])
+    .filter((row) => (row.applies_to || []).includes('part'));
+}
+
+function newStage(kind) {
+  const when = PLAN_DEFAULT_WHEN[kind];
+  if (kind === 'part') return { kind, when };
+  if (kind === 'drift') return { kind, markers: [], when };
+  const first = partLabels()[0];
+  const atom = kind === 'label'
+    ? { label: first ? first.name : '', value: '' } : { text: '' };
+  return { kind, atoms: [atom], join: 'or', when };
+}
+
+function readPlan(host) {
+  return copyOf(host.plan && host.plan.length ? host.plan : [DOCUMENT_STAGE]);
+}
+
+function setPlan(host, stages) {
+  host.plan = copyOf(stages && stages.length ? stages : [DOCUMENT_STAGE]);
+  renderPlan();
+}
+
+// The atoms a stage holds: a drift stage's markers are drawn through the same
+// rows as literal atoms joined by `or`, since that is what they are.
+function stageAtoms(stage) {
+  return stage.kind === 'drift'
+    ? (stage.markers || []).map((text) => ({ text })) : (stage.atoms || []);
+}
+
+function atomHtml(stage, atom, at, index) {
+  const tag = (name, extra = '') =>
+    `data-plan="${name}" data-at="${at}" data-atom="${index}" ${extra}`;
+  const declared = partLabels();
+  let html = '';
+  // In a separator stage an atom may be a literal or a label boundary — the
+  // conjunction "a blank line inside an assistant part" needs both in one
+  // stage — so the atom says which it is. A label stage holds only
+  // boundaries and a drift stage only markers, so neither offers the choice.
+  if (stage.kind === 'separator') {
+    const isLabel = 'label' in atom;
+    html += `<select ${tag('atom-kind')} aria-label="Atom kind">`
+      + `<option value="text"${isLabel ? '' : ' selected'}>text</option>`
+      + `<option value="label"${isLabel ? ' selected' : ''}>label</option></select>`;
+  }
+  if ('label' in atom) {
+    const names = declared.map((row) => row.name);
+    if (atom.label && !names.includes(atom.label)) names.unshift(atom.label);
+    html += `<select ${tag('atom-label')} aria-label="Label">`
+      + names.map((name) => `<option value="${escapeHtml(name)}"`
+        + `${name === atom.label ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('')
+      + '</select><span class="plan-join">=</span>';
+    const levels = (declared.find((row) => row.name === atom.label) || {}).levels || [];
+    if (levels.length) {
+      html += `<select ${tag('atom-value')} aria-label="Value">`
+        + levels.map((level) => `<option value="${escapeHtml(level)}"`
+          + `${String(level) === String(atom.value) ? ' selected' : ''}>${escapeHtml(level)}</option>`).join('')
+        + '</select>';
+    } else {
+      html += `<input type="text" ${tag('atom-value')} value="${escapeHtml(atom.value || '')}" aria-label="Value">`;
+    }
+  } else {
+    html += `<input type="text" ${tag('atom-text')} value="${escapeHtml(writeEscaped(atom.text))}"`
+      + ` placeholder="${stage.kind === 'drift' ? 'marker' : '\\n\\n'}" aria-label="Text">`;
+  }
+  return html;
+}
+
+function atomsHtml(stage, at) {
+  const atoms = stageAtoms(stage);
+  const parts = [];
+  atoms.forEach((atom, index) => {
+    if (index === 1) {
+      // The one combinator a stage has, chosen once between its first two
+      // atoms and shown as a word after that — so a stage cannot be built
+      // with both. A drift stage's markers are always alternatives.
+      parts.push(stage.kind === 'drift'
+        ? '<span class="plan-join">or</span>'
+        : `<select data-plan="join" data-at="${at}" aria-label="Combinator">`
+          + `<option value="or"${stage.join === 'or' ? ' selected' : ''}>or</option>`
+          + `<option value="and"${stage.join === 'and' ? ' selected' : ''}>and</option></select>`);
+    } else if (index > 1) {
+      parts.push(`<span class="plan-join">${escapeHtml(stage.kind === 'drift' ? 'or' : stage.join)}</span>`);
+    }
+    parts.push(atomHtml(stage, atom, at, index));
+    if (atoms.length > 1 || stage.kind === 'drift') {
+      parts.push(`<button type="button" data-plan="atom-remove" data-at="${at}" `
+        + `data-atom="${index}" aria-label="Remove">×</button>`);
+    }
+  });
+  parts.push(`<button type="button" data-plan="atom-add" data-at="${at}" aria-label="Add an atom">`
+    + `+ ${stage.kind === 'drift' ? 'marker' : 'atom'}</button>`);
+  return parts.join('');
+}
+
+function stageRow(stage, at, count) {
+  const kind = `<span class="plan-kind">${escapeHtml(stage.kind)}</span>`;
+  if (stage.kind === 'document') {
+    return `<div class="plan-stage" data-at="${at}">${kind}`
+      + '<span class="plan-join">always first</span></div>';
+  }
+  const atoms = stage.kind === 'part' ? '' : atomsHtml(stage, at);
+  const when = `<select data-plan="when" data-at="${at}" aria-label="When">`
+    + ['always', 'over-budget'].map((option) => `<option value="${option}"`
+      + `${stage.when === option ? ' selected' : ''}>${option}</option>`).join('')
+    + '</select>';
+  const tool = (name, label, glyph, off) => `<button type="button" data-plan="${name}" `
+    + `data-at="${at}" aria-label="${label}"${off ? ' disabled' : ''}>${glyph}</button>`;
+  return `<div class="plan-stage" data-at="${at}">${kind}${atoms}${when}`
+    + `<span class="plan-tools">${tool('up', 'Move up', '↑', at <= 1)}`
+    + `${tool('down', 'Move down', '↓', at >= count - 1)}`
+    + `${tool('remove', 'Remove stage', '×', false)}</span></div>`;
+}
+
+function renderPlan() {
+  const host = $('split_plan');
+  const plan = host.plan && host.plan.length ? host.plan : [DOCUMENT_STAGE];
+  host.innerHTML = plan.map((stage, at) => stageRow(stage, at, plan.length)).join('');
+  $('plan-text').textContent = planText(plan);
+}
+
+// Every edit lands on the stage list first, so the panel-wide listeners that
+// remember the config and re-resolve the dependencies — which run after this
+// one, at the document — read the plan as it now is.
+function editPlan(event) {
+  const host = $('split_plan');
+  const target = event.target.closest('[data-plan]');
+  if (!target) return;
+  const plan = host.plan;
+  const at = Number(target.dataset.at);
+  const stage = plan[at];
+  const index = Number(target.dataset.atom);
+  const action = target.dataset.plan;
+  let redraw = true;
+  if (event.type === 'click') {
+    if (action === 'remove') plan.splice(at, 1);
+    else if (action === 'up' && at > 1) [plan[at - 1], plan[at]] = [plan[at], plan[at - 1]];
+    else if (action === 'down' && at < plan.length - 1) [plan[at + 1], plan[at]] = [plan[at], plan[at + 1]];
+    else if (action === 'atom-add' && stage.kind === 'drift') stage.markers.push('');
+    else if (action === 'atom-add') stage.atoms.push(stage.kind === 'label' ? newStage('label').atoms[0] : { text: '' });
+    else if (action === 'atom-remove' && stage.kind === 'drift') stage.markers.splice(index, 1);
+    else if (action === 'atom-remove') stage.atoms.splice(index, 1);
+    else return;
+    renderPlan();
+    host.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+  const value = target.value;
+  if (action === 'when') stage.when = value;
+  else if (action === 'join') stage.join = value;
+  else if (action === 'atom-kind') {
+    stage.atoms[index] = value === 'label'
+      ? { label: (partLabels()[0] || {}).name || '', value: '' } : { text: '' };
+  } else if (action === 'atom-label') stage.atoms[index] = { label: value, value: '' };
+  else if (action === 'atom-value') { stage.atoms[index].value = value; redraw = target.tagName === 'SELECT'; }
+  else if (action === 'atom-text' && stage.kind === 'drift') { stage.markers[index] = readEscaped(value); redraw = false; }
+  else if (action === 'atom-text') { stage.atoms[index].text = readEscaped(value); redraw = false; }
+  else return;
+  // A text box keeps its focus while it is typed into; only a structural
+  // change redraws the rows. The typed line follows every keystroke.
+  if (redraw) renderPlan();
+  else $('plan-text').textContent = planText(plan);
+}
+
+function mountPlanControl() {
+  const host = $('split_plan');
+  host.addEventListener('click', editPlan);
+  host.addEventListener('input', editPlan);
+  host.addEventListener('change', (event) => {
+    if (event.target.tagName === 'SELECT') editPlan(event);
+  });
+  const add = $('plan-add');
+  add.innerHTML = '<option value="">Add a stage…</option>' + STAGE_OFFERS.map(
+    ([kind, label]) => `<option value="${kind}">${escapeHtml(label)}</option>`).join('');
+  add.addEventListener('change', () => {
+    if (!add.value) return;
+    host.plan = readPlan(host);
+    host.plan.push(newStage(add.value));
+    add.value = '';
+    renderPlan();
+  });
+}
+
+// The part prefix offers the selected corpus's own part-level labels and
+// nothing else, since a label the corpus never declares is refused. Refilled
+// on every dataset switch; a choice the new corpus also declares survives it.
+function fillPartPrefix(keep) {
+  const select = $('part_prefix');
+  const wanted = keep === undefined ? select.value : keep;
+  const names = partLabels().map((row) => row.name);
+  select.innerHTML = '<option value="">none</option>' + names.map(
+    (name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+  select.value = names.includes(wanted) ? wanted : '';
+}
+
 function readShownConfig() {
   const cfg = {
     label: $('label').value,
     index: {
       dataset: $('dataset').value,
-      chunker: $('chunker').value, chunk_chars: +$('chunk_chars').value,
-      overlap: +$('overlap').value, contextual: $('contextual').checked,
+      split_plan: readPlan($('split_plan')),
+      chunk_chars: +$('chunk_chars').value, chunk_unit: $('chunk_unit').value,
+      overlap: +$('overlap').value,
+      part_join: readEscaped($('part_join').value) || '\n',
+      part_prefix: $('part_prefix').value, normalizer: $('normalizer').value,
+      contextual: $('contextual').checked,
       embedder: $('embedder').value, embed_model: $('embed_model').value,
       hierarchy: $('hierarchy').value, graph_source: $('graph_source').value,
       graph_knn: +$('graph_knn').value, granularity: +$('granularity').value,
@@ -681,8 +914,14 @@ function controlFor(path) {
 function applyDefaults(d) {
   $('label').value = d.label || '';
   $('dataset').value = d.index.dataset || '';
-  $('chunker').value = d.index.chunker; $('chunk_chars').value = d.index.chunk_chars;
-  $('overlap').value = d.index.overlap; $('contextual').checked = d.index.contextual;
+  setPlan($('split_plan'), d.index.split_plan);
+  $('chunk_chars').value = d.index.chunk_chars;
+  $('chunk_unit').value = d.index.chunk_unit || 'characters';
+  $('overlap').value = d.index.overlap;
+  $('part_join').value = writeEscaped(d.index.part_join === undefined ? '\n' : d.index.part_join);
+  fillPartPrefix(d.index.part_prefix || '');
+  $('normalizer').value = d.index.normalizer || '';
+  $('contextual').checked = d.index.contextual;
   $('embedder').value = d.index.embedder;
   $('embed_model').value = d.index.embed_model || '';
   $('hierarchy').value = d.index.hierarchy || '';
@@ -880,7 +1119,9 @@ async function boot() {
   const o = OPTIONS;
   titleSteps();
   fillDatasets();
-  fill($('chunker'), o.chunkers, CHUNKER_HELP);
+  mountPlanControl();
+  fill($('chunk_unit'), o.chunk_units || []);
+  fill($('normalizer'), o.normalizers || [], NORMALIZER_HELP);
   fillEmbedders();
   fillHierarchies();
   fill($('graph_source'), o.graph_sources, GRAPH_SOURCE_HELP);
@@ -1379,7 +1620,8 @@ function servedKnobs(mode = $('mode').value) {
     mode: mode || 'boot',
     datasets: datasetValues(),
     choices: {
-      'index.chunker': OPTIONS.chunkers || [],
+      'index.chunk_unit': OPTIONS.chunk_units || [],
+      'index.normalizer': OPTIONS.normalizers || [],
       'index.embedder': (OPTIONS.embedder_hints || []).map((row) => row.kind),
       'index.hierarchy': OPTIONS.hierarchies || [],
       'index.graph_source': OPTIONS.graph_sources || [],

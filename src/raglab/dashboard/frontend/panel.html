@@ -53,6 +53,7 @@
       <a href="/" aria-current="page">Laboratory</a>
       <a href="/inspector">Inspector</a>
       <a href="/leaderboard">Leaderboard</a>
+      <a href="/dataset">Dataset</a>
     </nav>
     <!-- One button. What used to be three loose controls here — Settings,
          Import, Export — are all about this installation rather than about the
@@ -73,6 +74,13 @@
                one, so the panel and the Inspector cannot offer different sets. -->
           <div class="theme-control" id="theme-control"
                aria-labelledby="theme-control-label"></div>
+        </div>
+        <div class="settings-group">
+          <h3 id="density-control-label">Rows</h3>
+          <!-- Filled by lab.js beside the theme, and stored the same way: how tall
+               a table's rows are is the reader's to say, not the page's. -->
+          <div class="theme-control" id="density-control"
+               aria-labelledby="density-control-label"></div>
         </div>
         <div class="settings-group">
           <h3>Experiment archive</h3>
@@ -314,18 +322,40 @@
       <div id="datasetInfo" class="muted"></div>
     </div>
     <div class="step-tag group-tag" data-step="index">Chunking</div>
+    <!-- One control for where a document is cut: the plan's own stages as
+         rows, `document` pinned first, a dropdown that adds a stage, and each
+         added stage carrying its atoms, its `or`/`and` and its always /
+         over-budget toggle. The rows *are* the stage list the config carries
+         (`$('split_plan').plan`) — there is no second model of it here. The
+         line under the rows is the same plan in the one-line form a sweep
+         candidate or a knob page spells it in. -->
     <div class="field">
-      <label>Chunking strategy</label>
-      <select id="chunker"></select>
+      <label>Split plan <span class="muted">&middot; \n break, \t tab, \s space in a separator</span></label>
+      <div id="split_plan" class="plan"></div>
+      <div class="plan-foot">
+        <select id="plan-add" aria-label="Add a stage"></select>
+        <code id="plan-text" class="plan-text"></code>
+      </div>
     </div>
+    <!-- The budget closes every plan, so it is the last row of the control,
+         with what it counts and what the division repeats. -->
     <div class="field-row">
-      <div><label>Chunk chars</label><input type="number" id="chunk_chars" min="120" max="2000" step="20"></div>
+      <div><label>Budget</label><input type="number" id="chunk_chars" min="120" max="4000" step="20"></div>
+      <div><label>Unit</label><select id="chunk_unit"></select></div>
       <div><label>Overlap</label><input type="number" id="overlap" min="0" max="800" step="20"></div>
+    </div>
+    <!-- The three knobs that stop the index assuming one corpus's shape and
+         language; each is inert at its default. The part prefix offers the
+         selected corpus's own part-level labels and nothing else. -->
+    <div class="field-row">
+      <div><label>Part join <span class="muted">&middot; \n break</span></label><input type="text" id="part_join"></div>
+      <div><label>Part prefix</label><select id="part_prefix"></select></div>
+      <div><label>Normaliser</label><select id="normalizer"></select></div>
     </div>
     <div class="switches">
       <label><input type="checkbox" id="contextual"> contextual chunk headers</label>
     </div>
-    <!-- Additive to the chunker, not a replacement: leaves stay indexed
+    <!-- Additive to the plan, not a replacement: leaves stay indexed
          whatever this says. Greyed out until a grouping is chosen, by the
          served dependency rules rather than a rule written twice. -->
     <div class="step-tag group-tag" data-step="index">Summary hierarchy</div>

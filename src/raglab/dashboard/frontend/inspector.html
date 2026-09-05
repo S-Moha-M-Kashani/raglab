@@ -32,6 +32,7 @@
         <a href="/">Laboratory</a>
         <a href="/inspector" aria-current="page">Inspector</a>
         <a href="/leaderboard">Leaderboard</a>
+        <a href="/dataset">Dataset</a>
       </nav>
       <div class="topbar-actions">
         <button class="settings-button" id="app-settings" type="button"
@@ -46,6 +47,13 @@
             <h3 id="theme-control-label">Theme</h3>
             <div class="theme-control" id="theme-control"
                  aria-labelledby="theme-control-label"></div>
+          </div>
+          <div class="settings-group">
+            <h3 id="density-control-label">Rows</h3>
+            <!-- Filled by lab.js beside the theme, and stored the same way: how tall
+                 a table's rows are is the reader's to say, not the page's. -->
+            <div class="theme-control" id="density-control"
+                 aria-labelledby="density-control-label"></div>
           </div>
         </div>
       </div>

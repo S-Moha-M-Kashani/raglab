@@ -505,8 +505,8 @@ def test_the_dataset_is_part_of_the_fingerprint_and_the_blank_case_is_pinned():
     # The literal is the value the field-less IndexConfig produced, read off
     # the code as it stood before this commit rather than off the code it
     # is checking.
-    assert IndexConfig().fingerprint() == '804444ae65db'
-    assert IndexConfig(dataset='').collection() == 'raglab-804444ae65db'
+    assert IndexConfig().fingerprint() == '6cf7db2bab4f'
+    assert IndexConfig(dataset='').collection() == 'raglab-6cf7db2bab4f'
 
 
 # --- a dataset entering the lab is stored as content -------------------------
@@ -682,7 +682,7 @@ def test_the_panel_renders_the_json_shape_as_a_shape():
     """This is the one help text with a structure in it, and a structure that
     arrives as one run-on paragraph is not one. Every other explainer is a
     single line, so preserving the newlines costs them nothing."""
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
     css = (STATIC / 'panel.css').read_text(encoding='utf-8')
     rule = css.split('p.explain {')[1].split('}')[0]
     assert 'pre-wrap' in rule
@@ -694,7 +694,7 @@ def test_the_panel_offers_the_dataset_and_ranks_per_corpus():
     them. This checks the dataset is still offered here and that the rule is
     still enforced in the grouping module, rather than checking for markup
     that moved."""
-    from raglab.dashboard.panel_server import STATIC
+    from raglab.dashboard.service_route_plumbing import STATIC
     html = (STATIC / 'panel.html').read_text(encoding='utf-8')
     js = (STATIC / 'panel.js').read_text(encoding='utf-8')
     # A dataset is two files, paired by id (D1): a corpus and its ground

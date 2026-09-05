@@ -1,0 +1,20 @@
+# Two lists, because the lab has two kinds of dependency that can rot without
+# anything in the tree noticing. The Python one is pinned hard in places for
+# reasons pyproject.toml explains at length — a proposed bump there is a
+# question to answer, not a patch to take. The actions list is the one where a
+# retired action turns every CI run red for no reason of ours.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "chore(deps)"

@@ -97,7 +97,7 @@ semantic = ["fastembed>=0.7"]
 # ~1 GB. Reaches the Persian-tuned encoders and Qwen3, which are plain
 # HuggingFace checkpoints fastembed does not serve. The default embedder needs
 # this — see README's launch line and tests/test_conventions.py.
-local-embeddings = ["sentence-transformers>=3.0"]
+local-embeddings = ["sentence-transformers>=6.0.1"]
 # The browser suite. Playwright through Python rather than npm: it rides the
 # pytest/uv toolchain this repo already has, so there is no second test runner,
 # no lockfile and no node_modules. The Chromium binary is not a package — it is
